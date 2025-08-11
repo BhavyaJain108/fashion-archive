@@ -1,0 +1,67 @@
+# Environment variables and configuration
+.env
+*.env
+
+# Video files and downloads
+videos/
+downloads/
+
+# Documents and generated content
+documents/
+
+# Python cache and virtual environment
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+build/
+develop-eggs/
+dist/
+downloads_cache/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environment
+venv/
+env/
+ENV/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs and temporary files
+*.log
+*.tmp
+temp/
+tmp/
+
+# Test files
+test_*.py
+
+# Collection data and scraped content
+collections/
+scraped_data/
