@@ -1,3 +1,17 @@
+#!/usr/bin/env python3
+"""
+Fashion Archive System - Main Application
+
+An intelligent fashion show archive system designed to preserve and organize 
+fashion history from major fashion weeks around the world.
+
+This module provides the main GUI application for browsing, downloading, and 
+viewing fashion collections with AI-powered video verification.
+
+Author: Fashion Archive Team
+License: MIT
+"""
+
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox
 import requests
@@ -19,7 +33,31 @@ except ImportError as e:
     VIDEO_FEATURES_AVAILABLE = False
 
 class FashionScraper:
+    """
+    Main Fashion Archive System GUI Application
+    
+    A comprehensive fashion show archiving interface that provides:
+    - Season and collection browsing
+    - High-quality image downloading and gallery viewing  
+    - AI-powered video search and verification
+    - Professional video playback with timeline controls
+    - Intelligent content organization and cleanup
+    
+    Attributes:
+        root: Main tkinter window
+        current_images: List of currently loaded image paths
+        current_video_path: Path to currently available video
+        video_player_window: Reference to video player window
+        video_search_engine: Claude AI-powered video search system
+    """
+    
     def __init__(self, root):
+        """
+        Initialize the Fashion Archive System GUI
+        
+        Args:
+            root: Main tkinter root window
+        """
         self.root = root
         self.root.title("Fashion Week Archive Browser")
         self.root.geometry("1200x800")
@@ -1453,310 +1491,76 @@ Features:
             self.video_player_window.destroy()
             self.video_player_window = None
     
-    # Old video UI functions removed - video functionality is now console-only
-    
-    
-    def load_downloaded_images(self, image_paths, designer_name):
-        """Load downloaded images into the viewer"""
-        print(f"Loading {len(image_paths) if image_paths else 0} images for {designer_name}")
-        print(f"Current images before loading: {len(self.current_images)}")
+def main():
+    """
+    Main entry point for the Fashion Archive System
+    """
+    try:
+        root = tk.Tk()
+        app = FashionScraper(root)
         
-        # Clear any existing images first
-        self.current_images = []
-        self.current_image_index = 0
+        # Center window on screen
+        root.update_idletasks()
+        width = root.winfo_width()
+        height = root.winfo_height()
+        x = (root.winfo_screenwidth() // 2) - (width // 2)
+        y = (root.winfo_screenheight() // 2) - (height // 2)
+        root.geometry(f"{width}x{height}+{x}+{y}")
         
-        # Exit gallery mode if currently active
-        if self.gallery_mode:
-            self.gallery_mode = False
-            self.show_single_view()
+        # Set minimum window size
+        root.minsize(800, 600)
         
-        if not image_paths:
-            self.image_status.config(text="No images downloaded")
-            return
-        
-        # Filter to only existing files
-        from pathlib import Path
-        import re
-        print(f"Image paths received: {image_paths[:3]}..." if len(image_paths) > 3 else f"Image paths received: {image_paths}")
-        
-        existing_images = [path for path in image_paths if Path(path).exists()]
-        print(f"Found {len(existing_images)} existing image files:")
-        for img in existing_images[:5]:  # Print first 5
-            print(f"  - {img}")
-        
-        # Also check what's actually in the downloads folder
-        downloads_path = Path("downloads")
-        if downloads_path.exists():
-            actual_files = list(downloads_path.glob("*"))
-            print(f"Files actually in downloads folder: {len(actual_files)}")
-            for f in actual_files[:3]:
-                print(f"  - {f}")
-        else:
-            print("Downloads folder doesn't exist")
-        
-        if not existing_images:
-            self.image_status.config(text="No valid image files found")
-            return
-        
-        # Validate images using second image as reference (if available)
-        if len(existing_images) >= 2:
-            second_image = Path(existing_images[1]).name
-            print(f"Using second image as reference: {second_image}")
-            
-            # Extract pattern from second image: remove numbers from end
-            pattern_match = re.match(r'^(.+?)-\d+\.[^.]+$', second_image)
-            if pattern_match:
-                core_pattern = pattern_match.group(1)
-                print(f"Extracted pattern: '{core_pattern}'")
-                
-                # Filter images that contain this pattern
-                valid_images = []
-                for img_path in existing_images:
-                    img_name = Path(img_path).name
-                    if core_pattern.lower() in img_name.lower():
-                        valid_images.append(img_path)
-                    else:
-                        print(f"Excluding {img_name} - doesn't match pattern")
-                
-                if valid_images:
-                    existing_images = valid_images
-                    print(f"Validated {len(valid_images)} images match the pattern")
-                else:
-                    print("No images matched pattern, keeping all")
-            else:
-                print("Could not extract pattern from second image")
-        
-        # Sort images by look number
-        def extract_look_number(image_path):
-            filename = Path(image_path).name
-            look_match = re.search(r'-(\d+)\.[^.]+$', filename)
-            return int(look_match.group(1)) if look_match else 0
-        
-        existing_images.sort(key=extract_look_number)
-        print(f"Sorted {len(existing_images)} images by look number")
-        
-        # Show images column
-        self.show_column3()
-        
-        # Set the new images and reset index
-        self.current_images = existing_images.copy()  # Make a copy to ensure fresh reference
-        print(f"Set current_images to {len(self.current_images)} images")
-        self.current_image_index = 0
-        self.current_designer_name = designer_name  # Store designer name for gallery title
-        self.image_title.config(text=designer_name)
-        
-        # Store collection info for video search
+        print("🎭 Fashion Archive System Started")
+        print("📚 Preserving fashion history for future generations")
         if VIDEO_FEATURES_AVAILABLE:
-            self.current_collection_info = {
-                'name': designer_name,
-                'url': getattr(self, 'last_selected_collection_url', ''),
-                'designer': designer_name
-            }
-        
-        # Enable navigation buttons
-        self.prev_button.config(state=tk.NORMAL if len(existing_images) > 1 else tk.DISABLED)
-        self.next_button.config(state=tk.NORMAL if len(existing_images) > 1 else tk.DISABLED)
-        self.zoom_button.config(state=tk.NORMAL if len(existing_images) > 0 else tk.DISABLED)
-        self.gallery_button.config(state=tk.NORMAL if len(existing_images) > 0 else tk.DISABLED)
-        
-        # Enable video button if video features are available
-        if VIDEO_FEATURES_AVAILABLE and hasattr(self, 'video_button'):
-            self.video_button.config(state=tk.NORMAL if len(existing_images) > 0 else tk.DISABLED)
-        
-        # Load first image
-        self.display_current_image()
-    
-    def display_current_image(self):
-        """Display the current image in the viewer"""
-        if not self.current_images or self.current_image_index >= len(self.current_images):
-            print("No images to display")
-            return
-        
-        image_path = self.current_images[self.current_image_index]
-        print(f"Attempting to display image: {image_path}")
-        
-        try:
-            # Check if file exists
-            from pathlib import Path
-            if not Path(image_path).exists():
-                print(f"Image file does not exist: {image_path}")
-                self.image_label.config(image="", text="Image file not found")
-                return
-            # Load and resize image
-            from PIL import Image, ImageTk
-            pil_image = Image.open(image_path)
-            print(f"Loaded image: {pil_image.size} - {pil_image.mode}")
-            
-            # Get available space in the image viewer
-            self.image_frame.update_idletasks()  # Ensure frame is rendered
-            available_width = self.image_frame.winfo_width() - 20  # Leave some padding
-            available_height = self.image_frame.winfo_height() - 20
-            
-            # Use reasonable minimums if frame isn't rendered yet
-            if available_width < 100:
-                available_width = 600
-            if available_height < 100:  
-                available_height = 800
-                
-            print(f"Available viewer space: {available_width}x{available_height}")
-            
-            # Calculate scaling to fit viewer while maintaining aspect ratio
-            original_width, original_height = pil_image.size
-            scale_width = available_width / original_width
-            scale_height = available_height / original_height
-            scale_factor = min(scale_width, scale_height, 1.0)  # Don't upscale beyond original
-            
-            new_width = int(original_width * scale_factor)
-            new_height = int(original_height * scale_factor)
-            
-            pil_image = pil_image.resize((new_width, new_height), Image.Resampling.LANCZOS)
-            print(f"Scaled to: {pil_image.size} (scale factor: {scale_factor:.2f})")
-            
-            # Convert to PhotoImage
-            photo = ImageTk.PhotoImage(pil_image)
-            
-            # Update display
-            self.image_label.config(image=photo, text="")
-            self.image_label.image = photo  # Keep a reference
-            
-            # Extract look number from filename and update title with total count
-            filename = Path(image_path).name
-            import re
-            total = len(self.current_images)
-            
-            look_match = re.search(r'-(\d+)\.[^.]+$', filename)
-            if look_match:
-                look_number = look_match.group(1)
-                self.image_title.config(text=f"Look {look_number} / {total}")
-            else:
-                # Fallback if no look number found in filename
-                self.image_title.config(text=f"Look {self.current_image_index + 1} / {total}")
-            
-            # Clear other counters (we only want the title counter)
-            self.image_counter.config(text="")
-            self.image_status.config(text="")
-            print(f"Successfully displayed image {self.current_image_index + 1} of {total}")
-            
-        except Exception as e:
-            error_msg = f"Error loading image: {str(e)}"
-            self.image_label.config(image="", text=error_msg)
-            print(f"Error loading image {image_path}: {e}")
-            import traceback
-            traceback.print_exc()
-    
-    def prev_image(self):
-        """Navigate to previous image (wraps to last image)"""
-        if self.current_images:
-            old_index = self.current_image_index
-            if self.current_image_index > 0:
-                self.current_image_index -= 1
-            else:
-                # Wrap to last image
-                self.current_image_index = len(self.current_images) - 1
-            self.display_current_image()
-            
-            # Update gallery highlighting if in gallery mode
-            if self.gallery_mode:
-                self.update_gallery_highlighting(old_index, self.current_image_index)
-    
-    def next_image(self):
-        """Navigate to next image (wraps to first image)"""
-        if self.current_images:
-            old_index = self.current_image_index
-            if self.current_image_index < len(self.current_images) - 1:
-                self.current_image_index += 1
-            else:
-                # Wrap to first image
-                self.current_image_index = 0
-            self.display_current_image()
-            
-            # Update gallery highlighting if in gallery mode
-            if self.gallery_mode:
-                self.update_gallery_highlighting(old_index, self.current_image_index)
-    
-    def show_download_error(self, error_msg):
-        """Show download error in UI"""
-        self.image_status.config(text=f"Download failed: {error_msg}")
-        self.image_title.config(text="Image Viewer")
-    
-    def cleanup_previous_downloads(self):
-        """Clean up previously downloaded images"""
-        if self.current_download_folder:
-            try:
-                import shutil
-                from pathlib import Path
-                
-                downloads_path = Path(self.current_download_folder)
-                if downloads_path.exists():
-                    # Remove all files and subdirectories in downloads folder
-                    shutil.rmtree(downloads_path)
-                    downloads_path.mkdir(exist_ok=True)  # Recreate empty folder
-                    print(f"Cleaned up previous downloads from {downloads_path}")
-            except Exception as e:
-                print(f"Error cleaning up downloads: {e}")
-        
-        # Clear current image data
-        self.current_images = []
-        self.current_image_index = 0
-        self.image_label.config(image="", text="No images loaded")
-        self.prev_button.config(state=tk.DISABLED)
-        self.next_button.config(state=tk.DISABLED)
-        self.zoom_button.config(state=tk.DISABLED)
-        self.gallery_button.config(state=tk.DISABLED)
-        
-        # Disable video button if available
-        if VIDEO_FEATURES_AVAILABLE and hasattr(self, 'video_button'):
-            self.video_button.config(state=tk.DISABLED)
-            
-        self.image_counter.config(text="")
-        
-        # Clear video data
-        if VIDEO_FEATURES_AVAILABLE:
-            self.current_collection_info = None
-    
-    def update_loading_progress(self, page, count):
-        """Update loading progress in the UI"""
-        self.collections_listbox.delete(0, tk.END)
-        self.collections_listbox.insert(tk.END, f"Loading... Page {page}: Found {count} collections")
-    
-    def stream_collections_update(self, page, total_count, page_collections):
-        """Stream collections to UI as they're found"""
-        # If this is the first page, clear the listbox and add status line
-        if page == 1:
-            self.collections_listbox.delete(0, tk.END)
-            self.current_collections = []
-            self.collections_listbox.insert(0, f"📈 Found {total_count} total collections")
+            print("🤖 AI-powered video verification enabled")
         else:
-            # Update the status line (always at index 0)
-            self.collections_listbox.delete(0)
-            self.collections_listbox.insert(0, f"📈 Found {total_count} total collections")
+            print("⚠️  Video features unavailable (missing dependencies)")
+        print("=" * 50)
         
-        # Add new collections from this page
-        for show in page_collections:
-            display_name = f"📁 {show['designer']}"
-            self.collections_listbox.insert(tk.END, display_name)
-            self.current_collections.append(show)
+        root.mainloop()
         
-        # Force UI update
-        self.root.update_idletasks()
+    except Exception as e:
+        print(f"❌ Error starting Fashion Archive System: {e}")
+        import traceback
+        traceback.print_exc()
+
+
+def main():
+    """
+    Main entry point for the Fashion Archive System
+    """
+    try:
+        root = tk.Tk()
+        app = FashionScraper(root)
         
-        # Keep the original season title, don't override with progress
-        # Progress is already shown in the listbox status line
-    
-    def show_collections_error(self, error_msg):
-        self.collections_listbox.delete(0, tk.END)
-        self.collections_listbox.insert(tk.END, f"Error: {error_msg}")
-    
-    def show_error(self, error_msg):
-        self.loading_label.config(text=f"Error: {error_msg}")
-    
-    def on_closing(self):
-        """Handle application closing - cleanup downloads"""
-        print("Application closing, cleaning up downloads...")
-        self.cleanup_previous_downloads()
-        self.root.destroy()
+        # Center window on screen
+        root.update_idletasks()
+        width = root.winfo_width()
+        height = root.winfo_height()
+        x = (root.winfo_screenwidth() // 2) - (width // 2)
+        y = (root.winfo_screenheight() // 2) - (height // 2)
+        root.geometry(f"{width}x{height}+{x}+{y}")
+        
+        # Set minimum window size
+        root.minsize(800, 600)
+        
+        print("🎭 Fashion Archive System Started")
+        print("📚 Preserving fashion history for future generations")
+        if VIDEO_FEATURES_AVAILABLE:
+            print("🤖 AI-powered video verification enabled")
+        else:
+            print("⚠️  Video features unavailable (missing dependencies)")
+        print("=" * 50)
+        
+        root.mainloop()
+        
+    except Exception as e:
+        print(f"❌ Error starting Fashion Archive System: {e}")
+        import traceback
+        traceback.print_exc()
+
 
 if __name__ == "__main__":
-    root = tk.Tk()
-    app = FashionScraper(root)
-    root.mainloop()
+    main()
+

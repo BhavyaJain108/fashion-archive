@@ -1,125 +1,273 @@
-# Image Downloader
+# Fashion Archive System 🎭
 
-A configurable and modular Python tool for downloading images from websites. 
+An intelligent fashion show archive system designed to preserve and organize fashion history from major fashion weeks around the world.
 
-## Features
+## Mission 🎯
 
-- **Configurable**: JSON config files and CLI arguments
-- **Rate Limited**: Respects servers with configurable delays
-- **Robust**: Retry logic and error handling
-- **Flexible**: Custom CSS selectors and attributes
-- **Safe**: Size limits and format filtering
-- **Progress Tracking**: Visual feedback during downloads
+**Democratizing Fashion History**: Creating a comprehensive, searchable archive of fashion shows to preserve the creative legacy of fashion for researchers, designers, students, and enthusiasts.
 
-## Installation
+- 📚 **Preserve ephemeral runway content** with AI-powered verification
+- 🔍 **Enable deep fashion research** across decades of shows
+- 🎨 **Support creative inspiration** for designers and students  
+- 🌍 **Archive global fashion weeks** (Paris, Milan, London, New York)
+- 🤖 **Ensure content authenticity** with semantic AI matching
+
+## Features ✨
+
+### 🎬 AI-Powered Video Verification
+- **Claude AI Integration**: Semantic matching of video content to collections
+- **Industry Logic**: Distinguishes Couture vs Haute Couture collections
+- **Temporal Intelligence**: Year-direction matching (2010 → 2010-2011, not 2009-2010)
+- **Quality Control**: Rejects reviews, reactions, and unrelated content
+
+### 🖼️ Professional Image Gallery
+- **High-Quality Image Downloads**: Preserves original resolution
+- **Interactive Viewing**: Zoom, navigation, and gallery mode
+- **Smart Organization**: Automatic collection-based folder structure
+- **Efficient Loading**: Thumbnail generation and progressive loading
+
+### 📹 Integrated Video Player
+- **Custom Video Player**: Built-in controls with timeline scrubbing
+- **Smart Activation**: Only appears when verified video is available
+- **Professional Controls**: Play/pause, seeking, and time display
+- **Auto-Management**: Cleans up between collections
+
+### 🗂️ Intelligent Organization
+- **Collection Detection**: Automatically parses designer, season, year, city
+- **Smart Cleanup**: Removes outdated content when switching collections
+- **Metadata Preservation**: Keeps original titles and descriptions
+- **Cross-Platform**: Works on macOS, Windows, and Linux
+
+## Installation 🚀
+
+### Prerequisites
+- Python 3.8+
+- Virtual environment (recommended)
+- Claude AI API key
+
+### Setup
 
 ```bash
+# Clone the repository
+git clone https://github.com/BhavyaJain108/fashion-archive.git
+cd fashion-archive
+
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install dependencies
 pip install -r requirements.txt
+
+# Install additional video support
+pip install opencv-python yt-dlp anthropic python-dotenv
+
+# Set up environment
+cp .env.example .env
+# Edit .env with your Claude API key
 ```
 
-## Usage
+### Configuration
 
-### Basic Usage
+Create a `.env` file with your credentials:
 
 ```bash
-# Download first 5 images from a page
-python image_downloader.py "https://example.com" -n 5 -o images/
-
-# With custom delay and size limits
-python image_downloader.py "https://example.com" -d 2.0 --min-size 1024 --max-size 1048576
+CLAUDE_API_KEY=your_claude_api_key_here
 ```
 
-### Advanced Usage
+## Usage 🎪
+
+### Quick Start
 
 ```bash
-# Use custom CSS selector for specific image types
-python image_downloader.py "https://example.com" --selector "img.gallery-image" -n 10
-
-# Download from data attributes instead of src
-python image_downloader.py "https://example.com" --selector "img" --attribute "data-src"
+# Run the main application
+python fashion_scraper.py
 ```
 
-### Configuration Files
+### Workflow
 
-Create a JSON config file:
+1. **Select Season**: Choose from available fashion weeks
+2. **Browse Collections**: View designer shows from selected season  
+3. **Auto-Archive**: Images and videos download automatically when you click a show
+4. **View Content**: 
+   - Browse images with gallery controls
+   - Watch verified videos with built-in player
+   - Use zoom and navigation features
+
+### Video Verification Process
+
+The system uses Claude AI to verify video authenticity:
+
+```
+Search Query: "Chanel Couture Fall Winter 2018 Paris"
+
+🔍 Found Videos:
+1. Chanel Fall Winter 2018 Haute Couture
+2. Chanel Fall Winter 2017 Ready-to-Wear  
+3. Chanel Spring Summer 2018 Couture
+
+🤖 Claude Analysis:
+- Year Match: 2018 ✅ (rejects 2017 ❌)
+- Collection Type: Couture ✅ (rejects Ready-to-Wear ❌)
+- Season Match: Fall Winter ✅ (rejects Spring Summer ❌)
+
+✅ Verified: Video #1 matches search criteria
+📥 Downloading authentic content...
+```
+
+## Technical Architecture 🏗️
+
+### Core Components
+
+```
+fashion_scraper.py          # Main GUI application
+claude_video_verifier.py    # AI-powered video verification
+fashion_video_search.py     # YouTube search functionality
+image_downloader.py         # High-quality image acquisition
+collection_organizer.py     # Smart folder organization
+youtube_downloader.py       # Video download engine
+```
+
+### AI Verification Logic
+
+The Claude AI system implements sophisticated fashion industry logic:
+
+- **Couture Distinction**: Differentiates "Couture" from "Haute Couture"
+- **Season Matching**: Maps various season formats (FW, Fall/Winter, Autumn)
+- **Year Intelligence**: Handles ranges (2018-2019) vs single years (2018)
+- **Context Awareness**: Identifies runway shows vs interviews/reviews
+- **Brand Recognition**: Handles designer name variations and abbreviations
+
+### Data Flow
+
+```mermaid
+graph TD
+    A[User Selects Show] --> B[Parse Collection Info]
+    B --> C[Start Image Download]
+    B --> D[Start Video Search]
+    D --> E[Claude AI Verification]
+    E --> F{Verified Match?}
+    F -->|Yes| G[Download Video]
+    F -->|No| H[No Video Available]
+    G --> I[Enable Video Player]
+    C --> J[Display Image Gallery]
+```
+
+## Project Structure 📁
+
+```
+fashion-archive/
+├── README.md                    # Project documentation
+├── requirements.txt             # Python dependencies
+├── .env.example                # Environment template
+├── .gitignore                  # Git ignore rules
+│
+├── fashion_scraper.py          # Main GUI application
+├── claude_video_verifier.py    # AI video verification
+├── fashion_video_search.py     # Video search engine
+├── image_downloader.py         # Image download system
+├── collection_organizer.py     # Folder organization
+├── youtube_downloader.py       # Video download engine
+├── fashion_llm_analyzer.py     # LLM analysis tools
+│
+├── video_player_widget.py      # Video player component
+├── video_search_test.py        # Video search testing
+└── config_example.json         # Configuration template
+```
+
+## API Integration 🔌
+
+### Claude AI
+- **Purpose**: Semantic video verification
+- **Model**: Claude-3-Haiku for cost-effectiveness
+- **Function**: Determines if videos match collection criteria
+
+### YouTube Data
+- **Source**: Direct HTML parsing (no API key required)
+- **Method**: Scrapes search results for video metadata
+- **Verification**: Cross-references with Claude AI
+
+## Contributing 🤝
+
+We welcome contributions to help preserve fashion history!
+
+### Areas for Contribution
+- **Additional Data Sources**: Integrate more fashion week archives
+- **Enhanced AI Logic**: Improve verification accuracy
+- **UI/UX Improvements**: Better user experience design
+- **Performance Optimization**: Faster downloads and processing
+- **Documentation**: Help expand documentation and tutorials
+
+### Development Setup
 
 ```bash
-# Use example config as template
-cp config_example.json my_config.json
-# Edit my_config.json with your settings
+# Fork the repository
+git clone https://github.com/YourUsername/fashion-archive.git
+cd fashion-archive
 
-# Use config file
-python image_downloader.py --config my_config.json
+# Create feature branch
+git checkout -b feature/your-feature-name
 
-# Save current CLI args to config
-python image_downloader.py "https://example.com" -n 5 --save-config my_config.json
+# Make changes and test
+python fashion_scraper.py
+
+# Commit and push
+git add .
+git commit -m "Add: your feature description"
+git push origin feature/your-feature-name
+
+# Create pull request
 ```
 
-## Configuration Options
+## Legal & Ethics ⚖️
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `url` | str | required | Target URL to scrape |
-| `output_dir` | str | "downloads" | Output directory |
-| `max_images` | int | None | Maximum images to download |
-| `delay` | float | 1.0 | Delay between requests (seconds) |
-| `timeout` | int | 30 | Request timeout |
-| `retries` | int | 3 | Number of retry attempts |
-| `user_agent` | str | Default UA | Custom user agent |
-| `image_formats` | list | ["jpg", "jpeg", "png", "gif", "webp", "bmp"] | Allowed formats |
-| `min_size` | int | None | Minimum file size (bytes) |
-| `max_size` | int | None | Maximum file size (bytes) |
-| `selector` | str | "img" | CSS selector for elements |
-| `attribute` | str | "src" | Attribute containing URLs |
-| `filename_template` | str | "{index:03d}_{filename}" | Filename format |
-| `headers` | dict | {} | Additional HTTP headers |
+### Responsible Archiving
+- **Educational Purpose**: System designed for research and education
+- **Respect Copyright**: Only archives publicly available content
+- **Source Attribution**: Preserves original titles and creator information
+- **Fair Use**: Follows fair use principles for academic and research purposes
 
-## Examples
+### Data Handling
+- **No Personal Data**: System does not collect personal information
+- **Public Content Only**: Archives publicly accessible fashion show content
+- **Metadata Preservation**: Maintains original source information
+- **Transparent Process**: All verification steps are logged and visible
 
-### Gallery Sites
-```bash
-# Download from image galleries
-python image_downloader.py "https://gallery-site.com" --selector "a.image-link" --attribute "href"
-```
+## Roadmap 🗺️
 
-### Background Images
-```bash
-# Extract from CSS background-image properties
-python image_downloader.py "https://site.com" --selector "div.bg-image" --attribute "data-bg"
-```
+### Version 2.0 (Planned)
+- [ ] **Database Integration**: PostgreSQL backend for metadata
+- [ ] **Advanced Search**: Full-text search across collections
+- [ ] **API Development**: REST API for programmatic access
+- [ ] **Mobile App**: React Native companion app
+- [ ] **ML Enhancement**: Custom models for fashion-specific recognition
 
-### High-Resolution Only
-```bash
-# Only download images larger than 100KB
-python image_downloader.py "https://site.com" --min-size 102400 -n 20
-```
+### Version 2.1 (Future)
+- [ ] **Multi-Language Support**: International fashion week coverage
+- [ ] **Collaborative Features**: Community-driven archiving
+- [ ] **Advanced Analytics**: Trend analysis and insights
+- [ ] **Integration Plugins**: Export to research databases
 
-## Programmatic Usage
+## Support 💬
 
-```python
-from image_downloader import ImageDownloader, DownloadConfig
+- **Documentation**: Check this README and inline code comments
+- **Issues**: Report bugs via GitHub Issues
+- **Discussions**: Join GitHub Discussions for questions
+- **Email**: Contact maintainers for collaboration opportunities
 
-config = DownloadConfig(
-    url="https://example.com",
-    max_images=5,
-    delay=1.5,
-    output_dir="my_images"
-)
+## License 📄
 
-downloader = ImageDownloader(config)
-files = downloader.download_all()
-print(f"Downloaded: {files}")
-```
+This project is open source and available under the [MIT License](LICENSE).
 
-## Best Practices
+## Acknowledgments 🙏
 
-1. **Check robots.txt** before scraping any site
-2. **Use appropriate delays** to avoid overloading servers
-3. **Respect copyright** - only use for public domain content
-4. **Check terms of service** of target websites
-5. **Start with small batches** to test selectors
-6. **Use size limits** to avoid downloading unwanted files
+- **Fashion Industry**: For creating the beautiful content we preserve
+- **Anthropic Claude**: For providing intelligent content verification
+- **Open Source Community**: For the tools and libraries that make this possible
+- **Fashion Researchers**: Who inspire the mission to preserve fashion history
 
-## Legal Notice
+---
 
-This tool is intended for downloading non-licensed, public domain, or personally owned content only. Users are responsible for ensuring they have proper rights to download any content. Always respect website terms of service and copyright laws.
+**Building a lasting archive of fashion's creative legacy.** 🎭✨
+
+*Made with ❤️ for the fashion community*

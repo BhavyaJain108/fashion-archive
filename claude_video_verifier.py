@@ -1,7 +1,18 @@
 #!/usr/bin/env python3
 """
 Claude Video Verification System
-Uses Claude AI to verify if YouTube search results actually match the search intent.
+
+AI-powered video verification for fashion show archives using Claude AI to ensure 
+semantic matching between search queries and YouTube video content.
+
+This module implements sophisticated fashion industry logic including:
+- Couture vs Haute Couture distinction
+- Year direction matching (2010 matches 2010-2011, not 2009-2010)
+- Season and collection type validation
+- Context-aware matching (runway shows vs reviews/reactions)
+
+Author: Fashion Archive Team
+License: MIT
 """
 
 import os
