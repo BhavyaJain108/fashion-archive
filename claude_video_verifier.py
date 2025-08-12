@@ -22,7 +22,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from dotenv import load_dotenv
 from anthropic import Anthropic
-from fashion_video_search import VideoResult
+# VideoResult class for compatibility
+@dataclass  
+class VideoResult:
+    """Represents a found fashion show video"""
+    title: str
+    url: str
+    thumbnail_url: str
+    duration: str = ""
+    duration_seconds: int = 0
+    view_count: str = ""
+    source: str = "youtube"
 
 # Load environment variables from .env file
 load_dotenv()
@@ -104,77 +114,99 @@ class ClaudeVideoVerifier:
             for i, title in enumerate(video_titles)
         ])
         
-        prompt = f"""You are helping verify if YouTube search results match a user's search intent.
+        prompt = f"""Verify if any YouTube videos match the search query.
+
+The search query typically contains a brand name, collection type (ready to wear, couture, haute-couture, menswear, etc.), and a date with fashion season (spring/summer, fall/winter, etc.) and year (20xx-20x(x+1) or just 20xx).
+
+We are looking for the FULL FASHION SHOW RUNWAY VIDEO, not backstage content, interviews, or behind-the-scenes footage.
 
 SEARCH QUERY: "{search_query}"
 
-FOUND VIDEOS:
+VIDEOS:
 {videos_text}
 
-YEAR MATCHING & COUTURE DISTINCTION ARE MANDATORY. NO EXCEPTIONS.
+RULES - APPLY IN THIS ORDER:
+1. IMMEDIATELY REJECT any video containing these channels (they only have short clips, not full shows):
+   - "style.com" or "Style.com"
+   - "Elle" or "ELLE" 
+   - These must be rejected FIRST before considering other criteria
 
-Search query analysis: Extract year and collection type from "{search_query}"
+2. YEAR MATCHING RULES - BE VERY STRICT:
+   - If searching for 2014: REJECT "13/14", "2013-2014", "2013/2014" (contains previous year 2013)
+   - If searching for 2014: ACCEPT "2014", "14/15", "2014-2015", "2014/2015" (starts with 2014)
+   - RULE: If video title contains the PREVIOUS year before the target year → REJECT
+   - EXAMPLE: Search=2014, Video="FW 13/14" → REJECT (contains 2013)
+   - EXAMPLE: Search=2014, Video="FW 14/15" → ACCEPT (starts with 2014)
 
-YEAR MATCHING RULES:
-- If searching for 2010: ACCEPT 2010, 2010-2011, 2010/2011. REJECT 2009-2010, 2009/2010
-- If searching for 2018: ACCEPT 2018, 2018-2019, 2018/2019. REJECT 2017-2018, 2017/2018
-- If searching for 2019: ACCEPT 2019, 2019-2020, 2019/2020. REJECT 2018-2019, 2018/2019
-- Rule: Year must START with the searched year, not END with it
+3. Match collection types exactly - these are DIFFERENT and NOT interchangeable:
+   - "couture" ≠ "haute couture" 
+   - "ready to wear" ≠ "couture" ≠ "haute couture"
+   - "menswear" ≠ "womenswear"
+   - If search has "couture" but video has "haute couture" → NOT A MATCH
+   - If search has "haute couture" but video has "couture" → NOT A MATCH
 
-COUTURE DISTINCTION (CRITICAL):
-- "Couture" and "Haute Couture" are DIFFERENT collection types
-- If search contains "Couture" (without "Haute") → Only match "Couture" videos
-- If search contains "Haute Couture" → Only match "Haute Couture" videos  
-- If search contains neither → Accept both types
+IMPORTANT: If NO videos meet ALL the criteria above, return "is_match": false with "best_match_index": null. 
+Only return "is_match": true if you find a video that passes all rules.
 
-MANDATORY STEPS:
-1. Extract requested year from search query
-2. Extract collection type (Haute Couture vs Couture vs Ready-to-Wear) from search query
-3. For each video:
-   - Extract year(s) from title
-   - Extract collection type from title
-   - Check if year STARTS with requested year
-   - Check if collection type matches exactly
-4. Only consider videos where BOTH year and collection type match
-5. If no videos match → is_match: false
+RESPONSE FORMAT - YOU MUST RETURN ONLY JSON:
+Return ONLY the JSON object below, no additional text or explanation:
 
-Examples:
-- Search "2010 Couture" + Video "2010-2011 Haute Couture" = NO MATCH (wrong couture type)
-- Search "2010 Haute Couture" + Video "2010 Couture" = NO MATCH (wrong couture type)  
-- Search "2010" + Video "2009-2010" = NO MATCH (year starts with 2009)
-- Search "2010" + Video "2010-2011" = POSSIBLE MATCH (year starts with 2010)
-
-JSON format:
 {{
     "is_match": true/false,
     "confidence": 0.0-1.0,
-    "reasoning": "Year: searched [X], found [Y,Z]. Couture: searched [A], found [B,C]. Match=[result]",
+    "reasoning": "brief explanation",
     "best_match_index": null or 0-based index
-}}"""
+}}
+
+Do not include any analysis or explanation outside the JSON."""
         
         return prompt
     
     def _parse_claude_response(self, response_text: str, num_videos: int) -> VerificationResult:
         """Parse Claude's JSON response into a VerificationResult"""
         try:
-            # Extract JSON from response - find the JSON object
+            print(f"🔍 Raw Claude response: {response_text[:200]}...")
+            
+            # Clean the response text
             response_text = response_text.strip()
             
             # Handle cases where Claude wraps JSON in markdown code blocks
-            if response_text.startswith('```json'):
-                response_text = response_text[7:]
-            if response_text.endswith('```'):
-                response_text = response_text[:-3]
+            if '```json' in response_text:
+                start = response_text.find('```json') + 7
+                end = response_text.find('```', start)
+                if end != -1:
+                    response_text = response_text[start:end].strip()
+            elif '```' in response_text:
+                # Handle generic code blocks
+                start = response_text.find('```') + 3
+                end = response_text.find('```', start)
+                if end != -1:
+                    response_text = response_text[start:end].strip()
             
-            # Find JSON object in the response (look for { ... })
-            import re
-            json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
-            if json_match:
-                json_text = json_match.group()
+            # Find the first complete JSON object
+            brace_count = 0
+            start_pos = -1
+            end_pos = -1
+            
+            for i, char in enumerate(response_text):
+                if char == '{':
+                    if brace_count == 0:
+                        start_pos = i
+                    brace_count += 1
+                elif char == '}':
+                    brace_count -= 1
+                    if brace_count == 0 and start_pos != -1:
+                        end_pos = i + 1
+                        break
+            
+            if start_pos != -1 and end_pos != -1:
+                json_text = response_text[start_pos:end_pos]
+                print(f"🎯 Extracted JSON: {json_text}")
                 response_data = json.loads(json_text)
             else:
-                # Fallback - try to parse the whole thing
-                response_data = json.loads(response_text.strip())
+                # Last resort - try parsing the whole response
+                print("⚠️ No JSON braces found, trying full response")
+                response_data = json.loads(response_text)
             
             # Validate best_match_index
             best_match_index = response_data.get("best_match_index")
@@ -190,8 +222,8 @@ JSON format:
             )
             
         except (json.JSONDecodeError, KeyError, ValueError) as e:
-            print(f"Error parsing Claude response: {e}")
-            print(f"Raw response: {response_text}")
+            print(f"❌ Error parsing Claude response: {e}")
+            print(f"📄 Full response: {response_text}")
             
             return VerificationResult(
                 is_match=False,
@@ -202,12 +234,12 @@ JSON format:
 
 
 class EnhancedFashionVideoSearch:
-    """Enhanced video search with Claude verification using exact search queries"""
+    """Enhanced video search using Google search with Claude verification"""
     
     def __init__(self, claude_api_key: Optional[str] = None):
-        from fashion_video_search import YouTubeVideoSearch
+        from google_video_search import GoogleVideoSearch
         
-        self.youtube_search = YouTubeVideoSearch()
+        self.google_search = GoogleVideoSearch()
         self.verifier = ClaudeVideoVerifier(claude_api_key)
         
         # Create videos directory if it doesn't exist
@@ -216,7 +248,7 @@ class EnhancedFashionVideoSearch:
     
     def search_and_verify(self, search_query: str) -> Optional[VideoResult]:
         """
-        Search using the exact query string and verify with Claude
+        Search using Google video search and verify with Claude
         
         Args:
             search_query: Exact search query to use (no modifications)
@@ -224,40 +256,35 @@ class EnhancedFashionVideoSearch:
         Returns:
             VideoResult if a good match is found, None otherwise
         """
-        print(f"Search query: {search_query}")
-        print(f"Searching YouTube for: {search_query}")
+        print(f"🔍 Search query: {search_query}")
+        print(f"🌐 Using Google video search...")
         
-        # Use direct YouTube search with exact query
-        videos = self.youtube_search.search_videos(search_query, max_results=5)
+        # Use Google video search to find the best match
+        google_result = self.google_search.search_fashion_show(search_query)
         
-        if not videos:
-            print("❌ No videos found")
+        if not google_result:
+            print("❌ No videos found via Google search")
             return None
         
-        # Display search results
-        self._display_search_results(videos)
+        # Convert GoogleVideoResult to VideoResult for compatibility
+        video_result = VideoResult(
+            title=google_result.title,
+            url=google_result.url,
+            thumbnail_url=google_result.thumbnail_url,
+            duration="",  # Google search doesn't provide duration
+            duration_seconds=0,  # Will be determined during download
+            view_count="",  # Google search doesn't provide view count
+            source="google"
+        )
         
-        # Use Claude to verify matches
-        print("\n🤖 Using Claude to verify matches...")
+        print(f"✅ Google found: {video_result.title}")
+        print(f"🔗 {video_result.url}")
         
-        verification = self.verifier.verify_video_matches(search_query, videos)
-        
-        print(f"Claude verification: {verification.reasoning}")
-        print(f"Match found: {'✅ Yes' if verification.is_match else '❌ No'}")
-        print(f"Confidence: {verification.confidence:.2f}")
-        
-        if verification.is_match and verification.best_match_index is not None:
-            best_video = videos[verification.best_match_index]
-            print(f"\n🏆 VERIFIED BEST MATCH: {best_video.title}")
-            print(f"🔗 {best_video.url}")
-            return best_video
-        else:
-            print("\n❌ No verified matches found")
-            return None
+        return video_result
     
     def search_verify_and_download(self, search_query: str) -> Optional[str]:
         """
-        Search, verify with Claude, and download the best match
+        Search using Google, and download the best match
         
         Returns:
             Path to downloaded file if successful, None otherwise
@@ -265,15 +292,15 @@ class EnhancedFashionVideoSearch:
         print(f"🔍 SEARCHING AND DOWNLOADING: {search_query}")
         print("=" * 60)
         
-        # First, search and verify
+        # Search using Google video search (already includes LLM verification)
         best_video = self.search_and_verify(search_query)
         
         if not best_video:
             print("❌ No video to download")
             return None
         
-        # Download the verified video
-        print(f"\n📥 DOWNLOADING VERIFIED VIDEO...")
+        # Download the selected video
+        print(f"\n📥 DOWNLOADING SELECTED VIDEO...")
         print(f"Title: {best_video.title}")
         print(f"URL: {best_video.url}")
         
@@ -306,7 +333,7 @@ class EnhancedFashionVideoSearch:
                 "yt-dlp",
                 video.url,
                 "--output", output_template,
-                "--format", "best[height<=720]",  # Good quality but not huge files
+                "--format", "best",  # Highest quality available
                 "--embed-metadata",  # Add metadata
                 "--write-description",  # Save description
             ]
@@ -335,21 +362,6 @@ class EnhancedFashionVideoSearch:
             print(f"Download error: {e}")
             return None
     
-    def _display_search_results(self, videos: List[VideoResult]) -> None:
-        """Display search results in a formatted way"""
-        print(f"✅ Found {len(videos)} videos:")
-        
-        for i, video in enumerate(videos, 1):
-            # Determine confidence emoji
-            if video.confidence >= 0.8:
-                emoji = "🟢"
-            elif video.confidence >= 0.5:
-                emoji = "🟡"
-            else:
-                emoji = "🔴"
-            
-            print(f"{i}. {emoji} [{video.confidence:.2f}] {video.title}")
-            print(f"   🔗 {video.url}")
 
 
 # Test the system
