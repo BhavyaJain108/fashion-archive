@@ -1,0 +1,347 @@
+/* Early Mac System 7 Styling */
+@import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
+
+:root {
+  /* Classic Mac System Colors */
+  --mac-bg: #c0c0c0;
+  --mac-window-bg: #ffffff;
+  --mac-text: #000000;
+  --mac-border: #808080;
+  --mac-button-bg: #e0e0e0;
+  --mac-button-pressed: #a0a0a0;
+  --mac-selected-bg: #000080;
+  --mac-selected-text: #ffffff;
+  --mac-disabled: #808080;
+  
+  /* Mac-style borders */
+  --mac-inset: inset 1px 1px 0px #606060, inset -1px -1px 0px #dfdfdf;
+  --mac-outset: inset -1px -1px 0px #606060, inset 1px 1px 0px #dfdfdf;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'VT323', monospace;
+  font-size: 16px;
+  background-color: var(--mac-bg);
+  color: var(--mac-text);
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Classic Mac Window Styling */
+.mac-window {
+  background-color: var(--mac-window-bg);
+  border: 2px outset var(--mac-bg);
+  box-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+}
+
+.mac-title-bar {
+  background: linear-gradient(to bottom, #f0f0f0, #d0d0d0);
+  height: 20px;
+  border-bottom: 1px solid var(--mac-border);
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  font-weight: bold;
+  font-size: 12px;
+}
+
+/* Classic Mac Buttons */
+.mac-button {
+  background-color: var(--mac-button-bg);
+  border: 2px outset var(--mac-bg);
+  color: var(--mac-text);
+  font-family: 'VT323', monospace;
+  font-size: 14px;
+  padding: 4px 12px;
+  cursor: pointer;
+  min-width: 60px;
+  text-align: center;
+}
+
+.mac-button:hover {
+  background-color: #f0f0f0;
+}
+
+.mac-button:active,
+.mac-button.pressed {
+  border: 2px inset var(--mac-bg);
+  background-color: var(--mac-button-pressed);
+}
+
+.mac-button:disabled {
+  color: var(--mac-disabled);
+  border: 2px outset #b0b0b0;
+  background-color: #d0d0d0;
+  cursor: default;
+}
+
+/* Classic Mac Listbox */
+.mac-listbox {
+  background-color: var(--mac-window-bg);
+  border: var(--mac-inset);
+  overflow-y: auto;
+  font-family: 'VT323', monospace;
+  font-size: 14px;
+}
+
+.mac-listbox-item {
+  padding: 2px 8px;
+  cursor: pointer;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.mac-listbox-item:hover {
+  background-color: #f8f8f8;
+}
+
+.mac-listbox-item.selected {
+  background-color: var(--mac-selected-bg);
+  color: var(--mac-selected-text);
+  font-weight: bold;
+}
+
+/* Classic Mac Labels */
+.mac-label {
+  font-family: 'VT323', monospace;
+  font-size: 14px;
+  color: var(--mac-text);
+  padding: 4px 8px;
+}
+
+.mac-label.title {
+  font-weight: bold;
+  font-size: 16px;
+  text-align: center;
+  background: linear-gradient(to bottom, #f8f8f8, #e8e8e8);
+  border-bottom: 1px solid var(--mac-border);
+  padding: 8px;
+}
+
+/* Classic Mac Panels/Frames */
+.mac-panel {
+  background-color: var(--mac-bg);
+  border: 1px solid var(--mac-border);
+  padding: 8px;
+}
+
+.mac-panel.inset {
+  border: var(--mac-inset);
+  background-color: var(--mac-window-bg);
+}
+
+/* Mac-style scrollbars */
+.mac-scrollbar::-webkit-scrollbar {
+  width: 16px;
+  height: 16px;
+}
+
+.mac-scrollbar::-webkit-scrollbar-track {
+  background: #e0e0e0;
+  border: 1px inset var(--mac-bg);
+}
+
+.mac-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--mac-border);
+  border: 1px outset var(--mac-bg);
+  min-height: 20px;
+}
+
+.mac-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #606060;
+}
+
+.mac-scrollbar::-webkit-scrollbar-corner {
+  background: var(--mac-bg);
+}
+
+/* Loading states */
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  font-style: italic;
+}
+
+/* Responsive behavior for columns */
+.columns-container {
+  display: flex;
+  height: 100vh;
+  background-color: var(--mac-bg);
+}
+
+.column {
+  background-color: var(--mac-window-bg);
+  border-right: 2px outset var(--mac-bg);
+  display: flex;
+  flex-direction: column;
+}
+
+.column:last-child {
+  border-right: none;
+  flex: 1;
+}
+
+.column.hidden {
+  display: none;
+}
+
+/* Image display styling */
+.image-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  padding: 8px;
+  background-color: var(--mac-window-bg);
+  min-height: 0; /* Allow flexbox shrinking */
+  overflow: hidden;
+}
+
+.image-container img {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border: 1px solid var(--mac-border);
+  display: block;
+}
+
+/* Gallery grid styling - folder/icon view */
+.gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px; /* Increased gap for better spacing */
+  padding: 16px; /* More padding around the grid */
+  overflow-y: auto;
+}
+
+.gallery-item {
+  border: none; /* Remove borders */
+  cursor: pointer;
+  background-color: transparent; /* Invisible background */
+  padding: 8px; /* Padding inside each square container */
+  display: flex;
+  flex-direction: column; /* Stack image and label vertically */
+  align-items: center;
+  position: relative;
+}
+
+.gallery-item:hover {
+  /* Subtle hover effect without borders */
+  opacity: 0.8;
+}
+
+.gallery-item.selected .gallery-image-container {
+  /* Dark drop shadow for selected image */
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.5));
+}
+
+.gallery-image-container {
+  aspect-ratio: 1/1; /* Square container for the image */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+.gallery-item img {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain; /* Maintain original aspect ratio */
+  display: block;
+}
+
+.gallery-look-label {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--mac-text);
+  text-align: center;
+  font-family: 'VT323', monospace;
+  text-transform: lowercase; /* All small letters */
+}
+
+/* Video window - separate draggable window (matches tkinter) */
+.video-window {
+  font-family: 'VT323', monospace;
+}
+
+.video-window .mac-title-bar {
+  background: linear-gradient(to bottom, #f0f0f0, #d0d0d0);
+  border-bottom: 1px solid #808080;
+  font-size: 12px;
+  font-weight: bold;
+}
+
+.video-window video {
+  display: block;
+  background-color: #000;
+}
+
+.modal-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0,0,0,0.5);
+  z-index: 999;
+}
+
+/* Menu Bar Styles (matches tkinter menu system) */
+.mac-menubar {
+  font-family: 'VT323', monospace;
+  background: linear-gradient(to bottom, #f0f0f0, #c0c0c0);
+  border-bottom: 1px solid #808080;
+  font-size: 12px;
+}
+
+.mac-menu-item:hover {
+  background-color: var(--mac-selected-bg);
+  color: var(--mac-selected-text);
+}
+
+.mac-dropdown {
+  box-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+  font-size: 12px;
+}
+
+.mac-menu-option:hover {
+  background-color: var(--mac-selected-bg);
+  color: var(--mac-selected-text);
+}
+
+/* Dialog Styles (matches tkinter dialogs) */
+.mac-modal-overlay {
+  backdrop-filter: blur(1px);
+}
+
+.mac-dialog {
+  box-shadow: 4px 4px 8px rgba(0,0,0,0.4);
+  font-family: 'VT323', monospace;
+  font-size: 14px;
+}
+
+.mac-dialog h3 {
+  font-size: 16px;
+  font-weight: bold;
+  color: #000;
+}
+
+.mac-input {
+  font-family: 'VT323', monospace;
+  background: white;
+  border: 2px inset var(--mac-bg);
+  padding: 2px 4px;
+  font-size: 12px;
+}

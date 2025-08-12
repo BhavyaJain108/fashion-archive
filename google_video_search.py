@@ -145,11 +145,11 @@ STRICT MATCHING RULES - BE VERY STRICT:
 - EXAMPLE: Search=2014, Video="FW 14/15" → ACCEPT (starts with 2014)
 
 3. COLLECTION TYPE MATCHING:
-- Ready To Wear (RTW) ≠ Couture ≠ Haute Couture ≠ Menswear (MW)
-- These are DIFFERENT collection types and NOT interchangeable
+- Ready To Wear (RTW) ≠ Couture ≠ Menswear (MW)
+- Couture and Haute Couture are the SAME (some brands just have "haute" privilege)
 - If query says "Ready To Wear" → REJECT videos with "Couture", "Haute Couture", or "Menswear"
-- If query says "Couture" → REJECT videos with "Haute Couture", "Ready To Wear", or "Menswear"  
-- If query says "Haute Couture" → REJECT videos with "Couture", "Ready To Wear", or "Menswear"
+- If query says "Couture" → ACCEPT videos with "Haute Couture" (same thing), REJECT "Ready To Wear" or "Menswear"
+- If query says "Haute Couture" → ACCEPT videos with "Couture" (same thing), REJECT "Ready To Wear" or "Menswear"
 - If query says "Menswear" → REJECT videos with any women's collections
 
 4. SEASON MATCHING:
@@ -371,11 +371,9 @@ CRITICAL:
         import re
         text_lower = text.lower()
         
-        # Check in order of specificity to avoid conflicts
-        if re.search(r'\b(haute\s*couture|hc)\b', text_lower):
-            return 'haute couture'
-        elif re.search(r'\b(couture)\b', text_lower):
-            return 'couture'
+        # Check for collection types (couture and haute couture are treated as the same)
+        if re.search(r'\b(haute\s*couture|couture|hc)\b', text_lower):
+            return 'couture'  # Normalize both to 'couture'
         elif re.search(r'\b(menswear|men\'s|mens|mw)\b', text_lower):
             return 'menswear'
         elif re.search(r'\b(ready\s*to\s*wear|rtw|pret\s*a\s*porter)\b', text_lower):
@@ -407,6 +405,51 @@ CRITICAL:
         # Check if first word appears in video title (partial match allowed)
         return first_word in actual_title.lower()
     
+    def _verify_season_with_llm(self, query: str, video_title: str, expected_season: str) -> bool:
+        """Use LLM to verify if video season matches query season using reasoning"""
+        try:
+            import os
+            from anthropic import Anthropic
+            
+            api_key = os.getenv('CLAUDE_API_KEY') or os.getenv('ANTHROPIC_API_KEY')
+            if not api_key:
+                print("⚠️ No Claude API key - skipping LLM season verification")
+                return True  # Allow if no API key
+                
+            client = Anthropic(api_key=api_key)
+            
+            prompt = f"""Determine if these two fashion items refer to the SAME SEASON:
+
+Query: "{query}"
+Video Title: "{video_title}"
+
+The query mentions "{expected_season}". Does the video title refer to the same season?
+
+SEASON REASONING GUIDE:
+- Fall/Winter/Autumn = September-February collections (shown in Feb-March typically)
+- Spring/Summer = March-August collections (shown in Sep-Oct typically)
+- Months like "August, September, October, November, December, January" = Fall/Winter season
+- Months like "February, March, April, May, June, July" = Spring/Summer season
+- Look for context clues beyond just month names
+
+Answer ONLY "YES" if they refer to the same season, or "NO" if different seasons.
+Do not explain, just answer YES or NO."""
+
+            response = client.messages.create(
+                model="claude-3-5-sonnet-20241022",
+                max_tokens=10,
+                temperature=0.0,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            
+            answer = response.content[0].text.strip().upper()
+            print(f"🤖 LLM season verification: {answer}")
+            return answer == "YES"
+            
+        except Exception as e:
+            print(f"⚠️ LLM season verification failed: {e}")
+            return True  # Allow if verification fails
+    
     def _run_verification_checklist(self, query: str, actual_title: str, target_year: Optional[int]) -> tuple[bool, str]:
         """
         Comprehensive verification checklist for fashion videos
@@ -430,39 +473,60 @@ CRITICAL:
             return True, f"Video has wrong year (expected {target_year})"
         print("✅ Year check passed")
         
-        # ✅ CHECK 4: Collection Type Matching (only if video mentions collection)
+        # ✅ CHECK 4: Collection Type Matching 
         query_collection = self._extract_collection_type(query)
         title_collection = self._extract_collection_type(actual_title)
         
-        if title_collection:
-            # Video mentions a collection type - must match query if query also has one
-            if query_collection:
-                if query_collection != title_collection:
-                    return True, f"Collection type mismatch: Query='{query_collection}' vs Video='{title_collection}'"
-                print(f"✅ Collection type check passed: {query_collection}")
+        # Special case: If query mentions couture, enforce two-way strict matching
+        if query_collection == 'couture':
+            if not title_collection:
+                return True, f"Query specifies '{query_collection}' but video doesn't mention collection type"
+            elif title_collection != 'couture':
+                return True, f"Collection type mismatch: Query='{query_collection}' vs Video='{title_collection}'"
             else:
-                print(f"⚠️ Video has collection type '{title_collection}' but query doesn't specify one")
+                print(f"✅ Collection type check passed (two-way couture match): {query_collection}")
+        elif title_collection:
+            # If video mentions a collection type, query must match it (except couture already handled above)
+            if title_collection == 'couture':
+                # Video mentions couture - query MUST mention couture (strict enforcement)
+                if not query_collection or query_collection != 'couture':
+                    return True, f"Video mentions '{title_collection}' but query doesn't specify couture"
+                else:
+                    print(f"✅ Collection type check passed: {title_collection}")
+            elif title_collection == 'menswear':
+                # Video mentions menswear - query should mention menswear
+                if not query_collection or query_collection != 'menswear':
+                    return True, f"Video mentions '{title_collection}' but query doesn't specify menswear"
+                else:
+                    print(f"✅ Collection type check passed: {title_collection}")
+            else:
+                # Video mentions ready-to-wear or other - more flexible
+                if query_collection and query_collection != title_collection:
+                    print(f"⚠️ Collection type mismatch but allowing for non-couture: Video='{title_collection}' vs Query='{query_collection}'")
+                else:
+                    print(f"✅ Collection type check passed: {title_collection}")
         else:
-            # Video doesn't mention collection type - no verification needed
-            if query_collection:
-                print(f"⚠️ Query specifies '{query_collection}' but video title doesn't mention collection type")
+            # Video doesn't mention collection type
+            if query_collection and query_collection != 'couture':
+                # Non-couture queries are flexible - allow videos without collection type
+                print(f"⚠️ Query specifies '{query_collection}' but video doesn't mention collection type - allowing")
+            elif query_collection == 'couture':
+                # This case is already handled above in the special couture check
+                pass
             else:
-                print("⚠️ No collection type mentioned in video title - skipping collection check")
+                print("⚠️ No collection type mentioned in either query or video - allowing")
         
-        # ✅ CHECK 5: Season Matching
+        # ✅ CHECK 5: Season Matching (let LLM handle complex season reasoning)
         query_season = self._extract_season(query)
-        title_season = self._extract_season(actual_title)
         
-        if query_season and title_season:
-            if query_season != title_season:
-                return True, f"Season mismatch: Query='{query_season}' vs Video='{title_season}'"
+        if query_season:
+            # Query specifies a season - use LLM to verify video season matches
+            season_match = self._verify_season_with_llm(query, actual_title, query_season)
+            if not season_match:
+                return True, f"Season mismatch: Query specifies '{query_season}' but video appears to be different season"
             print(f"✅ Season check passed: {query_season}")
-        elif query_season and not title_season:
-            return True, f"Video missing season '{query_season}'"
-        elif title_season and not query_season:
-            print(f"⚠️ Video has season '{title_season}' but query unclear")
         else:
-            print("⚠️ Season unclear in both query and video")
+            print("⚠️ No specific season mentioned in query - skipping season check")
         
         print("🎉 All verification checks passed!")
         return False, ""
@@ -546,11 +610,11 @@ STRICT VERIFICATION RULES - NO EXCEPTIONS:
 - ONLY ACCEPT videos with exactly {target_year} or starting with {target_year}
 
 3. COLLECTION TYPE MATCHING:
-- Ready To Wear (RTW) ≠ Couture ≠ Haute Couture ≠ Menswear (MW)
-- These are DIFFERENT collection types and NOT interchangeable
+- Ready To Wear (RTW) ≠ Couture ≠ Menswear (MW)
+- Couture and Haute Couture are the SAME (some brands just have "haute" privilege)
 - If query says "Ready To Wear" → REJECT videos with "Couture", "Haute Couture", or "Menswear"
-- If query says "Couture" → REJECT videos with "Haute Couture", "Ready To Wear", or "Menswear"
-- If query says "Haute Couture" → REJECT videos with "Couture", "Ready To Wear", or "Menswear"
+- If query says "Couture" → ACCEPT videos with "Haute Couture" (same thing), REJECT "Ready To Wear" or "Menswear"
+- If query says "Haute Couture" → ACCEPT videos with "Couture" (same thing), REJECT "Ready To Wear" or "Menswear"
 - If query says "Menswear" → REJECT videos with any women's collections
 
 4. SEASON MATCHING:

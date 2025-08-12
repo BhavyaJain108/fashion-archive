@@ -328,17 +328,34 @@ class EnhancedFashionVideoSearch:
             print(f"Downloading: {video.title}")
             print(f"To folder: {self.videos_dir}")
             
-            # Run yt-dlp command
+            # First, check available formats
+            print("📋 Checking available video formats...")
+            format_cmd = ["yt-dlp", "--list-formats", video.url]
+            format_result = subprocess.run(format_cmd, capture_output=True, text=True)
+            if format_result.stdout:
+                print("Available formats:")
+                print(format_result.stdout[-2000:])  # Show format list
+            
+            # Run yt-dlp command with explicit quality selection
             cmd = [
                 "yt-dlp",
                 video.url,
                 "--output", output_template,
-                "--format", "best",  # Highest quality available
+                "--format", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",  # Prefer mp4, highest quality
                 "--embed-metadata",  # Add metadata
                 "--write-description",  # Save description
+                "--verbose",  # Add verbose output to see what's happening
             ]
             
+            print(f"Running command: {' '.join(cmd)}")  # Debug: show exact command
+            
             result = subprocess.run(cmd, capture_output=True, text=True)
+            
+            # Print yt-dlp output for debugging
+            if result.stdout:
+                print("yt-dlp stdout:", result.stdout[-1000:])  # Last 1000 chars to see key info
+            if result.stderr:
+                print("yt-dlp stderr:", result.stderr[-1000:])
             
             if result.returncode == 0:
                 # Find the downloaded file by looking for the most recent file

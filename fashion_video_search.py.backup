@@ -1,0 +1,385 @@
+#!/usr/bin/env python3
+"""
+Fashion Video Search Module
+Searches for fashion show videos online based on collection information.
+"""
+
+import re
+import requests
+from urllib.parse import quote_plus
+from dataclasses import dataclass
+from typing import List, Optional
+from bs4 import BeautifulSoup
+
+
+@dataclass
+class VideoResult:
+    """Represents a found fashion show video"""
+    title: str
+    url: str
+    thumbnail_url: str
+    duration: str = ""
+    duration_seconds: int = 0  # Duration in seconds for filtering
+    view_count: str = ""
+    source: str = "youtube"
+
+
+
+
+class YouTubeVideoSearch:
+    """Searches for YouTube videos without requiring API key"""
+    
+    def __init__(self):
+        self.headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate',
+            'DNT': '1',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+        }
+        
+    
+    def search_videos(self, query: str, max_results: int = 5) -> List[VideoResult]:
+        """Search YouTube for videos matching the query with official channel priority"""
+        all_videos = []
+        
+        try:
+            print(f"🔍 Starting search for: {query}")
+            
+            # Search more videos initially to account for filtering
+            search_limit = max_results * 3  # Get 3x videos to filter down
+            
+            # First, try searching official brand channels
+            print(f"📡 Step 1: Searching official channels...")
+            brand_videos = self._search_official_channels(query, search_limit // 2)
+            print(f"✅ Official channel search returned {len(brand_videos)} videos")
+            all_videos.extend(brand_videos)
+            
+            # Then do general search for remaining results
+            remaining_results = search_limit - len(brand_videos)
+            if remaining_results > 0:
+                print(f"📡 Step 2: General search for {remaining_results} more videos...")
+                general_videos = self._search_general(query, remaining_results)
+                print(f"✅ General search returned {len(general_videos)} videos")
+                all_videos.extend(general_videos)
+            
+            print(f"🎬 Total videos found before filtering: {len(all_videos)}")
+            
+            # Filter videos by duration (over 3 minutes)
+            filtered_videos = self._filter_videos_by_duration(all_videos, 180)
+            
+            print(f"🏁 Final filtered videos: {len(filtered_videos)}")
+            return filtered_videos[:max_results]
+            
+        except Exception as e:
+            print(f"❌ Error searching YouTube: {e}")
+            return []
+    
+    def _parse_duration_to_seconds(self, duration_str: str) -> int:
+        """Convert YouTube duration string to seconds"""
+        if not duration_str:
+            return 0
+            
+        try:
+            # Handle formats like "3:45", "1:23:45", "45" (seconds only)
+            parts = duration_str.strip().split(':')
+            
+            if len(parts) == 1:
+                # Just seconds
+                return int(parts[0])
+            elif len(parts) == 2:
+                # Minutes:seconds
+                return int(parts[0]) * 60 + int(parts[1])
+            elif len(parts) == 3:
+                # Hours:minutes:seconds
+                return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+            else:
+                return 0
+                
+        except (ValueError, IndexError):
+            return 0
+    
+    def _filter_videos_by_duration(self, videos: List[VideoResult], min_duration_seconds: int = 180) -> List[VideoResult]:
+        """Filter videos to only include those over minimum duration (default 3 minutes)"""
+        filtered_videos = []
+        
+        for video in videos:
+            if video.duration_seconds >= min_duration_seconds:
+                filtered_videos.append(video)
+            else:
+                print(f"⏱️ Filtered out '{video.title}' - too short ({video.duration})")
+        
+        print(f"🎬 Kept {len(filtered_videos)} videos over 3 minutes (filtered out {len(videos) - len(filtered_videos)})")
+        return filtered_videos
+    
+    def _extract_brand_name_with_llm(self, query: str) -> Optional[str]:
+        """Use Claude to extract brand name from fashion query"""
+        try:
+            print(f"🤖 Extracting brand name from: {query}")
+            
+            from anthropic import Anthropic
+            import os
+            
+            api_key = os.getenv('CLAUDE_API_KEY') or os.getenv('ANTHROPIC_API_KEY')
+            if not api_key:
+                print("❌ No Claude API key found")
+                return None
+                
+            client = Anthropic(api_key=api_key)
+            
+            prompt = f"""Extract only the brand/designer name from this fashion query: "{query}"
+
+Return only the brand name, nothing else. Examples:
+- "Chanel Spring 2024 Ready to Wear" → "Chanel"  
+- "Saint Laurent Fall 2023 Menswear Paris" → "Saint Laurent"
+- "Alexander McQueen Couture 2024" → "Alexander McQueen"
+
+Query: "{query}"
+Brand name:"""
+
+            response = client.messages.create(
+                model="claude-3-haiku-20240307",
+                max_tokens=50,
+                temperature=0.0,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            
+            brand_name = response.content[0].text.strip()
+            print(f"🎯 Extracted brand: '{brand_name}'")
+            return brand_name if brand_name else None
+            
+        except Exception as e:
+            print(f"❌ Error extracting brand with LLM: {e}")
+            return None
+
+    def _search_official_channels(self, query: str, max_results: int) -> List[VideoResult]:
+        """Search for official brand channel, then search within it"""
+        videos = []
+        print(f"🏗️ Starting official channel search...")
+        
+        brand = self._extract_brand_name_with_llm(query)
+        
+        if brand:
+            print(f"🎯 Looking for official {brand} channel...")
+            
+            # Step 1: Search for the brand's official channel
+            channel_search_query = f"{brand} official youtube channel"
+            print(f"🔍 Searching: {channel_search_query}")
+            channel_search_results = self._search_general(channel_search_query, 3)
+            print(f"📋 Found {len(channel_search_results)} potential channels")
+            
+            # Step 2: If we found potential official channels, search within them
+            if channel_search_results:
+                print(f"📺 Found potential official channels, searching within them...")
+                
+                for i, channel_result in enumerate(channel_search_results):
+                    print(f"🔍 Trying channel {i+1}: {channel_result.title}")
+                    try:
+                        # Extract channel name from URL or title and search within it
+                        channel_videos = self._search_within_channel(query, channel_result, max_results)
+                        print(f"📹 Got {len(channel_videos)} videos from this channel")
+                        videos.extend(channel_videos)
+                        
+                        if len(videos) >= max_results:
+                            break
+                            
+                    except Exception as e:
+                        print(f"❌ Error searching within channel: {e}")
+                        continue
+            else:
+                print(f"❌ No official channels found for {brand}")
+        else:
+            print(f"❌ Could not extract brand name")
+        
+        print(f"🏁 Official channel search complete: {len(videos)} videos")
+        return videos[:max_results]
+    
+    def _search_within_channel(self, query: str, channel_result: VideoResult, max_results: int) -> List[VideoResult]:
+        """Search within a specific channel using site: operator"""
+        try:
+            # Extract channel identifier from URL
+            if 'youtube.com' in channel_result.url:
+                # Try searching with site: operator targeting the channel
+                site_search_query = f"{query} site:youtube.com"
+                return self._search_general(site_search_query, max_results)
+            
+        except Exception as e:
+            print(f"Error in channel search: {e}")
+            
+        return []
+    
+    def _search_general(self, query: str, max_results: int) -> List[VideoResult]:
+        """Perform general YouTube search"""
+        try:
+            # Construct YouTube search URL
+            search_url = f"https://www.youtube.com/results?search_query={quote_plus(query)}"
+            
+            response = requests.get(search_url, headers=self.headers, timeout=10)
+            response.raise_for_status()
+            
+            # Parse the response to extract video information
+            videos = self._parse_youtube_results(response.text, max_results)
+            
+            return videos
+            
+        except Exception as e:
+            print(f"Error in general search: {e}")
+            return []
+    
+    def _parse_youtube_results(self, html_content: str, max_results: int) -> List[VideoResult]:
+        """Parse YouTube search results from HTML using JSON extraction"""
+        videos = []
+        seen_video_ids = set()
+        
+        try:
+            # Find the initial data JSON in the HTML
+            json_start = html_content.find('var ytInitialData = ')
+            if json_start == -1:
+                json_start = html_content.find('window["ytInitialData"] = ')
+            
+            if json_start != -1:
+                json_start = html_content.find('{', json_start)
+                json_end = html_content.find(';</script>', json_start)
+                
+                if json_end != -1:
+                    json_str = html_content[json_start:json_end]
+                    
+                    import json
+                    data = json.loads(json_str)
+                    
+                    # Navigate through YouTube's data structure
+                    contents = data.get('contents', {}).get('twoColumnSearchResultsRenderer', {}).get('primaryContents', {}).get('sectionListRenderer', {}).get('contents', [])
+                    
+                    for section in contents:
+                        items = section.get('itemSectionRenderer', {}).get('contents', [])
+                        
+                        for item in items:
+                            if 'videoRenderer' in item:
+                                video_data = item['videoRenderer']
+                                
+                                video_id = video_data.get('videoId', '')
+                                title_data = video_data.get('title', {})
+                                
+                                # Extract title
+                                title = ""
+                                if 'runs' in title_data:
+                                    title = title_data['runs'][0].get('text', '')
+                                elif 'simpleText' in title_data:
+                                    title = title_data['simpleText']
+                                
+                                # Extract thumbnail
+                                thumbnail_url = ""
+                                thumbnails = video_data.get('thumbnail', {}).get('thumbnails', [])
+                                if thumbnails:
+                                    thumbnail_url = thumbnails[0].get('url', '')
+                                
+                                # Extract duration
+                                duration_str = ""
+                                duration_seconds = 0
+                                length_text = video_data.get('lengthText', {})
+                                if 'simpleText' in length_text:
+                                    duration_str = length_text['simpleText']
+                                    duration_seconds = self._parse_duration_to_seconds(duration_str)
+                                
+                                if video_id and title and video_id not in seen_video_ids and len(videos) < max_results:
+                                    seen_video_ids.add(video_id)
+                                    
+                                    video = VideoResult(
+                                        title=title,
+                                        url=f"https://www.youtube.com/watch?v={video_id}",
+                                        thumbnail_url=thumbnail_url,
+                                        duration=duration_str,
+                                        duration_seconds=duration_seconds,
+                                        source="youtube"
+                                    )
+                                    videos.append(video)
+            
+        except Exception as e:
+            print(f"Error parsing YouTube JSON: {e}")
+            # Fallback: try to find video links in a simpler way
+            try:
+                soup = BeautifulSoup(html_content, 'html.parser')
+                links = soup.find_all('a', href=True)
+                
+                for link in links:
+                    href = link.get('href', '')
+                    if '/watch?v=' in href and len(videos) < max_results:
+                        video_id = href.split('v=')[1].split('&')[0]
+                        if video_id not in seen_video_ids:
+                            seen_video_ids.add(video_id)
+                            title = link.get('title', link.text.strip()) or f"Video {len(videos) + 1}"
+                            
+                            video = VideoResult(
+                                title=title,
+                                url=f"https://www.youtube.com/watch?v={video_id}",
+                                thumbnail_url="",
+                                duration="",
+                                duration_seconds=0,  # Fallback method can't get duration
+                                source="youtube"
+                            )
+                            videos.append(video)
+                            
+            except Exception as fallback_error:
+                print(f"Fallback parsing also failed: {fallback_error}")
+        
+        return videos
+    
+
+
+class FashionVideoSearchEngine:
+    """Main class for searching fashion show videos"""
+    
+    def __init__(self):
+        self.youtube_search = YouTubeVideoSearch()
+    
+    def search_for_collection(self, collection_name: str, collection_url: str = "") -> List[VideoResult]:
+        """Search for videos related to a fashion collection"""
+        try:
+            # Use the collection name directly as the search query
+            query = collection_name.strip()
+            print(f"Search query: {query}")
+            
+            if not query:
+                print("Empty search query provided")
+                return []
+            
+            # Search for videos
+            videos = self.youtube_search.search_videos(query, max_results=10)
+            
+            return videos
+            
+        except Exception as e:
+            print(f"Error in collection video search: {e}")
+            return []
+    
+    def get_best_video(self, collection_name: str, collection_url: str = "") -> Optional[VideoResult]:
+        """Get the most relevant video for a collection"""
+        videos = self.search_for_collection(collection_name, collection_url)
+        
+        if videos:
+            return videos[0]
+        
+        return None
+
+
+# Test functionality
+if __name__ == "__main__":
+    engine = FashionVideoSearchEngine()
+    
+    # Test with some example collection names
+    test_collections = [
+        "chanel-spring-2024-ready-to-wear",
+        "dior-fall-2023-couture-paris",
+        "versace-spring-summer-2024"
+    ]
+    
+    for collection in test_collections:
+        print(f"\n--- Testing: {collection} ---")
+        videos = engine.search_for_collection(collection)
+        
+        for video in videos[:3]:  # Show top 3 results
+            print(f"Title: {video.title}")
+            print(f"URL: {video.url}")
+            print("---")
