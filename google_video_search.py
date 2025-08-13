@@ -544,8 +544,9 @@ Do not explain, just answer YES or NO."""
             retry_result = self._retry_with_stricter_rules(query, remaining_urls, failed_title, target_year, failure_reason)
             
             if not retry_result:
-                print("❌ Claude couldn't find match in remaining URLs")
-                return None
+                print("⚠️ Claude couldn't select from remaining URLs, trying next attempt")
+                attempt += 1
+                continue
             
             # Verify the retry result
             print(f"🔍 Verifying retry selection: {retry_result.url}")
@@ -687,6 +688,10 @@ CRITICAL:
                                 url=selected_url,
                                 source="google"
                             )
+                        else:
+                            print(f"⚠️ Claude selected URL not in remaining list: {selected_url}")
+                            print("🔄 This counts as a failed attempt, will continue with next attempt")
+                            return None
                     
                     print(f"❌ Retry failed. Reasoning: {result_data.get('reasoning', '')}")
                     return None

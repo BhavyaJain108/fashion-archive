@@ -329,12 +329,8 @@ class EnhancedFashionVideoSearch:
             print(f"To folder: {self.videos_dir}")
             
             # First, check available formats
-            print("📋 Checking available video formats...")
             format_cmd = ["yt-dlp", "--list-formats", video.url]
             format_result = subprocess.run(format_cmd, capture_output=True, text=True)
-            if format_result.stdout:
-                print("Available formats:")
-                print(format_result.stdout[-2000:])  # Show format list
             
             # Run yt-dlp command with explicit quality selection
             cmd = [
