@@ -7,16 +7,28 @@ function ImageViewerPanel({
   galleryMode, 
   zoomMode,
   isDownloading,
-  hasVideo,
+  videoDownloadState,
   designerName,
   onPrevImage, 
   onNextImage, 
   onToggleGallery, 
   onCycleZoom,
-  onToggleVideo,
+  onVideoButton,
   onImageSelect 
 }) {
-  // Remove zoom functionality for now
+  // Get video button content based on state
+  const getVideoButtonContent = () => {
+    switch (videoDownloadState) {
+      case 'ready':
+        return 'Load Video';
+      case 'loading':
+        return 'Loading...';
+      case 'downloaded':
+        return '📹';
+      default:
+        return null;
+    }
+  };
 
   // Get current image path
   const getCurrentImagePath = () => {
@@ -129,12 +141,17 @@ function ImageViewerPanel({
           gallery
         </button>
         
-        {hasVideo && (
+        {getVideoButtonContent() && (
           <button 
             className="mac-button" 
-            onClick={onToggleVideo}
+            onClick={onVideoButton}
+            disabled={videoDownloadState === 'loading'}
+            style={{ 
+              opacity: videoDownloadState === 'loading' ? 0.6 : 1,
+              cursor: videoDownloadState === 'loading' ? 'not-allowed' : 'pointer'
+            }}
           >
-            📹
+            {getVideoButtonContent()}
           </button>
         )}
       </div>

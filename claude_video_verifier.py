@@ -332,15 +332,20 @@ class EnhancedFashionVideoSearch:
             format_cmd = ["yt-dlp", "--list-formats", video.url]
             format_result = subprocess.run(format_cmd, capture_output=True, text=True)
             
-            # Run yt-dlp command with explicit quality selection
+            # Run yt-dlp command with explicit quality selection and optimizations
             cmd = [
                 "yt-dlp",
                 video.url,
                 "--output", output_template,
                 "--format", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",  # Prefer mp4, highest quality
-                "--embed-metadata",  # Add metadata
-                "--write-description",  # Save description
-                "--verbose",  # Add verbose output to see what's happening
+                "--concurrent-fragments", "15", # Download 15 fragments simultaneously 
+                "--retries", "10",              # Retry failed downloads
+                "--fragment-retries", "10",     # Retry individual fragments
+                "--http-chunk-size", "10485760", # 10MB chunks for fewer requests
+                "--restrict-filenames",         # Sanitize filenames for filesystem compatibility
+                "--embed-metadata",             # Add metadata
+                "--write-description",          # Save description
+                "--verbose",                    # Add verbose output to see what's happening
             ]
             
             print(f"Running command: {' '.join(cmd)}")  # Debug: show exact command

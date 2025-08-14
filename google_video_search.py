@@ -123,48 +123,23 @@ class GoogleVideoSearch:
             # Create prompt with the actual URLs found
             urls_list = "\n".join([f"{i+1}. {url}" for i, url in enumerate(available_urls)])
             
-            prompt = f"""For the query "{query}", analyze these video URLs from Google search results and select the BEST one that contains the full runway show for the exact season, brand, and collection specified.
+            prompt = f"""For the query "{query}", analyze these video URLs from Google search results and select the BEST one that seems most relevant.
 
-IMPORTANT: You must select from one of these EXACT URLs found on the page:
+You must select from one of these EXACT URLs found on the page:
 
 {urls_list}
 
-STRICT MATCHING RULES - BE VERY STRICT:
+CRITICAL RULE: DO NOT ANALYZE DATES OR TIMING. Do not say anything about "future shows", "hasn't happened yet", or "show footage could exist". Ignore all calendar considerations completely. Just pick the most relevant URL from the list.
 
-1. SOURCE REJECTION - APPLY FIRST:
-- IMMEDIATELY REJECT any video with "Style.com" or "style.com" anywhere in title or description
-- IMMEDIATELY REJECT any video with "Elle" or "ELLE" anywhere in title or description  
-- These sources only have short clips, NOT full runway shows
-- EXAMPLE: "Givenchy Fall 2014 Ready-to-Wear - Fashion Show - Style.com" → REJECT (contains Style.com)
+IMPORTANT: Your job is to pick the MOST LIKELY match from the available URLs, even if it's not perfect. The verification system will check it properly later.
 
-2. YEAR MATCHING:
-- If searching for 2014: REJECT videos with "13/14", "2013-2014", "2013/2014" (contains previous year 2013)
-- If searching for 2014: ACCEPT videos with "2014", "14/15", "2014-2015", "2014/2015" (starts with 2014)
-- RULE: If video title contains the PREVIOUS year before the target year → REJECT
-- EXAMPLE: Search=2014, Video="FW 13/14" → REJECT (contains 2013)
-- EXAMPLE: Search=2014, Video="FW 14/15" → ACCEPT (starts with 2014)
+Basic guidelines (be flexible):
+- Avoid Style.com and Elle if possible (they're usually short clips)
+- Prefer videos that mention the same brand
+- Try to match year, season, or collection type when possible
+- But if no perfect match exists, pick the CLOSEST one available
 
-3. COLLECTION TYPE MATCHING:
-- Ready To Wear (RTW) ≠ Couture ≠ Menswear (MW)
-- Couture and Haute Couture are the SAME (some brands just have "haute" privilege)
-- If query says "Ready To Wear" → REJECT videos with "Couture", "Haute Couture", or "Menswear"
-- If query says "Couture" → ACCEPT videos with "Haute Couture" (same thing), REJECT "Ready To Wear" or "Menswear"
-- If query says "Haute Couture" → ACCEPT videos with "Couture" (same thing), REJECT "Ready To Wear" or "Menswear"
-- If query says "Menswear" → REJECT videos with any women's collections
-
-4. SEASON MATCHING:
-- Spring Summer (SS) ≠ Fall Winter (FW) - These are DIFFERENT seasons
-- If query says "Spring Summer" → REJECT videos with "Fall Winter", "Autumn Winter", "FW", "AW"
-- If query says "Fall Winter" → REJECT videos with "Spring Summer", "SS"
-- EXAMPLE: Search="Spring Summer 2014" Video="Fall Winter 2014" → REJECT (wrong season)
-
-Also look for:
-- Official brand channels or reputable fashion sources  
-- Full runway shows (not highlights, backstage, or reviews)
-- Exact match for brand, season (Spring Summer vs Fall Winter), collection type, and year
-
-You MUST select one of the URLs listed above. Do not create or modify URLs.
-If NO videos meet ALL criteria above, return "found_match": false.
+You MUST ALWAYS select exactly one URL from the list above. Even if none are perfect matches, pick the MOST RELEVANT one. DO NOT return "found_match": false unless the list is completely empty or contains zero fashion-related content.
 
 Return ONLY valid JSON. Use these exact field names and structure:
 
@@ -630,22 +605,15 @@ EXAMPLE OF WHAT WENT WRONG:
 
 Also avoid: Style.com, Elle, Vogue highlights, backstage content
 
+You MUST select exactly one URL from the remaining list. Do not return "found_match": false.
+
 Return ONLY valid JSON. Use these exact field names and structure:
 
 {{
     "found_match": true,
     "selected_url": "https://www.youtube.com/watch?v=example",
-    "reasoning": "single line explanation focusing on why this {target_year} video is correct",
-    "evidence": "single line text showing this video is from {target_year}"
-}}
-
-OR if no match:
-
-{{
-    "found_match": false,
-    "selected_url": "",
-    "reasoning": "single line explanation why no match was found after previous failure",
-    "evidence": ""
+    "reasoning": "single line explanation focusing on why this video is the best available option",
+    "evidence": "single line text from the video title or description"
 }}
 
 CRITICAL: 

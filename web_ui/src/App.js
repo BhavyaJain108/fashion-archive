@@ -32,6 +32,7 @@ function App() {
   // Video State
   const [videoModalOpen, setVideoModalOpen] = useState(false);
   const [currentVideoPath, setCurrentVideoPath] = useState(null);
+  const [videoDownloadState, setVideoDownloadState] = useState('none'); // 'none', 'loading', 'ready'
 
   // Initialize - Load seasons on startup (matches tkinter)
   useEffect(() => {
@@ -119,8 +120,9 @@ function App() {
     setColumn3Activated(true);
     setIsDownloading(true);
     
-    // Clear current video path (matches tkinter)
+    // Clear current video state (matches tkinter)
     setCurrentVideoPath(null);
+    setVideoDownloadState('none');
     if (videoModalOpen) {
       setVideoModalOpen(false);
     }
@@ -138,16 +140,8 @@ function App() {
       setCurrentImages(imageData.imagePaths || []);
       setCurrentImageIndex(0);
       
-      // Start video download in parallel (matches tkinter)
-      FashionArchiveAPI.downloadVideo(collection)
-        .then(videoPath => {
-          if (videoPath) {
-            setCurrentVideoPath(videoPath);
-          }
-        })
-        .catch(error => {
-          console.error('Video download failed:', error);
-        });
+      // Set video state to ready for download (no automatic download)
+      setVideoDownloadState('ready');
         
     } catch (error) {
       console.error('Error downloading images:', error);
@@ -186,9 +180,25 @@ function App() {
     setZoomMode((zoomMode + 1) % 3);
   };
 
-  // Video player toggle
-  const handleToggleVideo = () => {
-    if (currentVideoPath) {
+  // Handle video button click - download or toggle video
+  const handleVideoButton = async () => {
+    if (videoDownloadState === 'ready') {
+      // Start download
+      setVideoDownloadState('loading');
+      try {
+        const videoPath = await FashionArchiveAPI.downloadVideo(selectedCollection);
+        if (videoPath) {
+          setCurrentVideoPath(videoPath);
+          setVideoDownloadState('downloaded');
+        } else {
+          setVideoDownloadState('ready'); // Reset on failure
+        }
+      } catch (error) {
+        console.error('Video download failed:', error);
+        setVideoDownloadState('ready'); // Reset on failure
+      }
+    } else if (videoDownloadState === 'downloaded') {
+      // Toggle video modal
       setVideoModalOpen(!videoModalOpen);
     }
   };
@@ -270,13 +280,13 @@ function App() {
               galleryMode={galleryMode}
               zoomMode={zoomMode}
               isDownloading={isDownloading}
-              hasVideo={!!currentVideoPath}
+              videoDownloadState={videoDownloadState}
               designerName={selectedCollection?.designer || ''}
               onPrevImage={handlePrevImage}
               onNextImage={handleNextImage}
               onToggleGallery={handleToggleGallery}
               onCycleZoom={handleCycleZoom}
-              onToggleVideo={handleToggleVideo}
+              onVideoButton={handleVideoButton}
               onImageSelect={setCurrentImageIndex}
             />
           </div>
