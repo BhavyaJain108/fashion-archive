@@ -31,7 +31,7 @@ An intelligent fashion show archiving system with AI-powered video verification 
 ### Prerequisites
 - Python 3.8+
 - Node.js 16+ (for web UI)
-- Claude AI API key
+- LLM API access (Claude, OpenAI, or local LLM)
 
 ### Backend Setup
 ```bash
@@ -43,8 +43,11 @@ python -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r web_ui_requirements.txt
 
-# Environment configuration
-echo "CLAUDE_API_KEY=your_api_key_here" > .env
+# Environment configuration - choose your LLM provider
+echo "LLM_PROVIDER=claude" > .env
+echo "CLAUDE_API_KEY=your_claude_api_key_here" >> .env
+# OR for OpenAI: echo "LLM_PROVIDER=openai" > .env && echo "OPENAI_API_KEY=your_openai_key" >> .env  
+# OR for local: echo "LLM_PROVIDER=local" > .env
 ```
 
 ### Frontend Setup
@@ -121,7 +124,19 @@ Attempt 3: ✅ "GIVENCHY Fall Winter 2014" (passes all checks)
 
 ### Environment Variables
 ```bash
+# Choose LLM provider
+LLM_PROVIDER=claude  # or openai, local
+
+# Claude (default)
 CLAUDE_API_KEY=your_claude_api_key
+
+# OpenAI (alternative) 
+OPENAI_API_KEY=your_openai_key
+OPENAI_MODEL=gpt-4
+
+# Local LLM (alternative)
+LOCAL_LLM_URL=http://localhost:11434
+LOCAL_LLM_MODEL=llama3
 ```
 
 ### Folder Structure

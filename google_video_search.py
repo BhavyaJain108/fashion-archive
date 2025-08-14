@@ -11,8 +11,8 @@ from urllib.parse import quote_plus
 from dataclasses import dataclass
 from typing import List, Optional
 from bs4 import BeautifulSoup
-from anthropic import Anthropic
 from dotenv import load_dotenv
+from llm_interface import get_llm_client
 
 # Load environment variables
 load_dotenv()
@@ -94,14 +94,13 @@ class GoogleVideoSearch:
     def _analyze_with_llm(self, query: str, html_content: str) -> Optional[GoogleVideoResult]:
         """Use Claude to analyze Google results and pick the best video"""
         try:
-            print(f"🤖 Using Claude to analyze Google results...")
+            print(f"🤖 Using LLM to analyze Google results...")
             
-            api_key = os.getenv('CLAUDE_API_KEY') or os.getenv('ANTHROPIC_API_KEY')
-            if not api_key:
-                print("❌ No Claude API key found")
+            try:
+                llm_client = get_llm_client()
+            except (ValueError, ImportError) as e:
+                print(f"❌ LLM setup failed: {e}")
                 return None
-                
-            client = Anthropic(api_key=api_key)
             
             # Extract video URLs from the HTML first
             soup = BeautifulSoup(html_content, 'html.parser')
@@ -165,16 +164,8 @@ CRITICAL:
 - Keep all text on single lines within the JSON strings
 - Do not add any text before or after the JSON"""
 
-            response = client.messages.create(
-                model="claude-3-5-sonnet-20241022",
-                max_tokens=1000,
-                temperature=0.0,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            
-            # Parse Claude's response
-            response_text = response.content[0].text.strip()
-            print(f"🎯 Claude response: {response_text}")
+            response_text = llm_client.generate(prompt, max_tokens=1000, temperature=0.0)
+            print(f"🎯 LLM response: {response_text}")
             
             import json
             # Extract JSON from response with better parsing
@@ -201,7 +192,7 @@ CRITICAL:
                         print(f"⚠️ Claude selected URL not in available list: {selected_url}")
                         return None
                     
-                    print(f"🎯 Claude selected: {selected_url}")
+                    print(f"🎯 LLM selected: {selected_url}")
                     print(f"💭 Reasoning: {result_data.get('reasoning', '')}")
                     print(f"🔍 Evidence from webpage: {result_data.get('evidence', '')}")
                     
@@ -216,7 +207,7 @@ CRITICAL:
                         
                         if verification_failed:
                             print(f"🚫 VERIFICATION FAILED: {failure_reason}")
-                            print(f"🔄 Asking Claude to try again with stricter filtering...")
+                            print(f"🔄 Asking LLM to try again with stricter filtering...")
                             
                             # Remove the bad URL and try again with verification loop
                             filtered_urls = [url for url in available_urls if url != selected_url]
@@ -383,15 +374,11 @@ CRITICAL:
     def _verify_season_with_llm(self, query: str, video_title: str, expected_season: str) -> bool:
         """Use LLM to verify if video season matches query season using reasoning"""
         try:
-            import os
-            from anthropic import Anthropic
-            
-            api_key = os.getenv('CLAUDE_API_KEY') or os.getenv('ANTHROPIC_API_KEY')
-            if not api_key:
-                print("⚠️ No Claude API key - skipping LLM season verification")
-                return True  # Allow if no API key
-                
-            client = Anthropic(api_key=api_key)
+            try:
+                llm_client = get_llm_client()
+            except (ValueError, ImportError) as e:
+                print(f"⚠️ LLM setup failed - skipping season verification: {e}")
+                return True  # Allow if no LLM available
             
             prompt = f"""Determine if these two fashion items refer to the SAME SEASON:
 
@@ -410,14 +397,7 @@ SEASON REASONING GUIDE:
 Answer ONLY "YES" if they refer to the same season, or "NO" if different seasons.
 Do not explain, just answer YES or NO."""
 
-            response = client.messages.create(
-                model="claude-3-5-sonnet-20241022",
-                max_tokens=10,
-                temperature=0.0,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            
-            answer = response.content[0].text.strip().upper()
+            answer = llm_client.generate(prompt, max_tokens=10, temperature=0.0).upper()
             print(f"🤖 LLM season verification: {answer}")
             return answer == "YES"
             
@@ -482,12 +462,15 @@ Do not explain, just answer YES or NO."""
                     print(f"✅ Collection type check passed: {title_collection}")
         else:
             # Video doesn't mention collection type
-            if query_collection and query_collection != 'couture':
-                # Non-couture queries are flexible - allow videos without collection type
-                print(f"⚠️ Query specifies '{query_collection}' but video doesn't mention collection type - allowing")
+            if query_collection == 'menswear':
+                # Menswear queries are strict - video must mention menswear
+                return True, f"Query specifies '{query_collection}' but video doesn't mention collection type"
             elif query_collection == 'couture':
                 # This case is already handled above in the special couture check
                 pass
+            elif query_collection == 'ready to wear':
+                # RTW queries are flexible - allow videos without collection type
+                print(f"⚠️ Query specifies '{query_collection}' but video doesn't mention collection type - allowing")
             else:
                 print("⚠️ No collection type mentioned in either query or video - allowing")
         
@@ -558,13 +541,13 @@ Do not explain, just answer YES or NO."""
         return None
 
     def _retry_with_stricter_rules(self, query: str, remaining_urls: List[str], failed_title: str, target_year: int, failure_reason: str = "") -> Optional[GoogleVideoResult]:
-        """Retry Claude selection with stricter rules and example of what went wrong"""
+        """Retry LLM selection with stricter rules and example of what went wrong"""
         try:
-            api_key = os.getenv('CLAUDE_API_KEY') or os.getenv('ANTHROPIC_API_KEY')
-            if not api_key:
+            try:
+                llm_client = get_llm_client()
+            except (ValueError, ImportError) as e:
+                print(f"❌ LLM setup failed: {e}")
                 return None
-                
-            client = Anthropic(api_key=api_key)
             
             urls_list = "\n".join([f"{i+1}. {url}" for i, url in enumerate(remaining_urls)])
             
@@ -622,15 +605,8 @@ CRITICAL:
 - Keep all text on single lines within the JSON strings
 - Do not add any text before or after the JSON"""
 
-            response = client.messages.create(
-                model="claude-3-5-sonnet-20241022",
-                max_tokens=1000,
-                temperature=0.0,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            
-            response_text = response.content[0].text.strip()
-            print(f"🔄 Retry Claude response: {response_text}")
+            response_text = llm_client.generate(prompt, max_tokens=1000, temperature=0.0)
+            print(f"🔄 Retry LLM response: {response_text}")
             
             # Parse the retry response
             import json

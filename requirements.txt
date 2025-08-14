@@ -10,8 +10,12 @@ Pillow>=10.0.0
 # Video and AI processing
 opencv-python>=4.8.0
 yt-dlp>=2023.7.6
-anthropic>=0.25.0
 python-dotenv>=1.0.0
+
+# LLM providers (choose one or more)
+anthropic>=0.25.0      # For Claude (default)
+openai>=1.0.0          # For OpenAI GPT models (optional)
+# requests>=2.31.0     # For local LLM support (already included above)
 
 # Data handling
 numpy>=1.24.0
