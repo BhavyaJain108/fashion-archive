@@ -51,7 +51,7 @@ function App() {
     loadSeasons();
   }, []);
 
-  // Handle season selection - show column 2 (collections) with streaming
+  // Handle season selection - show column 2 (collections) with progress tracking
   const handleSeasonSelect = async (season) => {
     setSelectedSeason(season);
     setColumn2Activated(true);
@@ -60,7 +60,7 @@ function App() {
     setLoadingProgress({ page: 0, total: 0 });
     
     try {
-      // Use streaming collections (matches tkinter stream_collections_update)
+      // Load collections with progress tracking but show results all at once when complete
       const finalCollections = await FashionArchiveAPI.streamCollections(
         season.url,
         (streamData) => {
@@ -71,18 +71,13 @@ function App() {
           }
           
           if (!streamData.complete) {
-            // Update progress (matches tkinter real-time updates)
+            // Update progress only (don't show partial results)
             setLoadingProgress({
               page: streamData.page,
               total: streamData.total_collections
             });
-            
-            // Update collections in real-time
-            if (streamData.page_collections) {
-              setCollections(prev => [...prev, ...streamData.page_collections]);
-            }
           } else {
-            // Final complete data
+            // Show final complete data all at once
             if (streamData.collections) {
               setCollections(streamData.collections);
             }
@@ -91,6 +86,7 @@ function App() {
         }
       );
       
+      // Ensure we have final data
       if (finalCollections) {
         setCollections(finalCollections);
       }
@@ -273,7 +269,7 @@ function App() {
 
         {/* Column 3: Image Viewer (Visible after collection selection) */}
         {column3Activated && (
-          <div className="column">
+          <div className="column" style={{ flex: 1 }}>
             <ImageViewerPanel 
               images={currentImages}
               currentImageIndex={currentImageIndex}
