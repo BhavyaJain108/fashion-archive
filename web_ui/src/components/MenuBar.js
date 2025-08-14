@@ -8,6 +8,7 @@ function MenuBar() {
   const [videoTestOpen, setVideoTestOpen] = useState(false);
   const [testQuery, setTestQuery] = useState('');
   const [testResults, setTestResults] = useState(null);
+  const [researchMode, setResearchMode] = useState(false);
 
   // Show Tools menu dropdown
   const handleToolsClick = () => {
@@ -47,6 +48,12 @@ function MenuBar() {
     }
   };
 
+  // Toggle research mode
+  const handleResearchToggle = () => {
+    setResearchMode(!researchMode);
+    setShowToolsMenu(false);
+  };
+
   return (
     <>
       {/* Menu Bar (matches tkinter menu system) */}
@@ -64,43 +71,81 @@ function MenuBar() {
         fontSize: '12px',
         paddingLeft: '8px'
       }}>
-        <div className="mac-menu-item" 
-             onClick={handleToolsClick}
+        <div onClick={handleToolsClick}
              style={{ 
                padding: '2px 8px', 
                cursor: 'pointer',
-               position: 'relative' 
+               position: 'relative',
+               backgroundColor: showToolsMenu ? '#e0e0e0' : 'transparent',
+               color: '#000'
+             }}
+             onMouseEnter={(e) => {
+               if (!showToolsMenu) {
+                 e.target.style.backgroundColor = '#d0d0d0';
+               }
+             }}
+             onMouseLeave={(e) => {
+               if (!showToolsMenu) {
+                 e.target.style.backgroundColor = 'transparent';
+               }
              }}
         >
           Tools
           
           {/* Tools Dropdown Menu */}
           {showToolsMenu && (
-            <div className="mac-dropdown" style={{
+            <div style={{
               position: 'absolute',
               top: '100%',
               left: 0,
-              backgroundColor: 'white',
-              border: '2px outset var(--mac-bg)',
+              backgroundColor: '#f0f0f0',
+              border: '1px solid #ccc',
+              borderTop: 'none',
               minWidth: '150px',
-              zIndex: 1001
+              zIndex: 1001,
+              boxShadow: '2px 2px 4px rgba(0,0,0,0.1)'
             }}>
-              <div className="mac-menu-option" 
-                   onClick={handleVideoTest}
+              <div onClick={handleResearchToggle}
                    style={{ 
-                     padding: '4px 12px', 
+                     padding: '6px 12px', 
                      cursor: 'pointer',
-                     borderBottom: '1px solid var(--mac-border)'
+                     borderBottom: '1px solid #ddd',
+                     display: 'flex',
+                     justifyContent: 'space-between',
+                     alignItems: 'center',
+                     backgroundColor: 'transparent',
+                     color: '#000'
                    }}
+                   onMouseEnter={(e) => e.target.style.backgroundColor = '#d0d0d0'}
+                   onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
+              >
+                <span>Research</span>
+                <span style={{ fontSize: '12px', fontWeight: 'bold' }}>
+                  {researchMode ? '✓' : ''}
+                </span>
+              </div>
+              <div onClick={handleVideoTest}
+                   style={{ 
+                     padding: '6px 12px', 
+                     cursor: 'pointer',
+                     borderBottom: '1px solid #ddd',
+                     backgroundColor: 'transparent',
+                     color: '#000'
+                   }}
+                   onMouseEnter={(e) => e.target.style.backgroundColor = '#d0d0d0'}
+                   onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
               >
                 Video Search Test
               </div>
-              <div className="mac-menu-option" 
-                   onClick={handleAboutClick}
+              <div onClick={handleAboutClick}
                    style={{ 
-                     padding: '4px 12px', 
-                     cursor: 'pointer' 
+                     padding: '6px 12px', 
+                     cursor: 'pointer',
+                     backgroundColor: 'transparent',
+                     color: '#000'
                    }}
+                   onMouseEnter={(e) => e.target.style.backgroundColor = '#d0d0d0'}
+                   onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
               >
                 About
               </div>
