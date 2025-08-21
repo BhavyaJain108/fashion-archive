@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { FashionArchiveAPI } from '../services/api';
+import MacModal from './MacModal';
 
 function MyBrandsPanel({ currentView }) {
   const [brands, setBrands] = useState([]);
@@ -15,6 +16,7 @@ function MyBrandsPanel({ currentView }) {
   const [products, setProducts] = useState([]);
   const [scrapingResult, setScrapingResult] = useState(null);
   const [selectedProductIndex, setSelectedProductIndex] = useState(0);
+  const [resultModal, setResultModal] = useState(null); // { type: 'success'|'error', title: '', message: '' }
 
   // Load brands on component mount
   useEffect(() => {
@@ -95,13 +97,21 @@ function MyBrandsPanel({ currentView }) {
             finalUrl = resolverResult.url;
             console.log(`🔍 Resolved "${newBrandInput}" to: ${finalUrl}`);
           } else {
-            alert(`Could not find official website for "${newBrandInput}". ${resolverResult.message || 'Try entering the URL directly.'}`);
+            setResultModal({
+              type: 'error',
+              title: 'Brand Not Found',
+              message: `Could not find official website for "${newBrandInput}". ${resolverResult.message || 'Try entering the URL directly.'}`
+            });
             setResolverLoading(false);
             return;
           }
         } catch (error) {
           console.error('Error resolving brand name:', error);
-          alert('Error finding brand website. Try entering the URL directly.');
+          setResultModal({
+            type: 'error',
+            title: 'Search Error',
+            message: 'Error finding brand website. Please try entering the URL directly.'
+          });
           setResolverLoading(false);
           return;
         } finally {
@@ -112,7 +122,8 @@ function MyBrandsPanel({ currentView }) {
       // Now validate and add the brand with the final URL
       setValidationLoading(true);
       const result = await FashionArchiveAPI.addBrand({
-        url: finalUrl
+        url: finalUrl,
+        name: inputMode === 'name' ? newBrandInput.trim() : null  // Send brand name for validation
       });
       
       if (result.success) {
@@ -120,13 +131,25 @@ function MyBrandsPanel({ currentView }) {
         setShowAddBrand(false);
         loadBrands();
         loadStats();
-        alert(`✅ ${result.brand?.name || 'Brand'} added successfully!`);
+        setResultModal({
+          type: 'success',
+          title: 'Brand Added Successfully!',
+          message: `✅ ${result.brand?.name || 'Brand'} has been validated and added to your collection.`
+        });
       } else {
-        alert(result.message || 'Failed to add brand');
+        setResultModal({
+          type: 'error',
+          title: 'Brand Validation Failed',
+          message: result.message || 'Failed to add brand. Please try again.'
+        });
       }
     } catch (error) {
       console.error('Error adding brand:', error);
-      alert('Error adding brand. Please try again.');
+      setResultModal({
+        type: 'error',
+        title: 'Error Adding Brand',
+        message: 'An unexpected error occurred. Please try again.'
+      });
     } finally {
       setValidationLoading(false);
     }
@@ -888,7 +911,7 @@ function MyBrandsPanel({ currentView }) {
         </div>
       </div>
 
-      {/* Add Brand Modal */}
+      {/* Add Brand Modal - Classic Mac Style */}
       {showAddBrand && (
         <div className="mac-modal-overlay" style={{
           position: 'fixed',
@@ -906,25 +929,37 @@ function MyBrandsPanel({ currentView }) {
             backgroundColor: 'var(--mac-bg)',
             border: '2px outset var(--mac-bg)',
             padding: '20px',
-            minWidth: '450px',
-            maxWidth: '600px'
+            width: '500px',
+            minHeight: '320px',
+            boxSizing: 'border-box',
+            display: 'flex',
+            flexDirection: 'column'
           }}>
-            <h3 style={{ margin: '0 0 16px 0' }}>Add New Brand</h3>
+            
+            {/* Title */}
+            <div className="mac-label title" style={{ 
+              textAlign: 'center',
+              marginBottom: '20px',
+              fontSize: '14px'
+            }}>
+              Add New Brand
+            </div>
             
             {/* Input Mode Toggle */}
             <div style={{ marginBottom: '16px' }}>
-              <div style={{ fontSize: '12px', color: '#666', marginBottom: '8px' }}>
+              <div className="mac-label" style={{ marginBottom: '8px', fontSize: '12px' }}>
                 Add brand by:
               </div>
-              <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+              <div style={{ display: 'flex', gap: '8px' }}>
                 <button
                   className={`mac-button ${inputMode === 'name' ? 'selected' : ''}`}
                   onClick={() => setInputMode('name')}
                   style={{
-                    backgroundColor: inputMode === 'name' ? '#007bff' : 'transparent',
+                    flex: 1,
+                    backgroundColor: inputMode === 'name' ? '#007bff' : 'var(--mac-bg)',
                     color: inputMode === 'name' ? '#fff' : '#000',
                     fontSize: '12px',
-                    padding: '4px 12px'
+                    padding: '6px 12px'
                   }}
                   disabled={validationLoading || resolverLoading}
                 >
@@ -934,10 +969,11 @@ function MyBrandsPanel({ currentView }) {
                   className={`mac-button ${inputMode === 'url' ? 'selected' : ''}`}
                   onClick={() => setInputMode('url')}
                   style={{
-                    backgroundColor: inputMode === 'url' ? '#007bff' : 'transparent',
+                    flex: 1,
+                    backgroundColor: inputMode === 'url' ? '#007bff' : 'var(--mac-bg)',
                     color: inputMode === 'url' ? '#fff' : '#000',
                     fontSize: '12px',
-                    padding: '4px 12px'
+                    padding: '6px 12px'
                   }}
                   disabled={validationLoading || resolverLoading}
                 >
@@ -946,21 +982,27 @@ function MyBrandsPanel({ currentView }) {
               </div>
             </div>
             
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{ display: 'block', marginBottom: '8px' }}>
-                {inputMode === 'name' ? 'Brand Name:' : 'Brand Website URL:'}
+            {/* Input Field */}
+            <div style={{ marginBottom: '16px', flex: 1 }}>
+              <label className="mac-label" style={{ 
+                display: 'block', 
+                marginBottom: '8px',
+                fontSize: '12px'
+              }}>
+                {inputMode === 'name' ? 'Brand Name:' : 'Website URL:'}
               </label>
               <input 
                 type="text"
                 value={newBrandInput}
-                onChange={(e) => setNewBrandInput(e.target.value)}
+                onChange={(e) => setNewBrandInput(e.target.value.slice(0, 250))}
                 className="mac-input"
+                maxLength={250}
                 style={{ 
                   width: '100%',
                   padding: '8px',
                   fontSize: '14px',
-                  minWidth: '400px',
-                  boxSizing: 'border-box'
+                  boxSizing: 'border-box',
+                  marginBottom: '4px'
                 }}
                 placeholder={
                   inputMode === 'name' 
@@ -969,40 +1011,69 @@ function MyBrandsPanel({ currentView }) {
                 }
                 disabled={validationLoading || resolverLoading}
               />
-            </div>
+              <div style={{ 
+                fontSize: '11px', 
+                color: '#666', 
+                textAlign: 'right',
+                marginBottom: '8px'
+              }}>
+                {newBrandInput.length}/250 characters
+              </div>
 
-            <div style={{ 
-              fontSize: '12px', 
-              color: '#666', 
-              marginBottom: '20px',
-              lineHeight: '1.4'
-            }}>
-              {inputMode === 'name' ? (
-                <>
-                  🔍 We'll search Google for "{newBrandInput || '[brand name]'} official website" and automatically find their official site using AI.
-                </>
-              ) : (
-                <>
-                  📋 We'll validate that this is a small, independent fashion brand before adding it to your collection.
-                </>
+              {/* Help Text */}
+              <div className="mac-text" style={{ 
+                fontSize: '11px', 
+                color: '#666', 
+                lineHeight: '1.3',
+                padding: '8px',
+                border: '1px inset var(--mac-bg)',
+                backgroundColor: '#f9f9f9',
+                marginBottom: '16px'
+              }}>
+                {inputMode === 'name' ? (
+                  <>
+                    🔍 We'll search Google for "<strong>{newBrandInput || '[brand name]'}</strong> official website" and validate it's a small, emerging independent fashion brand.
+                  </>
+                ) : (
+                  <>
+                    📋 We'll validate that this is a small, emerging, independent fashion brand (not large retailers or marketplaces) before adding it to your collection.
+                  </>
+                )}
+              </div>
+
+              {/* Loading State */}
+              {resolverLoading && (
+                <div style={{
+                  padding: '12px',
+                  border: '1px inset var(--mac-bg)',
+                  backgroundColor: '#f0f8ff',
+                  marginBottom: '16px',
+                  fontSize: '12px'
+                }}>
+                  🔍 Searching for "<strong>{newBrandInput}</strong>" official website...
+                </div>
+              )}
+
+              {validationLoading && (
+                <div style={{
+                  padding: '12px',
+                  border: '1px inset var(--mac-bg)',
+                  backgroundColor: '#fff0f0',
+                  marginBottom: '16px',
+                  fontSize: '12px'
+                }}>
+                  🤖 AI validating brand as small/independent...
+                </div>
               )}
             </div>
 
-            {/* Loading indicator for resolver */}
-            {resolverLoading && (
-              <div style={{
-                padding: '12px',
-                backgroundColor: '#f0f8ff',
-                border: '1px solid #d0e8ff',
-                borderRadius: '4px',
-                marginBottom: '16px',
-                fontSize: '12px'
-              }}>
-                🔍 Searching for "{newBrandInput}" official website...
-              </div>
-            )}
-
-            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+            {/* Buttons */}
+            <div style={{ 
+              display: 'flex', 
+              gap: '12px', 
+              justifyContent: 'flex-end',
+              marginTop: 'auto'
+            }}>
               <button 
                 className="mac-button"
                 onClick={() => {
@@ -1010,6 +1081,7 @@ function MyBrandsPanel({ currentView }) {
                   setNewBrandInput('');
                 }}
                 disabled={validationLoading || resolverLoading}
+                style={{ minWidth: '80px' }}
               >
                 Cancel
               </button>
@@ -1018,8 +1090,9 @@ function MyBrandsPanel({ currentView }) {
                 onClick={handleAddBrand}
                 disabled={!newBrandInput.trim() || validationLoading || resolverLoading}
                 style={{ 
-                  backgroundColor: (validationLoading || resolverLoading) ? '#ccc' : '#007bff',
-                  color: '#fff'
+                  backgroundColor: (validationLoading || resolverLoading || !newBrandInput.trim()) ? '#ccc' : '#007bff',
+                  color: '#fff',
+                  minWidth: '100px'
                 }}
               >
                 {resolverLoading ? 'Searching...' : validationLoading ? 'Validating...' : 'Add Brand'}
@@ -1028,6 +1101,16 @@ function MyBrandsPanel({ currentView }) {
           </div>
         </div>
       )}
+
+      {/* Result Modal - Success/Error */}
+      <MacModal
+        show={!!resultModal}
+        onClose={() => setResultModal(null)}
+        type={resultModal?.type || 'info'}
+        title={resultModal?.title || ''}
+        message={resultModal?.message || ''}
+        zIndex={2100}
+      />
     </div>
   );
 }

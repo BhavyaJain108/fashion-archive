@@ -23,8 +23,8 @@ from config import config
 
 from .brands_db import brands_db
 from .llm_client import create_my_brands_llm
-from .scraping_detector import analyze_brand_website_scraping
-from .scraping_strategies import get_scraping_strategy
+from .scraping.scraping_detector import analyze_brand_website_scraping
+from .scraping.scraping_strategies import get_scraping_strategy
 from .brand_url_resolver import BrandURLResolver
 
 
@@ -47,6 +47,9 @@ class BrandsAPI:
         try:
             data = request.get_json()
             url = data.get('url', '').strip()
+            provided_name = data.get('name') or ''  # Handle None values
+            if provided_name:
+                provided_name = provided_name.strip()
             
             if not url:
                 return jsonify({'success': False, 'message': 'URL is required'}), 400
@@ -76,8 +79,8 @@ class BrandsAPI:
                     'message': 'Unable to access website. Please check the URL.'
                 })
             
-            # AI validation and scraping analysis
-            analysis = self.llm.analyze_brand_website(url, website_content)
+            # AI validation and scraping analysis (with brand name for validation)
+            analysis = self.llm.analyze_brand_website(url, website_content, provided_name)
             
             if not analysis.is_valid_brand:
                 return jsonify({
@@ -297,7 +300,7 @@ class BrandsAPI:
                     self._clear_brand_products(brand_id)
 
                 # Use the NEW IntelligentScraper with dynamic parallel batching
-                from .intelligent_scraper import IntelligentScraper
+                from .scraping.intelligent_scraper import IntelligentScraper
                 
                 scraper = IntelligentScraper()
                 

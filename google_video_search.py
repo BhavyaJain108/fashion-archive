@@ -73,6 +73,49 @@ class GoogleVideoSearch:
         except Exception as e:
             print(f"❌ Error in Google video search: {e}")
             return None
+
+    def get_all_video_candidates(self, query: str) -> List[str]:
+        """
+        Get all video URLs from Google search results for fallback attempts
+        
+        Args:
+            query: Fashion show query
+            
+        Returns:
+            List of video URLs ordered by relevance
+        """
+        print(f"🔍 Getting all video candidates for: {query}")
+        
+        try:
+            # Clean query: convert dashes to spaces
+            clean_query = query.replace("-", " ")
+            
+            # Get full Google search results page with video filter
+            html_content = self._get_google_video_search_page(clean_query)
+            
+            if not html_content:
+                print("❌ Failed to get Google search results")
+                return []
+            
+            # Extract all video URLs from the HTML
+            soup = BeautifulSoup(html_content, 'html.parser')
+            available_urls = []
+            for element in soup.find_all('a', href=True):
+                href = element.get('href', '')
+                if 'youtube.com' in href or 'youtu.be' in href or 'vimeo.com' in href:
+                    if href.startswith('/url?q='):
+                        href = href[7:].split('&')[0]
+                        from urllib.parse import unquote
+                        href = unquote(href)
+                    if href not in available_urls:
+                        available_urls.append(href)
+            
+            print(f"✅ Found {len(available_urls)} video candidates")
+            return available_urls
+            
+        except Exception as e:
+            print(f"❌ Error getting video candidates: {e}")
+            return []
     
     def _get_google_video_search_page(self, query: str) -> Optional[str]:
         """Get Google search results page with video filter"""
@@ -549,15 +592,21 @@ Do not explain, just answer YES or NO."""
                 print(f"❌ LLM setup failed: {e}")
                 return None
             
-            urls_list = "\n".join([f"{i+1}. {url}" for i, url in enumerate(remaining_urls)])
+            # Get titles for URLs to provide better context
+            urls_with_titles = []
+            for i, url in enumerate(remaining_urls):
+                title = self._get_video_title(url) or f"URL {i+1}"
+                urls_with_titles.append(f"{i+1}. TITLE: {title}\n   URL: {url}")
+            
+            urls_list = "\n".join(urls_with_titles)
             
             failure_explanation = failure_reason or f"contains the WRONG YEAR {target_year-1} instead of {target_year}"
             
             prompt = f"""PREVIOUS ATTEMPT FAILED! The last video selected was "{failed_title}" which {failure_explanation}.
 
-For the query "{query}", analyze these remaining video URLs and select the BEST one that contains the full runway show for the EXACT season, brand, and collection specified.
+For the query "{query}", analyze these remaining videos and select the BEST one that contains the full runway show for the EXACT season, brand, and collection specified.
 
-REMAINING URLs:
+REMAINING VIDEOS:
 {urls_list}
 
 STRICT VERIFICATION RULES - NO EXCEPTIONS:
@@ -588,13 +637,12 @@ EXAMPLE OF WHAT WENT WRONG:
 
 Also avoid: Style.com, Elle, Vogue highlights, backstage content
 
-You MUST select exactly one URL from the remaining list. Do not return "found_match": false.
+You MUST select exactly one video title from the remaining list. Do not return "found_match": false.
 
 Return ONLY valid JSON. Use these exact field names and structure:
 
 {{
-    "found_match": true,
-    "selected_url": "https://www.youtube.com/watch?v=example",
+    "selected_title": "exact video title from the list",
     "reasoning": "single line explanation focusing on why this video is the best available option",
     "evidence": "single line text from the video title or description"
 }}
@@ -620,25 +668,35 @@ CRITICAL:
                 try:
                     result_data = json.loads(json_text)
                     
-                    if result_data.get('found_match', False):
-                        selected_url = result_data.get('selected_url', '')
-                        if selected_url in remaining_urls:
-                            print(f"🎯 Retry selection: {selected_url}")
-                            print(f"💭 Retry reasoning: {result_data.get('reasoning', '')}")
-                            print(f"🔍 Retry evidence: {result_data.get('evidence', '')}")
-                            
+                    selected_title = result_data.get('selected_title', '')
+                    if selected_title:
+                        print(f"🎯 Claude selected title: {selected_title}")
+                        print(f"💭 Retry reasoning: {result_data.get('reasoning', '')}")
+                        print(f"🔍 Retry evidence: {result_data.get('evidence', '')}")
+                        
+                        # Find matching URL for the selected title
+                        matching_url = None
+                        for url in remaining_urls:
+                            # Get title for this URL and compare
+                            url_title = self._get_video_title(url)
+                            if url_title and selected_title.lower().strip() in url_title.lower().strip():
+                                matching_url = url
+                                print(f"🎯 Found matching URL: {url}")
+                                break
+                        
+                        if matching_url:
                             return GoogleVideoResult(
-                                title=f"Retry selection from {selected_url}",
-                                url=selected_url,
+                                title=selected_title,
+                                url=matching_url,
                                 source="google"
                             )
                         else:
-                            print(f"⚠️ Claude selected URL not in remaining list: {selected_url}")
+                            print(f"⚠️ Could not find URL for selected title: {selected_title}")
                             print("🔄 This counts as a failed attempt, will continue with next attempt")
                             return None
-                    
-                    print(f"❌ Retry failed. Reasoning: {result_data.get('reasoning', '')}")
-                    return None
+                    else:
+                        print(f"❌ No title selected in response")
+                        return None
                     
                 except json.JSONDecodeError as e:
                     print(f"❌ Retry JSON parsing error: {e}")

@@ -284,7 +284,7 @@ class EnhancedFashionVideoSearch:
     
     def search_verify_and_download(self, search_query: str) -> Optional[str]:
         """
-        Search using Google, and download the best match
+        Search using Google, verify, and download the best match with fallback
         
         Returns:
             Path to downloaded file if successful, None otherwise
@@ -292,29 +292,115 @@ class EnhancedFashionVideoSearch:
         print(f"🔍 SEARCHING AND DOWNLOADING: {search_query}")
         print("=" * 60)
         
-        # Search using Google video search (already includes LLM verification)
+        # First, try the verified best match from Google search
         best_video = self.search_and_verify(search_query)
         
-        if not best_video:
-            print("❌ No video to download")
-            return None
+        if best_video:
+            print(f"\n📥 DOWNLOADING PRIMARY CHOICE...")
+            print(f"Title: {best_video.title}")
+            print(f"URL: {best_video.url}")
+            
+            try:
+                downloaded_path = self._download_video(best_video)
+                if downloaded_path:
+                    print(f"✅ DOWNLOAD COMPLETE: {downloaded_path}")
+                    return downloaded_path
+                else:
+                    print("❌ Primary video download failed, trying fallback...")
+            except Exception as e:
+                print(f"❌ Primary download error: {e}, trying fallback...")
+        else:
+            print("❌ No primary video found, trying fallback candidates...")
         
-        # Download the selected video
-        print(f"\n📥 DOWNLOADING SELECTED VIDEO...")
-        print(f"Title: {best_video.title}")
-        print(f"URL: {best_video.url}")
+        # Fallback: Get all video candidates and try verify-then-download loop
+        print(f"\n🔄 TRYING FALLBACK VIDEO CANDIDATES...")
         
         try:
-            downloaded_path = self._download_video(best_video)
-            if downloaded_path:
-                print(f"✅ DOWNLOAD COMPLETE: {downloaded_path}")
-                return downloaded_path
-            else:
-                print("❌ Download failed")
+            remaining_candidates = self.google_search.get_all_video_candidates(search_query)
+            
+            if not remaining_candidates:
+                print("❌ No fallback candidates available")
                 return None
+            
+            # Remove the primary video URL if it was already tried
+            if best_video and best_video.url in remaining_candidates:
+                remaining_candidates.remove(best_video.url)
+            
+            print(f"📋 Found {len(remaining_candidates)} fallback candidates")
+            
+            # Try each candidate: verify then download if verified
+            attempt = 1
+            max_attempts = 5  # Same as verification loop
+            
+            while remaining_candidates and attempt <= max_attempts:
+                print(f"\n🔄 FALLBACK ATTEMPT {attempt}/{max_attempts}")
+                print(f"📋 {len(remaining_candidates)} candidates remaining")
                 
+                # Get the first candidate URL
+                candidate_url = remaining_candidates[0]
+                print(f"🎯 Trying candidate: {candidate_url}")
+                
+                # Get the actual video title for this candidate
+                try:
+                    actual_title = self.google_search._get_video_title(candidate_url)
+                    if not actual_title:
+                        print("⚠️ Could not get video title, removing and trying next")
+                        remaining_candidates.remove(candidate_url)
+                        attempt += 1
+                        continue
+                except:
+                    print("⚠️ Error getting video title, removing and trying next")
+                    remaining_candidates.remove(candidate_url)
+                    attempt += 1
+                    continue
+                
+                print(f"📹 Candidate title: {actual_title}")
+                
+                # Create VideoResult for verification
+                candidate_video = VideoResult(
+                    title=actual_title,
+                    url=candidate_url,
+                    thumbnail_url="",
+                    source="google_fallback"
+                )
+                
+                # Verify this single candidate
+                print(f"🤖 Verifying candidate...")
+                verification_result = self.verifier.verify_video_matches(search_query, [candidate_video])
+                
+                if not verification_result.is_match:
+                    print(f"🚫 VERIFICATION FAILED: {verification_result.reasoning}")
+                    # Remove this candidate and try next
+                    remaining_candidates.remove(candidate_url)
+                    attempt += 1
+                    continue
+                
+                print(f"✅ VERIFICATION PASSED: {verification_result.reasoning}")
+                print(f"🎯 Confidence: {verification_result.confidence:.2f}")
+                
+                # Try downloading the verified candidate
+                print(f"📥 Downloading verified candidate...")
+                try:
+                    downloaded_path = self._download_video(candidate_video)
+                    if downloaded_path:
+                        print(f"✅ FALLBACK SUCCESS: {downloaded_path}")
+                        return downloaded_path
+                    else:
+                        print("❌ Download failed, trying next candidate...")
+                        remaining_candidates.remove(candidate_url)
+                        attempt += 1
+                        continue
+                except Exception as e:
+                    print(f"❌ Download error: {e}, trying next candidate...")
+                    remaining_candidates.remove(candidate_url)
+                    attempt += 1
+                    continue
+            
+            print(f"❌ Fallback exhausted after {attempt-1} attempts")
+            return None
+            
         except Exception as e:
-            print(f"❌ Download error: {e}")
+            print(f"❌ Fallback process error: {e}")
             return None
     
     def _download_video(self, video: VideoResult) -> Optional[str]:
@@ -332,19 +418,21 @@ class EnhancedFashionVideoSearch:
             format_cmd = ["yt-dlp", "--list-formats", video.url]
             format_result = subprocess.run(format_cmd, capture_output=True, text=True)
             
-            # Run yt-dlp command with explicit quality selection and optimizations
+            # Run yt-dlp command with fallback format selection to avoid 403 errors
             cmd = [
                 "yt-dlp",
                 video.url,
                 "--output", output_template,
-                "--concurrent-fragments", "15", # Download 15 fragments simultaneously 
-                "--retries", "10",              # Retry failed downloads
-                "--fragment-retries", "10",     # Retry individual fragments
-                "--http-chunk-size", "10485760", # 10MB chunks for fewer requests
-                "--restrict-filenames",         # Sanitize filenames for filesystem compatibility
-                "--embed-metadata",             # Add metadata
-                "--write-description",          # Save description
-                "--verbose",                    # Add verbose output to see what's happening
+                "--format", "worst[height>=360]/worst",  # Start with lower quality to avoid blocks
+                "--concurrent-fragments", "3",   # Reduce concurrent fragments to avoid rate limiting
+                "--retries", "5",               # Reduce retries
+                "--fragment-retries", "3",      # Reduce fragment retries
+                "--sleep-interval", "1",        # Add delay between requests
+                "--max-sleep-interval", "3",    # Random delay up to 3 seconds
+                "--restrict-filenames",         # Sanitize filenames
+                "--no-check-certificates",     # Skip SSL verification if needed
+                "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", # Pretend to be browser
+                "--referer", "https://www.youtube.com/",  # Set proper referer
             ]
             
             print(f"Running command: {' '.join(cmd)}")  # Debug: show exact command
@@ -356,6 +444,29 @@ class EnhancedFashionVideoSearch:
                 print("yt-dlp stdout:", result.stdout[-1000:])  # Last 1000 chars to see key info
             if result.stderr:
                 print("yt-dlp stderr:", result.stderr[-1000:])
+            
+            # If first attempt failed, try with even more conservative settings
+            if result.returncode != 0:
+                print("First attempt failed, trying with minimal quality...")
+                fallback_cmd = [
+                    "yt-dlp",
+                    video.url,
+                    "--output", output_template,
+                    "--format", "worst",  # Just get the lowest quality available
+                    "--no-playlist",     # Don't download playlist
+                    "--restrict-filenames",
+                    "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                    "--sleep-interval", "2",  # Longer delays
+                    "--max-sleep-interval", "5",
+                ]
+                
+                print(f"Fallback command: {' '.join(fallback_cmd)}")
+                result = subprocess.run(fallback_cmd, capture_output=True, text=True)
+                
+                if result.stdout:
+                    print("Fallback stdout:", result.stdout[-1000:])
+                if result.stderr:
+                    print("Fallback stderr:", result.stderr[-1000:])
             
             if result.returncode == 0:
                 # Find the downloaded file by looking for the most recent file
