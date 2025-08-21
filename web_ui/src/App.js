@@ -4,9 +4,17 @@ import CollectionsPanel from './components/CollectionsPanel';
 import ImageViewerPanel from './components/ImageViewerPanel';
 import VideoWindow from './components/VideoModal';
 import MenuBar from './components/MenuBar';
+import FavouritesPanel from './components/FavouritesPanel';
+import MyBrandsPanel from './components/MyBrandsPanel';
 import { FashionArchiveAPI } from './services/api';
 
 function App() {
+  // Page State
+  const [currentPage, setCurrentPage] = useState('high-fashion'); // 'high-fashion', 'favourites', or 'my-brands'
+  
+  // View State - specific to each page
+  const [currentView, setCurrentView] = useState('standard'); // high-fashion: 'standard', favourites: 'view-all'
+  
   // UI State - matches tkinter version exactly
   const [column2Activated, setColumn2Activated] = useState(false);
   const [column3Activated, setColumn3Activated] = useState(false);
@@ -215,6 +223,24 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyPress);
   }, [currentImageIndex, currentImages.length, videoModalOpen]);
 
+  // Page switching handlers
+  const handlePageSwitch = (page) => {
+    setCurrentPage(page);
+    // Set default view for the page
+    if (page === 'high-fashion') {
+      setCurrentView('standard');
+    } else if (page === 'favourites') {
+      setCurrentView('view-all');
+    } else if (page === 'my-brands') {
+      setCurrentView('all-brands');
+    }
+  };
+
+  // View mode switching handlers
+  const handleViewChange = (viewMode) => {
+    setCurrentView(viewMode);
+  };
+
   if (isLoading) {
     return (
       <div className="columns-container">
@@ -228,7 +254,12 @@ function App() {
   return (
     <div className="columns-container">
       {/* Menu Bar - matches tkinter menu system */}
-      <MenuBar />
+      <MenuBar 
+        currentPage={currentPage}
+        onPageSwitch={handlePageSwitch}
+        currentView={currentView}
+        onViewChange={handleViewChange}
+      />
       
       {/* Title Bar - matches tkinter window title */}
       <div className="mac-title-bar" style={{ 
@@ -242,52 +273,62 @@ function App() {
       </div>
 
       {/* Main Content - offset by menu and title bars */}
-      <div style={{ display: 'flex', height: '100vh', paddingTop: '40px' }}>
-        
-        {/* Column 1: Seasons (Always visible) */}
-        <div className="column" style={{ width: '300px' }}>
-          <SeasonsPanel 
-            seasons={seasons}
-            selectedSeason={selectedSeason}
-            onSeasonSelect={handleSeasonSelect}
-          />
+      {currentPage === 'high-fashion' ? (
+        <div style={{ display: 'flex', height: '100vh', paddingTop: '40px' }}>
+          
+          {/* Column 1: Seasons (Always visible) */}
+          <div className="column" style={{ width: '300px' }}>
+            <SeasonsPanel 
+              seasons={seasons}
+              selectedSeason={selectedSeason}
+              onSeasonSelect={handleSeasonSelect}
+            />
+          </div>
+
+          {/* Column 2: Collections (Visible after season selection) */}
+          {column2Activated && (
+            <div className="column" style={{ width: '400px' }}>
+              <CollectionsPanel 
+                collections={collections}
+                selectedCollection={selectedCollection}
+                onCollectionSelect={handleCollectionSelect}
+                seasonTitle={selectedSeason?.name || ''}
+                isLoading={collectionsLoading}
+                loadingProgress={loadingProgress}
+              />
+            </div>
+          )}
+
+          {/* Column 3: Image Viewer (Visible after collection selection) */}
+          {column3Activated && (
+            <div className="column" style={{ flex: 1 }}>
+              <ImageViewerPanel 
+                images={currentImages}
+                currentImageIndex={currentImageIndex}
+                galleryMode={galleryMode}
+                zoomMode={zoomMode}
+                isDownloading={isDownloading}
+                videoDownloadState={videoDownloadState}
+                designerName={selectedCollection?.designer || ''}
+                selectedSeason={selectedSeason}
+                selectedCollection={selectedCollection}
+                onPrevImage={handlePrevImage}
+                onNextImage={handleNextImage}
+                onToggleGallery={handleToggleGallery}
+                onCycleZoom={handleCycleZoom}
+                onVideoButton={handleVideoButton}
+                onImageSelect={setCurrentImageIndex}
+              />
+            </div>
+          )}
         </div>
-
-        {/* Column 2: Collections (Visible after season selection) */}
-        {column2Activated && (
-          <div className="column" style={{ width: '400px' }}>
-            <CollectionsPanel 
-              collections={collections}
-              selectedCollection={selectedCollection}
-              onCollectionSelect={handleCollectionSelect}
-              seasonTitle={selectedSeason?.name || ''}
-              isLoading={collectionsLoading}
-              loadingProgress={loadingProgress}
-            />
-          </div>
-        )}
-
-        {/* Column 3: Image Viewer (Visible after collection selection) */}
-        {column3Activated && (
-          <div className="column" style={{ flex: 1 }}>
-            <ImageViewerPanel 
-              images={currentImages}
-              currentImageIndex={currentImageIndex}
-              galleryMode={galleryMode}
-              zoomMode={zoomMode}
-              isDownloading={isDownloading}
-              videoDownloadState={videoDownloadState}
-              designerName={selectedCollection?.designer || ''}
-              onPrevImage={handlePrevImage}
-              onNextImage={handleNextImage}
-              onToggleGallery={handleToggleGallery}
-              onCycleZoom={handleCycleZoom}
-              onVideoButton={handleVideoButton}
-              onImageSelect={setCurrentImageIndex}
-            />
-          </div>
-        )}
-      </div>
+      ) : currentPage === 'favourites' ? (
+        <FavouritesPanel currentView={currentView} />
+      ) : currentPage === 'my-brands' ? (
+        <MyBrandsPanel currentView={currentView} />
+      ) : (
+        <FavouritesPanel currentView={currentView} />
+      )}
 
       {/* Video Window - Separate draggable window */}
       {videoModalOpen && currentVideoPath && (

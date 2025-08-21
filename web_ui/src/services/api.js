@@ -2,7 +2,7 @@
 // Bridges React UI to Python backend maintaining exact same functionality
 
 class FashionArchiveAPI {
-  static BASE_URL = 'http://localhost:8081';
+  static BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8081';
 
   // Helper to call Python backend
   static async callPython(endpoint, data = {}) {
@@ -128,6 +128,374 @@ class FashionArchiveAPI {
     } catch (error) {
       console.error('About info error:', error);
       return null;
+    }
+  }
+
+  // Favourites API methods
+  static async getFavourites() {
+    console.log('API: Fetching favourites from', `${this.BASE_URL}/api/favourites`);
+    try {
+      const response = await fetch(`${this.BASE_URL}/api/favourites`, {
+        method: 'GET'
+      });
+      
+      if (!response.ok) {
+        throw new Error(`API call failed: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      console.log('API: Raw favourites response:', data);
+      const favourites = data.favourites || [];
+      console.log('API: Parsed favourites:', favourites);
+      return favourites;
+    } catch (error) {
+      console.error('Get favourites API Error:', error);
+      return [];
+    }
+  }
+
+  static async addFavourite(seasonData, collectionData, lookData, imagePath, notes = '') {
+    const response = await this.callPython('/api/favourites', {
+      season: seasonData,
+      collection: collectionData,
+      look: lookData,
+      image_path: imagePath,
+      notes: notes
+    });
+    return response;
+  }
+
+  static async removeFavourite(seasonUrl, collectionUrl, lookNumber) {
+    try {
+      const response = await fetch(`${this.BASE_URL}/api/favourites`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          season_url: seasonUrl,
+          collection_url: collectionUrl,
+          look_number: lookNumber
+        }),
+      });
+      
+      if (!response.ok) {
+        throw new Error(`API call failed: ${response.statusText}`);
+      }
+      
+      return await response.json();
+    } catch (error) {
+      console.error('Remove favourite API Error:', error);
+      throw error;
+    }
+  }
+
+  static async checkFavourite(seasonUrl, collectionUrl, lookNumber) {
+    const response = await this.callPython('/api/favourites/check', {
+      season_url: seasonUrl,
+      collection_url: collectionUrl,
+      look_number: lookNumber
+    });
+    return response.is_favourite || false;
+  }
+
+  static async getFavouriteStats() {
+    try {
+      const response = await fetch(`${this.BASE_URL}/api/favourites/stats`, {
+        method: 'GET'
+      });
+      
+      if (!response.ok) {
+        throw new Error(`API call failed: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      return data.stats || {};
+    } catch (error) {
+      console.error('Favourites stats error:', error);
+      return {};
+    }
+  }
+
+  static async cleanupFavourites() {
+    try {
+      const response = await fetch(`${this.BASE_URL}/api/favourites/cleanup`, {
+        method: 'POST'
+      });
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('Cleanup favourites error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // My Brands API methods
+  static async getBrands() {
+    try {
+      const response = await fetch(`${this.BASE_URL}/api/brands`, {
+        method: 'GET'
+      });
+      
+      if (!response.ok) {
+        throw new Error(`API call failed: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      return data.brands || [];
+    } catch (error) {
+      console.error('Get brands API Error:', error);
+      return [];
+    }
+  }
+
+  static async addBrand(brandData) {
+    try {
+      const response = await fetch(`${this.BASE_URL}/api/brands`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(brandData),
+      });
+      
+      if (!response.ok) {
+        throw new Error(`API call failed: ${response.statusText}`);
+      }
+      
+      return await response.json();
+    } catch (error) {
+      console.error('Add brand API Error:', error);
+      return { success: false, message: error.message };
+    }
+  }
+
+  static async getBrandDetails(brandId) {
+    try {
+      const response = await fetch(`${this.BASE_URL}/api/brands/${brandId}`, {
+        method: 'GET'
+      });
+      
+      if (!response.ok) {
+        throw new Error(`API call failed: ${response.statusText}`);
+      }
+      
+      return await response.json();
+    } catch (error) {
+      console.error('Get brand details API Error:', error);
+      return { error: error.message };
+    }
+  }
+
+  static async discoverBrandCollections(brandId) {
+    try {
+      const response = await fetch(`${this.BASE_URL}/api/brands/${brandId}/discover`, {
+        method: 'POST'
+      });
+      
+      if (!response.ok) {
+        throw new Error(`API call failed: ${response.statusText}`);
+      }
+      
+      return await response.json();
+    } catch (error) {
+      console.error('Discover brand collections API Error:', error);
+      return { success: false, message: error.message };
+    }
+  }
+
+  static async scrapeBrandProducts(brandId, collectionUrl = null) {
+    try {
+      const body = collectionUrl ? JSON.stringify({ collection_url: collectionUrl }) : undefined;
+      const response = await fetch(`${this.BASE_URL}/api/brands/${brandId}/scrape`, {
+        method: 'POST',
+        headers: collectionUrl ? { 'Content-Type': 'application/json' } : {},
+        body: body
+      });
+      
+      if (!response.ok) {
+        throw new Error(`API call failed: ${response.statusText}`);
+      }
+      
+      return await response.json();
+    } catch (error) {
+      console.error('Scrape brand products API Error:', error);
+      return { success: false, message: error.message };
+    }
+  }
+
+  // Stream brand products scraping with real-time progress
+  static async scrapeBrandProductsStream(brandId, onProgress, collectionUrl = null) {
+    try {
+      const body = collectionUrl ? JSON.stringify({ collection_url: collectionUrl }) : undefined;
+      const response = await fetch(`${this.BASE_URL}/api/brands/${brandId}/scrape-stream`, {
+        method: 'POST',
+        headers: collectionUrl ? { 'Content-Type': 'application/json' } : {},
+        body: body
+      });
+
+      if (!response.ok) {
+        throw new Error(`Stream failed: ${response.statusText}`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let finalResult = null;
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value);
+          const lines = chunk.split('\n');
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(6));
+                
+                // Call progress callback
+                if (onProgress) {
+                  onProgress(data);
+                }
+                
+                // Store final result
+                if (data.status === 'completed') {
+                  finalResult = data;
+                }
+                
+              } catch (e) {
+                console.warn('Error parsing stream data:', e, 'Line:', line);
+              }
+            }
+          }
+        }
+      } finally {
+        reader.releaseLock();
+      }
+
+      return finalResult || { success: false, message: 'Stream ended without final result' };
+
+    } catch (error) {
+      console.error('Stream brand products API Error:', error);
+      return { success: false, message: error.message };
+    }
+  }
+
+  static async getBrandProducts(brandId) {
+    try {
+      const response = await fetch(`${this.BASE_URL}/api/brands/${brandId}/products`, {
+        method: 'GET'
+      });
+      
+      if (!response.ok) {
+        throw new Error(`API call failed: ${response.statusText}`);
+      }
+      
+      return await response.json();
+    } catch (error) {
+      console.error('Get brand products API Error:', error);
+      return { products: [], error: error.message };
+    }
+  }
+
+  static async addProductFavorite(productId, notes = '') {
+    try {
+      const response = await fetch(`${this.BASE_URL}/api/products/${productId}/favorite`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ notes }),
+      });
+      
+      if (!response.ok) {
+        throw new Error(`API call failed: ${response.statusText}`);
+      }
+      
+      return await response.json();
+    } catch (error) {
+      console.error('Add product favorite API Error:', error);
+      return { success: false, message: error.message };
+    }
+  }
+
+  static async getBrandFavorites() {
+    try {
+      const response = await fetch(`${this.BASE_URL}/api/brand-favorites`, {
+        method: 'GET'
+      });
+      
+      if (!response.ok) {
+        throw new Error(`API call failed: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      return data.favorites || [];
+    } catch (error) {
+      console.error('Get brand favorites API Error:', error);
+      return [];
+    }
+  }
+
+  static async getBrandStats() {
+    try {
+      const response = await fetch(`${this.BASE_URL}/api/brands/stats`, {
+        method: 'GET'
+      });
+      
+      if (!response.ok) {
+        throw new Error(`API call failed: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      return data.stats || {};
+    } catch (error) {
+      console.error('Get brand stats API Error:', error);
+      return {};
+    }
+  }
+
+  static async analyzeBrandUrl(url) {
+    try {
+      const response = await fetch(`${this.BASE_URL}/api/brands/analyze`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ url }),
+      });
+      
+      if (!response.ok) {
+        throw new Error(`API call failed: ${response.statusText}`);
+      }
+      
+      return await response.json();
+    } catch (error) {
+      console.error('Analyze brand URL API Error:', error);
+      return { error: error.message };
+    }
+  }
+
+  static async resolveBrandName(brandName) {
+    try {
+      const response = await fetch(`${this.BASE_URL}/api/brands/resolve-name`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ brand_name: brandName }),
+      });
+      
+      if (!response.ok) {
+        throw new Error(`API call failed: ${response.statusText}`);
+      }
+      
+      return await response.json();
+    } catch (error) {
+      console.error('Resolve brand name API Error:', error);
+      return { success: false, error: error.message };
     }
   }
 }

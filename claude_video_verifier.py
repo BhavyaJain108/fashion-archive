@@ -337,7 +337,6 @@ class EnhancedFashionVideoSearch:
                 "yt-dlp",
                 video.url,
                 "--output", output_template,
-                "--format", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",  # Prefer mp4, highest quality
                 "--concurrent-fragments", "15", # Download 15 fragments simultaneously 
                 "--retries", "10",              # Retry failed downloads
                 "--fragment-retries", "10",     # Retry individual fragments

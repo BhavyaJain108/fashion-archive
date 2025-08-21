@@ -9,6 +9,8 @@ function ImageViewerPanel({
   isDownloading,
   videoDownloadState,
   designerName,
+  selectedSeason,
+  selectedCollection,
   onPrevImage, 
   onNextImage, 
   onToggleGallery, 
@@ -16,6 +18,10 @@ function ImageViewerPanel({
   onVideoButton,
   onImageSelect 
 }) {
+  // Favourites state
+  const [isFavourite, setIsFavourite] = useState(false);
+  const [favouriteLoading, setFavouriteLoading] = useState(false);
+
   // Get video button content based on state
   const getVideoButtonContent = () => {
     switch (videoDownloadState) {
@@ -48,6 +54,74 @@ function ImageViewerPanel({
     const lookNumber = lookMatch ? parseInt(lookMatch[1]) : currentImageIndex + 1;
     
     return { lookNumber, total: images.length };
+  };
+
+  // Check if current look is favourited
+  useEffect(() => {
+    const checkFavouriteStatus = async () => {
+      if (!selectedSeason || !selectedCollection || images.length === 0) {
+        setIsFavourite(false);
+        return;
+      }
+
+      const { lookNumber } = getLookInfo();
+      try {
+        const isF = await FashionArchiveAPI.checkFavourite(
+          selectedSeason.url,
+          selectedCollection.url,
+          lookNumber
+        );
+        setIsFavourite(isF);
+      } catch (error) {
+        console.error('Error checking favourite status:', error);
+        setIsFavourite(false);
+      }
+    };
+
+    checkFavouriteStatus();
+  }, [selectedSeason, selectedCollection, currentImageIndex, images]);
+
+  // Handle favourite toggle
+  const handleFavouriteToggle = async () => {
+    if (!selectedSeason || !selectedCollection || images.length === 0) {
+      return;
+    }
+
+    const { lookNumber } = getLookInfo();
+    const currentImagePath = getCurrentImagePath();
+
+    setFavouriteLoading(true);
+
+    try {
+      if (isFavourite) {
+        // Remove from favourites
+        const result = await FashionArchiveAPI.removeFavourite(
+          selectedSeason.url,
+          selectedCollection.url,
+          lookNumber
+        );
+        
+        if (result.success) {
+          setIsFavourite(false);
+        }
+      } else {
+        // Add to favourites
+        const result = await FashionArchiveAPI.addFavourite(
+          selectedSeason,
+          selectedCollection,
+          { lookNumber, total: images.length },
+          currentImagePath
+        );
+        
+        if (result.success) {
+          setIsFavourite(true);
+        }
+      }
+    } catch (error) {
+      console.error('Error toggling favourite:', error);
+    } finally {
+      setFavouriteLoading(false);
+    }
   };
 
   if (isDownloading) {
@@ -121,18 +195,13 @@ function ImageViewerPanel({
 
   return (
     <div className="mac-panel" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      {/* Header with title and status */}
-      <div style={{ display: 'flex', alignItems: 'center', padding: '8px' }}>
-        <div className="mac-label title" style={{ flex: 1, margin: 0 }}>
-          {total > 0 ? `Look ${lookNumber} / ${total}` : designerName}
-        </div>
-        <div className="mac-label" style={{ fontSize: '12px', color: '#666' }}>
-          {/* Status info can go here */}
-        </div>
+      {/* Title - matches other columns exactly */}
+      <div className="mac-label title">
+        {total > 0 ? `Look ${lookNumber} / ${total}` : designerName}
       </div>
 
-      {/* Top Controls (matches tkinter layout) */}
-      <div style={{ display: 'flex', padding: '8px', gap: '8px' }}>
+      {/* Controls bar */}
+      <div style={{ display: 'flex', padding: '4px 8px', gap: '8px', alignItems: 'center' }}>
         <button 
           className="mac-button" 
           onClick={onToggleGallery}
@@ -154,18 +223,33 @@ function ImageViewerPanel({
             {getVideoButtonContent()}
           </button>
         )}
+        
+        <div style={{ flex: 1 }}></div>
+        
+        <button 
+          className="mac-button"
+          onClick={handleFavouriteToggle}
+          disabled={images.length === 0 || favouriteLoading || !selectedSeason || !selectedCollection}
+          style={{ 
+            backgroundColor: isFavourite ? '#ff6b6b' : 'transparent',
+            color: isFavourite ? '#fff' : '#000',
+            opacity: favouriteLoading ? 0.6 : 1,
+            transition: 'none'
+          }}
+        >
+          {favouriteLoading ? '...' : (isFavourite ? '❤️' : '🤍')}
+        </button>
       </div>
 
-      {/* Main Image Display */}
+      {/* Main Image Display - matches other columns flex pattern */}
       <div 
         className="image-container" 
         style={{ 
-          flex: 1, 
-          position: 'relative', 
+          flex: 1,
+          margin: '8px 0',
           display: 'flex', 
           alignItems: 'center', 
           justifyContent: 'center',
-          minHeight: 0, // Allow flex shrinking
           overflow: 'hidden'
         }}
       >
@@ -176,14 +260,10 @@ function ImageViewerPanel({
             style={{ 
               maxWidth: '100%', 
               maxHeight: '100%', 
-              width: 'auto',
-              height: 'auto',
-              objectFit: 'contain',
-              display: 'block'
+              objectFit: 'contain'
             }}
             onError={(e) => {
               e.target.alt = 'Image not found';
-              e.target.style.background = '#f0f0f0';
             }}
           />
         ) : (
@@ -191,41 +271,42 @@ function ImageViewerPanel({
         )}
       </div>
 
-      {/* Bottom Navigation (matches tkinter) - Always visible */}
-      <div style={{ 
-        display: 'flex', 
-        alignItems: 'center', 
-        padding: '8px',
-        borderTop: '1px solid var(--mac-border)',
-        backgroundColor: 'var(--mac-bg)',
-        flexShrink: 0 // Prevent shrinking
-      }}>
-        <button 
-          className="mac-button" 
-          onClick={onPrevImage}
-          disabled={images.length <= 1}
-          style={{ minWidth: '80px' }}
-        >
-          ◀ Previous
-        </button>
-        
+      {/* Bottom Navigation - matches other columns bottom section */}
+      <div style={{ padding: '8px' }}>
         <div style={{ 
-          flex: 1, 
-          textAlign: 'center',
-          fontSize: '12px',
-          color: '#666'
+          display: 'flex', 
+          alignItems: 'center',
+          borderTop: '1px solid var(--mac-border)',
+          backgroundColor: 'var(--mac-bg)',
+          padding: '8px 0'
         }}>
-          {images.length > 0 ? `${currentImageIndex + 1} of ${images.length}` : ''}
+          <button 
+            className="mac-button" 
+            onClick={onPrevImage}
+            disabled={images.length <= 1}
+            style={{ minWidth: '80px' }}
+          >
+            ◀ Previous
+          </button>
+          
+          <div style={{ 
+            flex: 1, 
+            textAlign: 'center',
+            fontSize: '12px',
+            color: '#666'
+          }}>
+            {images.length > 0 ? `${currentImageIndex + 1} of ${images.length}` : ''}
+          </div>
+          
+          <button 
+            className="mac-button" 
+            onClick={onNextImage}
+            disabled={images.length <= 1}
+            style={{ minWidth: '80px' }}
+          >
+            Next ▶
+          </button>
         </div>
-        
-        <button 
-          className="mac-button" 
-          onClick={onNextImage}
-          disabled={images.length <= 1}
-          style={{ minWidth: '80px' }}
-        >
-          Next ▶
-        </button>
       </div>
     </div>
   );

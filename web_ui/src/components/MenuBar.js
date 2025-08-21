@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { FashionArchiveAPI } from '../services/api';
 
-function MenuBar() {
+function MenuBar({ currentPage, onPageSwitch, currentView, onViewChange }) {
   const [showToolsMenu, setShowToolsMenu] = useState(false);
+  const [showPagesMenu, setShowPagesMenu] = useState(false);
+  const [showViewMenu, setShowViewMenu] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
   const [aboutInfo, setAboutInfo] = useState(null);
   const [videoTestOpen, setVideoTestOpen] = useState(false);
@@ -13,11 +15,29 @@ function MenuBar() {
   // Show Tools menu dropdown
   const handleToolsClick = () => {
     setShowToolsMenu(!showToolsMenu);
+    setShowPagesMenu(false); // Close other menus
+    setShowViewMenu(false);
+  };
+
+  // Show Pages menu dropdown
+  const handlePagesClick = () => {
+    setShowPagesMenu(!showPagesMenu);
+    setShowToolsMenu(false); // Close other menus
+    setShowViewMenu(false);
+  };
+
+  // Show View menu dropdown
+  const handleViewClick = () => {
+    setShowViewMenu(!showViewMenu);
+    setShowToolsMenu(false); // Close other menus
+    setShowPagesMenu(false);
   };
 
   // Show About dialog (matches tkinter show_about)
   const handleAboutClick = async () => {
     setShowToolsMenu(false);
+    setShowPagesMenu(false);
+    setShowViewMenu(false);
     try {
       const info = await FashionArchiveAPI.getAboutInfo();
       setAboutInfo(info);
@@ -30,6 +50,8 @@ function MenuBar() {
   // Open video search test (matches tkinter open_video_test)
   const handleVideoTest = () => {
     setShowToolsMenu(false);
+    setShowPagesMenu(false);
+    setShowViewMenu(false);
     setVideoTestOpen(true);
     setTestQuery('');
     setTestResults(null);
@@ -52,6 +74,47 @@ function MenuBar() {
   const handleResearchToggle = () => {
     setResearchMode(!researchMode);
     setShowToolsMenu(false);
+    setShowPagesMenu(false);
+    setShowViewMenu(false);
+  };
+
+  // Pages menu handlers - page navigation
+  const handleHighFashionPage = () => {
+    setShowPagesMenu(false);
+    onPageSwitch('high-fashion');
+  };
+
+  const handleFavouritesPage = () => {
+    setShowPagesMenu(false);
+    onPageSwitch('favourites');
+  };
+
+  // View menu handlers - view mode changes for current page
+  const handleViewChange = (viewMode) => {
+    setShowViewMenu(false);
+    onViewChange(viewMode);
+  };
+
+  // Get view options based on current page
+  const getViewOptions = () => {
+    switch (currentPage) {
+      case 'high-fashion':
+        return [
+          { key: 'standard', label: 'Standard View' }
+        ];
+      case 'favourites':
+        return [
+          { key: 'view-all', label: 'View All' },
+          { key: 'by-collection', label: 'By Collection' }
+        ];
+      case 'my-brands':
+        return [
+          { key: 'all-brands', label: 'All Brands' },
+          { key: 'brand-products', label: 'Products' }
+        ];
+      default:
+        return [];
+    }
   };
 
   return (
@@ -152,10 +215,152 @@ function MenuBar() {
             </div>
           )}
         </div>
+
+        {/* Pages Menu */}
+        <div onClick={handlePagesClick}
+             style={{ 
+               padding: '2px 8px', 
+               cursor: 'pointer',
+               position: 'relative',
+               backgroundColor: showPagesMenu ? '#e0e0e0' : 'transparent',
+               color: '#000'
+             }}
+             onMouseEnter={(e) => {
+               if (!showPagesMenu) {
+                 e.target.style.backgroundColor = '#d0d0d0';
+               }
+             }}
+             onMouseLeave={(e) => {
+               if (!showPagesMenu) {
+                 e.target.style.backgroundColor = 'transparent';
+               }
+             }}
+        >
+          Pages
+          
+          {/* Pages Dropdown Menu */}
+          {showPagesMenu && (
+            <div style={{
+              position: 'absolute',
+              top: '100%',
+              left: 0,
+              backgroundColor: '#f0f0f0',
+              border: '1px solid #ccc',
+              borderTop: 'none',
+              minWidth: '150px',
+              zIndex: 1001,
+              boxShadow: '2px 2px 4px rgba(0,0,0,0.1)'
+            }}>
+              <div onClick={handleHighFashionPage}
+                   style={{ 
+                     padding: '6px 12px', 
+                     cursor: 'pointer',
+                     borderBottom: '1px solid #ddd',
+                     backgroundColor: 'transparent',
+                     color: '#000'
+                   }}
+                   onMouseEnter={(e) => e.target.style.backgroundColor = '#d0d0d0'}
+                   onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
+              >
+                High Fashion
+              </div>
+              <div onClick={handleFavouritesPage}
+                   style={{ 
+                     padding: '6px 12px', 
+                     cursor: 'pointer',
+                     borderBottom: '1px solid #ddd',
+                     backgroundColor: 'transparent',
+                     color: '#000'
+                   }}
+                   onMouseEnter={(e) => e.target.style.backgroundColor = '#d0d0d0'}
+                   onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
+              >
+                Favourites
+              </div>
+              <div onClick={() => {
+                setShowPagesMenu(false);
+                onPageSwitch('my-brands');
+              }}
+                   style={{ 
+                     padding: '6px 12px', 
+                     cursor: 'pointer',
+                     backgroundColor: 'transparent',
+                     color: '#000'
+                   }}
+                   onMouseEnter={(e) => e.target.style.backgroundColor = '#d0d0d0'}
+                   onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
+              >
+                My Brands
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* View Menu */}
+        <div onClick={handleViewClick}
+             style={{ 
+               padding: '2px 8px', 
+               cursor: 'pointer',
+               position: 'relative',
+               backgroundColor: showViewMenu ? '#e0e0e0' : 'transparent',
+               color: '#000'
+             }}
+             onMouseEnter={(e) => {
+               if (!showViewMenu) {
+                 e.target.style.backgroundColor = '#d0d0d0';
+               }
+             }}
+             onMouseLeave={(e) => {
+               if (!showViewMenu) {
+                 e.target.style.backgroundColor = 'transparent';
+               }
+             }}
+        >
+          View
+          
+          {/* View Dropdown Menu */}
+          {showViewMenu && (
+            <div style={{
+              position: 'absolute',
+              top: '100%',
+              left: 0,
+              backgroundColor: '#f0f0f0',
+              border: '1px solid #ccc',
+              borderTop: 'none',
+              minWidth: '150px',
+              zIndex: 1001,
+              boxShadow: '2px 2px 4px rgba(0,0,0,0.1)'
+            }}>
+              {getViewOptions().map((option, index) => (
+                <div 
+                  key={option.key}
+                  onClick={() => handleViewChange(option.key)}
+                  style={{ 
+                    padding: '6px 12px', 
+                    cursor: 'pointer',
+                    borderBottom: index < getViewOptions().length - 1 ? '1px solid #ddd' : 'none',
+                    backgroundColor: 'transparent',
+                    color: '#000',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center'
+                  }}
+                  onMouseEnter={(e) => e.target.style.backgroundColor = '#d0d0d0'}
+                  onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
+                >
+                  <span>{option.label}</span>
+                  <span style={{ fontSize: '12px', fontWeight: 'bold' }}>
+                    {currentView === option.key ? '✓' : ''}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Click outside to close menu */}
-      {showToolsMenu && (
+      {/* Click outside to close menus */}
+      {(showToolsMenu || showPagesMenu || showViewMenu) && (
         <div 
           style={{
             position: 'fixed',
@@ -165,7 +370,11 @@ function MenuBar() {
             bottom: 0,
             zIndex: 999
           }}
-          onClick={() => setShowToolsMenu(false)}
+          onClick={() => {
+            setShowToolsMenu(false);
+            setShowPagesMenu(false);
+            setShowViewMenu(false);
+          }}
         />
       )}
 
