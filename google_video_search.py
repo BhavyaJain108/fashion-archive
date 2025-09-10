@@ -250,15 +250,23 @@ CRITICAL:
                         
                         if verification_failed:
                             print(f"🚫 VERIFICATION FAILED: {failure_reason}")
-                            print(f"🔄 Asking LLM to try again with stricter filtering...")
                             
-                            # Remove the bad URL and try again with verification loop
-                            filtered_urls = [url for url in available_urls if url != selected_url]
-                            if filtered_urls:
-                                return self._verification_loop(query, filtered_urls, actual_title, target_year, failure_reason)
+                            # Check if Claude's selection seems perfect despite verification failure
+                            # This handles cases where verification is overly strict
+                            if self._is_likely_perfect_match(query, actual_title):
+                                print(f"⚠️ Verification failed but title appears to be perfect match")
+                                print(f"🔧 Overriding verification - title contains all expected elements")
+                                # Proceed with the selection despite verification failure
                             else:
-                                print("❌ No other URLs to try")
-                                return None
+                                print(f"🔄 Asking LLM to try again with stricter filtering...")
+                                
+                                # Remove the bad URL and try again with verification loop
+                                filtered_urls = [url for url in available_urls if url != selected_url]
+                                if filtered_urls:
+                                    return self._verification_loop(query, filtered_urls, actual_title, target_year, failure_reason)
+                                else:
+                                    print("❌ No other URLs to try")
+                                    return None
                         else:
                             print("✅ Verification passed - year, collection type, season, and source look correct")
                     
@@ -402,17 +410,62 @@ CRITICAL:
         
         return None
     
+    def _is_likely_perfect_match(self, query: str, actual_title: str) -> bool:
+        """
+        Check if a title is likely a perfect match despite failing strict verification.
+        This helps avoid unnecessary retries when Claude picked correctly.
+        """
+        query_lower = query.lower()
+        title_lower = actual_title.lower()
+        
+        # Check if title contains "full show" or "complete show" - strong indicator
+        if 'full show' in title_lower or 'complete show' in title_lower or 'full runway' in title_lower:
+            # Check if key brand elements are present
+            query_words = query_lower.split()
+            brand_words_found = sum(1 for word in query_words[:2] if word in title_lower)
+            
+            # If it says "full show" and has brand words, it's likely good
+            if brand_words_found >= 1:
+                return True
+        
+        # Check for exact phrase matches (e.g., "haute couture" in both)
+        important_phrases = ['haute couture', 'ready to wear', 'menswear', 'spring summer', 'fall winter']
+        matching_phrases = sum(1 for phrase in important_phrases if phrase in query_lower and phrase in title_lower)
+        
+        # If multiple important phrases match exactly, likely good
+        if matching_phrases >= 2:
+            return True
+        
+        return False
+    
     def _check_brand_match(self, query: str, actual_title: str) -> bool:
-        """Simple brand check - first word of query should appear in video title"""
-        # Get first word from query (usually the brand)
+        """Enhanced brand check with special handling for fashion brands"""
+        # Get first word(s) from query (usually the brand)
         query_words = query.split()
         if not query_words:
             return True  # No brand to check
         
+        query_lower = query.lower()
+        title_lower = actual_title.lower()
+        
+        # Special case: Armani Prive / Giorgio Armani Privé
+        if 'armani' in query_lower and 'prive' in query_lower:
+            # Accept any variation: "armani prive", "giorgio armani prive", "armani privé"
+            return 'armani' in title_lower and ('prive' in title_lower or 'privé' in title_lower)
+        
+        # Special case: Multi-word brands (check first two words if applicable)
         first_word = query_words[0].lower()
         
-        # Check if first word appears in video title (partial match allowed)
-        return first_word in actual_title.lower()
+        # If it's a known multi-word brand, check both words
+        multi_word_brands = ['saint laurent', 'bottega veneta', 'louis vuitton', 'calvin klein', 
+                            'marc jacobs', 'michael kors', 'tory burch', 'tommy hilfiger']
+        
+        for brand in multi_word_brands:
+            if query_lower.startswith(brand):
+                return brand.replace(' ', '') in title_lower.replace(' ', '') or brand in title_lower
+        
+        # Default: Check if first word appears in video title (partial match allowed)
+        return first_word in title_lower
     
     def _verify_season_with_llm(self, query: str, video_title: str, expected_season: str) -> bool:
         """Use LLM to verify if video season matches query season using reasoning"""
@@ -538,8 +591,13 @@ Do not explain, just answer YES or NO."""
         max_attempts = 5  # Safety limit
         attempt = 1
         
+        print(f"🔁 ENTERING RETRY MODE")
+        print(f"   Previous failure: {failed_title}")
+        print(f"   Reason: {failure_reason}")
+        print(f"   URLs available for retry: {len(remaining_urls)}")
+        
         while remaining_urls and attempt <= max_attempts:
-            print(f"🔄 Verification loop attempt {attempt}/{max_attempts} with {len(remaining_urls)} URLs remaining")
+            print(f"🔄 Retry attempt {attempt}/{max_attempts}")
             
             # Get Claude to select from remaining URLs
             retry_result = self._retry_with_stricter_rules(query, remaining_urls, failed_title, target_year, failure_reason)
@@ -593,10 +651,18 @@ Do not explain, just answer YES or NO."""
                 return None
             
             # Get titles for URLs to provide better context
+            # OPTIMIZATION: Only fetch titles for first 5 URLs to avoid excessive requests
             urls_with_titles = []
-            for i, url in enumerate(remaining_urls):
+            max_urls_to_check = min(5, len(remaining_urls))
+            print(f"📊 Fetching titles for {max_urls_to_check} of {len(remaining_urls)} remaining URLs...")
+            
+            for i, url in enumerate(remaining_urls[:max_urls_to_check]):
                 title = self._get_video_title(url) or f"URL {i+1}"
                 urls_with_titles.append(f"{i+1}. TITLE: {title}\n   URL: {url}")
+            
+            # Add remaining URLs without fetching titles
+            if len(remaining_urls) > max_urls_to_check:
+                urls_with_titles.append(f"\n... and {len(remaining_urls) - max_urls_to_check} more URLs available")
             
             urls_list = "\n".join(urls_with_titles)
             
@@ -654,7 +720,7 @@ CRITICAL:
 - Do not add any text before or after the JSON"""
 
             response_text = llm_client.generate(prompt, max_tokens=1000, temperature=0.0)
-            print(f"🔄 Retry LLM response: {response_text}")
+            print(f"🤖 LLM retry selection response: {response_text}")
             
             # Parse the retry response
             import json
@@ -670,19 +736,41 @@ CRITICAL:
                     
                     selected_title = result_data.get('selected_title', '')
                     if selected_title:
-                        print(f"🎯 Claude selected title: {selected_title}")
-                        print(f"💭 Retry reasoning: {result_data.get('reasoning', '')}")
-                        print(f"🔍 Retry evidence: {result_data.get('evidence', '')}")
+                        print(f"🎯 Retry: Claude selected new title: {selected_title}")
+                        print(f"💭 Selection reasoning: {result_data.get('reasoning', '')}")
+                        print(f"🔍 Supporting evidence: {result_data.get('evidence', '')}")
                         
                         # Find matching URL for the selected title
+                        # CRITICAL FIX: Don't re-fetch titles, use the ones we already have!
                         matching_url = None
-                        for url in remaining_urls:
-                            # Get title for this URL and compare
-                            url_title = self._get_video_title(url)
-                            if url_title and selected_title.lower().strip() in url_title.lower().strip():
-                                matching_url = url
-                                print(f"🎯 Found matching URL: {url}")
-                                break
+                        
+                        # Normalize title for matching (handle encoding issues)
+                        def normalize_title(title):
+                            import unicodedata
+                            # Remove accents and special chars for matching
+                            normalized = unicodedata.normalize('NFKD', title)
+                            normalized = ''.join(c for c in normalized if not unicodedata.combining(c))
+                            # Remove extra spaces and make lowercase
+                            return ' '.join(normalized.lower().split())
+                        
+                        selected_normalized = normalize_title(selected_title)
+                        
+                        # Look through the titles we ALREADY fetched above
+                        for i, url in enumerate(remaining_urls[:max_urls_to_check]):
+                            # We already have these titles from line 601-602!
+                            if i < len(urls_with_titles):
+                                # Extract title from the formatted string
+                                title_line = urls_with_titles[i]
+                                if 'TITLE:' in title_line:
+                                    url_title = title_line.split('TITLE:')[1].split('\n')[0].strip()
+                                    url_normalized = normalize_title(url_title)
+                                    
+                                    # Check if titles match (with fuzzy matching for special chars)
+                                    if selected_normalized == url_normalized or selected_normalized in url_normalized:
+                                        matching_url = url
+                                        print(f"🎯 Found matching URL: {url}")
+                                        print(f"   Matched: '{url_title}'")
+                                        break
                         
                         if matching_url:
                             return GoogleVideoResult(

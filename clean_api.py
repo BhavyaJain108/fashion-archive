@@ -11,9 +11,11 @@ import requests
 from bs4 import BeautifulSoup
 import re
 from urllib.parse import urljoin
+from favourites_db import favourites_db
+from config import config
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, methods=['GET', 'POST', 'DELETE', 'OPTIONS'])
 
 # EXACT headers from working version
 headers = {
@@ -493,10 +495,112 @@ def serve_video():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+# Favourites API Endpoints
+
+@app.route('/api/favourites', methods=['GET'])
+def get_favourites():
+    """Get all favourite looks"""
+    try:
+        favourites = favourites_db.get_all_favourites()
+        return jsonify({'favourites': favourites})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/favourites', methods=['POST'])
+def add_favourite():
+    """Add a look to favourites"""
+    try:
+        data = request.get_json()
+        
+        season_data = data.get('season', {})
+        collection_data = data.get('collection', {})
+        look_data = data.get('look', {})
+        image_path = data.get('image_path', '')
+        notes = data.get('notes', '')
+        
+        success = favourites_db.add_favourite(
+            season_data, collection_data, look_data, image_path, notes
+        )
+        
+        if success:
+            return jsonify({'success': True, 'message': 'Added to favourites'})
+        else:
+            return jsonify({'success': False, 'message': 'Already in favourites'})
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/favourites', methods=['DELETE'])
+def remove_favourite():
+    """Remove a look from favourites"""
+    try:
+        data = request.get_json()
+        
+        season_url = data.get('season_url', '')
+        collection_url = data.get('collection_url', '')
+        look_number = data.get('look_number', 0)
+        
+        success = favourites_db.remove_favourite(season_url, collection_url, look_number)
+        
+        if success:
+            return jsonify({'success': True, 'message': 'Removed from favourites'})
+        else:
+            return jsonify({'success': False, 'message': 'Not found in favourites'})
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/favourites/check', methods=['POST'])
+def check_favourite():
+    """Check if a look is favourited"""
+    try:
+        data = request.get_json()
+        
+        season_url = data.get('season_url', '')
+        collection_url = data.get('collection_url', '')
+        look_number = data.get('look_number', 0)
+        
+        is_fav = favourites_db.is_favourite(season_url, collection_url, look_number)
+        
+        return jsonify({'is_favourite': is_fav})
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/favourites/stats', methods=['GET'])
+def get_favourites_stats():
+    """Get favourites statistics"""
+    try:
+        stats = favourites_db.get_stats()
+        return jsonify({'stats': stats})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/favourites/cleanup', methods=['POST'])
+def cleanup_favourites():
+    """Clean up orphaned images in favourites directory"""
+    try:
+        removed_count = favourites_db.cleanup_orphaned_images()
+        return jsonify({
+            'success': True, 
+            'message': f'Cleaned up {removed_count} orphaned images',
+            'removed_count': removed_count
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# Register My Brands API endpoints
+try:
+    from my_brands.brands_api import register_brands_endpoints
+    register_brands_endpoints(app)
+    print("✅ My Brands API endpoints registered")
+except ImportError as e:
+    print(f"⚠️  My Brands endpoints not available: {e}")
+
 if __name__ == '__main__':
     print("🎭 Clean API Backend - NO tkinter dependencies")
     print("🔗 Pure scraping functions only")
     print("📚 Preserving fashion history")
     print("=" * 50)
     
-    app.run(host='127.0.0.1', port=8081, debug=True, threaded=True)
+    app.run(host=config.HOST, port=config.PORT, debug=config.DEBUG, threaded=True)

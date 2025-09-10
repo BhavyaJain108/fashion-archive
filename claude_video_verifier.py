@@ -22,6 +22,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from dotenv import load_dotenv
 from anthropic import Anthropic
+
+# Simple proxy support
+try:
+    from simple_proxy_downloader import SimpleProxyDownloader
+    PROXY_AVAILABLE = True
+except ImportError:
+    PROXY_AVAILABLE = False
 # VideoResult class for compatibility
 @dataclass  
 class VideoResult:
@@ -404,90 +411,24 @@ class EnhancedFashionVideoSearch:
             return None
     
     def _download_video(self, video: VideoResult) -> Optional[str]:
-        """Download a video using yt-dlp with original YouTube title"""
+        """Download video with clean proxy fallback system"""
+        print(f"📥 Downloading: {video.title}")
+        
+        # Use simple proxy downloader if available
         try:
-            import subprocess
+            from simple_proxy_downloader import SimpleProxyDownloader
+            downloader = SimpleProxyDownloader()
+            result_path = downloader.download_video(video.url, str(self.videos_dir))
             
-            # Use yt-dlp's default title templating to keep original name
-            output_template = str(self.videos_dir / "%(title)s.%(ext)s")
-            
-            print(f"Downloading: {video.title}")
-            print(f"To folder: {self.videos_dir}")
-            
-            # First, check available formats
-            format_cmd = ["yt-dlp", "--list-formats", video.url]
-            format_result = subprocess.run(format_cmd, capture_output=True, text=True)
-            
-            # Run yt-dlp command with fallback format selection to avoid 403 errors
-            cmd = [
-                "yt-dlp",
-                video.url,
-                "--output", output_template,
-                "--format", "worst[height>=360]/worst",  # Start with lower quality to avoid blocks
-                "--concurrent-fragments", "3",   # Reduce concurrent fragments to avoid rate limiting
-                "--retries", "5",               # Reduce retries
-                "--fragment-retries", "3",      # Reduce fragment retries
-                "--sleep-interval", "1",        # Add delay between requests
-                "--max-sleep-interval", "3",    # Random delay up to 3 seconds
-                "--restrict-filenames",         # Sanitize filenames
-                "--no-check-certificates",     # Skip SSL verification if needed
-                "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", # Pretend to be browser
-                "--referer", "https://www.youtube.com/",  # Set proper referer
-            ]
-            
-            print(f"Running command: {' '.join(cmd)}")  # Debug: show exact command
-            
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            
-            # Print yt-dlp output for debugging
-            if result.stdout:
-                print("yt-dlp stdout:", result.stdout[-1000:])  # Last 1000 chars to see key info
-            if result.stderr:
-                print("yt-dlp stderr:", result.stderr[-1000:])
-            
-            # If first attempt failed, try with even more conservative settings
-            if result.returncode != 0:
-                print("First attempt failed, trying with minimal quality...")
-                fallback_cmd = [
-                    "yt-dlp",
-                    video.url,
-                    "--output", output_template,
-                    "--format", "worst",  # Just get the lowest quality available
-                    "--no-playlist",     # Don't download playlist
-                    "--restrict-filenames",
-                    "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                    "--sleep-interval", "2",  # Longer delays
-                    "--max-sleep-interval", "5",
-                ]
-                
-                print(f"Fallback command: {' '.join(fallback_cmd)}")
-                result = subprocess.run(fallback_cmd, capture_output=True, text=True)
-                
-                if result.stdout:
-                    print("Fallback stdout:", result.stdout[-1000:])
-                if result.stderr:
-                    print("Fallback stderr:", result.stderr[-1000:])
-            
-            if result.returncode == 0:
-                # Find the downloaded file by looking for the most recent file
-                # that matches video format extensions
-                video_files = []
-                for ext in ['.mp4', '.mkv', '.webm', '.avi']:
-                    video_files.extend(self.videos_dir.glob(f"*{ext}"))
-                
-                if video_files:
-                    # Get the most recently created video file
-                    latest_file = max(video_files, key=lambda f: f.stat().st_ctime)
-                    print(f"Downloaded as: {latest_file.name}")
-                    return str(latest_file)
-                
-                return None
+            if result_path:
+                print(f"✅ Downloaded: {Path(result_path).name}")
+                return result_path
             else:
-                print(f"yt-dlp error: {result.stderr}")
+                print("❌ Simple downloader failed")
                 return None
                 
         except Exception as e:
-            print(f"Download error: {e}")
+            print(f"❌ Download error: {e}")
             return None
     
 

@@ -65,3 +65,15 @@ test_*.py
 # Collection data and scraped content
 collections/
 scraped_data/
+
+# Planning and development documentation (except README.md)
+*_TODO.md
+*_PLAN.md
+*_TUTORIAL.md
+AGENTIC_*.md
+LANGGRAPH_*.md
+RESEARCH_FEATURE_*.md
+
+# Database files
+*.db
+*.sqlite3
