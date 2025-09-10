@@ -299,178 +299,22 @@ class BrandsAPI:
                     yield f"data: {json.dumps({'status': 'fresh_scrape', 'message': 'No cache found, downloading fresh images'})}\n\n"
                     self._clear_brand_products(brand_id)
 
-                # Use the NEW IntelligentScraper with dynamic parallel batching
-                from .scraping.intelligent_scraper import IntelligentScraper
+                # TODO: Implement new HTML scraper here
+                # This is where the new modular scraper will go
                 
-                scraper = IntelligentScraper()
-                
-                # Parse config
-                scraping_config = {}
-                if brand.get('scraping_config'):
-                    try:
-                        scraping_config = json.loads(brand['scraping_config'])
-                    except:
-                        pass
-
-                # Use collection URL from outer scope
                 scrape_url = collection_url if collection_url else brand['url']
-                
                 yield f"data: {json.dumps({'status': 'scraping_started', 'url': scrape_url})}\n\n"
-
-                # Perform scraping with DYNAMIC PARALLEL BATCHING
-                start_time = time.time()
-                result = scraper.scrape(scrape_url)
                 
-                if not result.success:
-                    yield f"data: {json.dumps({'error': 'Scraping failed', 'details': result.errors})}\n\n"
-                    return
-
-                # Filter products with detailed debugging
-                seen = set()
-                unique_products = []
-                collections_found = set()
-                navigation_products = []
+                # Placeholder - scraping logic to be implemented
+                yield f"data: {json.dumps({'status': 'error', 'error': 'Scraping not yet implemented'})}\n\n"
+                return
                 
-                yield f"data: {json.dumps({'status': 'filtering_products', 'total_results': len(result.products)})}\n\n"
-                
-                for product in result.products:
-                    if product.detection_method == "navigation_discovery":
-                        navigation_products.append(product)
-                        continue
-                        
-                    product_key = (product.product_url.strip().lower() if product.product_url else '', 
-                                  product.title.strip().lower() if product.title else '')
-                    
-                    if product_key not in seen and product_key[0] and product_key[1]:
-                        seen.add(product_key)
-                        unique_products.append(product)
-                        
-                        if hasattr(product, 'collection_name') and product.collection_name:
-                            collections_found.add(product.collection_name)
-                        
-                        # Stream progress every 10 products
-                        if len(unique_products) % 10 == 0:
-                            yield f"data: {json.dumps({'status': 'products_found', 'count': len(unique_products), 'collections': len(collections_found)})}\n\n"
-                
-                # Debug output for what was found
-                yield f"data: {json.dumps({'status': 'debug_results', 'navigation_results': len(navigation_products), 'actual_products': len(unique_products), 'message': f'Found {len(navigation_products)} navigation items, {len(unique_products)} actual products'})}\n\n"
-
-                yield f"data: {json.dumps({'status': 'downloading_images', 'product_count': len(unique_products)})}\n\n"
-
-                # Download images
-                if cached_images:
-                    downloaded_images = [str(img) for img in cached_images]
-                    yield f"data: {json.dumps({'status': 'using_cached_images', 'count': len(downloaded_images)})}\n\n"
-                else:
-                    downloaded_images = self._download_product_images(unique_products, brand_cache_path)
-                    yield f"data: {json.dumps({'status': 'images_downloaded', 'count': len(downloaded_images)})}\n\n"
-
-                # Store products in database
-                yield f"data: {json.dumps({'status': 'storing_products'})}\n\n"
-                
-                stored_products = []
-                from pathlib import Path
-                
-                for i, product in enumerate(unique_products):
-                    try:
-                        cached_image_path = None
-                        image_url = product.image_url
-                        
-                        if cached_images and i < len(cached_images):
-                            cached_image_path = str(cached_images[i])
-                            relative_path = cached_image_path.replace(str(Path.cwd()) + "/", "")
-                            image_url = config.get_image_url(relative_path)
-                        elif downloaded_images and i < len(downloaded_images):
-                            cached_image_path = downloaded_images[i]
-                            relative_path = cached_image_path.replace(str(Path.cwd()) + "/", "")
-                            image_url = config.get_image_url(relative_path)
-                        
-                        product_id = brands_db.add_product(
-                            brand_id=brand_id,
-                            name=product.title,
-                            url=product.product_url,
-                            price=product.price,
-                            currency='',
-                            category='',
-                            description=f'Detected by: {product.detection_method}',
-                            images=[image_url],
-                            metadata={
-                                'confidence': product.confidence,
-                                'detection_method': product.detection_method,
-                                'scraped_at': 'now',
-                                'cached_image': cached_image_path is not None,
-                                'cached_path': cached_image_path,
-                                'collection_name': getattr(product, 'collection_name', None),
-                                'collection_url': getattr(product, 'collection_url', None)
-                            }
-                        )
-                        
-                        stored_products.append({
-                            'id': product_id,
-                            'title': product.title,
-                            'price': product.price,
-                            'image_url': image_url,
-                            'product_url': product.product_url,
-                            'confidence': product.confidence,
-                            'collection_name': getattr(product, 'collection_name', None),
-                            'collection_url': getattr(product, 'collection_url', None)
-                        })
-                        
-                        # Stream progress every 5 stored products
-                        if len(stored_products) % 5 == 0:
-                            yield f"data: {json.dumps({'status': 'storing_progress', 'stored': len(stored_products), 'total': len(unique_products)})}\n\n"
-                        
-                    except Exception as product_error:
-                        yield f"data: {json.dumps({'status': 'product_error', 'error': str(product_error)})}\n\n"
-                        continue
-
-                # Update timestamp
-                brands_db._update_last_scraped(brand_id)
-
-                # Group by collections
-                collections_summary = {}
-                ungrouped_products = []
-                
-                for product in stored_products:
-                    collection_name = product.get('collection_name')
-                    if collection_name:
-                        if collection_name not in collections_summary:
-                            collections_summary[collection_name] = {
-                                'name': collection_name,
-                                'product_count': 0,
-                                'url': product.get('collection_url'),
-                                'products': []
-                            }
-                        collections_summary[collection_name]['products'].append(product)
-                        collections_summary[collection_name]['product_count'] += 1
-                    else:
-                        ungrouped_products.append(product)
-
-                collections_list = list(collections_summary.values())
-                
-                total_time = time.time() - start_time
-
-                # Final result
-                final_result = {
-                    'status': 'completed',
-                    'success': True,
-                    'message': f'Successfully scraped {len(stored_products)} products from {len(collections_found)} collections in {total_time:.1f}s',
-                    'products': stored_products,
-                    'collections': collections_list,
-                    'ungrouped_products': ungrouped_products,
-                    'strategy_used': result.strategy_used,
-                    'total_found': result.total_found,
-                    'confidence': result.confidence,
-                    'images_downloaded': len(downloaded_images),
-                    'collections_count': len(collections_found),
-                    'has_collections': len(collections_found) > 0,
-                    'performance': {
-                        'total_time': total_time,
-                        'products_per_second': len(stored_products) / max(total_time, 0.1)
-                    }
-                }
-                
-                yield f"data: {json.dumps(final_result)}\n\n"
+                # TODO: When new scraper is implemented, the image download and storage logic 
+                # should be preserved here. The logic was:
+                # 1. Download/use cached images
+                # 2. Store products in database with metadata
+                # 3. Group by collections
+                # 4. Return final streaming result
                 
             except Exception as e:
                 yield f"data: {json.dumps({'status': 'error', 'error': str(e)})}\n\n"
@@ -507,16 +351,8 @@ class BrandsAPI:
                 # Clear existing products for this brand to avoid accumulation
                 self._clear_brand_products(brand_id)
             
-            # Get scraping strategy
-            strategy = get_scraping_strategy(brand['scraping_strategy'])
-            
-            # Parse scraping config
-            scraping_config = {}
-            if brand.get('scraping_config'):
-                try:
-                    scraping_config = json.loads(brand['scraping_config'])
-                except:
-                    pass
+            # TODO: Implement new HTML scraper here
+            # This is where the new modular scraper will go
             
             # Check if collection_url is provided in request body
             data = request.get_json() or {}
@@ -526,41 +362,14 @@ class BrandsAPI:
             scrape_url = collection_url if collection_url else brand['url']
             print(f"🎯 Scraping URL: {scrape_url}")
             
-            # Perform scraping
-            result = strategy.scrape(scrape_url, scraping_config)
+            # Placeholder - return error for now
+            return jsonify({
+                'success': False,
+                'message': 'Scraping not yet implemented - new modular scraper coming soon'
+            })
             
-            if not result.success:
-                return jsonify({
-                    'success': False,
-                    'message': 'Scraping failed',
-                    'errors': result.errors
-                })
-            
-            # Filter out navigation results and remove duplicates
-            seen = set()
-            unique_products = []
-            collections_found = set()
-            
-            for product in result.products:
-                # Skip navigation discovery results - we only want actual products
-                if product.detection_method == "navigation_discovery":
-                    continue
-                    
-                # Create a unique key based on URL and name
-                product_key = (product.product_url.strip().lower() if product.product_url else '', 
-                              product.title.strip().lower() if product.title else '')
-                
-                if product_key not in seen and product_key[0] and product_key[1]:  # Ensure both URL and title exist
-                    seen.add(product_key)
-                    unique_products.append(product)
-                    
-                    # Track collections found
-                    if hasattr(product, 'collection_name') and product.collection_name:
-                        collections_found.add(product.collection_name)
-            
-            print(f"📊 Removed {len(result.products) - len(unique_products)} duplicate products")
-            
-            # Download images to brand cache folder (or use existing cache)
+            # TODO: The image download and storage logic below should be preserved
+            # when the new scraper is implemented
             if cached_images:
                 print(f"♻️  Using {len(cached_images)} cached images (no download needed)")
                 downloaded_images = [str(img) for img in cached_images]
