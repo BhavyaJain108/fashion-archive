@@ -9,7 +9,10 @@ from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any
 from dotenv import load_dotenv
 
-load_dotenv()
+# Load .env from project root
+script_dir = os.path.dirname(os.path.abspath(__file__))
+env_path = os.path.join(script_dir, '.env')
+load_dotenv(env_path)
 
 
 class LLMInterface(ABC):

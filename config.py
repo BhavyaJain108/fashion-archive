@@ -11,7 +11,9 @@ from typing import Dict, Any
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
-load_dotenv()
+script_dir = os.path.dirname(os.path.abspath(__file__))
+env_path = os.path.join(script_dir, '.env')
+load_dotenv(env_path)
 
 class Config:
     """Application configuration"""

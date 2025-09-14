@@ -299,22 +299,121 @@ class BrandsAPI:
                     yield f"data: {json.dumps({'status': 'fresh_scrape', 'message': 'No cache found, downloading fresh images'})}\n\n"
                     self._clear_brand_products(brand_id)
 
-                # TODO: Implement new HTML scraper here
-                # This is where the new modular scraper will go
-                
+                # Use new LLM scraper
                 scrape_url = collection_url if collection_url else brand['url']
                 yield f"data: {json.dumps({'status': 'scraping_started', 'url': scrape_url})}\n\n"
                 
-                # Placeholder - scraping logic to be implemented
-                yield f"data: {json.dumps({'status': 'error', 'error': 'Scraping not yet implemented'})}\n\n"
-                return
+                # Import and run SIMPLE LLM scraper
+                import asyncio
+                from .scraping.llm_scraper.simple_scraper import SimpleLLMScraper
                 
-                # TODO: When new scraper is implemented, the image download and storage logic 
-                # should be preserved here. The logic was:
-                # 1. Download/use cached images
-                # 2. Store products in database with metadata
-                # 3. Group by collections
-                # 4. Return final streaming result
+                async def run_simple_scraping():
+                    scraper = SimpleLLMScraper()
+                    result = await scraper.scrape(scrape_url)
+                    return result
+                
+                yield f"data: {json.dumps({'status': 'analyzing', 'message': 'AI analyzing website structure (SIMPLE method)...'})}\n\n"
+                scraping_result = asyncio.run(run_simple_scraping())
+                
+                if not scraping_result.success:
+                    yield f"data: {json.dumps({'status': 'error', 'error': f'Scraping failed: {scraping_result.errors}'})}\n\n"
+                    return
+                
+                unique_products = scraping_result.products
+                yield f"data: {json.dumps({'status': 'found_products', 'count': len(unique_products)})}\n\n"
+                
+                # Handle image download and storage (preserved existing logic)
+                if cached_images:
+                    yield f"data: {json.dumps({'status': 'using_cache', 'message': f'Using {len(cached_images)} cached images'})}\n\n"
+                    downloaded_images = [str(img) for img in cached_images]
+                else:
+                    yield f"data: {json.dumps({'status': 'downloading', 'message': f'Downloading {len(unique_products)} product images...'})}\n\n"
+                    
+                    # Re-enable image download with existing system
+                    try:
+                        import time
+                        start_time = time.time()
+                        downloaded_images = self._download_product_images(unique_products, brand_cache_path)
+                        end_time = time.time()
+                        yield f"data: {json.dumps({'status': 'download_complete', 'message': f'Downloaded {len(downloaded_images)} images in {end_time-start_time:.1f}s'})}\n\n"
+                    except Exception as e:
+                        yield f"data: {json.dumps({'status': 'download_error', 'message': f'Image download failed: {str(e)}'})}\n\n"
+                        downloaded_images = []  # Continue without images
+                
+                # Store products in database with cached image paths
+                yield f"data: {json.dumps({'status': 'storing', 'message': f'Storing {len(unique_products)} products in database...'})}\n\n"
+                from pathlib import Path
+                stored_products = []
+                for i, product in enumerate(unique_products):
+                    if i % 10 == 0 and i > 0:
+                        yield f"data: {json.dumps({'status': 'storing_progress', 'message': f'Stored {i}/{len(unique_products)} products'})}\n\n"
+                    try:
+                        # Use cached image path if available, otherwise use original URL
+                        cached_image_path = None
+                        image_url = product.image_url  # Default to original URL
+                        
+                        if cached_images and i < len(cached_images):
+                            cached_image_path = str(cached_images[i])
+                            # Convert absolute path to relative path for API endpoint
+                            relative_path = cached_image_path.replace(str(Path.cwd()) + "/", "")
+                            image_url = config.get_image_url(relative_path)
+                        elif downloaded_images and i < len(downloaded_images) and downloaded_images[i]:
+                            cached_image_path = downloaded_images[i]
+                            # Convert absolute path to relative path for API endpoint  
+                            relative_path = cached_image_path.replace(str(Path.cwd()) + "/", "")
+                            image_url = config.get_image_url(relative_path)
+                        else:
+                            # Use original image URL if no downloaded/cached version
+                            image_url = product.image_url
+                            if image_url and image_url.startswith('//'):
+                                image_url = 'https:' + image_url
+                        
+                        # Store in database
+                        product_id = brands_db.add_product(
+                            brand_id=brand_id,
+                            name=product.title,
+                            url=product.product_url or '',
+                            price='',  # Could extract from product if available
+                            currency='',
+                            category=product.collection_name or 'Default',
+                            description=f'Scraped via {product.detection_method}',
+                            images=[image_url] if image_url else [],
+                            metadata={
+                                'confidence': product.confidence,
+                                'detection_method': product.detection_method,
+                                'collection_name': product.collection_name,
+                                'collection_url': product.collection_url,
+                                'cached_image_path': cached_image_path,
+                                'original_image_url': product.image_url,
+                                'extraction_order': i  # ✅ Explicit ordering field
+                            }
+                        )
+                        
+                        stored_products.append({
+                            'id': product_id,
+                            'title': product.title,
+                            'image_url': image_url,
+                            'collection_name': product.collection_name or 'Default'
+                        })
+                        
+                    except Exception as e:
+                        print(f"Error storing product {product.title}: {e}")
+                        continue
+                
+                yield f"data: {json.dumps({'status': 'grouping', 'message': f'Grouping {len(stored_products)} products by collections...'})}\n\n"
+                
+                # Group by collections for final result
+                collections = {}
+                for product in stored_products:
+                    collection_name = product['collection_name']
+                    if collection_name not in collections:
+                        collections[collection_name] = []
+                    collections[collection_name].append(product)
+                
+                yield f"data: {json.dumps({'status': 'finalizing', 'message': f'Found {len(collections)} collections'})}\n\n"
+                
+                # Final streaming result
+                yield f"data: {json.dumps({'status': 'completed', 'collections': collections, 'total_products': len(stored_products)})}\n\n"
                 
             except Exception as e:
                 yield f"data: {json.dumps({'status': 'error', 'error': str(e)})}\n\n"
@@ -351,9 +450,7 @@ class BrandsAPI:
                 # Clear existing products for this brand to avoid accumulation
                 self._clear_brand_products(brand_id)
             
-            # TODO: Implement new HTML scraper here
-            # This is where the new modular scraper will go
-            
+            # Use new LLM scraper
             # Check if collection_url is provided in request body
             data = request.get_json() or {}
             collection_url = data.get('collection_url')
@@ -362,19 +459,34 @@ class BrandsAPI:
             scrape_url = collection_url if collection_url else brand['url']
             print(f"🎯 Scraping URL: {scrape_url}")
             
-            # Placeholder - return error for now
-            return jsonify({
-                'success': False,
-                'message': 'Scraping not yet implemented - new modular scraper coming soon'
-            })
+            # Import and run LLM scraper
+            import asyncio
+            from .scraping.llm_scraper.scraper import LLMScraper
             
-            # TODO: The image download and storage logic below should be preserved
-            # when the new scraper is implemented
+            async def run_llm_scraping():
+                scraper = LLMScraper()
+                result = await scraper.scrape(scrape_url)
+                return result
+            
+            print("🤖 Starting AI-powered scraping...")
+            scraping_result = asyncio.run(run_llm_scraping())
+            
+            if not scraping_result.success:
+                return jsonify({
+                    'success': False,
+                    'message': f'Scraping failed: {scraping_result.errors}'
+                })
+            
+            unique_products = scraping_result.products
+            print(f"✅ Found {len(unique_products)} products")
+            
+            # Handle image download and storage (preserved existing logic)
             if cached_images:
                 print(f"♻️  Using {len(cached_images)} cached images (no download needed)")
                 downloaded_images = [str(img) for img in cached_images]
             else:
-                downloaded_images = self._download_product_images(unique_products, brand_cache_path)
+                print(f"⏩ Skipping image download to prevent timeout - storing URLs only")
+                downloaded_images = []  # Skip download for now
             
             # Store products in database with cached image paths
             from pathlib import Path
@@ -395,34 +507,40 @@ class BrandsAPI:
                         # Convert absolute path to relative path for API endpoint  
                         relative_path = cached_image_path.replace(str(Path.cwd()) + "/", "")
                         image_url = config.get_image_url(relative_path)
+                    else:
+                        # Use original image URL if no downloaded/cached version
+                        image_url = product.image_url
+                        if image_url and image_url.startswith('//'):
+                            image_url = 'https:' + image_url
                     
+                    # Store in database
                     product_id = brands_db.add_product(
                         brand_id=brand_id,
                         name=product.title,
-                        url=product.product_url,
-                        price=product.price,
-                        currency='', # Could be extracted from price
-                        category='',
-                        description=f'Detected by: {product.detection_method}',
-                        images=[image_url],
+                        url=product.product_url or '',
+                        price='',  # Could extract from product if available
+                        currency='',
+                        category=product.collection_name or 'Default',
+                        description=f'Scraped via {product.detection_method}',
+                        images=[image_url] if image_url else [],
                         metadata={
                             'confidence': product.confidence,
                             'detection_method': product.detection_method,
-                            'scraped_at': 'now',
-                            'cached_image': cached_image_path is not None,
-                            'cached_path': cached_image_path
+                            'collection_name': product.collection_name,
+                            'collection_url': product.collection_url,
+                            'cached_image_path': cached_image_path,
+                            'original_image_url': product.image_url
                         }
                     )
                     
                     stored_products.append({
                         'id': product_id,
                         'title': product.title,
-                        'price': product.price,
                         'image_url': image_url,  # Use the processed image URL (cached or original)
                         'product_url': product.product_url,
                         'confidence': product.confidence,
-                        'collection_name': getattr(product, 'collection_name', None),
-                        'collection_url': getattr(product, 'collection_url', None)
+                        'collection_name': product.collection_name or 'Default',
+                        'collection_url': product.collection_url
                     })
                     
                 except Exception as product_error:
@@ -456,16 +574,16 @@ class BrandsAPI:
             
             return jsonify({
                 'success': True,
-                'message': f'Successfully scraped {len(stored_products)} products from {len(collections_found)} collections',
+                'message': f'Successfully scraped {len(stored_products)} products from {len(collections_list)} collections',
                 'products': stored_products,
                 'collections': collections_list,  # Organized by collection
                 'ungrouped_products': ungrouped_products,  # Products not in a collection
-                'strategy_used': result.strategy_used,
-                'total_found': result.total_found,
-                'confidence': result.confidence,
+                'strategy_used': scraping_result.strategy_used,
+                'total_found': scraping_result.total_found,
+                'confidence': scraping_result.confidence,
                 'images_downloaded': len(downloaded_images),
-                'collections_count': len(collections_found),
-                'has_collections': len(collections_found) > 0
+                'collections_count': len(collections_list),
+                'has_collections': len(collections_list) > 0
             })
             
         except Exception as e:
@@ -679,7 +797,6 @@ class BrandsAPI:
         from pathlib import Path
         
         try:
-            print(f"🖼️  Serving cached image: {image_path}")
             
             # Build full path from current working directory
             full_path = Path(image_path)
@@ -693,7 +810,6 @@ class BrandsAPI:
                 print(f"❌ Image file not found: {full_path}")
                 return jsonify({'error': 'Image not found'}), 404
             
-            print(f"✅ Serving image file: {full_path}")
             return send_file(full_path)
             
         except Exception as e:
@@ -847,20 +963,30 @@ class BrandsAPI:
             downloads_path = Path(config.DOWNLOADS_DIR)
             downloads_path.mkdir(exist_ok=True)
         
-        # Run the parallel download in asyncio
+        # Always try to use parallel download
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # If already in an async context, create a new thread
+            # Check if we're in an async context
+            try:
+                asyncio.get_running_loop()
+                # We're in an async context - run in separate thread with own event loop
+                print("🚀 Running parallel download in separate thread...")
                 import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(asyncio.run, self._parallel_download_async(products, downloads_path))
+                
+                def run_async_download():
+                    import asyncio
+                    return asyncio.run(self._parallel_download_async(products, downloads_path))
+                
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(run_async_download)
                     return future.result()
-            else:
+                    
+            except RuntimeError:
+                # No running loop - we can use async directly
+                print("🚀 Using parallel async download...")
                 return asyncio.run(self._parallel_download_async(products, downloads_path))
-        except RuntimeError:
-            # Fallback to sync if asyncio fails
-            print("⚠️  Asyncio not available, falling back to synchronous download")
+                
+        except Exception as e:
+            print(f"⚠️  Parallel download failed ({e}), falling back to synchronous")
             return self._download_product_images_sync(products, cache_path)
     
     async def _parallel_download_async(self, products, downloads_path) -> List[str]:
@@ -883,15 +1009,18 @@ class BrandsAPI:
                     )
                     tasks.append(task)
             
-            # Execute all downloads in parallel
+            # Execute all downloads in parallel - order is preserved
             results = await asyncio.gather(*tasks, return_exceptions=True)
             
-            # Collect successful downloads
-            for result in results:
+            # Preserve exact order - use None for failed downloads
+            for i, result in enumerate(results):
                 if isinstance(result, str):  # Successful download returns filepath
                     downloaded_images.append(result)
                 elif isinstance(result, Exception):
-                    print(f"   ❌ Download error: {result}")
+                    downloaded_images.append(None)  # Keep the index aligned
+                    print(f"   ❌ Download error for product {i+1}: {result}")
+                else:
+                    downloaded_images.append(None)  # Keep the index aligned
         
         elapsed = time.time() - start_time
         print(f"📥 Downloaded {len(downloaded_images)} images in {elapsed:.1f}s (parallel)")
