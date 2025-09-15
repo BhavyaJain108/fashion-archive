@@ -10,10 +10,14 @@ import asyncio
 import json
 import sys
 import os
+import aiohttp
+import aiofiles
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
 from playwright.async_api import async_playwright, Browser, Page
 import concurrent.futures
+from urllib.parse import urlparse
+import hashlib
 
 # Add parent directories to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -31,6 +35,7 @@ class Product:
     detection_method: str = "simple_scraper"
     collection_name: Optional[str] = None
     collection_url: Optional[str] = None
+    download_path: Optional[str] = None
 
 @dataclass
 class ScrapingResult:
@@ -48,9 +53,109 @@ class SimpleLLMScraper:
     def __init__(self):
         # Use fast model for decisions
         self.llm = ClaudeInterface(model="claude-3-haiku-20240307")
+        
+        # Streaming download system
+        self.download_queue = asyncio.Queue()
+        self.download_workers = []
+        self.num_workers = 8
+        self.downloads_dir = "my_brands_cache"
+        
+        # Ensure downloads directory exists
+        os.makedirs(self.downloads_dir, exist_ok=True)
         # Use smart model for pattern detection
         self.smart_llm = ClaudeInterface(model="claude-3-5-sonnet-20241022")
         self.browser: Optional[Browser] = None
+    
+    def _generate_filename(self, image_url: str, title: str) -> str:
+        """Generate a unique filename for the image"""
+        # Create a hash from URL and title for uniqueness
+        content = f"{image_url}_{title}"
+        hash_obj = hashlib.md5(content.encode())
+        filename_hash = hash_obj.hexdigest()[:8]
+        
+        # Get file extension from URL
+        parsed_url = urlparse(image_url)
+        path = parsed_url.path
+        extension = os.path.splitext(path)[1] if '.' in path else '.jpg'
+        
+        # Clean title for filename
+        clean_title = "".join(c for c in title[:20] if c.isalnum() or c in (' ', '-', '_')).strip()
+        clean_title = clean_title.replace(' ', '_')
+        
+        return f"{clean_title}_{filename_hash}{extension}"
+    
+    async def _download_worker(self, worker_id: int):
+        """Download worker that processes the download queue"""
+        print(f"🔄 Download worker {worker_id} started")
+        
+        async with aiohttp.ClientSession() as session:
+            while True:
+                try:
+                    # Get next download task
+                    product = await self.download_queue.get()
+                    
+                    if product is None:  # Shutdown signal
+                        break
+                    
+                    # Generate filename
+                    filename = self._generate_filename(product.image_url, product.title)
+                    download_path = os.path.join(self.downloads_dir, filename)
+                    
+                    # Skip if already downloaded
+                    if os.path.exists(download_path):
+                        print(f"⏭️ Worker {worker_id}: Already exists - {filename}")
+                        product.download_path = download_path
+                        self.download_queue.task_done()
+                        continue
+                    
+                    # Download the image
+                    print(f"⬇️ Worker {worker_id}: Downloading {filename}")
+                    async with session.get(product.image_url) as response:
+                        if response.status == 200:
+                            async with aiofiles.open(download_path, 'wb') as f:
+                                async for chunk in response.content.iter_chunked(8192):
+                                    await f.write(chunk)
+                            
+                            product.download_path = download_path
+                            print(f"✅ Worker {worker_id}: Downloaded {filename}")
+                        else:
+                            print(f"❌ Worker {worker_id}: Failed to download {filename} - Status {response.status}")
+                    
+                    self.download_queue.task_done()
+                    
+                except Exception as e:
+                    print(f"❌ Worker {worker_id}: Error downloading - {e}")
+                    self.download_queue.task_done()
+    
+    async def _start_download_workers(self):
+        """Start the download workers"""
+        print(f"🚀 Starting {self.num_workers} download workers...")
+        self.download_workers = []
+        for i in range(self.num_workers):
+            worker = asyncio.create_task(self._download_worker(i + 1))
+            self.download_workers.append(worker)
+    
+    async def _stop_download_workers(self):
+        """Stop the download workers"""
+        print("🛑 Stopping download workers...")
+        
+        # Send shutdown signals
+        for _ in range(self.num_workers):
+            await self.download_queue.put(None)
+        
+        # Wait for workers to finish
+        await asyncio.gather(*self.download_workers, return_exceptions=True)
+        
+        print("✅ All download workers stopped")
+    
+    def _queue_product_download(self, product: Product):
+        """Queue a product for download"""
+        if product.image_url:
+            try:
+                self.download_queue.put_nowait(product)
+                print(f"📥 Queued for download: {product.title[:30]}...")
+            except asyncio.QueueFull:
+                print(f"⚠️ Download queue full, skipping: {product.title[:30]}...")
     
     # ===========================================
     # MAIN SCRAPING FLOW
@@ -59,6 +164,9 @@ class SimpleLLMScraper:
     async def scrape(self, url: str) -> ScrapingResult:
         """Main scraping entry point - SIMPLE FLOW"""
         print(f"🤖 Starting SIMPLE scraping of: {url}")
+        
+        # Start download workers
+        await self._start_download_workers()
         
         async with async_playwright() as p:
             # Launch browser
@@ -74,6 +182,10 @@ class SimpleLLMScraper:
                 if is_products_page:
                     print("✅ This IS a products page - extracting products...")
                     products = await self._extract_all_products_from_page(page)
+                    
+                    # Wait for all downloads to complete
+                    await self.download_queue.join()
+                    
                     return ScrapingResult(
                         success=True,
                         products=products,
@@ -88,6 +200,7 @@ class SimpleLLMScraper:
                     product_pages = await self._find_product_pages(page)
                     
                     if not product_pages:
+                        await self._stop_download_workers()
                         return ScrapingResult(
                             success=False,
                             products=[],
@@ -101,6 +214,9 @@ class SimpleLLMScraper:
                     
                     # STEP 4: Extract from all product pages (in parallel if multiple)
                     all_products = await self._extract_from_multiple_pages(product_pages)
+                    
+                    # Wait for all downloads to complete
+                    await self.download_queue.join()
                     
                     return ScrapingResult(
                         success=True,
@@ -124,6 +240,8 @@ class SimpleLLMScraper:
             finally:
                 if self.browser:
                     await self.browser.close()
+                # Stop download workers
+                await self._stop_download_workers()
     
     # ===========================================
     # STEP IMPLEMENTATIONS
@@ -270,10 +388,10 @@ Only respond with valid JSON array.
             return []
         
         # Check for infinite scroll using the actual product pattern
-        page_has_scroll = await self._check_infinite_scroll_with_pattern(page, pattern)
+        page_has_scroll, scroll_products = await self._check_infinite_scroll_with_pattern(page, pattern)
         if page_has_scroll:
-            print("🔄 Current page has infinite scroll - loading all products...")
-            products = await self._extract_with_infinite_scroll(page, pattern)
+            print("🔄 Current page has infinite scroll - using products from scroll detection...")
+            products = scroll_products  # Use products found during scroll detection
         else:
             # Extract normally  
             products = await self._extract_products_using_pattern(page, pattern)
@@ -540,7 +658,7 @@ Only respond with valid JSON.
                             image_url = urljoin(page.url, image_url)
                     
                     if name and image_url:
-                        products.append(Product(
+                        product = Product(
                             title=name,
                             image_url=image_url,
                             product_url=product_url,
@@ -548,7 +666,11 @@ Only respond with valid JSON.
                             collection_url=page.url,
                             confidence=0.8,
                             detection_method="simple_pattern_extraction"
-                        ))
+                        )
+                        products.append(product)
+                        
+                        # Queue product for immediate download
+                        self._queue_product_download(product)
                 
                 except Exception as e:
                     print(f"⚠️ Failed to extract product {i+1}: {e}")
@@ -627,13 +749,15 @@ Pagination HTML context:
 
 Current page indicators: {pagination_data['current_indicators']}
 
-CRITICAL: We are starting on PAGE 1. Do not include page 1 URLs.
+CRITICAL PAGE CHECK: 
+- If the current URL contains "page=" parameter and it's NOT page=1 (like page=2, page=3, etc.), return NO_PAGINATION immediately
+- Only look for more pages if we are on the first page (page=1 or no page parameter)
 
 Determine the navigation strategy:
 
 1. **PAGE_NUMBERS**: Site shows numbered pages (2, 3, 4...) - return URLs for pages 2 onwards
 2. **NEXT_ONLY**: Site only has Next/Load More - return the next page URL  
-3. **NO_PAGINATION**: This is the only page
+3. **NO_PAGINATION**: This is the only page OR we are already on page 2+ 
 4. **INFINITE_SCROLL**: Content loads by scrolling only
 
 Return JSON:
@@ -643,8 +767,8 @@ Return JSON:
     "reasoning": "brief explanation"
 }}
 
-For PAGE_NUMBERS: Include ALL page URLs found (2, 3, 4, 5...) 
-For NEXT_ONLY: Include only the immediate next page URL
+For PAGE_NUMBERS: Include ALL page URLs found (2, 3, 4, 5...) BUT ONLY if we're on page 1
+For NEXT_ONLY: Include only the immediate next page URL BUT ONLY if we're on page 1
 For NO_PAGINATION/INFINITE_SCROLL: Return empty urls array
 
 Only respond with valid JSON.
@@ -721,25 +845,27 @@ Only respond with valid JSON.
             print(f"   ❌ Infinite scroll check failed: {e}")
             return False
     
-    async def _check_infinite_scroll_with_pattern(self, page: Page, pattern: Dict[str, str]) -> bool:
-        """Aggressive infinite scroll detection for sites with complex lazy loading"""
+    async def _check_infinite_scroll_with_pattern(self, page: Page, pattern: Dict[str, str]) -> Tuple[bool, List[Product]]:
+        """Aggressive infinite scroll detection that extracts products during scroll"""
         try:
             print("   🔍 Testing for infinite scroll with product pattern...")
             
             container_selector = pattern.get('container_selector')
             if not container_selector:
-                return False
+                return False, []
             
-            # Get initial count using actual product selector
-            initial_count = len(await page.query_selector_all(container_selector))
+            # Extract initial products using actual product extraction
+            initial_products = await self._extract_products_using_pattern(page, pattern)
+            initial_count = len(initial_products)
             
             if initial_count == 0:
-                return False
+                return False, []
             
             print(f"   📊 Initial product count: {initial_count}")
             
-            # SIMPLE AGGRESSIVE SCROLLING - just keep scrolling until no more products
+            # SIMPLE AGGRESSIVE SCROLLING - extract products as we find them
             max_attempts = 20  # Allow more attempts
+            all_products = initial_products[:]  # Copy initial products
             current_count = initial_count
             no_new_products_count = 0
             
@@ -752,10 +878,14 @@ Only respond with valid JSON.
                 # Wait for content to load
                 await page.wait_for_timeout(3000)  # Wait longer for load
                 
-                # Check new product count
-                new_count = len(await page.query_selector_all(container_selector))
+                # Extract all current products
+                current_products = await self._extract_products_using_pattern(page, pattern)
+                new_count = len(current_products)
                 
                 if new_count > current_count:
+                    # Add only the new products (avoid duplicates)
+                    new_products = current_products[current_count:]
+                    all_products.extend(new_products)
                     print(f"   ✅ Found {new_count - current_count} new products (total: {new_count})")
                     current_count = new_count
                     no_new_products_count = 0  # Reset counter
@@ -789,45 +919,22 @@ Only respond with valid JSON.
                 
                 # Wait for lazy loading
                 await page.wait_for_timeout(4000)
-                
-                # Check if more products loaded
-                new_count = len(await page.query_selector_all(container_selector))
-                
-                if new_count > current_count:
-                    print(f"   ➕ Found more products: {current_count} -> {new_count}")
-                    current_count = new_count
-                    
-                    # If we found significant new products, continue scrolling
-                    if new_count - initial_count >= 5:
-                        continue
-                else:
-                    # No new products in this attempt
-                    print(f"   ⏸️ No new products in attempt {attempt + 1}")
-                    
-                # Try one more aggressive scroll
-                await page.evaluate("window.scrollTo(0, document.body.scrollHeight + 1000)")
-                await page.wait_for_timeout(3000)
-                
-                final_attempt_count = len(await page.query_selector_all(container_selector))
-                if final_attempt_count > current_count:
-                    print(f"   ➕ Extra scroll found: {current_count} -> {final_attempt_count}")
-                    current_count = final_attempt_count
-                else:
-                    break
             
-            if current_count > initial_count:
-                print(f"   ✅ AGGRESSIVE SCROLL SUCCESS: {initial_count} -> {current_count} products (+{current_count - initial_count})")
+            # Success if we found more products
+            if len(all_products) > initial_count:
+                print(f"   ✅ AGGRESSIVE SCROLL SUCCESS: {initial_count} -> {len(all_products)} products (+{len(all_products) - initial_count})")
+                print(f"   📦 Used scroll strategy in attempt {attempt + 1}")
                 # Scroll back to top for consistent extraction
                 await page.evaluate("window.scrollTo(0, 0)")
                 await page.wait_for_timeout(1000)
-                return True
+                return True, all_products
             else:
                 print(f"   ❌ No infinite scroll detected after {max_attempts} attempts")
-                return False
+                return False, initial_products
                 
         except Exception as e:
             print(f"   ❌ Infinite scroll pattern check failed: {e}")
-            return False
+            return False, []
     
     async def _extract_from_pagination_pages(self, page_urls: List[str], pattern: Dict[str, str], visited_urls: set = None, page1_has_scroll: bool = False) -> List[Product]:
         """Extract products from pagination pages or handle infinite scroll"""
@@ -936,6 +1043,10 @@ Only respond with valid JSON.
                 new_products = current_products[previous_count:]
                 all_products.extend(new_products)
                 print(f"   ➕ Added {len(new_products)} new products")
+                
+                # Queue new products for download immediately
+                for product in new_products:
+                    self._queue_product_download(product)
             
             previous_count = current_count
             

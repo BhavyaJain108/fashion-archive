@@ -322,23 +322,21 @@ class BrandsAPI:
                 unique_products = scraping_result.products
                 yield f"data: {json.dumps({'status': 'found_products', 'count': len(unique_products)})}\n\n"
                 
-                # Handle image download and storage (preserved existing logic)
+                # Simple scraper with streaming downloads already downloaded images in parallel!
                 if cached_images:
                     yield f"data: {json.dumps({'status': 'using_cache', 'message': f'Using {len(cached_images)} cached images'})}\n\n"
                     downloaded_images = [str(img) for img in cached_images]
                 else:
-                    yield f"data: {json.dumps({'status': 'downloading', 'message': f'Downloading {len(unique_products)} product images...'})}\n\n"
+                    # Extract download paths from simple scraper results (products already downloaded by streaming workers)
+                    downloaded_images = []
+                    for product in unique_products:
+                        if hasattr(product, 'download_path') and product.download_path:
+                            downloaded_images.append(product.download_path)
+                        else:
+                            downloaded_images.append(None)  # Keep alignment
                     
-                    # Re-enable image download with existing system
-                    try:
-                        import time
-                        start_time = time.time()
-                        downloaded_images = self._download_product_images(unique_products, brand_cache_path)
-                        end_time = time.time()
-                        yield f"data: {json.dumps({'status': 'download_complete', 'message': f'Downloaded {len(downloaded_images)} images in {end_time-start_time:.1f}s'})}\n\n"
-                    except Exception as e:
-                        yield f"data: {json.dumps({'status': 'download_error', 'message': f'Image download failed: {str(e)}'})}\n\n"
-                        downloaded_images = []  # Continue without images
+                    downloaded_count = sum(1 for img in downloaded_images if img is not None)
+                    yield f"data: {json.dumps({'status': 'streaming_downloads_complete', 'message': f'Streaming workers downloaded {downloaded_count}/{len(unique_products)} images during scraping'})}\n\n"
                 
                 # Store products in database with cached image paths
                 yield f"data: {json.dumps({'status': 'storing', 'message': f'Storing {len(unique_products)} products in database...'})}\n\n"
@@ -480,13 +478,21 @@ class BrandsAPI:
             unique_products = scraping_result.products
             print(f"✅ Found {len(unique_products)} products")
             
-            # Handle image download and storage (preserved existing logic)
+            # Handle image storage (streaming downloads already completed during scraping)
             if cached_images:
                 print(f"♻️  Using {len(cached_images)} cached images (no download needed)")
                 downloaded_images = [str(img) for img in cached_images]
             else:
-                print(f"⏩ Skipping image download to prevent timeout - storing URLs only")
-                downloaded_images = []  # Skip download for now
+                # Extract download paths from simple scraper results (already downloaded by streaming workers)
+                downloaded_images = []
+                for product in unique_products:
+                    if hasattr(product, 'download_path') and product.download_path:
+                        downloaded_images.append(product.download_path)
+                    else:
+                        downloaded_images.append(None)  # Keep alignment
+                
+                downloaded_count = sum(1 for img in downloaded_images if img is not None)
+                print(f"✅ Streaming workers downloaded {downloaded_count}/{len(unique_products)} images during scraping")
             
             # Store products in database with cached image paths
             from pathlib import Path
