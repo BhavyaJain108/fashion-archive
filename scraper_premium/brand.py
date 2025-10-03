@@ -9,7 +9,11 @@ import sys
 import os
 import json
 from typing import List
-from urllib.parse import urljoin
+from queue import Queue
+import time
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from urllib.parse import urljoin, urlparse
 from playwright.sync_api import sync_playwright
 import re
 
@@ -17,6 +21,8 @@ import re
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from llm_handler import LLMHandler
+from product import Product
+from image_downloader import ImageDownloader
 
 
 
@@ -38,57 +44,27 @@ class Brand:
         self.starting_pages_queue: List[str] = []
         self.product_extraction_pattern: dict = {}
         self.llm_handler = llm_handler or LLMHandler()
-    
-    def analyze_navigation(self) -> List[str]:
-        """
-        Analyze brand navigation and discover product page URLs.
         
-        This function uses LLM analysis to find all product page URLs
-        and populates the starting pages queue.
+        # Product queue for discovered products
+        self.product_queue = Queue()
+        self.seen_product_urls = set()  # Track discovered products to avoid duplicates
+        self.all_products = set()  # Set of all unique products (by URL)
         
-        Returns:
-            List of product category URLs
-        """
-        try:
-            links = self.extract_page_links(self.url)
-            
-            if not links:
-                raise Exception("Failed to extract any links from the page")
-            
-            prompt = self._build_navigation_prompt(links)
-            llm_response = self.llm_handler.call(prompt, expected_format="json")
-            
-            if not llm_response.get("success", False):
-                raise Exception(f"LLM analysis failed: {llm_response.get('error', 'Unknown error')}")
-            
-            analysis = llm_response.get("data", {})
-            
-            # Get URLs and normalize them
-            included_urls = analysis.get("included_urls", [])
-            normalized_urls = []
-            for url_obj in included_urls:
-                url = url_obj.get("url", "") if isinstance(url_obj, dict) else url_obj
-                if url.startswith('/'):
-                    # Convert relative URL to absolute
-                    normalized_urls.append(urljoin(self.url, url))
-                else:
-                    normalized_urls.append(url)
-            
-            # Store results and populate starting pages queue
-            self.product_pages = normalized_urls
-            self.starting_pages_queue = normalized_urls.copy()
-            
-            # If we found product pages, analyze the first one for extraction pattern
-            if self.starting_pages_queue:
-                print(f"🔍 Analyzing product pattern from first page...")
-                self.product_extraction_pattern = self.analyze_product_pattern()
-            
-            return normalized_urls
-            
-        except Exception:
-            self.product_pages = []
-            self.starting_pages_queue = []
-            return []
+        # HTML processing pipeline
+        self.html_queue = Queue()  # Queue of (html, source_url) tuples
+        self.pattern_ready = threading.Event()  # Signal when pattern is detected
+        self.workers_active = False
+        self.worker_pool = None
+        
+        # Image downloading pipeline
+        self.image_downloader = ImageDownloader()
+        self.image_download_queue = Queue()  # Queue of products needing image downloads
+        self.image_workers_active = False
+        self.image_worker_pool = None
+        
+        # Streaming control
+        self.scrolling_active = False
+        self.scroll_thread = None
     
     def analyze_product_pattern(self) -> dict:
         """
@@ -105,23 +81,23 @@ class Brand:
         first_page_url = self.starting_pages_queue[0]
         
         try:
-            # Get HTML content and extract all links
-            html_content = self.get_page_html(first_page_url)
-            if not html_content:
-                raise Exception("Failed to fetch HTML content")
             
             # Step 1: Find one valid product link
             all_links = self.extract_page_links(first_page_url)
-            print(f"📋 Extracted {len(all_links)} links from page")
-            print(f"   First 10 links: {all_links[:10]}")
+            # Links extracted
             
             product_link = self._find_product_link(all_links, first_page_url)
             
             if not product_link:
                 print(f"❌ LLM failed to identify product link from {len(all_links)} links")
-                raise Exception("No valid product link found")
+                raise Exception(f"No valid product link found {all_links}")
             
-            print(f"🔗 Found product link: {product_link}")
+            # Product link found
+            
+            # Get HTML content and extract all links
+            html_content = self.get_page_html(first_page_url)
+            if not html_content:
+                raise Exception("Failed to fetch HTML content")
             
             # Step 2: Analyze pattern around that specific link
             pattern_analysis = self._analyze_link_pattern(html_content, product_link, first_page_url)
@@ -129,16 +105,92 @@ class Brand:
             if not pattern_analysis:
                 raise Exception("Failed to analyze link pattern")
             
+            # Store the extraction pattern
+            self.product_extraction_pattern = pattern_analysis.get('extraction_pattern', {})
+            
+            # Pattern stored
+            
             return pattern_analysis
             
         except Exception as e:
             print(f"❌ Product pattern analysis failed: {e}")
             return {}
     
+    def _extract_sample_product(self, html_content: str, pattern: dict, product_link: str, base_url: str) -> dict:
+        """
+        Extract a sample product using the detected CSS selectors to verify the pattern works
+        """
+        try:
+            from bs4 import BeautifulSoup
+            from urllib.parse import urljoin
+            
+            soup = BeautifulSoup(html_content, 'html.parser')
+            
+            # Find containers using the detected selector
+            containers = soup.select(pattern.get('container_selector', ''))
+            
+            if not containers:
+                return {
+                    "name": "Sample Product",
+                    "product_url": product_link,
+                    "image_url": "N/A - No containers found"
+                }
+            
+            # Find the container that contains our known product link
+            target_container = None
+            for container in containers:
+                # Check if this container has our product link
+                links = container.select('a')
+                for link in links:
+                    href = link.get('href', '')
+                    if href and (href in product_link or product_link.endswith(href)):
+                        target_container = container
+                        break
+                if target_container:
+                    break
+            
+            if not target_container:
+                # Just use the first container as fallback
+                target_container = containers[0]
+            
+            # Extract image using the pattern
+            image_url = "N/A"
+            image_selector = pattern.get('image_selector', 'img')
+            if image_selector:
+                img_element = target_container.select_one(image_selector)
+                if img_element:
+                    img_src = img_element.get('src') or img_element.get('data-src') or img_element.get('data-lazy-src')
+                    if img_src:
+                        if img_src.startswith('http'):
+                            image_url = img_src
+                        else:
+                            image_url = urljoin(base_url, img_src)
+            
+            # Extract name using the pattern
+            product_name = "Sample Product"
+            name_selector = pattern.get('name_selector', '')
+            if name_selector:
+                name_element = target_container.select_one(name_selector)
+                if name_element:
+                    product_name = name_element.get_text(strip=True) or "Sample Product"
+            
+            return {
+                "name": product_name,
+                "product_url": product_link,
+                "image_url": image_url
+            }
+            
+        except Exception as e:
+            return {
+                "name": "Sample Product",
+                "product_url": product_link,
+                "image_url": f"N/A - Error: {e}"
+            }
+    
     def get_page_html(self, url: str) -> str:
         """
         Get the full rendered HTML of a page using Playwright.
-        Uses fast 'load' strategy with minimal wait for product links.
+        Uses fast 'domcontentloaded' strategy for quicker loading.
         
         Args:
             url: The URL to fetch
@@ -149,17 +201,17 @@ class Brand:
         try:
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=True)
-                page = browser.new_page()
+                context = browser.new_context(
+                    ignore_https_errors=True,  # Ignore SSL/certificate errors
+                    user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                )
+                page = context.new_page()
                 
-                # Use fast 'load' strategy
-                page.goto(url, wait_until="load", timeout=15000)
+                # Use domcontentloaded for faster loading
+                page.goto(url, wait_until="domcontentloaded", timeout=10000)
                 
-                # Short wait for product links to appear
-                try:
-                    page.wait_for_selector('a[href*="/products/"], a[href*="/product/"]', timeout=3000)
-                except:
-                    # If no product links found quickly, just continue
-                    pass
+                # Brief wait for JavaScript to render
+                page.wait_for_timeout(2000)
                 
                 html_content = page.content()
                 browser.close()
@@ -217,19 +269,17 @@ class Brand:
         # Format links for prompt - give it ALL links
         links_text = "\n".join(f"- {link}" for link in all_links)
         
-        print(f"🔍 ALL LINKS SENT TO LLM ({len(all_links)} total):")
-        for i, link in enumerate(all_links, 1):
-            print(f"   {i:2d}. {link}")
+        # Debug: print link count only
+        # Sending links to LLM
         
         prompt = f"""
-Find ONE valid product link from this fashion website.
+Find ONE link that leads to a product page from this fashion website.
 
 Website: {base_url}
 All links found:
 {links_text}
 
 Return the ONE best product link that leads to an individual clothing/fashion item.
-Look for links that contain product names, clothing items, or fashion accessories.
 Exclude: collections, categories, about pages, contact, search, account, blog.
 
 Return only the URL, nothing else.
@@ -238,10 +288,7 @@ Return only the URL, nothing else.
         # Use Sonnet 3.5 for quality
         llm_response = self.llm_handler.call(prompt, expected_format="text")
         
-        print(f"🔍 Step 1 LLM Response:")
-        print(f"   Success: {llm_response.get('success', False)}")
-        print(f"   Response: {llm_response.get('response', 'N/A')[:200]}...")
-        print(f"   Error: {llm_response.get('error', 'None')}")
+        # LLM response received
         
         if llm_response.get("success", False):
             response_text = llm_response.get("response", "").strip()
@@ -250,7 +297,7 @@ Return only the URL, nothing else.
             # First try exact match
             for link in all_links:
                 if link == response_text:
-                    print(f"✅ Exact match: {link}")
+                    # Exact match found
                     return link
             
             # Then try if response contains the link
@@ -298,12 +345,12 @@ Return only the URL, nothing else.
         
         # Get 2000 characters before and after the match for context
         match_start = match.start()
-        context_start = max(0, match_start - 2000)
-        context_end = min(len(html_content), match.end() + 2000)
+        context_start = max(0, match_start - 2500)
+        context_end = min(len(html_content), match.end() + 2500)
         context_html = html_content[context_start:context_end]
         
         prompt = f"""
-Analyze this HTML containing a product link and identify the container pattern.
+Analyze this HTML containing a product link and identify the container pattern in a way that will help code based extraction
 
 Product Link: {product_link}
 HTML Context:
@@ -311,8 +358,8 @@ HTML Context:
 
 Find the HTML structure around the product link and return:
 1. What element contains/wraps the product link? 
-2. CSS selectors to find all similar product containers
-3. CSS selectors for images, names, links within each container
+2. CSS selectors that would help to find all similar product containers
+3. CSS selectors that would help to find images, names, links within each similar product container
 
 Return JSON:
 {{
@@ -329,22 +376,59 @@ Return JSON:
         if llm_response.get("success", False):
             data = llm_response.get("data", {})
             if data and "container_selector" in data:
-                print(f"✅ Pattern extracted:")
-                print(f"   Container: {data.get('container_selector', 'N/A')}")
-                print(f"   Image: {data.get('image_selector', 'N/A')}")
-                print(f"   Name: {data.get('name_selector', 'N/A')}")
-                print(f"   Link: {data.get('link_selector', 'N/A')}")
+                # Pattern extracted successfully - now extract actual sample data
+                sample_product = self._extract_sample_product(html_content, data, product_link, base_url)
                 
                 return {
                     "extraction_pattern": data,
-                    "example_products": [{
-                        "name": "Sample Product",
-                        "product_url": product_link,
-                        "image_url": "N/A"
-                    }]
+                    "example_products": [sample_product]
                 }
-        
-        return {}
+            else:
+                # LLM succeeded but didn't provide valid pattern
+                print(f"⚠️  LLM response missing required selectors:")
+                # Raw response data available
+                return {"error": "Missing required CSS selectors", "partial_data": data}
+        else:
+            # LLM call failed
+            error_msg = llm_response.get("error", "Unknown LLM error")
+            print(f"❌ LLM pattern analysis failed: {error_msg}")
+            
+            # Try common fallback patterns
+            print(f"🔄 Attempting fallback pattern detection...")
+            fallback_patterns = [
+                {
+                    "container_selector": ".product, .product-item, .collection-item",
+                    "link_selector": "a[href*='/product']",
+                    "image_selector": "img",
+                    "name_selector": ".product-title, .product-name, h3, h4"
+                },
+                {
+                    "container_selector": "[data-product], [data-product-id]",
+                    "link_selector": "a",
+                    "image_selector": "img",
+                    "name_selector": "[data-product-title], .title"
+                }
+            ]
+            
+            # Test if any fallback works
+            for i, pattern in enumerate(fallback_patterns, 1):
+                try:
+                    # Quick test with BeautifulSoup
+                    from bs4 import BeautifulSoup
+                    soup = BeautifulSoup(html_content, 'html.parser')
+                    containers = soup.select(pattern["container_selector"])
+                    if containers:
+                        print(f"   ✅ Fallback pattern #{i} found {len(containers)} containers")
+                        return {
+                            "extraction_pattern": pattern,
+                            "fallback": True,
+                            "error": error_msg
+                        }
+                except:
+                    continue
+            
+            print(f"   ❌ No fallback patterns matched")
+            return {"error": error_msg}
     
     def _build_navigation_prompt(self, links: List[str]) -> str:
         """Build the navigation analysis prompt for this brand"""
@@ -370,7 +454,9 @@ Find PRODUCT PAGE URLS: List ALL URLs that lead to actual product category listi
 
 IMPORTANT: We want every single individual product categories so that we can see all the products offered. links that end with a category/clothing/accessory type are usually your go to. 
 IMPORTANT: DO NOT RETURN "Shop All" or "All Products" or "main-products-page" or similar consolidation pages, we are interested in the getting all the DISTINCT categories not everything at once. 
-Here sometimes you may see a everything for a particular subcategory. for example womens/all or shoes/all. These are going to be gametime decisions where you have to judge what collectoin of links would form the a distinct yet complete set of products offered.
+Here sometimes you may see a everything for a particular subcategory. for example womens/all or shoes/all. these are probably ok, but just all_products or shop_all are not. 
+These are going to be gametime decisions where you have to judge what collection of links would form the a distinct yet complete set of products offered.
+Be careful not to fall for when links diffferntiated by a subcategory first. If theres mens/shoes and womens/shoes we wan both because they even though the final categories is the same, the parent categories are different. 
 IMPORTANT CONSIDERATION: If unsure about a URL, ALWAYS INCLUDE it.
 DO NOT INCLUDE ALTERNATIVES/ multiple options for exactly the same category.
 
@@ -395,156 +481,425 @@ Return JSON:
 }}
 """.strip()
     
-    def set_analysis_result(self, webfetch_response: str) -> List[str]:
+    def process_starting_page(self, page_url: str) -> int:
         """
-        Set the WebFetch analysis result and parse it.
+        Process a starting page: scroll through it and queue all discovered products.
+        Uses the product_extraction_pattern to find products.
         
         Args:
-            webfetch_response: Raw response from WebFetch tool
+            page_url: URL of the starting page to process
             
         Returns:
-            List of product URLs
+            Number of products discovered and queued
         """
+        if not self.product_extraction_pattern:
+            print(f"❌ No product extraction pattern defined. Run analyze_product_pattern() first.")
+            return 0
+        
+        products_found = 0
+        
         try:
-            # Parse JSON from WebFetch response
-            if isinstance(webfetch_response, str):
-                start_idx = webfetch_response.find('{')
-                end_idx = webfetch_response.rfind('}') + 1
-                if start_idx != -1 and end_idx != -1:
-                    json_str = webfetch_response[start_idx:end_idx]
-                    analysis = json.loads(json_str)
-                else:
-                    raise ValueError("No JSON found in WebFetch response")
-            else:
-                analysis = webfetch_response
-            
-            # Get URLs
-            product_urls = analysis.get("product_urls", [])
-            
-            # Store results and populate starting pages queue
-            self.product_pages = product_urls
-            self.starting_pages_queue = product_urls.copy()
-            
-            # Log results
-            print(f"✅ Found {len(product_urls)} product page(s):")
-            for i, url in enumerate(product_urls, 1):
-                print(f"   {i}. {url}")
-            
-            confidence = analysis.get("confidence", 0.0)
-            reasoning = analysis.get("reasoning", "No reasoning provided")
-            print(f"🎯 Confidence: {confidence:.1f}")
-            print(f"💭 Reasoning: {reasoning}")
-            
-            return product_urls
-            
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True)
+                page = browser.new_page()
+                
+                # Go to the starting page
+                print(f"📄 Processing: {page_url}")
+                page.goto(page_url, wait_until="load", timeout=15000)
+                
+                # Wait for initial products to load
+                container_selector = self.product_extraction_pattern.get('container_selector')
+                try:
+                    page.wait_for_selector(container_selector, timeout=5000)
+                except:
+                    print(f"⚠️  No products found with selector: {container_selector}")
+                    browser.close()
+                    return 0
+                
+                # Track scroll position
+                last_height = 0
+                scroll_attempts = 0
+                max_scrolls = 10  # Safety limit
+                
+                while scroll_attempts < max_scrolls:
+                    # Extract only NEW products (not already processed)
+                    products_batch = self._extract_new_products_from_page(page, page_url)
+                    products_found += products_batch
+                    
+                    # Get current scroll height
+                    current_height = page.evaluate("document.body.scrollHeight")
+                    
+                    # Check if we've reached the bottom
+                    if current_height == last_height:
+                        print(f"✅ Reached end of page after {scroll_attempts} scrolls")
+                        break
+                    
+                    # Scroll to bottom
+                    page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                    
+                    # Wait for new products to load
+                    page.wait_for_timeout(2000)  # 2 second wait
+                    
+                    last_height = current_height
+                    scroll_attempts += 1
+                
+                # No need for final extraction - last scroll already extracted everything
+                browser.close()
+                
+                print(f"✅ Completed: Found {products_found} products from {page_url}")
+                print(f"📦 Queue size: {self.product_queue.qsize()} total products")
+                
+                return products_found
+                
         except Exception as e:
-            print(f"❌ Failed to parse WebFetch response: {e}")
-            self.product_pages = []
-            self.starting_pages_queue = []
-            return []
+            print(f"❌ Error processing {page_url}: {e}")
+            return products_found
     
-    def _build_product_detection_prompt(self, html_content: str, url: str) -> str:
-        """Build the product detection prompt based on the old system"""
+    def _extract_new_products_from_page(self, page, source_url: str) -> int:
+        """
+        Extract only NEW products from current page state (marks them as processed).
+        Uses JavaScript to mark containers as processed to avoid reprocessing.
         
-        # Truncate HTML for LLM processing
-        HTML_TRUNCATE_LIMIT = 10000
+        Args:
+            page: Playwright page object
+            source_url: The starting page URL (for tracking source)
+            
+        Returns:
+            Number of new products queued
+        """
+        new_products = 0
         
-        # Try to find the main content area that contains the product grid
-        body_match = re.search(r'<body[^>]*>(.*)</body>', html_content, re.DOTALL | re.IGNORECASE)
-        if body_match:
-            body_content = body_match.group(1)
+        try:
+            # Get selectors - fail if no container selector
+            container_selector = self.product_extraction_pattern.get('container_selector')
+            if not container_selector:
+                print("❌ No container selector in pattern - cannot extract products")
+                return 0
             
-            # Look for product grid sections specifically
-            grid_patterns = [
-                r'<div[^>]*class="[^"]*(?:product-grid|products-grid|collection|grid)[^"]*"[^>]*>.*?</div>',
-                r'<section[^>]*class="[^"]*(?:product|collection)[^"]*"[^>]*>.*?</section>',
-                r'<main[^>]*>.*?</main>',
-                r'<div[^>]*id="[^"]*(?:product|collection|main)[^"]*"[^>]*>.*?</div>'
-            ]
+            # Get other selectors - use only what pattern provides (no defaults)
+            link_selector = self.product_extraction_pattern.get('link_selector') or ''
+            name_selector = self.product_extraction_pattern.get('name_selector') or ''
+            image_selector = self.product_extraction_pattern.get('image_selector') or ''
             
-            best_section = None
-            max_product_indicators = 0
+            # Get ALL containers (no JavaScript marking - rely on URL deduplication)
+            extraction_result = page.evaluate(f"""
+                () => {{
+                    const containers = document.querySelectorAll('{container_selector}');
+                    const newProducts = [];
+                    let noLinkCount = 0;
+                    
+                    containers.forEach(container => {{
+                        
+                        // Extract product data - only use selectors that were provided
+                        let href = null;
+                        if ('{link_selector}') {{
+                            const linkEl = container.querySelector('{link_selector}');
+                            href = linkEl ? linkEl.getAttribute('href') : null;
+                        }} else {{
+                            // No link selector - try to find any product link
+                            const linkEl = container.querySelector('a[href*="/product"]');
+                            href = linkEl ? linkEl.getAttribute('href') : null;
+                        }}
+                        
+                        let name = 'Unknown';
+                        if ('{name_selector}') {{
+                            const nameEl = container.querySelector('{name_selector}');
+                            if (nameEl) {{
+                                name = nameEl.innerText || nameEl.getAttribute('alt') || nameEl.getAttribute('title') || 'Unknown';
+                            }}
+                        }}
+                        
+                        let imageSrc = '';
+                        if ('{image_selector}') {{
+                            const imgEl = container.querySelector('{image_selector}');
+                            if (imgEl) {{
+                                imageSrc = imgEl.getAttribute('src') || imgEl.getAttribute('data-src') || '';
+                            }}
+                        }}
+                        
+                        if (href) {{
+                            newProducts.push({{
+                                href: href,
+                                name: name.trim(),
+                                image: imageSrc
+                            }});
+                        }} else {{
+                            noLinkCount++;
+                        }}
+                    }});
+                    
+                    return {{
+                        products: newProducts,
+                        totalContainers: containers.length,
+                        noLinkCount: noLinkCount
+                    }};
+                }}
+            """)
             
-            for pattern in grid_patterns:
-                matches = re.findall(pattern, body_content, re.DOTALL)
-                for match in matches:
-                    # Count product indicators in this section
-                    product_count = (
-                        len(re.findall(r'<[^>]*class="[^"]*(?:product|item|card)[^"]*"', match)) +
-                        len(re.findall(r'<x-cell', match)) +
-                        len(re.findall(r'data-product', match)) +
-                        len(re.findall(r'product-', match))
+            new_containers_data = extraction_result.get('products', [])
+            
+            # Process the extracted products
+            duplicates_skipped = 0
+            for product_data in new_containers_data:
+                try:
+                    # Build full URL
+                    href = product_data.get('href', '')
+                    if not href:
+                        continue
+                        
+                    if href.startswith('/'):
+                        product_url = urljoin(source_url, href)
+                    elif href.startswith('http'):
+                        product_url = href
+                    else:
+                        product_url = urljoin(source_url, href)
+                    
+                    # Skip if we've seen this URL before
+                    if product_url in self.seen_product_urls:
+                        duplicates_skipped += 1
+                        continue
+                    
+                    # Get product details
+                    product_name = product_data.get('name', 'Unknown')
+                    product_image = product_data.get('image', '')
+                    if product_image and not product_image.startswith('http'):
+                        product_image = urljoin(source_url, product_image)
+                    
+                    # Create Product object
+                    product = Product(
+                        name=product_name,
+                        url=product_url,
+                        image=product_image
                     )
                     
-                    if product_count > max_product_indicators:
-                        max_product_indicators = product_count
-                        best_section = match
+                    # Add metadata
+                    product.metadata['source_page'] = source_url
+                    product.metadata['discovered_at'] = time.time()
+                    
+                    # Queue the product
+                    self.product_queue.put(product)
+                    self.seen_product_urls.add(product_url)
+                    new_products += 1
+                    
+                    # Queue for image download if workers are active
+                    if self.image_workers_active:
+                        self.queue_product_for_image_download(product)
+                    
+                except Exception as e:
+                    # Skip problematic products but continue
+                    continue
             
-            if best_section and max_product_indicators > 10:
-                # Found a section with many product indicators - use it
-                html_preview = best_section[:HTML_TRUNCATE_LIMIT]
-                print(f"🔍 Using product grid section with {max_product_indicators} product indicators")
-            else:
-                # Look for the middle section of body content (skip header/footer)
-                body_lines = body_content.split('\n')
-                start_idx = len(body_lines) // 4  # Skip first 25%
-                end_idx = 3 * len(body_lines) // 4  # Use up to 75%
-                middle_content = '\n'.join(body_lines[start_idx:end_idx])
-                html_preview = middle_content[:HTML_TRUNCATE_LIMIT]
-                print(f"🔍 Using middle section of body content")
-        else:
-            # Fallback to original approach but skip scripts and styles
-            content_no_scripts = re.sub(r'<script[^>]*>.*?</script>', '', html_content, flags=re.DOTALL | re.IGNORECASE)
-            content_no_styles = re.sub(r'<style[^>]*>.*?</style>', '', content_no_scripts, flags=re.DOTALL | re.IGNORECASE)
-            html_preview = content_no_styles[:HTML_TRUNCATE_LIMIT]
-            print(f"🔍 Using cleaned HTML content (no scripts/styles)")
+            print(f"   📦 Found {new_products} new products from {len(new_containers_data)} containers ({duplicates_skipped} duplicates)")
+            
+        except Exception as e:
+            print(f"⚠️  Error extracting products: {e}")
         
-        return f"""
-Look at this fashion brand page and help me identify the pattern for finding products.
-
-URL: {url}
-HTML Content:
-{html_preview}
-
-I need you to find 2-3 example products and tell me how to identify ALL products programmatically.
-
-Your task:
-1. Find 2-3 clear product examples from this page
-2. For each example, show me:
-   - The product name/title
-   - The image URL
-   - The product URL (link to individual product page)
-   - The HTML structure around that product
-
-3. Tell me the pattern:
-   - What CSS selector would find all product containers?
-   - What CSS selector would find product images within each container?
-   - What CSS selector would find product names within each container?
-   - What CSS selector would find product links within each container?
-
-Return a JSON object:
-{{
-    "example_products": [
-        {{
-            "name": "product name",
-            "image_url": "image URL",
-            "product_url": "full URL to individual product page",
-            "html_snippet": "HTML around this product (200 chars)"
-        }}
-    ],
-    "extraction_pattern": {{
-        "container_selector": "CSS selector for product containers",
-        "image_selector": "CSS selector for images within container",
-        "name_selector": "CSS selector for names within container",
-        "link_selector": "CSS selector for product links within container",
-        "how_to_use": "brief explanation of how to use these selectors"
-    }}
-}}
-
-Focus on giving me selectors I can use with document.querySelectorAll() to find ALL products.
-
-Respond with only valid JSON.
-""".strip()
+        return new_products
     
+    def _extract_products_from_page(self, page, source_url: str) -> int:
+        """
+        Extract products from current page state and add to queue.
+        
+        Args:
+            page: Playwright page object
+            source_url: The starting page URL (for tracking source)
+            
+        Returns:
+            Number of new products queued
+        """
+        new_products = 0
+        
+        try:
+            # Get container selector - fail if not found
+            container_selector = self.product_extraction_pattern.get('container_selector')
+            if not container_selector:
+                print("❌ No container selector in pattern - cannot extract products")
+                return 0
+            
+            # Get other selectors - use only what pattern provides
+            link_selector = self.product_extraction_pattern.get('link_selector')  # No default
+            name_selector = self.product_extraction_pattern.get('name_selector')  # No default
+            image_selector = self.product_extraction_pattern.get('image_selector')  # No default
+            
+            # Find all product containers
+            containers = page.query_selector_all(container_selector)
+            
+            for container in containers:
+                try:
+                    # Extract product URL
+                    link_element = container.query_selector(link_selector) if link_selector else container
+                    product_url = None
+                    
+                    if link_element:
+                        href = link_element.get_attribute('href')
+                        if href:
+                            # Convert relative URL to absolute
+                            if href.startswith('/'):
+                                product_url = urljoin(source_url, href)
+                            elif href.startswith('http'):
+                                product_url = href
+                            else:
+                                product_url = urljoin(source_url, href)
+                    
+                    # Skip if we've seen this product
+                    if not product_url or product_url in self.seen_product_urls:
+                        continue
+                    
+                    # Extract product name
+                    product_name = "Unknown"
+                    if name_selector:
+                        name_element = container.query_selector(name_selector)
+                        if name_element:
+                            product_name = name_element.inner_text().strip()
+                    
+                    # Extract product image
+                    product_image = ""
+                    image_element = container.query_selector(image_selector)
+                    if image_element:
+                        product_image = image_element.get_attribute('src') or ""
+                        if product_image and not product_image.startswith('http'):
+                            product_image = urljoin(source_url, product_image)
+                    
+                    # Create Product object and queue it
+                    product = Product(
+                        name=product_name,
+                        url=product_url,
+                        image=product_image
+                    )
+                    
+                    # Add metadata
+                    product.metadata['source_page'] = source_url
+                    product.metadata['discovered_at'] = time.time()
+                    
+                    # Queue the product
+                    self.product_queue.put(product)
+                    self.seen_product_urls.add(product_url)
+                    new_products += 1
+                    
+                    # Queue for image download if workers are active
+                    if self.image_workers_active:
+                        self.queue_product_for_image_download(product)
+                    
+                except Exception as e:
+                    # Skip problematic products but continue
+                    continue
+                    
+        except Exception as e:
+            print(f"⚠️  Error extracting products: {e}")
+        
+        return new_products
+    
+    def process_all_starting_pages(self) -> int:
+        """
+        Process all starting pages in the queue.
+        
+        Returns:
+            Total number of products discovered
+        """
+        if not self.starting_pages_queue:
+            print("❌ No starting pages to process")
+            return 0
+        
+        if not self.product_extraction_pattern:
+            print("❌ Product extraction pattern not defined")
+            return 0
+        
+        total_products = 0
+        
+        print(f"\n🚀 Processing {len(self.starting_pages_queue)} starting pages...")
+        
+        for i, page_url in enumerate(self.starting_pages_queue, 1):
+            print(f"\n[{i}/{len(self.starting_pages_queue)}] Processing page...")
+            products_found = self.process_starting_page(page_url)
+            total_products += products_found
+        
+        print(f"\n✅ Completed all pages!")
+        print(f"📊 Total products discovered: {total_products}")
+        print(f"📦 Product queue size: {self.product_queue.qsize()}")
+        
+        return total_products
+    
+    def _extract_product_image(self, html_content: str, href: str, source_url: str) -> str:
+        """Extract product image URL from HTML"""
+        
+        # Strategy 1: Image within the same link
+        link_img_pattern = rf'<a[^>]*href="{re.escape(href)}"[^>]*>.*?<img[^>]*src="([^"]+)".*?</a>'
+        match = re.search(link_img_pattern, html_content, re.DOTALL | re.IGNORECASE)
+        if match:
+            img_url = match.group(1)
+            return self._normalize_image_url(img_url, source_url)
+        
+        # Strategy 2: Image before the link (common pattern)
+        before_pattern = rf'<img[^>]*src="([^"]+)"[^>]*>.*?<a[^>]*href="{re.escape(href)}"'
+        match = re.search(before_pattern, html_content, re.DOTALL | re.IGNORECASE)
+        if match:
+            img_url = match.group(1)
+            return self._normalize_image_url(img_url, source_url)
+        
+        # Strategy 3: Look for data-src (lazy loading)
+        lazy_pattern = rf'<a[^>]*href="{re.escape(href)}"[^>]*>.*?data-src="([^"]+)".*?</a>'
+        match = re.search(lazy_pattern, html_content, re.DOTALL | re.IGNORECASE)
+        if match:
+            img_url = match.group(1)
+            return self._normalize_image_url(img_url, source_url)
+        
+        return ""
+    
+    def _normalize_image_url(self, img_url: str, source_url: str) -> str:
+        """Convert relative image URLs to absolute and decode HTML entities"""
+        if not img_url:
+            return ""
+        
+        # Decode HTML entities (e.g., &amp; -> &)
+        import html
+        img_url = html.unescape(img_url)
+        
+        if img_url.startswith('//'):
+            return 'https:' + img_url
+        elif img_url.startswith('/'):
+            return urljoin(source_url, img_url)
+        elif img_url.startswith('http'):
+            return img_url
+        else:
+            return urljoin(source_url, img_url)    
+
+    def _image_worker(self, worker_id: int):
+        """Image downloading worker thread"""
+        print(f"🖼️  Image worker {worker_id} started")
+        
+        while self.image_workers_active:
+            try:
+                # Get product from queue
+                product = self.image_download_queue.get(timeout=1)
+                
+                if product is None:  # Poison pill
+                    break
+                
+                # Download image
+                if product.image:
+                    success, local_path, error = self.image_downloader.download_image(
+                        product.image, 
+                        product.name or f"product_{worker_id}_{int(time.time())}", 
+                        self.brand_name
+                    )
+                    
+                    if success:
+                        product.metadata['local_image_path'] = local_path
+                        print(f"   🖼️  Worker {worker_id}: Downloaded {product.name[:30]}...")
+                    else:
+                        print(f"   ❌ Worker {worker_id}: Failed to download {product.name[:30]}...: {error}")
+                
+            except:
+                # Queue timeout or other exception - just continue waiting
+                # Don't break the loop unless workers should stop
+                continue
+        
+        print(f"🛑 Image worker {worker_id} stopped")
+    
+    def queue_product_for_image_download(self, product):
+        """Add product to image download queue"""
+        if product.image:
+            self.image_download_queue.put(product)
+
     def __repr__(self) -> str:
         return f"Brand(url='{self.url}', pages={len(self.product_pages)}, queue={len(self.starting_pages_queue)})"
