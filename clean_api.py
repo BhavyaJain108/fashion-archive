@@ -11,9 +11,11 @@ import requests
 from bs4 import BeautifulSoup
 import re
 from urllib.parse import urljoin
+from favourites_db import favourites_db
+from config import config
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, methods=['GET', 'POST', 'DELETE', 'OPTIONS'])
 
 # EXACT headers from working version
 headers = {
@@ -151,12 +153,20 @@ def get_collections():
 def download_images():
     """Use original ImageDownloader - NO tkinter imports"""
     try:
-        import sys
+        # Import with explicit module loading to avoid conflicts
+        import importlib.util
         import os
-        sys.path.append(os.path.dirname(__file__))
         
-        # Import ONLY the classes we need
-        from image_downloader import ImageDownloader, DownloadConfig
+        # Load the root image_downloader module directly
+        spec = importlib.util.spec_from_file_location(
+            "main_image_downloader", 
+            os.path.join(os.path.dirname(__file__), "image_downloader.py")
+        )
+        main_img_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(main_img_module)
+        
+        ImageDownloader = main_img_module.ImageDownloader
+        DownloadConfig = main_img_module.DownloadConfig
         
         data = request.get_json()
         collection = data.get('collection', {})
@@ -252,15 +262,23 @@ def download_images():
         return jsonify({
             'success': True,
             'imagePaths': final_images,
-            'designerName': collection['designer'],
+            'designerName': collection.get('designer', 'Unknown'),
             'count': len(final_images)
         })
         
     except Exception as e:
+        # Handle case where collection might not be defined yet
+        designer_name = 'Unknown'
+        try:
+            if 'collection' in locals():
+                designer_name = collection.get('designer', 'Unknown')
+        except:
+            pass
+        
         return jsonify({
             'success': False,
             'imagePaths': [],
-            'designerName': collection.get('designer', 'Unknown'),
+            'designerName': designer_name,
             'error': str(e)
         }), 500
 
@@ -493,10 +511,185 @@ def serve_video():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+# Favourites API Endpoints
+
+@app.route('/api/favourites', methods=['GET'])
+def get_favourites():
+    """Get all favourite looks"""
+    try:
+        favourites = favourites_db.get_all_favourites()
+        return jsonify({'favourites': favourites})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/favourites', methods=['POST'])
+def add_favourite():
+    """Add a look to favourites"""
+    try:
+        data = request.get_json()
+        
+        season_data = data.get('season', {})
+        collection_data = data.get('collection', {})
+        look_data = data.get('look', {})
+        image_path = data.get('image_path', '')
+        notes = data.get('notes', '')
+        
+        success = favourites_db.add_favourite(
+            season_data, collection_data, look_data, image_path, notes
+        )
+        
+        if success:
+            return jsonify({'success': True, 'message': 'Added to favourites'})
+        else:
+            return jsonify({'success': False, 'message': 'Already in favourites'})
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/favourites', methods=['DELETE'])
+def remove_favourite():
+    """Remove a look from favourites"""
+    try:
+        data = request.get_json()
+        
+        season_url = data.get('season_url', '')
+        collection_url = data.get('collection_url', '')
+        look_number = data.get('look_number', 0)
+        
+        success = favourites_db.remove_favourite(season_url, collection_url, look_number)
+        
+        if success:
+            return jsonify({'success': True, 'message': 'Removed from favourites'})
+        else:
+            return jsonify({'success': False, 'message': 'Not found in favourites'})
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/favourites/check', methods=['POST'])
+def check_favourite():
+    """Check if a look is favourited"""
+    try:
+        data = request.get_json()
+        
+        season_url = data.get('season_url', '')
+        collection_url = data.get('collection_url', '')
+        look_number = data.get('look_number', 0)
+        
+        is_fav = favourites_db.is_favourite(season_url, collection_url, look_number)
+        
+        return jsonify({'is_favourite': is_fav})
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/favourites/stats', methods=['GET'])
+def get_favourites_stats():
+    """Get favourites statistics"""
+    try:
+        stats = favourites_db.get_stats()
+        return jsonify({'stats': stats})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/favourites/cleanup', methods=['POST'])
+def cleanup_favourites():
+    """Clean up orphaned images in favourites directory"""
+    try:
+        removed_count = favourites_db.cleanup_orphaned_images()
+        return jsonify({
+            'success': True, 
+            'message': f'Cleaned up {removed_count} orphaned images',
+            'removed_count': removed_count
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# Register My Brands API endpoints
+try:
+    from my_brands.brands_api import register_brands_endpoints
+    register_brands_endpoints(app)
+    print("✅ My Brands API endpoints registered")
+except ImportError as e:
+    print(f"⚠️  My Brands endpoints not available: {e}")
+
+# Register Premium Scraper API endpoints
+try:
+    import sys
+    import os
+    # Add scraper_premium to path but at the END to avoid conflicts
+    scraper_path = os.path.join(os.path.dirname(__file__), 'scraper_premium')
+    if scraper_path not in sys.path:
+        sys.path.append(scraper_path)
+    
+    from scraper_premium.api import PremiumScraperAPI
+    
+    # Create API instance
+    premium_api = PremiumScraperAPI()
+    
+    @app.route('/api/premium/test', methods=['GET'])
+    def test_premium_api():
+        """Test endpoint to verify premium API is working"""
+        return jsonify({
+            'success': True,
+            'message': 'Premium Scraper API is integrated and running',
+            'version': '1.0.0',
+            'endpoints': [
+                'POST /api/premium/scrape - Start a scraping job',
+                'GET /api/premium/scrape/<job_id> - Get job status',
+                'GET /api/premium/scrape/<job_id>/products - Get scraped products',
+                'GET /api/premium/scrape/<job_id>/download - Download results as CSV',
+                'GET /api/premium/jobs - List all jobs',
+                'POST /api/premium/analyze - Analyze brand for scraping'
+            ]
+        })
+    
+    @app.route('/api/premium/scrape', methods=['POST'])
+    def start_premium_scrape():
+        """Start a premium scraping job"""
+        result, status_code = premium_api.start_scrape()
+        return jsonify(result), status_code
+    
+    @app.route('/api/premium/scrape/<job_id>', methods=['GET'])
+    def get_scrape_status(job_id):
+        """Get the status of a scraping job"""
+        result, status_code = premium_api.get_job_status(job_id)
+        return jsonify(result), status_code
+    
+    @app.route('/api/premium/scrape/<job_id>/products', methods=['GET'])
+    def get_scrape_products(job_id):
+        """Get products from a completed scraping job"""
+        result, status_code = premium_api.get_job_products(job_id)
+        return jsonify(result), status_code
+    
+    @app.route('/api/premium/scrape/<job_id>/download', methods=['GET'])
+    def download_scrape_results(job_id):
+        """Download the CSV results of a completed scraping job"""
+        return premium_api.download_results(job_id)
+    
+    @app.route('/api/premium/jobs', methods=['GET'])
+    def list_scraping_jobs():
+        """List all scraping jobs"""
+        result, status_code = premium_api.list_jobs()
+        return jsonify(result), status_code
+    
+    @app.route('/api/premium/analyze', methods=['POST'])
+    def analyze_brand_premium():
+        """Analyze a brand website for scraping compatibility"""
+        result, status_code = premium_api.analyze_brand()
+        return jsonify(result), status_code
+    
+    print("✅ Premium Scraper API endpoints registered")
+    
+except ImportError as e:
+    print(f"⚠️  Premium Scraper endpoints not available: {e}")
+except Exception as e:
+    print(f"❌ Error registering Premium Scraper endpoints: {e}")
+
 if __name__ == '__main__':
     print("🎭 Clean API Backend - NO tkinter dependencies")
     print("🔗 Pure scraping functions only")
     print("📚 Preserving fashion history")
     print("=" * 50)
     
-    app.run(host='127.0.0.1', port=8081, debug=True, threaded=True)
+    app.run(host=config.HOST, port=config.PORT, debug=config.DEBUG, threaded=True)

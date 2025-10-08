@@ -153,7 +153,9 @@ class BrandsDatabase:
             cursor = conn.execute("""
                 SELECT * FROM products 
                 WHERE brand_id = ? AND is_available = 1
-                ORDER BY date_scraped DESC
+                ORDER BY 
+                    CAST(JSON_EXTRACT(metadata, '$.extraction_order') AS INTEGER) ASC,
+                    id ASC
             """, (brand_id,))
             return [dict(row) for row in cursor.fetchall()]
     
@@ -264,6 +266,17 @@ class BrandsDatabase:
             deleted_count = cursor.rowcount
             conn.commit()
             return deleted_count
+    
+    def clear_all_data(self):
+        """Clear all data from the brands database"""
+        with sqlite3.connect(self.db_path) as conn:
+            # Clear in order to respect foreign key constraints
+            conn.execute("DELETE FROM brand_favorites")
+            conn.execute("DELETE FROM products") 
+            conn.execute("DELETE FROM brands")
+            conn.execute("DELETE FROM scraping_strategies")
+            conn.commit()
+            print("🧹 Cleared all data from brands database")
 
 # Global instance
 brands_db = BrandsDatabase()

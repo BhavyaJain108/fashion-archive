@@ -274,7 +274,7 @@ function App() {
 
       {/* Main Content - offset by menu and title bars */}
       {currentPage === 'high-fashion' ? (
-        <div style={{ display: 'flex', height: '100vh', paddingTop: '40px' }}>
+        <div style={{ display: 'flex', width: '100%', height: '100vh', paddingTop: '40px' }}>
           
           {/* Column 1: Seasons (Always visible) */}
           <div className="column" style={{ width: '300px' }}>
@@ -301,7 +301,7 @@ function App() {
 
           {/* Column 3: Image Viewer (Visible after collection selection) */}
           {column3Activated && (
-            <div className="column" style={{ flex: 1 }}>
+            <div className="column" style={{ flex: '1 1 auto', minWidth: 0 }}>
               <ImageViewerPanel 
                 images={currentImages}
                 currentImageIndex={currentImageIndex}

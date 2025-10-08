@@ -90,7 +90,7 @@ class MyBrandsLLM:
             )
             return response.choices[0].message.content.strip()
     
-    def analyze_brand_website(self, url: str, website_content: str) -> BrandAnalysis:
+    def analyze_brand_website(self, url: str, website_content: str, brand_name: str = None) -> BrandAnalysis:
         """
         Comprehensive brand analysis including validation and scraping strategy
         
@@ -102,30 +102,41 @@ class MyBrandsLLM:
             BrandAnalysis object with complete assessment
         """
         
+        brand_context = f"\nProvided Brand Name: {brand_name}" if brand_name else ""
+        
         prompt = f"""
-        You are a fashion industry expert analyzing websites to determine if they represent small, independent fashion brands suitable for promotion and product catalog scraping.
+        You are a fashion industry expert specializing in identifying SMALL-TIME, EMERGING, and INDEPENDENT fashion brands that deserve promotion and discovery.
 
-        Website URL: {url}
+        Website URL: {url}{brand_context}
         Website Content: {website_content[:4000]}...
 
-        TASK 1 - BRAND VALIDATION:
+        CRITICAL MISSION: Only approve SMALL, EMERGING, INDEPENDENT fashion brands that need discovery support.
+
+        ✅ APPROVE ONLY if ALL criteria met:
+        1. **Small-Time/Independent**: Clearly a small team, emerging designers, or indie brand
+        2. **Original Fashion**: Selling unique, creative clothing/fashion designs (not basics/fast fashion)
+        3. **Single Brand Focus**: Not a marketplace, retailer, or carrying multiple brands
+        4. **Limited Scale**: Appears to be small operation (under 20-30 employees, limited production)
+        5. **Authentic Brand**: Real designers/creative team, not dropshipping or copying designs
+        6. **Name-URL Match**: If brand name provided, URL should clearly match the brand{brand_context and " (verify the URL matches this brand name)" or ""}
         
-        ✅ APPROVE if the website is:
-        - Small, independent fashion brand (not corporate conglomerate)
-        - Selling original fashion/clothing designs  
-        - Single brand focus (not multi-brand retailer)
-        - Run by designers/small team (under 50 employees typically)
-        - Has unique, creative designs
-        - Direct-to-consumer or small boutique presence
-        
-        ❌ REJECT if the website is:
-        - Large fashion conglomerate (Zara, H&M, etc.)
-        - Multi-brand retailer or marketplace (Amazon, SSENSE, etc.)
-        - Dropshipping or reseller site
-        - Not primarily focused on fashion
-        - Adult/inappropriate content
-        - Scam/fake website
-        - Major department store
+        ❌ AUTOMATICALLY REJECT if:
+        - **Large/Established Brands**: Nike, Adidas, Zara, H&M, Uniqlo, Supreme, Off-White, etc.
+        - **Major Retailers**: SSENSE, Farfetch, Net-a-Porter, Department stores
+        - **Marketplaces**: Amazon, eBay, Etsy, AliExpress  
+        - **Multi-Brand Stores**: Carrying multiple different fashion brands
+        - **Luxury Conglomerates**: LVMH brands, Kering brands, large luxury houses
+        - **Mainstream Names**: Any brand commonly found in malls or major fashion weeks
+        - **URL Mismatch**: If brand name provided but URL doesn't clearly match{brand_context and f" (reject if URL doesn't match '{brand_name}')" or ""}
+        - **Non-Fashion**: Not primarily clothing/fashion focused
+        - **Dropshipping/Resellers**: Selling generic or copied designs
+
+        EXAMPLES OF IDEAL SMALL-TIME BRANDS:
+        - Emerging streetwear designer with unique aesthetic
+        - Independent women's clothing line by young designer  
+        - Small Japanese fashion brand with innovative cuts
+        - Underground punk/alternative fashion collective
+        - Local designer making handmade/limited pieces
         
         TASK 2 - SCRAPING STRATEGY ANALYSIS:
         
@@ -150,9 +161,9 @@ class MyBrandsLLM:
             "is_valid_brand": true/false,
             "confidence": 0.0-1.0,
             "brand_name": "extracted brand name",
-            "brand_type": "independent_designer|small_brand|large_retailer|marketplace|non_fashion",
-            "reason": "clear explanation of validation decision",
-            "issues": ["list", "of", "any", "concerns"],
+            "brand_type": "emerging_independent|small_designer|rejected_too_large|rejected_marketplace|rejected_mismatch|rejected_non_fashion",
+            "reason": "clear explanation focusing on why this qualifies as small-time/independent OR why rejected",
+            "issues": ["list", "of", "concerns", "especially", "if", "too", "large", "or", "mainstream"],
             "is_scrapable": true/false,
             "scraping_strategy": "homepage-all-products|category-based|product-grid|paginated|image-click|single-page-scroll|not-scrapable",
             "scraping_confidence": 0.0-1.0

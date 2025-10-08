@@ -23,8 +23,20 @@ from config import config
 
 from .brands_db import brands_db
 from .llm_client import create_my_brands_llm
-from .scraping.scraping_detector import analyze_brand_website_scraping
-from .scraping.scraping_strategies import get_scraping_strategy
+# Direct import of working scraper_premium functions
+try:
+    import sys
+    import os
+    scraper_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'scraper_premium')
+    if scraper_path not in sys.path:
+        sys.path.append(scraper_path)
+    
+    from scraper_premium.tests.test_full_pipeline import test_full_brand_scrape
+    SCRAPER_PREMIUM_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️ scraper_premium not available: {e}")
+    SCRAPER_PREMIUM_AVAILABLE = False
+from .brand_collection_manager import BrandCollectionManager
 from .brand_url_resolver import BrandURLResolver
 
 
@@ -34,6 +46,8 @@ class BrandsAPI:
     def __init__(self):
         self.llm = create_my_brands_llm()
         self.url_resolver = BrandURLResolver()
+        # Direct use of scraper_premium
+        self.collection_manager = BrandCollectionManager()  # New organized storage
         self.session = requests.Session()
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
@@ -62,8 +76,8 @@ class BrandsAPI:
                     'message': domain_result['reason']
                 })
             
-            # Check if brand already exists
-            existing_brands = brands_db.get_all_brands()
+            # Check if brand already exists in new storage
+            existing_brands = self.collection_manager.list_brands()
             for brand in existing_brands:
                 if brand['url'] == url:
                     return jsonify({
@@ -93,40 +107,20 @@ class BrandsAPI:
                     }
                 })
             
-            # Add brand to database
-            brand_id = brands_db.add_brand(
-                name=analysis.brand_name or self._extract_domain_name(url),
-                url=url,
-                description=f"Independent fashion brand - {analysis.brand_type}"
-            )
+            # Add brand to new collection storage
+            brand_name = analysis.brand_name or self._extract_domain_name(url)
+            brand_slug = self.collection_manager.create_brand(brand_name, url)
             
-            # Update validation status
-            brands_db.update_brand_validation(
-                brand_id=brand_id,
-                status='approved',
-                reason=analysis.reason
-            )
-            
-            # Store scraping configuration
-            scraping_config = {
-                'strategy': analysis.scraping_strategy,
-                'confidence': analysis.scraping_confidence,
-                'is_scrapable': analysis.is_scrapable,
-                'detected_by': 'ai_analysis'
-            }
-            
-            brands_db.update_brand_scraping_config(
-                brand_id=brand_id,
-                strategy=analysis.scraping_strategy,
-                config=scraping_config
-            )
+            # Generate consistent ID for API compatibility
+            brand_id = hash(brand_slug) % 10000
             
             return jsonify({
                 'success': True,
-                'message': f'Successfully added {analysis.brand_name}!',
+                'message': f'Successfully added {brand_name}!',
                 'brand': {
                     'id': brand_id,
-                    'name': analysis.brand_name,
+                    'slug': brand_slug,
+                    'name': brand_name,
                     'url': url,
                     'validation_status': 'approved',
                     'scraping_strategy': analysis.scraping_strategy,
@@ -145,28 +139,47 @@ class BrandsAPI:
     def get_brands(self) -> Dict[str, Any]:
         """
         GET /api/brands
-        Get all brands in the collection
+        Get all brands from organized collection storage
         """
         try:
-            brands = brands_db.get_all_brands()
+            # Get brands from new collection manager
+            brands_data = self.collection_manager.list_brands()
             
-            # Add additional stats for each brand
-            for brand in brands:
-                products = brands_db.get_brand_products(brand['id'])
-                brand['product_count'] = len(products)
-                
-                # Parse scraping config if available
-                if brand.get('scraping_config'):
-                    try:
-                        brand['scraping_config'] = json.loads(brand['scraping_config'])
-                    except:
-                        brand['scraping_config'] = {}
+            # Convert to expected format for UI compatibility
+            brands = []
+            for brand_data in brands_data:
+                brand = {
+                    'id': hash(brand_data['slug']) % 10000,  # Generate consistent ID from slug
+                    'slug': brand_data['slug'],
+                    'name': brand_data['name'],
+                    'url': brand_data['url'],
+                    'validation_status': 'approved',  # All brands in collection are approved
+                    'scraping_strategy': 'premium_scraper',
+                    'date_added': brand_data.get('last_scraped', '2025-01-01T00:00:00Z'),
+                    'product_count': brand_data.get('products_count', 0),
+                    'collections_count': brand_data.get('collections_count', 0),
+                    'last_scraped': brand_data.get('last_scraped'),
+                    'status': brand_data.get('status', 'active')
+                }
+                brands.append(brand)
             
-            return jsonify({'brands': brands})
+            return jsonify({
+                'brands': brands,
+                'count': len(brands)
+            })
             
         except Exception as e:
-            print(f"Error getting brands: {e}")
-            return jsonify({'error': str(e)}), 500
+            print(f"Error getting brands from collection manager: {e}")
+            # Fallback to database if collection manager fails
+            try:
+                brands = brands_db.get_all_brands()
+                for brand in brands:
+                    products = brands_db.get_brand_products(brand['id'])
+                    brand['product_count'] = len(products)
+                return jsonify({'brands': brands})
+            except Exception as db_error:
+                print(f"Database fallback also failed: {db_error}")
+                return jsonify({'error': str(e)}), 500
     
     def get_brand_details(self, brand_id: int) -> Dict[str, Any]:
         """
@@ -262,59 +275,210 @@ class BrandsAPI:
     def scrape_brand_products_stream(self, brand_id: int) -> Dict[str, Any]:
         """
         POST /api/brands/{id}/scrape-stream
-        Stream products scraping with real-time progress updates
+        Stream products scraping with real-time progress updates using new storage system
         """
         from flask import Response
         import json
         import time
         
-        # Parse request data OUTSIDE the generator to avoid context issues
-        try:
-            data = request.get_json() or {}
-            collection_url = data.get('collection_url')
-        except:
-            collection_url = None
-        
         def generate_scraping_stream():
             try:
-                brand = brands_db.get_brand_by_id(brand_id)
-                if not brand:
-                    yield f"data: {json.dumps({'error': 'Brand not found'})}\n\n"
+                # Find brand in new storage system
+                brands_data = self.collection_manager.list_brands()
+                target_brand = None
+                
+                for brand_data in brands_data:
+                    if hash(brand_data['slug']) % 10000 == brand_id:
+                        target_brand = brand_data
+                        break
+                
+                if not target_brand:
+                    yield f"data: {json.dumps({'error': 'Brand not found in collection storage'})}\n\n"
                     return
 
-                if not brand.get('scraping_strategy'):
-                    yield f"data: {json.dumps({'error': 'No scraping strategy configured'})}\n\n"
+                yield f"data: {json.dumps({'status': 'starting', 'message': 'Setting up scraping with new storage system...'})}\n\n"
+                
+                # Use working scraper_premium test function directly
+                yield f"data: {json.dumps({'status': 'analyzing', 'message': 'AI analyzing website structure (Premium Scraper)...'})}\n\n"
+                
+                if not SCRAPER_PREMIUM_AVAILABLE:
+                    yield f"data: {json.dumps({'status': 'error', 'error': 'Premium scraper not available'})}\n\n"
                     return
-
-                # Setup and initial status
-                yield f"data: {json.dumps({'status': 'starting', 'message': 'Setting up scraping...'})}\n\n"
                 
-                brand_cache_path = self._setup_brand_cache_folder(brand_id)
-                cached_images = self._get_cached_images(brand_cache_path)
+                # Use working scraper_premium components directly
+                import time
+                start_time = time.time()
+                print(f"🚀 [{time.strftime('%H:%M:%S')}] Starting scrape for {target_brand['name']}")
                 
-                if cached_images:
-                    yield f"data: {json.dumps({'status': 'cache_found', 'cached_images': len(cached_images)})}\n\n"
-                    self._clear_brand_products(brand_id)
-                else:
-                    yield f"data: {json.dumps({'status': 'fresh_scrape', 'message': 'No cache found, downloading fresh images'})}\n\n"
-                    self._clear_brand_products(brand_id)
-
-                # TODO: Implement new HTML scraper here
-                # This is where the new modular scraper will go
+                from scraper_premium.brand import Brand
+                from scraper_premium.tests.test_full_pipeline import scrape_category_page, extract_category_name
                 
-                scrape_url = collection_url if collection_url else brand['url']
-                yield f"data: {json.dumps({'status': 'scraping_started', 'url': scrape_url})}\n\n"
+                print(f"⏱️ [{time.strftime('%H:%M:%S')}] Imports loaded in {time.time() - start_time:.2f}s")
                 
-                # Placeholder - scraping logic to be implemented
-                yield f"data: {json.dumps({'status': 'error', 'error': 'Scraping not yet implemented'})}\n\n"
-                return
+                brand_init_start = time.time()
+                brand = Brand(target_brand['url'])
+                print(f"⏱️ [{time.strftime('%H:%M:%S')}] Brand initialized in {time.time() - brand_init_start:.2f}s")
                 
-                # TODO: When new scraper is implemented, the image download and storage logic 
-                # should be preserved here. The logic was:
-                # 1. Download/use cached images
-                # 2. Store products in database with metadata
-                # 3. Group by collections
-                # 4. Return final streaming result
+                # Step 1: Get category pages
+                yield f"data: {json.dumps({'status': 'navigation', 'message': 'Finding product categories...'})}\n\n"
+                
+                links_start = time.time()
+                print(f"🔍 [{time.strftime('%H:%M:%S')}] Extracting page links...")
+                links = brand.extract_page_links(target_brand['url'])
+                print(f"⏱️ [{time.strftime('%H:%M:%S')}] Links extracted in {time.time() - links_start:.2f}s - Found {len(links) if links else 0} links")
+                if not links:
+                    yield f"data: {json.dumps({'status': 'error', 'error': 'No links found on brand website'})}\n\n"
+                    return
+                
+                # Get LLM navigation analysis
+                llm_start = time.time()
+                print(f"🤖 [{time.strftime('%H:%M:%S')}] Building navigation prompt...")
+                prompt = brand._build_navigation_prompt(links)
+                print(f"🤖 [{time.strftime('%H:%M:%S')}] Calling LLM for navigation analysis...")
+                llm_response = brand.llm_handler.call(prompt, expected_format="json")
+                print(f"⏱️ [{time.strftime('%H:%M:%S')}] LLM navigation analysis completed in {time.time() - llm_start:.2f}s")
+                
+                if not llm_response.get("success", False):
+                    yield f"data: {json.dumps({'status': 'error', 'error': 'Navigation analysis failed'})}\n\n"
+                    return
+                
+                included_urls = llm_response.get("data", {}).get("included_urls", [])
+                if not included_urls:
+                    yield f"data: {json.dumps({'status': 'error', 'error': 'No product categories found'})}\n\n"
+                    return
+                
+                yield f"data: {json.dumps({'status': 'found_categories', 'count': len(included_urls)})}\n\n"
+                
+                # Step 2: Detect pattern
+                yield f"data: {json.dumps({'status': 'pattern', 'message': 'Analyzing product pattern...'})}\n\n"
+                
+                pattern_start = time.time()
+                print(f"🔍 [{time.strftime('%H:%M:%S')}] Setting up pattern analysis with first URL: {included_urls[0]['url']}")
+                brand.starting_pages_queue = [included_urls[0]["url"]]
+                print(f"🤖 [{time.strftime('%H:%M:%S')}] Starting product pattern analysis...")
+                pattern_analysis = brand.analyze_product_pattern()
+                print(f"⏱️ [{time.strftime('%H:%M:%S')}] Pattern analysis completed in {time.time() - pattern_start:.2f}s")
+                
+                if not pattern_analysis or not pattern_analysis.get("extraction_pattern"):
+                    yield f"data: {json.dumps({'status': 'error', 'error': 'Failed to detect product pattern'})}\n\n"
+                    return
+                
+                extraction_pattern = pattern_analysis["extraction_pattern"]
+                yield f"data: {json.dumps({'status': 'pattern_found', 'message': 'Product pattern detected'})}\n\n"
+                
+                # Step 3: Fresh start - create brand and collection directories
+                print(f"🗂️ [{time.strftime('%H:%M:%S')}] Creating fresh brand directory...")
+                brand_slug = self.collection_manager.create_brand_fresh(
+                    target_brand['name'], 
+                    target_brand['url']
+                )
+                
+                # Create collection directories upfront
+                collection_images_dirs = {}
+                for collection_data in included_urls:
+                    collection_url = collection_data["url"]
+                    collection_name = extract_category_name(collection_url)
+                    images_dir = self.collection_manager.create_collection_directory(
+                        brand_slug, collection_name, collection_url
+                    )
+                    collection_images_dirs[collection_url] = images_dir
+                    print(f"📁 [{time.strftime('%H:%M:%S')}] Created directory for {collection_name}")
+                
+                # Step 4: Scrape collections in parallel
+                total_products = 0
+                collections_scraped = 0
+                
+                yield f"data: {json.dumps({'status': 'parallel_scraping', 'message': f'Starting parallel scraping of {len(included_urls)} collections...'})}\n\n"
+                
+                from concurrent.futures import ThreadPoolExecutor, as_completed
+                category_results = []
+                
+                # Process categories in parallel (like test_full_pipeline)
+                with ThreadPoolExecutor(max_workers=3) as executor:
+                    futures = {}
+                    
+                    for collection_data in included_urls:
+                        collection_url = collection_data["url"]
+                        collection_name = extract_category_name(collection_url)
+                        
+                        print(f"🚀 [{time.strftime('%H:%M:%S')}] Submitting {collection_name} for parallel processing")
+                        
+                        # Submit with collection-specific images directory
+                        future = executor.submit(
+                            scrape_category_page,
+                            collection_url,
+                            [extraction_pattern], 
+                            target_brand['name'],
+                            images_dir=collection_images_dirs[collection_url],
+                            download_images=True
+                        )
+                        futures[future] = (collection_url, collection_name)
+                    
+                    # Collect results as they complete
+                    for future in as_completed(futures):
+                        collection_url, collection_name = futures[future]
+                        
+                        try:
+                            result = future.result()
+                            category_results.append(result)
+                            
+                            print(f"📊 [{time.strftime('%H:%M:%S')}] Completed {collection_name}: {result.get('products_found', 0)} products")
+                            products_count = result.get('products_found', 0)
+                            yield f"data: {json.dumps({'status': 'collection_completed', 'message': f'{collection_name}: {products_count} products found'})}\n\n"
+                            
+                            if result.get("success", False):
+                                products = result.get("products", [])
+                                
+                                if products:
+                                    # Convert data format: product_name -> name, product_url -> url
+                                    formatted_products = []
+                                    for product in products:
+                                        formatted_product = {
+                                            "name": product.get("product_name", "Unknown"),
+                                            "url": product.get("product_url", ""),
+                                            "image_url": product.get("image_url", ""),
+                                            "price": product.get("price", ""),
+                                            "category_name": product.get("category_name", collection_name),
+                                            "discovered_at": product.get("discovered_at"),
+                                            "brand": product.get("brand", target_brand['name'])
+                                        }
+                                        formatted_products.append(formatted_product)
+                                    
+                                    # Save to brand_collections structure
+                                    save_start = time.time()
+                                    print(f"💾 [{time.strftime('%H:%M:%S')}] Saving {len(formatted_products)} products from '{collection_name}'...")
+                                    
+                                    scrape_stats = {
+                                        "extraction_time": result.get("extraction_time", 0),
+                                        "success": True,
+                                        "products_found": len(formatted_products),
+                                        "pattern_used": result.get("pattern_used")
+                                    }
+                                    
+                                    self.collection_manager.save_collection_scrape(
+                                        brand_slug=brand_slug,
+                                        collection_name=collection_name,
+                                        collection_url=collection_url,
+                                        products=formatted_products,
+                                        extraction_pattern=extraction_pattern,
+                                        scrape_stats=scrape_stats
+                                    )
+                                    
+                                    total_products += len(formatted_products)
+                                    collections_scraped += 1
+                                    
+                                    print(f"✅ [{time.strftime('%H:%M:%S')}] Collection saved in {time.time() - save_start:.2f}s")
+                                    yield f"data: {json.dumps({'status': 'collection_saved', 'message': f'Saved {collection_name}: {len(formatted_products)} products'})}\n\n"
+                                else:
+                                    print(f"⚠️ [{time.strftime('%H:%M:%S')}] No products found in '{collection_name}'")
+                            else:
+                                print(f"❌ [{time.strftime('%H:%M:%S')}] Failed to scrape '{collection_name}': {result.get('error', 'Unknown error')}")
+                                
+                        except Exception as e:
+                            print(f"❌ [{time.strftime('%H:%M:%S')}] Exception scraping '{collection_name}': {e}")
+                            yield f"data: {json.dumps({'status': 'collection_error', 'message': f'Error scraping {collection_name}: {str(e)}'})}\n\n"
+                
+                yield f"data: {json.dumps({'status': 'completed', 'message': f'Successfully scraped {collections_scraped} collections with {total_products} products', 'success': True, 'total_products': total_products, 'collections': {}})}\n\n"
                 
             except Exception as e:
                 yield f"data: {json.dumps({'status': 'error', 'error': str(e)})}\n\n"
@@ -324,186 +488,90 @@ class BrandsAPI:
     def scrape_brand_products(self, brand_id: int) -> Dict[str, Any]:
         """
         POST /api/brands/{id}/scrape
-        Scrape products for a specific brand and download images
+        Non-streaming version - just redirects to stream for now
         """
-        try:
-            brand = brands_db.get_brand_by_id(brand_id)
-            if not brand:
-                return jsonify({'error': 'Brand not found'}), 404
-            
-            if not brand.get('scraping_strategy'):
-                return jsonify({
-                    'success': False,
-                    'message': 'No scraping strategy configured for this brand'
-                })
-            
-            # Setup brand-specific cache folder for persistent storage
-            brand_cache_path = self._setup_brand_cache_folder(brand_id)
-            
-            # Check if we already have cached images for this brand
-            cached_images = self._get_cached_images(brand_cache_path)
-            if cached_images:
-                print(f"📋 Found {len(cached_images)} cached images for brand {brand_id}")
-                # Still clear products to refresh metadata, but keep images
-                self._clear_brand_products(brand_id)
-            else:
-                print(f"🔄 No cached images found, will download fresh images")
-                # Clear existing products for this brand to avoid accumulation
-                self._clear_brand_products(brand_id)
-            
-            # TODO: Implement new HTML scraper here
-            # This is where the new modular scraper will go
-            
-            # Check if collection_url is provided in request body
-            data = request.get_json() or {}
-            collection_url = data.get('collection_url')
-            
-            # Determine URL to scrape
-            scrape_url = collection_url if collection_url else brand['url']
-            print(f"🎯 Scraping URL: {scrape_url}")
-            
-            # Placeholder - return error for now
-            return jsonify({
-                'success': False,
-                'message': 'Scraping not yet implemented - new modular scraper coming soon'
-            })
-            
-            # TODO: The image download and storage logic below should be preserved
-            # when the new scraper is implemented
-            if cached_images:
-                print(f"♻️  Using {len(cached_images)} cached images (no download needed)")
-                downloaded_images = [str(img) for img in cached_images]
-            else:
-                downloaded_images = self._download_product_images(unique_products, brand_cache_path)
-            
-            # Store products in database with cached image paths
-            from pathlib import Path
-            stored_products = []
-            for i, product in enumerate(unique_products):
-                try:
-                    # Use cached image path if available, otherwise use original URL
-                    cached_image_path = None
-                    image_url = product.image_url  # Default to original URL
-                    
-                    if cached_images and i < len(cached_images):
-                        cached_image_path = str(cached_images[i])
-                        # Convert absolute path to relative path for API endpoint
-                        relative_path = cached_image_path.replace(str(Path.cwd()) + "/", "")
-                        image_url = config.get_image_url(relative_path)
-                    elif downloaded_images and i < len(downloaded_images):
-                        cached_image_path = downloaded_images[i]
-                        # Convert absolute path to relative path for API endpoint  
-                        relative_path = cached_image_path.replace(str(Path.cwd()) + "/", "")
-                        image_url = config.get_image_url(relative_path)
-                    
-                    product_id = brands_db.add_product(
-                        brand_id=brand_id,
-                        name=product.title,
-                        url=product.product_url,
-                        price=product.price,
-                        currency='', # Could be extracted from price
-                        category='',
-                        description=f'Detected by: {product.detection_method}',
-                        images=[image_url],
-                        metadata={
-                            'confidence': product.confidence,
-                            'detection_method': product.detection_method,
-                            'scraped_at': 'now',
-                            'cached_image': cached_image_path is not None,
-                            'cached_path': cached_image_path
-                        }
-                    )
-                    
-                    stored_products.append({
-                        'id': product_id,
-                        'title': product.title,
-                        'price': product.price,
-                        'image_url': image_url,  # Use the processed image URL (cached or original)
-                        'product_url': product.product_url,
-                        'confidence': product.confidence,
-                        'collection_name': getattr(product, 'collection_name', None),
-                        'collection_url': getattr(product, 'collection_url', None)
-                    })
-                    
-                except Exception as product_error:
-                    print(f"Error storing product: {product_error}")
-                    continue
-            
-            # Update last scraped timestamp
-            brands_db._update_last_scraped(brand_id)
-            
-            # Group products by collection for UI display
-            collections_summary = {}
-            ungrouped_products = []
-            
-            for product in stored_products:
-                collection_name = product.get('collection_name')
-                if collection_name:
-                    if collection_name not in collections_summary:
-                        collections_summary[collection_name] = {
-                            'name': collection_name,
-                            'product_count': 0,
-                            'url': product.get('collection_url'),
-                            'products': []
-                        }
-                    collections_summary[collection_name]['products'].append(product)
-                    collections_summary[collection_name]['product_count'] += 1
-                else:
-                    ungrouped_products.append(product)
-            
-            # Convert to list for easier UI handling
-            collections_list = list(collections_summary.values())
-            
-            return jsonify({
-                'success': True,
-                'message': f'Successfully scraped {len(stored_products)} products from {len(collections_found)} collections',
-                'products': stored_products,
-                'collections': collections_list,  # Organized by collection
-                'ungrouped_products': ungrouped_products,  # Products not in a collection
-                'strategy_used': result.strategy_used,
-                'total_found': result.total_found,
-                'confidence': result.confidence,
-                'images_downloaded': len(downloaded_images),
-                'collections_count': len(collections_found),
-                'has_collections': len(collections_found) > 0
-            })
-            
-        except Exception as e:
-            print(f"Error scraping brand: {e}")
-            traceback.print_exc()
-            return jsonify({
-                'success': False,
-                'message': f'Scraping error: {str(e)}'
-            }), 500
+        return jsonify({
+            'success': False,
+            'message': 'Please use the streaming endpoint /scrape-stream for better progress tracking'
+        })
     
     def get_brand_products(self, brand_id: int) -> Dict[str, Any]:
         """
         GET /api/brands/{id}/products
-        Get products for a specific brand
+        Get products for a specific brand from collection storage
         """
         try:
-            brand = brands_db.get_brand_by_id(brand_id)
-            if not brand:
-                return jsonify({'error': 'Brand not found'}), 404
+            # First try to find brand by ID in collection manager
+            # Since collection manager uses slugs, we need to find the right brand
+            brands_data = self.collection_manager.list_brands()
+            target_brand = None
             
-            products = brands_db.get_brand_products(brand_id)
+            for brand_data in brands_data:
+                if hash(brand_data['slug']) % 10000 == brand_id:
+                    target_brand = brand_data
+                    break
             
-            # Parse JSON fields
-            for product in products:
-                if product.get('images'):
-                    try:
-                        product['images'] = json.loads(product['images'])
-                    except:
-                        product['images'] = []
+            if not target_brand:
+                # Fallback to database
+                brand = brands_db.get_brand_by_id(brand_id)
+                if not brand:
+                    return jsonify({'error': 'Brand not found'}), 404
                 
-                if product.get('metadata'):
-                    try:
-                        product['metadata'] = json.loads(product['metadata'])
-                    except:
-                        product['metadata'] = {}
+                products = brands_db.get_brand_products(brand_id)
+                
+                # Parse JSON fields for database products
+                for product in products:
+                    if product.get('images'):
+                        try:
+                            product['images'] = json.loads(product['images'])
+                        except:
+                            product['images'] = []
+                    
+                    if product.get('metadata'):
+                        try:
+                            product['metadata'] = json.loads(product['metadata'])
+                        except:
+                            product['metadata'] = {}
+                
+                return jsonify({
+                    'brand': brand,
+                    'products': products,
+                    'count': len(products)
+                })
+            
+            # Get products from collection manager
+            brand_products = self.collection_manager.get_brand_products(target_brand['slug'])
+            
+            # Convert to expected format for UI
+            products = []
+            for collection_name, collection_products in brand_products.items():
+                for product in collection_products:
+                    formatted_product = {
+                        'id': hash(f"{product.get('url', '')}{product.get('name', '')}") % 10000,
+                        'name': product.get('name', 'Unknown Product'),
+                        'url': product.get('url', ''),
+                        'image_url': product.get('image_url', ''),
+                        'price': product.get('price'),
+                        'collection': collection_name,
+                        'images': [product.get('image_url', '')] if product.get('image_url') else [],
+                        'metadata': {
+                            'collection_name': collection_name,
+                            'discovered_at': product.get('discovered_at')
+                        }
+                    }
+                    products.append(formatted_product)
+            
+            # Format brand info to match expected structure
+            brand_info = {
+                'id': brand_id,
+                'name': target_brand['name'],
+                'url': target_brand['url'],
+                'slug': target_brand['slug'],
+                'status': target_brand.get('status', 'active')
+            }
             
             return jsonify({
-                'brand': brand,
+                'brand': brand_info,
                 'products': products,
                 'count': len(products)
             })
@@ -674,27 +742,31 @@ class BrandsAPI:
             }), 500
     
     def serve_cached_image(self, image_path: str):
-        """Serve cached brand images"""
+        """Serve cached brand images from both new and legacy storage"""
         from flask import send_file
         from pathlib import Path
         
         try:
-            print(f"🖼️  Serving cached image: {image_path}")
+            # Try new brand collections structure first
+            collections_path = Path(config.BRAND_COLLECTIONS_DIR) / image_path
+            if collections_path.exists() and collections_path.is_file():
+                # Security check - ensure path is within brand collections directory
+                if str(collections_path.resolve()).startswith(str(Path(config.BRAND_COLLECTIONS_DIR).resolve())):
+                    return send_file(collections_path)
             
-            # Build full path from current working directory
-            full_path = Path(image_path)
+            # Fall back to legacy cache structure
+            legacy_path = Path(image_path)
             
             # Security check - ensure path is within brands cache directory
-            if not str(full_path).startswith(config.BRANDS_CACHE_DIR):
-                print(f"❌ Invalid path - not in my_brands_cache: {image_path}")
+            if not str(legacy_path).startswith(config.BRANDS_CACHE_DIR):
+                print(f"❌ Invalid path - not in allowed directories: {image_path}")
                 return jsonify({'error': 'Invalid image path'}), 403
             
-            if not full_path.exists():
-                print(f"❌ Image file not found: {full_path}")
+            if not legacy_path.exists():
+                print(f"❌ Image file not found in either location: {image_path}")
                 return jsonify({'error': 'Image not found'}), 404
             
-            print(f"✅ Serving image file: {full_path}")
-            return send_file(full_path)
+            return send_file(legacy_path)
             
         except Exception as e:
             print(f"Error serving cached image: {e}")
@@ -847,20 +919,30 @@ class BrandsAPI:
             downloads_path = Path(config.DOWNLOADS_DIR)
             downloads_path.mkdir(exist_ok=True)
         
-        # Run the parallel download in asyncio
+        # Always try to use parallel download
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # If already in an async context, create a new thread
+            # Check if we're in an async context
+            try:
+                asyncio.get_running_loop()
+                # We're in an async context - run in separate thread with own event loop
+                print("🚀 Running parallel download in separate thread...")
                 import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(asyncio.run, self._parallel_download_async(products, downloads_path))
+                
+                def run_async_download():
+                    import asyncio
+                    return asyncio.run(self._parallel_download_async(products, downloads_path))
+                
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(run_async_download)
                     return future.result()
-            else:
+                    
+            except RuntimeError:
+                # No running loop - we can use async directly
+                print("🚀 Using parallel async download...")
                 return asyncio.run(self._parallel_download_async(products, downloads_path))
-        except RuntimeError:
-            # Fallback to sync if asyncio fails
-            print("⚠️  Asyncio not available, falling back to synchronous download")
+                
+        except Exception as e:
+            print(f"⚠️  Parallel download failed ({e}), falling back to synchronous")
             return self._download_product_images_sync(products, cache_path)
     
     async def _parallel_download_async(self, products, downloads_path) -> List[str]:
@@ -883,15 +965,18 @@ class BrandsAPI:
                     )
                     tasks.append(task)
             
-            # Execute all downloads in parallel
+            # Execute all downloads in parallel - order is preserved
             results = await asyncio.gather(*tasks, return_exceptions=True)
             
-            # Collect successful downloads
-            for result in results:
+            # Preserve exact order - use None for failed downloads
+            for i, result in enumerate(results):
                 if isinstance(result, str):  # Successful download returns filepath
                     downloaded_images.append(result)
                 elif isinstance(result, Exception):
-                    print(f"   ❌ Download error: {result}")
+                    downloaded_images.append(None)  # Keep the index aligned
+                    print(f"   ❌ Download error for product {i+1}: {result}")
+                else:
+                    downloaded_images.append(None)  # Keep the index aligned
         
         elapsed = time.time() - start_time
         print(f"📥 Downloaded {len(downloaded_images)} images in {elapsed:.1f}s (parallel)")

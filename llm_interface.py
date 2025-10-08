@@ -9,7 +9,10 @@ from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any
 from dotenv import load_dotenv
 
-load_dotenv()
+# Load .env from project root
+script_dir = os.path.dirname(os.path.abspath(__file__))
+env_path = os.path.join(script_dir, '.env')
+load_dotenv(env_path)
 
 
 class LLMInterface(ABC):
@@ -24,14 +27,14 @@ class LLMInterface(ABC):
 class ClaudeInterface(LLMInterface):
     """Anthropic Claude interface"""
     
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None):
         try:
             from anthropic import Anthropic
             self.api_key = api_key or os.getenv('CLAUDE_API_KEY') or os.getenv('ANTHROPIC_API_KEY')
             if not self.api_key:
                 raise ValueError("Claude API key not found")
             self.client = Anthropic(api_key=self.api_key)
-            self.model = "claude-3-5-sonnet-20241022"
+            self.model = model or os.getenv('CLAUDE_MODEL', 'claude-3-5-sonnet-20241022')
         except ImportError:
             raise ImportError("anthropic package not installed. Run: pip install anthropic")
     
@@ -108,7 +111,8 @@ def get_llm_client(provider: Optional[str] = None) -> LLMInterface:
     provider = provider or os.getenv('LLM_PROVIDER', 'claude').lower()
     
     if provider == 'claude':
-        return ClaudeInterface()
+        model = os.getenv('CLAUDE_MODEL', 'claude-3-5-sonnet-20241022')
+        return ClaudeInterface(model=model)
     elif provider == 'openai':
         model = os.getenv('OPENAI_MODEL', 'gpt-4')
         return OpenAIInterface(model=model)

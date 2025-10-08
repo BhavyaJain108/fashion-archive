@@ -16,7 +16,68 @@ function MyBrandsPanel({ currentView }) {
   const [products, setProducts] = useState([]);
   const [scrapingResult, setScrapingResult] = useState(null);
   const [selectedProductIndex, setSelectedProductIndex] = useState(0);
+  const [hoveredProductIndex, setHoveredProductIndex] = useState(null); // Track hovered product for preview
   const [resultModal, setResultModal] = useState(null); // { type: 'success'|'error', title: '', message: '' }
+  const [imageColors, setImageColors] = useState({}); // Store extracted colors for each image
+
+  // Extract dominant color from image
+  const extractImageColor = (imageUrl, productId) => {
+    if (imageColors[productId]) return; // Already extracted
+    
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        ctx.drawImage(img, 0, 0);
+        
+        // Sample pixels from edges to get border color
+        const edgePixels = [];
+        const margin = 5; // Sample from 5px inside the edge
+        
+        // Sample top and bottom edges
+        for (let x = margin; x < canvas.width - margin; x += 10) {
+          const topPixel = ctx.getImageData(x, margin, 1, 1).data;
+          const bottomPixel = ctx.getImageData(x, canvas.height - margin, 1, 1).data;
+          edgePixels.push(topPixel, bottomPixel);
+        }
+        
+        // Sample left and right edges  
+        for (let y = margin; y < canvas.height - margin; y += 10) {
+          const leftPixel = ctx.getImageData(margin, y, 1, 1).data;
+          const rightPixel = ctx.getImageData(canvas.width - margin, y, 1, 1).data;
+          edgePixels.push(leftPixel, rightPixel);
+        }
+        
+        // Calculate average color
+        let r = 0, g = 0, b = 0;
+        edgePixels.forEach(pixel => {
+          r += pixel[0];
+          g += pixel[1]; 
+          b += pixel[2];
+        });
+        
+        const count = edgePixels.length;
+        r = Math.round(r / count);
+        g = Math.round(g / count);
+        b = Math.round(b / count);
+        
+        const bgColor = `rgb(${r}, ${g}, ${b})`;
+        const textColor = (r * 0.299 + g * 0.587 + b * 0.114) > 128 ? '#000' : '#fff';
+        
+        setImageColors(prev => ({
+          ...prev,
+          [productId]: { background: bgColor, text: textColor }
+        }));
+      } catch (error) {
+        console.warn('Could not extract color from image:', error);
+      }
+    };
+    img.src = imageUrl;
+  };
 
   // Load brands on component mount
   useEffect(() => {
@@ -33,15 +94,21 @@ function MyBrandsPanel({ currentView }) {
       switch (event.key) {
         case 'ArrowLeft':
           event.preventDefault();
-          setSelectedProductIndex(prev => 
-            prev > 0 ? prev - 1 : products.length - 1 // Wrap to end
-          );
+          setSelectedProductIndex(prev => {
+            const newIndex = prev > 0 ? prev - 1 : products.length - 1;
+            // Scroll to show the new selection
+            scrollToProduct(newIndex);
+            return newIndex;
+          });
           break;
         case 'ArrowRight':
           event.preventDefault();
-          setSelectedProductIndex(prev => 
-            prev < products.length - 1 ? prev + 1 : 0 // Wrap to beginning
-          );
+          setSelectedProductIndex(prev => {
+            const newIndex = prev < products.length - 1 ? prev + 1 : 0;
+            // Scroll to show the new selection
+            scrollToProduct(newIndex);
+            return newIndex;
+          });
           break;
         default:
           break;
@@ -56,6 +123,22 @@ function MyBrandsPanel({ currentView }) {
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, [products.length]);
+
+  // Function to scroll gallery to show specific product
+  const scrollToProduct = (productIndex) => {
+    // Give a small delay to ensure state updates have rendered
+    setTimeout(() => {
+      // Find the product element by its index
+      const productElement = document.querySelector(`[data-product-index="${productIndex}"]`);
+      if (productElement) {
+        productElement.scrollIntoView({
+          behavior: 'smooth',
+          block: 'nearest',
+          inline: 'center'
+        });
+      }
+    }, 10);
+  };
 
   const loadBrands = async () => {
     try {
@@ -160,6 +243,18 @@ function MyBrandsPanel({ currentView }) {
     // Clear previous results
     setProducts([]);
     setScrapingResult(null);
+    
+    // Load existing products for this brand
+    try {
+      const productsData = await FashionArchiveAPI.getBrandProducts(brand.id);
+      if (productsData && productsData.products) {
+        setProducts(productsData.products);
+        setSelectedProductIndex(0);
+        console.log(`📦 Loaded ${productsData.products.length} existing products for ${brand.name}`);
+      }
+    } catch (error) {
+      console.error('Error loading brand products:', error);
+    }
   };
 
   const handleScrapeProducts = async () => {
@@ -224,21 +319,19 @@ function MyBrandsPanel({ currentView }) {
         }
       );
       
-      if (result.success) {
-        let message = result.message;
-        if (result.performance) {
-          message += ` (${result.performance.products_per_second?.toFixed(1)} p/s)`;
-        }
-        
+      if (result && result.status === 'completed') {
+        // Scraping completed successfully
         setScrapingResult({
           success: true,
           type: 'products',
-          message: message,
-          productsCount: result.products?.length || 0,
-          collectionsCount: result.collections_count || 0,
-          hasCollections: result.has_collections
+          message: `Successfully scraped ${result.total_products || 0} products`,
+          productsCount: result.total_products || 0,
+          collectionsCount: Object.keys(result.collections || {}).length,
+          hasCollections: true,
+          collections: result.collections
         });
         
+        // Load the products from database to display them
         const productsData = await FashionArchiveAPI.getBrandProducts(selectedBrand.id);
         setProducts(productsData.products || []);
         setSelectedProductIndex(0);
@@ -246,7 +339,7 @@ function MyBrandsPanel({ currentView }) {
       } else {
         setScrapingResult({
           success: false,
-          message: result.message || 'Dynamic parallel scraping failed'
+          message: result?.error || 'Dynamic parallel scraping failed'
         });
       }
     } catch (error) {
@@ -539,15 +632,18 @@ function MyBrandsPanel({ currentView }) {
                                         {grouped[collectionName].map((product) => (
                                           <div
                                             key={product.id}
+                                            data-product-index={product.originalIndex}
                                             className={`gallery-item ${product.originalIndex === selectedProductIndex ? 'selected' : ''}`}
                                             style={{
                                               cursor: 'pointer',
-                                              border: product.originalIndex === selectedProductIndex ? '2px solid #007bff' : '1px solid #e0e0e0',
+                                              border: product.originalIndex === selectedProductIndex ? '2px solid #007bff' : 'none',
                                               borderRadius: '4px',
                                               padding: '4px',
-                                              backgroundColor: product.originalIndex === selectedProductIndex ? '#f0f8ff' : '#fff'
+                                              backgroundColor: imageColors[product.id]?.background || '#e0e0e0'
                                             }}
                                             onClick={() => setSelectedProductIndex(product.originalIndex)}
+                                            onMouseEnter={() => setHoveredProductIndex(product.originalIndex)}
+                                            onMouseLeave={() => setHoveredProductIndex(null)}
                                           >
                                             <div style={{ 
                                               width: '100%', 
@@ -563,6 +659,10 @@ function MyBrandsPanel({ currentView }) {
                                                   width: '100%',
                                                   height: '100%',
                                                   objectFit: 'cover'
+                                                }}
+                                                onLoad={() => {
+                                                  const imageUrl = product.images && product.images[0] ? product.images[0] : product.image_url;
+                                                  extractImageColor(imageUrl, product.id);
                                                 }}
                                                 onError={(e) => {
                                                   e.target.style.display = 'none';
@@ -583,14 +683,15 @@ function MyBrandsPanel({ currentView }) {
                                               </div>
                                             </div>
                                             <div style={{ 
-                                              fontSize: '10px', 
+                                              fontSize: '12px', 
                                               textAlign: 'center',
                                               lineHeight: '1.2',
                                               height: '24px',
                                               overflow: 'hidden',
                                               display: '-webkit-box',
                                               WebkitLineClamp: 2,
-                                              WebkitBoxOrient: 'vertical'
+                                              WebkitBoxOrient: 'vertical',
+                                              color: imageColors[product.id]?.text || '#000'
                                             }}>
                                               {product.name?.replace(`[${collectionName}] `, '') || 'Untitled'}
                                             </div>
@@ -627,15 +728,18 @@ function MyBrandsPanel({ currentView }) {
                                         {ungrouped.map((product) => (
                                           <div
                                             key={product.id}
+                                            data-product-index={product.originalIndex}
                                             className={`gallery-item ${product.originalIndex === selectedProductIndex ? 'selected' : ''}`}
                                             style={{
                                               cursor: 'pointer',
-                                              border: product.originalIndex === selectedProductIndex ? '2px solid #007bff' : '1px solid #e0e0e0',
+                                              border: product.originalIndex === selectedProductIndex ? '2px solid #007bff' : 'none',
                                               borderRadius: '4px',
                                               padding: '4px',
-                                              backgroundColor: product.originalIndex === selectedProductIndex ? '#f0f8ff' : '#fff'
+                                              backgroundColor: imageColors[product.id]?.background || '#e0e0e0'
                                             }}
                                             onClick={() => setSelectedProductIndex(product.originalIndex)}
+                                            onMouseEnter={() => setHoveredProductIndex(product.originalIndex)}
+                                            onMouseLeave={() => setHoveredProductIndex(null)}
                                           >
                                             <div style={{ 
                                               width: '100%', 
@@ -651,6 +755,10 @@ function MyBrandsPanel({ currentView }) {
                                                   width: '100%',
                                                   height: '100%',
                                                   objectFit: 'cover'
+                                                }}
+                                                onLoad={() => {
+                                                  const imageUrl = product.images && product.images[0] ? product.images[0] : product.image_url;
+                                                  extractImageColor(imageUrl, product.id);
                                                 }}
                                                 onError={(e) => {
                                                   e.target.style.display = 'none';
@@ -671,14 +779,15 @@ function MyBrandsPanel({ currentView }) {
                                               </div>
                                             </div>
                                             <div style={{ 
-                                              fontSize: '10px', 
+                                              fontSize: '12px', 
                                               textAlign: 'center',
                                               lineHeight: '1.2',
                                               height: '24px',
                                               overflow: 'hidden',
                                               display: '-webkit-box',
                                               WebkitLineClamp: 2,
-                                              WebkitBoxOrient: 'vertical'
+                                              WebkitBoxOrient: 'vertical',
+                                              color: imageColors[product.id]?.text || '#000'
                                             }}>
                                               {product.name}
                                             </div>
@@ -703,7 +812,9 @@ function MyBrandsPanel({ currentView }) {
                           overflow: 'hidden'
                         }}>
                           {(() => {
-                            const currentProduct = products[selectedProductIndex];
+                            // Show hovered product if hovering, otherwise show selected product
+                            const displayIndex = hoveredProductIndex !== null ? hoveredProductIndex : selectedProductIndex;
+                            const currentProduct = products[displayIndex];
                             if (!currentProduct) return null;
                             
                             return (
@@ -749,7 +860,7 @@ function MyBrandsPanel({ currentView }) {
                                   
                                   
                                   <div style={{ fontSize: '11px', color: '#999' }}>
-                                    Product {selectedProductIndex + 1} of {products.length}
+                                    Product {(hoveredProductIndex !== null ? hoveredProductIndex : selectedProductIndex) + 1} of {products.length}
                                   </div>
                                 </div>
 
@@ -764,7 +875,7 @@ function MyBrandsPanel({ currentView }) {
                                   minHeight: 0,
                                   overflow: 'hidden',
                                   padding: '8px',
-                                  backgroundColor: '#fff'
+                                  backgroundColor: imageColors[currentProduct.id]?.background || '#fff'
                                 }}>
                                   <img 
                                     src={currentProduct.images && currentProduct.images[0] ? currentProduct.images[0] : currentProduct.image_url}
@@ -773,6 +884,10 @@ function MyBrandsPanel({ currentView }) {
                                       maxWidth: '100%',
                                       maxHeight: '100%',
                                       objectFit: 'contain'
+                                    }}
+                                    onLoad={() => {
+                                      const imageUrl = currentProduct.images && currentProduct.images[0] ? currentProduct.images[0] : currentProduct.image_url;
+                                      extractImageColor(imageUrl, currentProduct.id);
                                     }}
                                     onError={(e) => {
                                       e.target.alt = 'Image not found';
@@ -793,7 +908,11 @@ function MyBrandsPanel({ currentView }) {
                                 }}>
                                   <button 
                                     className="mac-button" 
-                                    onClick={() => setSelectedProductIndex(Math.max(0, selectedProductIndex - 1))}
+                                    onClick={() => {
+                                      const newIndex = Math.max(0, selectedProductIndex - 1);
+                                      setSelectedProductIndex(newIndex);
+                                      scrollToProduct(newIndex);
+                                    }}
                                     disabled={selectedProductIndex === 0}
                                     style={{ minWidth: '80px' }}
                                   >
@@ -806,12 +925,16 @@ function MyBrandsPanel({ currentView }) {
                                     fontSize: '12px',
                                     color: '#666'
                                   }}>
-                                    {selectedProductIndex + 1} of {products.length} products
+                                    {(hoveredProductIndex !== null ? hoveredProductIndex : selectedProductIndex) + 1} of {products.length} products
                                   </div>
                                   
                                   <button 
                                     className="mac-button" 
-                                    onClick={() => setSelectedProductIndex(Math.min(products.length - 1, selectedProductIndex + 1))}
+                                    onClick={() => {
+                                      const newIndex = Math.min(products.length - 1, selectedProductIndex + 1);
+                                      setSelectedProductIndex(newIndex);
+                                      scrollToProduct(newIndex);
+                                    }}
                                     disabled={selectedProductIndex === products.length - 1}
                                     style={{ minWidth: '80px' }}
                                   >
@@ -825,30 +948,6 @@ function MyBrandsPanel({ currentView }) {
                       </div>
                     )}
 
-                    {/* Product Results State */}
-                    {!scrapingLoading && scrapingResult?.type === 'products' && scrapingResult.success && (
-                      <div style={{ 
-                        flex: 1,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        color: '#007bff',
-                        textAlign: 'center'
-                      }}>
-                        <div style={{ fontSize: '32px', marginBottom: '16px' }}>✅</div>
-                        <div style={{ fontSize: '16px', marginBottom: '8px', fontWeight: 'bold' }}>
-                          Scraping Complete!
-                        </div>
-                        <div style={{ fontSize: '14px', marginBottom: '4px' }}>
-                          {scrapingResult.collectionName && `${scrapingResult.collectionName}: `}
-                          {scrapingResult.productsCount} products found
-                        </div>
-                        <div style={{ fontSize: '12px', color: '#666' }}>
-                          {scrapingResult.strategy}
-                        </div>
-                      </div>
-                    )}
 
                     {/* Error State */}
                     {!scrapingLoading && scrapingResult && !scrapingResult.success && (

@@ -11,7 +11,9 @@ from typing import Dict, Any
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
-load_dotenv()
+script_dir = os.path.dirname(os.path.abspath(__file__))
+env_path = os.path.join(script_dir, '.env')
+load_dotenv(env_path)
 
 class Config:
     """Application configuration"""
@@ -29,9 +31,11 @@ class Config:
     DATABASE_PATH = os.getenv('DATABASE_PATH', 'fashion_archive.db')
     BRANDS_DATABASE_PATH = os.getenv('BRANDS_DATABASE_PATH', 'my_brands/brands.db')
     
-    # Cache Configuration
-    BRANDS_CACHE_DIR = os.getenv('BRANDS_CACHE_DIR', 'my_brands_cache')
+    # Storage Configuration  
+    BRAND_COLLECTIONS_DIR = os.getenv('BRAND_COLLECTIONS_DIR', 'brand_collections')
     DOWNLOADS_DIR = os.getenv('DOWNLOADS_DIR', 'downloads')
+    # Legacy cache directory (deprecated - use BRAND_COLLECTIONS_DIR)
+    BRANDS_CACHE_DIR = os.getenv('BRANDS_CACHE_DIR', BRAND_COLLECTIONS_DIR)
     
     # LLM Configuration
     OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
