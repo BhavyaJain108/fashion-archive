@@ -153,12 +153,20 @@ def get_collections():
 def download_images():
     """Use original ImageDownloader - NO tkinter imports"""
     try:
-        import sys
+        # Import with explicit module loading to avoid conflicts
+        import importlib.util
         import os
-        sys.path.append(os.path.dirname(__file__))
         
-        # Import ONLY the classes we need
-        from image_downloader import ImageDownloader, DownloadConfig
+        # Load the root image_downloader module directly
+        spec = importlib.util.spec_from_file_location(
+            "main_image_downloader", 
+            os.path.join(os.path.dirname(__file__), "image_downloader.py")
+        )
+        main_img_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(main_img_module)
+        
+        ImageDownloader = main_img_module.ImageDownloader
+        DownloadConfig = main_img_module.DownloadConfig
         
         data = request.get_json()
         collection = data.get('collection', {})
@@ -254,15 +262,23 @@ def download_images():
         return jsonify({
             'success': True,
             'imagePaths': final_images,
-            'designerName': collection['designer'],
+            'designerName': collection.get('designer', 'Unknown'),
             'count': len(final_images)
         })
         
     except Exception as e:
+        # Handle case where collection might not be defined yet
+        designer_name = 'Unknown'
+        try:
+            if 'collection' in locals():
+                designer_name = collection.get('designer', 'Unknown')
+        except:
+            pass
+        
         return jsonify({
             'success': False,
             'imagePaths': [],
-            'designerName': collection.get('designer', 'Unknown'),
+            'designerName': designer_name,
             'error': str(e)
         }), 500
 
@@ -596,6 +612,79 @@ try:
     print("✅ My Brands API endpoints registered")
 except ImportError as e:
     print(f"⚠️  My Brands endpoints not available: {e}")
+
+# Register Premium Scraper API endpoints
+try:
+    import sys
+    import os
+    # Add scraper_premium to path but at the END to avoid conflicts
+    scraper_path = os.path.join(os.path.dirname(__file__), 'scraper_premium')
+    if scraper_path not in sys.path:
+        sys.path.append(scraper_path)
+    
+    from scraper_premium.api import PremiumScraperAPI
+    
+    # Create API instance
+    premium_api = PremiumScraperAPI()
+    
+    @app.route('/api/premium/test', methods=['GET'])
+    def test_premium_api():
+        """Test endpoint to verify premium API is working"""
+        return jsonify({
+            'success': True,
+            'message': 'Premium Scraper API is integrated and running',
+            'version': '1.0.0',
+            'endpoints': [
+                'POST /api/premium/scrape - Start a scraping job',
+                'GET /api/premium/scrape/<job_id> - Get job status',
+                'GET /api/premium/scrape/<job_id>/products - Get scraped products',
+                'GET /api/premium/scrape/<job_id>/download - Download results as CSV',
+                'GET /api/premium/jobs - List all jobs',
+                'POST /api/premium/analyze - Analyze brand for scraping'
+            ]
+        })
+    
+    @app.route('/api/premium/scrape', methods=['POST'])
+    def start_premium_scrape():
+        """Start a premium scraping job"""
+        result, status_code = premium_api.start_scrape()
+        return jsonify(result), status_code
+    
+    @app.route('/api/premium/scrape/<job_id>', methods=['GET'])
+    def get_scrape_status(job_id):
+        """Get the status of a scraping job"""
+        result, status_code = premium_api.get_job_status(job_id)
+        return jsonify(result), status_code
+    
+    @app.route('/api/premium/scrape/<job_id>/products', methods=['GET'])
+    def get_scrape_products(job_id):
+        """Get products from a completed scraping job"""
+        result, status_code = premium_api.get_job_products(job_id)
+        return jsonify(result), status_code
+    
+    @app.route('/api/premium/scrape/<job_id>/download', methods=['GET'])
+    def download_scrape_results(job_id):
+        """Download the CSV results of a completed scraping job"""
+        return premium_api.download_results(job_id)
+    
+    @app.route('/api/premium/jobs', methods=['GET'])
+    def list_scraping_jobs():
+        """List all scraping jobs"""
+        result, status_code = premium_api.list_jobs()
+        return jsonify(result), status_code
+    
+    @app.route('/api/premium/analyze', methods=['POST'])
+    def analyze_brand_premium():
+        """Analyze a brand website for scraping compatibility"""
+        result, status_code = premium_api.analyze_brand()
+        return jsonify(result), status_code
+    
+    print("✅ Premium Scraper API endpoints registered")
+    
+except ImportError as e:
+    print(f"⚠️  Premium Scraper endpoints not available: {e}")
+except Exception as e:
+    print(f"❌ Error registering Premium Scraper endpoints: {e}")
 
 if __name__ == '__main__':
     print("🎭 Clean API Backend - NO tkinter dependencies")

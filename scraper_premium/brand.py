@@ -17,8 +17,9 @@ from urllib.parse import urljoin, urlparse
 from playwright.sync_api import sync_playwright
 import re
 
-# Add parent directories to path for imports
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+# Add current directory to path for imports
+current_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, current_dir)
 
 from llm_handler import LLMHandler
 from product import Product
@@ -361,6 +362,10 @@ Find the HTML structure around the product link and return:
 2. CSS selectors that would help to find all similar product containers
 3. CSS selectors that would help to find images, names, links within each similar product container
 
+IMPORTANT: The container_selector should match ALL products on the page, not just this specific one. Remove any attributes related to stock status, availability, pricing, or other filtering conditions. Keep structural classes that identify the container type, but remove filtering attributes.
+
+Example: If you find a product in <x-cell prod-instock="true" class="product-card">, return "x-cell.product-card" as the container_selector, NOT "x-cell[prod-instock='true']".
+
 Return JSON:
 {{
     "container_selector": "CSS selector for product containers",
@@ -582,9 +587,16 @@ Return JSON:
             image_selector = self.product_extraction_pattern.get('image_selector') or ''
             
             # Get ALL containers (no JavaScript marking - rely on URL deduplication)
+            # Safely escape selectors for JavaScript
+            import json
+            container_selector_escaped = json.dumps(container_selector)
+            link_selector_escaped = json.dumps(link_selector)
+            name_selector_escaped = json.dumps(name_selector)
+            image_selector_escaped = json.dumps(image_selector)
+            
             extraction_result = page.evaluate(f"""
                 () => {{
-                    const containers = document.querySelectorAll('{container_selector}');
+                    const containers = document.querySelectorAll({container_selector_escaped});
                     const newProducts = [];
                     let noLinkCount = 0;
                     
@@ -592,8 +604,8 @@ Return JSON:
                         
                         // Extract product data - only use selectors that were provided
                         let href = null;
-                        if ('{link_selector}') {{
-                            const linkEl = container.querySelector('{link_selector}');
+                        if ({link_selector_escaped}) {{
+                            const linkEl = container.querySelector({link_selector_escaped});
                             href = linkEl ? linkEl.getAttribute('href') : null;
                         }} else {{
                             // No link selector - try to find any product link
@@ -602,16 +614,16 @@ Return JSON:
                         }}
                         
                         let name = 'Unknown';
-                        if ('{name_selector}') {{
-                            const nameEl = container.querySelector('{name_selector}');
+                        if ({name_selector_escaped}) {{
+                            const nameEl = container.querySelector({name_selector_escaped});
                             if (nameEl) {{
                                 name = nameEl.innerText || nameEl.getAttribute('alt') || nameEl.getAttribute('title') || 'Unknown';
                             }}
                         }}
                         
                         let imageSrc = '';
-                        if ('{image_selector}') {{
-                            const imgEl = container.querySelector('{image_selector}');
+                        if ({image_selector_escaped}) {{
+                            const imgEl = container.querySelector({image_selector_escaped});
                             if (imgEl) {{
                                 imageSrc = imgEl.getAttribute('src') || imgEl.getAttribute('data-src') || '';
                             }}

@@ -1,4 +1,0 @@
-index,title,image_url,product_url,collection_name,collection_url,confidence,detection_method,downloaded
-1,67 T SHIRT - BLACK,https://jukuhara.jp/cdn/shop/files/67tee.png?v=1752198415,https://jukuhara.jp/collections/all,All Products,https://jukuhara.jp/collections/all,0.9,llm_direct_identification,yes
-2,911 ROPPONGI T SHIRT,https://jukuhara.jp/cdn/shop/files/roppongi_911_tee_2.png?v=1748525247,https://jukuhara.jp/collections/all,All Products,https://jukuhara.jp/collections/all,0.9,llm_direct_identification,yes
-3,CAR SERVICE 2025 T SHIRT,https://jukuhara.jp/cdn/shop/files/car_service_og_front.png?v=1748525303,https://jukuhara.jp/collections/all,All Products,https://jukuhara.jp/collections/all,0.9,llm_direct_identification,yes

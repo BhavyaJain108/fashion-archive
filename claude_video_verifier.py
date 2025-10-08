@@ -23,12 +23,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from anthropic import Anthropic
 
-# Simple proxy support
-try:
-    from simple_proxy_downloader import SimpleProxyDownloader
-    PROXY_AVAILABLE = True
-except ImportError:
-    PROXY_AVAILABLE = False
+# Proxy support removed
 # VideoResult class for compatibility
 @dataclass  
 class VideoResult:
@@ -411,20 +406,31 @@ class EnhancedFashionVideoSearch:
             return None
     
     def _download_video(self, video: VideoResult) -> Optional[str]:
-        """Download video with clean proxy fallback system"""
+        """Download video directly without proxy"""
         print(f"📥 Downloading: {video.title}")
         
-        # Use simple proxy downloader if available
+        # Direct download using yt-dlp
         try:
-            from simple_proxy_downloader import SimpleProxyDownloader
-            downloader = SimpleProxyDownloader()
-            result_path = downloader.download_video(video.url, str(self.videos_dir))
+            import yt_dlp
             
-            if result_path:
-                print(f"✅ Downloaded: {Path(result_path).name}")
-                return result_path
+            output_file = self.videos_dir / f"{video.title[:100].replace('/', '-')}.mp4"
+            
+            ydl_opts = {
+                'format': 'best[ext=mp4]/best',
+                'outtmpl': str(output_file),
+                'quiet': True,
+                'no_warnings': True,
+                'extract_flat': False
+            }
+            
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([video.url])
+            
+            if output_file.exists():
+                print(f"✅ Downloaded: {output_file.name}")
+                return str(output_file)
             else:
-                print("❌ Simple downloader failed")
+                print("❌ Download failed")
                 return None
                 
         except Exception as e:

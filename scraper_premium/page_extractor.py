@@ -69,12 +69,12 @@ def extract_products_from_page(page_url: str, patterns: List[Dict[str, str]], br
             try:
                 products = _extract_with_scrolling(page_url, pattern, brand_name, category_name)
                 
-                if products:  # Pattern worked!
-                    result["products"] = products
-                    result["success"] = True
-                    result["pattern_used"] = i
-                    result["metrics"]["products_extracted"] = len(products)
-                    break
+                # Pattern worked if no exception was thrown (products is a list, even if empty)
+                result["products"] = products
+                result["success"] = True
+                result["pattern_used"] = i
+                result["metrics"]["products_extracted"] = len(products)
+                break
                     
             except Exception as pattern_error:
                 # This pattern failed, try next one
@@ -194,20 +194,26 @@ def _extract_products_from_current_state(page, page_url: str, pattern: Dict[str,
     name_selector = pattern.get('name_selector', '')
     image_selector = pattern.get('image_selector', 'img')
     
-    # Use JavaScript to extract product data
+    # Use JavaScript to extract product data - safely escape selectors
+    import json
+    container_selector_escaped = json.dumps(container_selector)
+    link_selector_escaped = json.dumps(link_selector)
+    name_selector_escaped = json.dumps(name_selector)
+    image_selector_escaped = json.dumps(image_selector)
+    
     extraction_result = page.evaluate(f"""
         () => {{
-            const containers = document.querySelectorAll('{container_selector}');
+            const containers = document.querySelectorAll({container_selector_escaped});
             const products = [];
             
             containers.forEach(container => {{
                 // Extract product URL - trust LLM selector completely
                 let href = null;
-                if ('{link_selector}' === '{container_selector}') {{
+                if ({link_selector_escaped} === {container_selector_escaped}) {{
                     // Container itself is the link
                     href = container.getAttribute('href');
-                }} else if ('{link_selector}') {{
-                    const linkEl = container.querySelector('{link_selector}');
+                }} else if ({link_selector_escaped}) {{
+                    const linkEl = container.querySelector({link_selector_escaped});
                     href = linkEl ? linkEl.getAttribute('href') : null;
                 }} else {{
                     // If no link_selector provided, assume container itself is the link
@@ -216,8 +222,8 @@ def _extract_products_from_current_state(page, page_url: str, pattern: Dict[str,
                 
                 // Extract product name - trust LLM selector completely
                 let name = 'Unknown';
-                if ('{name_selector}') {{
-                    const nameEl = container.querySelector('{name_selector}');
+                if ({name_selector_escaped}) {{
+                    const nameEl = container.querySelector({name_selector_escaped});
                     if (nameEl) {{
                         name = nameEl.innerText || nameEl.textContent || 'Unknown';
                     }}
@@ -225,8 +231,8 @@ def _extract_products_from_current_state(page, page_url: str, pattern: Dict[str,
                 
                 // Extract image - trust LLM selector but check common image attributes
                 let imageSrc = '';
-                if ('{image_selector}') {{
-                    const imgEl = container.querySelector('{image_selector}');
+                if ({image_selector_escaped}) {{
+                    const imgEl = container.querySelector({image_selector_escaped});
                     if (imgEl) {{
                         // Check common attributes where image URLs are stored
                         imageSrc = imgEl.getAttribute('src') || 

@@ -8,7 +8,7 @@ echo "📚 Preserving fashion history with early Mac styling"
 echo "=" 
 
 # Check if we're in the right directory
-if [ ! -f "fashion_scraper.py" ]; then
+if [ ! -f "clean_api.py" ]; then
     echo "❌ Please run this script from the fashion_archive directory"
     exit 1
 fi
