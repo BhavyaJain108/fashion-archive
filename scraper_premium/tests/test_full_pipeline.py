@@ -27,6 +27,8 @@ from brand import Brand
 from page_extractor import extract_products_from_page
 
 
+
+
 def extract_category_name(url: str) -> str:
     """Extract a readable category name from URL"""
     parsed = urlparse(url)
@@ -41,19 +43,84 @@ def extract_category_name(url: str) -> str:
 
 
 def scrape_category_page(category_url: str, patterns: List[dict], brand_name: str, 
-                        images_dir: str = None, download_images: bool = False) -> Dict[str, Any]:
+                        pagination_pattern: Dict[str, Any] = None, images_dir: str = None, download_images: bool = False) -> Dict[str, Any]:
     """
-    Scrape a single category page using multi-pattern approach with fallback
-    Optionally download images immediately after extraction
+    Scrape category page with pagination using provided pagination pattern
+    Uses pre-discovered pagination pattern to process all pages until no products found
     
     Returns:
-        Dict with category info and extracted products
+        Dict with category info and extracted products from ALL pages
     """
-    # Use the pure function from page_extractor
-    result = extract_products_from_page(category_url, patterns, brand_name)
+    from page_extractor import generate_pagination_url, extract_next_button_url
+    
+    print(f"🔄 Processing category: {category_url}")
+    
+    all_category_products = []
+    pages_processed = 0
+    
+    # Start with the initial category page
+    current_page_url = category_url
+    page_number = 1
+    
+    # Show pagination strategy
+    if pagination_pattern and pagination_pattern.get("type") != "none":
+        print(f"   🔍 Using pagination: {pagination_pattern.get('type')} - {pagination_pattern.get('template')}")
+    else:
+        print(f"   📝 Single page category - no pagination")
+    
+    while current_page_url:
+        print(f"   📄 Processing page {page_number}: {current_page_url}")
+        
+        # Extract products from current page (only allow pattern discovery on first page)
+        page_result = extract_products_from_page(current_page_url, patterns, brand_name, allow_pattern_discovery=(page_number == 1))
+        
+        if page_result["success"] and page_result["products"]:
+            pages_processed += 1  # Only count productive pages
+            print(f"      ✅ Found {len(page_result['products'])} products")
+            all_category_products.extend(page_result["products"])
+            
+            # GENERATE NEXT PAGE URL using provided pagination pattern
+            if pagination_pattern and pagination_pattern.get("type") != "none":
+                page_number += 1
+                
+                if pagination_pattern.get("type") == "next_button":
+                    # Extract next button URL from current page HTML
+                    current_page_html = page_result.get("html_content", "")
+                    next_page_url = extract_next_button_url(current_page_html, pagination_pattern, current_page_url)
+                else:
+                    # Generate numbered pagination URL
+                    next_page_url = generate_pagination_url(category_url, pagination_pattern, page_number)
+                
+                current_page_url = next_page_url
+                if next_page_url:
+                    print(f"      ➡️  Next page: {next_page_url}")
+                else:
+                    print(f"      ⏹️  No more pages found")
+                    current_page_url = None
+            else:
+                # No pagination pattern - single page category
+                current_page_url = None
+                
+        else:
+            print(f"      ⏹️  No products found - stopping pagination")
+            current_page_url = None
+    
+    print(f"   ✅ Category complete: {len(all_category_products)} products from {pages_processed} pages")
+    
+    # Create final result using the last page result as template
+    final_result = page_result.copy() if 'page_result' in locals() else {
+        "success": len(all_category_products) > 0,
+        "category_name": _extract_category_name_from_url(category_url),
+        "page_url": category_url
+    }
+    
+    # Update result to reflect all products from all pages
+    final_result["products"] = all_category_products
+    final_result["pages_processed"] = pages_processed
+    final_result["pagination_detected"] = pagination_pattern is not None and pagination_pattern.get("type") != "none"
     
     # Start image downloads for this category immediately if requested
-    if download_images and images_dir and result["success"] and result["products"]:
+    if download_images and images_dir and final_result["success"] and final_result["products"]:
         from concurrent.futures import ThreadPoolExecutor
         import requests
         from pathlib import Path
@@ -94,20 +161,35 @@ def scrape_category_page(category_url: str, patterns: List[dict], brand_name: st
         
         # Download images for this category in parallel (fire and forget)
         with ThreadPoolExecutor(max_workers=3) as img_executor:
-            img_executor.map(download_product_image, result["products"])
+            img_executor.map(download_product_image, final_result["products"])
     
-    # Convert to the format expected by the pipeline
+    # Return final result with all products from all pages
     return {
-        "category_name": result["category_name"],
-        "category_url": result["page_url"],
-        "products_found": len(result["products"]),
-        "extraction_time": result["metrics"]["extraction_time"],
-        "products": result["products"],
-        "success": result["success"],
-        "error": result.get("error"),
-        "pattern_used": result.get("pattern_used"),
-        "new_pattern": result.get("new_pattern")
+        "category_name": final_result.get("category_name", _extract_category_name_from_url(category_url)),
+        "category_url": category_url,
+        "products_found": len(final_result["products"]),
+        "pages_processed": final_result["pages_processed"],
+        "pagination_detected": final_result["pagination_detected"],
+        "extraction_time": time.time(),  # Will be calculated properly by pipeline
+        "products": final_result["products"],
+        "success": final_result["success"],
+        "error": final_result.get("error"),
+        "pattern_used": final_result.get("pattern_used"),
+        "new_pattern": final_result.get("new_pattern")
     }
+
+
+def _extract_category_name_from_url(url: str) -> str:
+    """Extract category name from URL"""
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    path_parts = [p for p in parsed.path.split('/') if p and p not in ['collections', 'collection']]
+    
+    if path_parts:
+        name = path_parts[-1].replace('-', ' ').replace('_', ' ').title()
+        return name
+    
+    return "Main Collection"
 
 
 def save_results(brand_name: str, all_products: List[Dict], category_results: List[Dict], 
@@ -280,20 +362,31 @@ def test_full_brand_scrape(brand_url: str, brand_name: str = None) -> Dict[str, 
         if len(starting_pages) > 5:
             print(f"   ... and {len(starting_pages) - 5} more")
         
-        # Step 2: Pattern Detection - Use first page as template
+        # Step 2: Enhanced Pattern Detection - Product + Pagination patterns
         print(f"\n📍 STEP 2: Pattern Detection")
         print("-" * 40)
         
-        # Set the starting pages queue so analyze_product_pattern can use them
+        # Set the starting pages queue so both pattern analyzers can use them
         brand.starting_pages_queue = starting_pages
         
+        # Discover product extraction pattern
         pattern_result = brand.analyze_product_pattern()
         if not pattern_result or not brand.product_extraction_pattern:
             raise Exception("Failed to extract product pattern")
         
         initial_pattern = brand.product_extraction_pattern
-        print(f"✅ Pattern extracted from sample page")
+        print(f"✅ Product pattern extracted from sample page")
         print(f"   Container: {initial_pattern.get('container_selector', 'N/A')}")
+        
+        # Discover pagination pattern (NEW)
+        pagination_pattern = brand.analyze_pagination_pattern()
+        if pagination_pattern:
+            print(f"✅ Pagination pattern discovered")
+            print(f"   Type: {pagination_pattern.get('type', 'N/A')}")
+            print(f"   Template: {pagination_pattern.get('template', 'N/A')}")
+        else:
+            print(f"📝 No pagination pattern found - single page categories")
+            pagination_pattern = {"type": "none"}
         
         # Initialize patterns list with the first discovered pattern
         brand_patterns = [initial_pattern]
@@ -318,9 +411,9 @@ def test_full_brand_scrape(brand_url: str, brand_name: str = None) -> Dict[str, 
             futures = {}
             
             for page_url in starting_pages:
-                # Each thread gets a copy of current patterns and downloads images immediately
+                # Each thread gets patterns + pagination pattern
                 future = executor.submit(scrape_category_page, page_url, brand_patterns.copy(), brand_name,
-                                       images_dir=images_dir, download_images=True)
+                                       pagination_pattern, images_dir, True)
                 futures[future] = page_url
             
             # Collect results as they complete
@@ -461,5 +554,5 @@ if __name__ == "__main__":
         brand_name = sys.argv[2] if len(sys.argv) > 2 else None
         test_full_brand_scrape(brand_url, brand_name)
     else:
-        # Run default test suite
-        test_multiple_brands()
+        # Test Kuurth to verify pagination integration
+        test_full_brand_scrape("https://kuurth.com", "Kuurth")

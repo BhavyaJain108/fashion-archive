@@ -117,6 +117,128 @@ class Brand:
             print(f"❌ Product pattern analysis failed: {e}")
             return {}
     
+    def analyze_pagination_pattern(self) -> dict:
+        """
+        Analyze pagination pattern from the first category page.
+        Runs in parallel to product pattern discovery.
+        
+        Returns:
+            Dict containing pagination pattern information or empty dict if none found
+        """
+        if not self.starting_pages_queue:
+            return {}
+        
+        first_page_url = self.starting_pages_queue[0]
+        
+        try:
+            print(f"🔍 Discovering pagination pattern from: {first_page_url}")
+            
+            # Extract all links from first page
+            all_links = self.extract_page_links(first_page_url)
+            if not all_links:
+                print(f"❌ No links found on page for pagination analysis")
+                return {}
+            
+            print(f"📊 Analyzing {len(all_links)} links for pagination pattern")
+            
+            # Build pagination analysis prompt
+            pagination_result = self._analyze_pagination_links(all_links, first_page_url)
+            
+            if pagination_result.get("success", False):
+                pattern = pagination_result.get("pagination_pattern", {})
+                pattern_type = pattern.get("type", "none")
+                
+                if pattern_type != "none":
+                    print(f"✅ Pagination pattern discovered: {pattern.get('template', 'N/A')} (type: {pattern_type})")
+                    return pattern
+                else:
+                    print(f"📝 No pagination pattern found - single page categories")
+                    return {}
+            else:
+                print(f"❌ Pagination analysis failed: {pagination_result.get('error', 'Unknown error')}")
+                return {}
+                
+        except Exception as e:
+            print(f"❌ Pagination pattern analysis failed: {e}")
+            return {}
+    
+    def _analyze_pagination_links(self, all_links: List[str], current_page_url: str) -> dict:
+        """
+        Use LLM to analyze links and identify pagination pattern
+        """
+        links_text = "\n".join(f"- {link}" for link in all_links)
+        
+        prompt = f"""
+Analyze these links from a product category page to identify pagination pattern:
+
+Current Page: {current_page_url}
+All links from page: {links_text}
+
+Identify the pagination strategy used:
+
+1. NUMBERED PAGINATION: Links like ?page=2, ?page=3, /page/2/, etc.
+2. NEXT BUTTON ONLY: Only "Next" or "→" links, no numbered pages
+3. MIXED: Both numbered pages AND next/previous buttons
+4. NONE: No pagination found
+
+Return JSON:
+{{
+    "pagination_detected": true,
+    "type": "numbered|next_button|mixed|none",
+    "template": "?page=X" | "/page/X/" | "next_button",
+    "next_selector": "a[href*='page=2']" (if next_button or mixed type),
+    "reasoning": "Found numbered pagination with ?page= parameter"
+}}
+
+Examples:
+- If you see: ?page=2, ?page=3 → type: "numbered", template: "?page=X"
+- If you see: /page/2/, /page/3/ → type: "numbered", template: "/page/X/"  
+- If you see: only "Next" link → type: "next_button", template: "next_button"
+- If you see: pages 1,2,3 AND Next → type: "mixed", template: "?page=X"
+
+If no pagination:
+{{
+    "pagination_detected": false,
+    "type": "none",
+    "reasoning": "No pagination links found"
+}}
+""".strip()
+        
+        try:
+            llm_response = self.llm_handler.call(prompt, expected_format="json")
+            
+            if llm_response.get("success", False):
+                data = llm_response.get("data", {})
+                
+                if data.get("pagination_detected", False):
+                    pagination_pattern = {
+                        "type": data.get("type", "none"),
+                        "template": data.get("template", ""),
+                        "next_selector": data.get("next_selector", ""),
+                        "reasoning": data.get("reasoning", "")
+                    }
+                    
+                    return {
+                        "success": True,
+                        "pagination_pattern": pagination_pattern
+                    }
+                else:
+                    return {
+                        "success": True,
+                        "pagination_pattern": {"type": "none"}
+                    }
+            else:
+                return {
+                    "success": False,
+                    "error": llm_response.get('error', 'LLM analysis failed')
+                }
+                
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
     def _extract_sample_product(self, html_content: str, pattern: dict, product_link: str, base_url: str) -> dict:
         """
         Extract a sample product using the detected CSS selectors to verify the pattern works

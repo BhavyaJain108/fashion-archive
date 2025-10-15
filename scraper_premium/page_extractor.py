@@ -15,7 +15,7 @@ from urllib.parse import urljoin, urlparse
 from playwright.sync_api import sync_playwright
 
 
-def extract_products_from_page(page_url: str, patterns: List[Dict[str, str]], brand_name: str = None) -> Dict[str, Any]:
+def extract_products_from_page(page_url: str, patterns: List[Dict[str, str]], brand_name: str = None, allow_pattern_discovery: bool = True) -> Dict[str, Any]:
     """
     Extract all products from a single page using multiple patterns with fallback.
     
@@ -23,6 +23,7 @@ def extract_products_from_page(page_url: str, patterns: List[Dict[str, str]], br
         page_url: URL of the page to scrape
         patterns: List of product extraction patterns (tries in order)
         brand_name: Optional brand name for metadata
+        allow_pattern_discovery: Whether to attempt pattern discovery if all patterns fail (default: True)
         
     Returns:
         Dict containing:
@@ -80,8 +81,8 @@ def extract_products_from_page(page_url: str, patterns: List[Dict[str, str]], br
                 # This pattern failed, try next one
                 continue
         
-        # If all patterns failed, try to discover new pattern
-        if not result["success"]:
+        # If all patterns failed, try to discover new pattern (only on first pages)
+        if not result["success"] and allow_pattern_discovery:
             try:
                 new_pattern = _discover_pattern_from_page(page_url, brand_name)
                 if new_pattern:
@@ -101,6 +102,8 @@ def extract_products_from_page(page_url: str, patterns: List[Dict[str, str]], br
                     
             except Exception as discovery_error:
                 result["error"] = f"Pattern discovery failed: {discovery_error}"
+        elif not result["success"] and not allow_pattern_discovery:
+            result["error"] = "All patterns failed and pattern discovery disabled for non-first pages"
         
     except Exception as e:
         result["error"] = str(e)
@@ -355,6 +358,106 @@ def _discover_pattern_from_page(page_url: str, brand_name: str) -> Dict[str, str
         return None
 
 
+def generate_pagination_url(base_url: str, pagination_pattern: Dict[str, Any], page_number: int) -> str:
+    """
+    Generate pagination URL based on discovered pattern
+    
+    Args:
+        base_url: Base category URL
+        pagination_pattern: Pagination pattern from brand analysis
+        page_number: Page number to generate
+        
+    Returns:
+        Generated page URL or None if pattern not supported
+    """
+    if not pagination_pattern or pagination_pattern.get("type") == "none":
+        return None
+    
+    # Clean base URL (remove existing page parameters)
+    if "?" in base_url:
+        base_url = base_url.split("?")[0]
+    if base_url.endswith("/"):
+        base_url = base_url.rstrip("/")
+    
+    pattern_type = pagination_pattern.get("type", "none")
+    template = pagination_pattern.get("template", "")
+    
+    if pattern_type == "numbered" or pattern_type == "mixed":
+        if "?page=X" in template:
+            return f"{base_url}?page={page_number}"
+        elif "/page/X/" in template:
+            return f"{base_url}/page/{page_number}/"
+        elif "/page/X" in template:
+            return f"{base_url}/page/{page_number}"
+        elif "?p=X" in template:
+            return f"{base_url}?p={page_number}"
+        else:
+            # Custom pattern - replace X with page number
+            return base_url + template.replace("X", str(page_number))
+    
+    elif pattern_type == "next_button":
+        # For next button pagination, URL needs to be extracted from current page
+        # This will be handled in the extraction logic
+        return None
+    
+    return None
+
+
+def extract_next_button_url(current_page_html: str, pagination_pattern: Dict[str, Any], current_page_url: str) -> str:
+    """
+    Extract next page URL from current page HTML for next-button pagination
+    
+    Args:
+        current_page_html: HTML content of current page
+        pagination_pattern: Pagination pattern with next_selector
+        current_page_url: Current page URL for relative URL resolution
+        
+    Returns:
+        Next page URL or None if no next button found
+    """
+    try:
+        from bs4 import BeautifulSoup
+        from urllib.parse import urljoin
+        
+        soup = BeautifulSoup(current_page_html, 'html.parser')
+        next_selector = pagination_pattern.get("next_selector", "")
+        
+        if not next_selector:
+            # Try common next button selectors
+            next_selectors = [
+                "a[aria-label*='next' i]",
+                "a[title*='next' i]", 
+                ".next a",
+                ".pagination-next a",
+                "a:contains('Next')",
+                "a:contains('→')",
+                "a:contains('>')"
+            ]
+        else:
+            next_selectors = [next_selector]
+        
+        for selector in next_selectors:
+            try:
+                next_link = soup.select_one(selector)
+                if next_link and next_link.get('href'):
+                    href = next_link.get('href')
+                    # Convert relative URL to absolute
+                    if href.startswith('/'):
+                        return urljoin(current_page_url, href)
+                    elif href.startswith('http'):
+                        return href
+                    else:
+                        return urljoin(current_page_url, href)
+            except:
+                continue
+        
+        return None
+        
+    except Exception as e:
+        print(f"      ⚠️  Error extracting next button URL: {e}")
+        return None
+
+
 def extract_multiple_pages(page_urls: List[str], patterns: List[Dict[str, str]], brand_name: str = None) -> List[Dict[str, Any]]:
     """
     Extract products from multiple pages sequentially.
@@ -371,7 +474,7 @@ def extract_multiple_pages(page_urls: List[str], patterns: List[Dict[str, str]],
     
     for page_url in page_urls:
         print(f"  🔄 Processing: {extract_category_name(page_url)}")
-        result = extract_products_from_page(page_url, pattern, brand_name)
+        result = extract_products_from_page(page_url, pattern, brand_name, allow_pattern_discovery=True)
         results.append(result)
         
         status = "✅" if result["success"] else "❌"
