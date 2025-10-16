@@ -22,9 +22,6 @@ function MyBrandsPanel({ currentView }) {
   const [collections, setCollections] = useState({}); // Store collections data from API
   const [selectedCategory, setSelectedCategory] = useState('all'); // Track selected category filter
   const [filteredProducts, setFilteredProducts] = useState([]); // Store filtered products
-  const [collectionsOnly, setCollectionsOnly] = useState([]); // Store collection metadata only
-  const [selectedCollectionSlug, setSelectedCollectionSlug] = useState(null); // Track selected collection
-  const [viewMode, setViewMode] = useState('collections'); // 'collections' or 'products'
 
   // Filter products by category
   const filterProductsByCategory = (category) => {
@@ -270,51 +267,28 @@ function MyBrandsPanel({ currentView }) {
     setSelectedBrand(brand);
     // Clear previous results
     setProducts([]);
-    setCollections({});
-    setCollectionsOnly([]);
     setScrapingResult(null);
-    setViewMode('collections');
-    setSelectedCollectionSlug(null);
     
-    // Load collections only (no products initially)
+    // Load existing products for this brand
     try {
-      const collectionsData = await FashionArchiveAPI.getBrandCollections(brand.id);
-      if (collectionsData) {
-        setCollectionsOnly(collectionsData.collections || []);
-        console.log(`📂 Loaded ${collectionsData.collections?.length || 0} collections for ${brand.name}`);
-      }
-    } catch (error) {
-      console.error('Error loading brand collections:', error);
-    }
-  };
-
-  const handleCollectionSelect = async (collection) => {
-    if (!selectedBrand) return;
-    
-    setSelectedCollectionSlug(collection.slug);
-    setViewMode('products');
-    setProducts([]);
-    setFilteredProducts([]);
-    
-    // Load products for this specific collection
-    try {
-      const productsData = await FashionArchiveAPI.getCollectionProducts(selectedBrand.id, collection.slug);
+      const productsData = await FashionArchiveAPI.getBrandProducts(brand.id);
       if (productsData) {
-        setProducts(productsData.products || []);
-        setFilteredProducts(productsData.products || []);
+        // Handle new collections structure
+        if (productsData.collections) {
+          setCollections(productsData.collections);
+          setProducts(productsData.products || []);
+          setFilteredProducts(productsData.products || []);
+          setSelectedCategory('all');
+        } else {
+          setProducts(productsData.products || []);
+          setFilteredProducts(productsData.products || []);
+        }
         setSelectedProductIndex(0);
-        console.log(`👕 Loaded ${productsData.products?.length || 0} products for ${collection.name}`);
+        console.log(`📦 Loaded ${productsData.products?.length || 0} existing products for ${brand.name}`);
       }
     } catch (error) {
-      console.error('Error loading collection products:', error);
+      console.error('Error loading brand products:', error);
     }
-  };
-
-  const handleBackToCollections = () => {
-    setViewMode('collections');
-    setSelectedCollectionSlug(null);
-    setProducts([]);
-    setFilteredProducts([]);
   };
 
   const handleScrapeProducts = async () => {
@@ -593,54 +567,6 @@ function MyBrandsPanel({ currentView }) {
                       <h3 style={{ margin: '0 0 8px 0' }}>{selectedBrand.name}</h3>
                     </div>
 
-                    {/* Collection Tabs - Always Visible */}
-                    {collectionsOnly.length > 0 && (
-                      <div style={{ 
-                        padding: '0 20px',
-                        marginBottom: '20px',
-                        borderBottom: '1px solid #e0e0e0'
-                      }}>
-                        <div style={{ 
-                          display: 'flex', 
-                          flexWrap: 'wrap', 
-                          gap: '2px', 
-                          marginBottom: '12px'
-                        }}>
-                          <button
-                            className={`mac-button ${viewMode === 'collections' ? 'selected' : ''}`}
-                            onClick={() => setViewMode('collections')}
-                            style={{
-                              fontSize: '12px',
-                              padding: '4px 8px',
-                              minWidth: 'auto',
-                              backgroundColor: viewMode === 'collections' ? 'var(--mac-selected-bg)' : 'var(--mac-button-bg)',
-                              color: viewMode === 'collections' ? 'var(--mac-selected-text)' : 'var(--mac-text)',
-                              border: viewMode === 'collections' ? '2px inset var(--mac-bg)' : '2px outset var(--mac-bg)'
-                            }}
-                          >
-                            📂 All Collections
-                          </button>
-                          {collectionsOnly.map((collection, index) => (
-                            <button
-                              key={index}
-                              className={`mac-button ${selectedCollectionSlug === collection.slug ? 'selected' : ''}`}
-                              onClick={() => handleCollectionSelect(collection)}
-                              style={{
-                                fontSize: '12px',
-                                padding: '4px 8px',
-                                minWidth: 'auto',
-                                backgroundColor: selectedCollectionSlug === collection.slug ? 'var(--mac-selected-bg)' : 'var(--mac-button-bg)',
-                                color: selectedCollectionSlug === collection.slug ? 'var(--mac-selected-text)' : 'var(--mac-text)',
-                                border: selectedCollectionSlug === collection.slug ? '2px inset var(--mac-bg)' : '2px outset var(--mac-bg)'
-                              }}
-                            >
-                              {collection.name} ({collection.count})
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
                     {/* Scraping Status */}
                     {scrapingLoading && (
                       <div style={{ 
@@ -659,81 +585,14 @@ function MyBrandsPanel({ currentView }) {
                       </div>
                     )}
 
-                    {/* Collections View */}
-                    {viewMode === 'collections' && collectionsOnly.length > 0 && (
-                      <div style={{ 
-                        flex: 1, 
-                        display: 'flex', 
-                        flexDirection: 'column',
-                        minHeight: 0,
-                        overflow: 'hidden'
-                      }}>
-                        <div style={{ 
-                          fontSize: '14px', 
-                          fontWeight: 'bold', 
-                          marginBottom: '12px',
-                          flexShrink: 0
-                        }}>
-                          📂 Collections ({collectionsOnly.length})
-                        </div>
-                        
-                        <div className="mac-scrollbar" style={{ 
-                          flex: 1, 
-                          overflowY: 'auto',
-                          overflowX: 'hidden',
-                          border: '1px solid #e0e0e0',
-                          borderRadius: '4px',
-                          padding: '16px',
-                          minHeight: 0,
-                          maxHeight: '100%'
-                        }}>
-                          <div style={{
-                            display: 'grid',
-                            gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
-                            gap: '16px',
-                            width: '100%'
-                          }}>
-                            {collectionsOnly.map((collection, index) => (
-                              <div
-                                key={index}
-                                className="mac-button"
-                                onClick={() => handleCollectionSelect(collection)}
-                                style={{
-                                  cursor: 'pointer',
-                                  padding: '16px',
-                                  textAlign: 'center',
-                                  backgroundColor: 'var(--mac-button-bg)',
-                                  border: '2px outset var(--mac-bg)',
-                                  fontSize: '14px',
-                                  minHeight: '80px',
-                                  display: 'flex',
-                                  flexDirection: 'column',
-                                  alignItems: 'center',
-                                  justifyContent: 'center'
-                                }}
-                              >
-                                <div style={{ fontSize: '24px', marginBottom: '8px' }}>📁</div>
-                                <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>
-                                  {collection.name}
-                                </div>
-                                <div style={{ fontSize: '12px', color: '#666' }}>
-                                  {collection.count} products
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
                     {/* Products Gallery - Two Column Layout */}
-                    {viewMode === 'products' && filteredProducts.length > 0 && (
+                    {filteredProducts.length > 0 && (
                       <div style={{ 
                         flex: 1, 
                         display: 'flex', 
                         gap: '16px',
                         minHeight: 0,
-                        maxHeight: 'calc(100vh - 180px)',
+                        maxHeight: 'calc(100vh - 100px)',
                         overflow: 'hidden'
                       }}>
                         
@@ -751,9 +610,51 @@ function MyBrandsPanel({ currentView }) {
                             marginBottom: '12px',
                             flexShrink: 0
                           }}>
-                            📦 {selectedCollectionSlug ? collectionsOnly.find(c => c.slug === selectedCollectionSlug)?.name || 'Collection' : 'Products'} ({filteredProducts.length})
+                            📦 Products Gallery ({filteredProducts.length})
                           </div>
                           
+                          {/* Category Filter Buttons - Classic Mac Style */}
+                          {Object.keys(collections).length > 0 && (
+                            <div style={{ 
+                              display: 'flex', 
+                              flexWrap: 'wrap', 
+                              gap: '2px', 
+                              marginBottom: '12px',
+                              flexShrink: 0 
+                            }}>
+                              <button
+                                className={`mac-button ${selectedCategory === 'all' ? 'selected' : ''}`}
+                                onClick={() => filterProductsByCategory('all')}
+                                style={{
+                                  fontSize: '12px',
+                                  padding: '2px 6px',
+                                  minWidth: 'auto',
+                                  backgroundColor: selectedCategory === 'all' ? 'var(--mac-selected-bg)' : 'var(--mac-button-bg)',
+                                  color: selectedCategory === 'all' ? 'var(--mac-selected-text)' : 'var(--mac-text)',
+                                  border: selectedCategory === 'all' ? '2px inset var(--mac-bg)' : '2px outset var(--mac-bg)'
+                                }}
+                              >
+                                All ({products.length})
+                              </button>
+                              {Object.entries(collections).map(([categoryName, categoryData]) => (
+                                <button
+                                  key={categoryName}
+                                  className={`mac-button ${selectedCategory === categoryName ? 'selected' : ''}`}
+                                  onClick={() => filterProductsByCategory(categoryName)}
+                                  style={{
+                                    fontSize: '12px',
+                                    padding: '2px 6px',
+                                    minWidth: 'auto',
+                                    backgroundColor: selectedCategory === categoryName ? 'var(--mac-selected-bg)' : 'var(--mac-button-bg)',
+                                    color: selectedCategory === categoryName ? 'var(--mac-selected-text)' : 'var(--mac-text)',
+                                    border: selectedCategory === categoryName ? '2px inset var(--mac-bg)' : '2px outset var(--mac-bg)'
+                                  }}
+                                >
+                                  {categoryName} ({categoryData.count})
+                                </button>
+                              ))}
+                            </div>
+                          )}
                           
                           <div className="mac-scrollbar" style={{ 
                             flex: 1, 
@@ -833,21 +734,15 @@ function MyBrandsPanel({ currentView }) {
                                               aspectRatio: '1',
                                               overflow: 'hidden',
                                               borderRadius: '2px',
-                                              marginBottom: '4px',
-                                              display: 'flex',
-                                              alignItems: 'center',
-                                              justifyContent: 'center'
+                                              marginBottom: '4px'
                                             }}>
                                               <img 
                                                 src={product.images && product.images[0] ? product.images[0] : product.image_url}
                                                 alt={product.name}
                                                 style={{ 
-                                                  width: '100% !important',
-                                                  height: '100% !important',
-                                                  objectFit: 'cover !important',
-                                                  display: 'block !important',
-                                                  maxWidth: 'none !important',
-                                                  maxHeight: 'none !important'
+                                                  width: '100%',
+                                                  height: '100%',
+                                                  objectFit: 'cover'
                                                 }}
                                                 onLoad={() => {
                                                   const imageUrl = product.images && product.images[0] ? product.images[0] : product.image_url;
@@ -935,21 +830,15 @@ function MyBrandsPanel({ currentView }) {
                                               aspectRatio: '1',
                                               overflow: 'hidden',
                                               borderRadius: '2px',
-                                              marginBottom: '4px',
-                                              display: 'flex',
-                                              alignItems: 'center',
-                                              justifyContent: 'center'
+                                              marginBottom: '4px'
                                             }}>
                                               <img 
                                                 src={product.images && product.images[0] ? product.images[0] : product.image_url}
                                                 alt={product.name}
                                                 style={{ 
-                                                  width: '100% !important',
-                                                  height: '100% !important',
-                                                  objectFit: 'cover !important',
-                                                  display: 'block !important',
-                                                  maxWidth: 'none !important',
-                                                  maxHeight: 'none !important'
+                                                  width: '100%',
+                                                  height: '100%',
+                                                  objectFit: 'cover'
                                                 }}
                                                 onLoad={() => {
                                                   const imageUrl = product.images && product.images[0] ? product.images[0] : product.image_url;
