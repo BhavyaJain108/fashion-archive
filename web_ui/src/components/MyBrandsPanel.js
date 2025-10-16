@@ -19,6 +19,31 @@ function MyBrandsPanel({ currentView }) {
   const [hoveredProductIndex, setHoveredProductIndex] = useState(null); // Track hovered product for preview
   const [resultModal, setResultModal] = useState(null); // { type: 'success'|'error', title: '', message: '' }
   const [imageColors, setImageColors] = useState({}); // Store extracted colors for each image
+  const [collections, setCollections] = useState({}); // Store collections data from API
+  const [selectedCategory, setSelectedCategory] = useState('all'); // Track selected category filter
+  const [filteredProducts, setFilteredProducts] = useState([]); // Store filtered products
+
+  // Filter products by category
+  const filterProductsByCategory = (category) => {
+    setSelectedCategory(category);
+    if (category === 'all') {
+      setFilteredProducts(products);
+    } else {
+      const filtered = products.filter(product => product.collection === category);
+      setFilteredProducts(filtered);
+    }
+    setSelectedProductIndex(0);
+  };
+
+  // Update filtered products when products or selectedCategory changes
+  useEffect(() => {
+    if (selectedCategory === 'all') {
+      setFilteredProducts(products);
+    } else {
+      const filtered = products.filter(product => product.collection === selectedCategory);
+      setFilteredProducts(filtered);
+    }
+  }, [products, selectedCategory]);
 
   // Extract dominant color from image
   const extractImageColor = (imageUrl, productId) => {
@@ -89,13 +114,13 @@ function MyBrandsPanel({ currentView }) {
   useEffect(() => {
     const handleKeyDown = (event) => {
       // Only handle arrow keys when we have products
-      if (products.length === 0) return;
+      if (filteredProducts.length === 0) return;
 
       switch (event.key) {
         case 'ArrowLeft':
           event.preventDefault();
           setSelectedProductIndex(prev => {
-            const newIndex = prev > 0 ? prev - 1 : products.length - 1;
+            const newIndex = prev > 0 ? prev - 1 : filteredProducts.length - 1;
             // Scroll to show the new selection
             scrollToProduct(newIndex);
             return newIndex;
@@ -104,7 +129,7 @@ function MyBrandsPanel({ currentView }) {
         case 'ArrowRight':
           event.preventDefault();
           setSelectedProductIndex(prev => {
-            const newIndex = prev < products.length - 1 ? prev + 1 : 0;
+            const newIndex = prev < filteredProducts.length - 1 ? prev + 1 : 0;
             // Scroll to show the new selection
             scrollToProduct(newIndex);
             return newIndex;
@@ -122,7 +147,7 @@ function MyBrandsPanel({ currentView }) {
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [products.length]);
+  }, [filteredProducts.length]);
 
   // Function to scroll gallery to show specific product
   const scrollToProduct = (productIndex) => {
@@ -247,10 +272,19 @@ function MyBrandsPanel({ currentView }) {
     // Load existing products for this brand
     try {
       const productsData = await FashionArchiveAPI.getBrandProducts(brand.id);
-      if (productsData && productsData.products) {
-        setProducts(productsData.products);
+      if (productsData) {
+        // Handle new collections structure
+        if (productsData.collections) {
+          setCollections(productsData.collections);
+          setProducts(productsData.products || []);
+          setFilteredProducts(productsData.products || []);
+          setSelectedCategory('all');
+        } else {
+          setProducts(productsData.products || []);
+          setFilteredProducts(productsData.products || []);
+        }
         setSelectedProductIndex(0);
-        console.log(`📦 Loaded ${productsData.products.length} existing products for ${brand.name}`);
+        console.log(`📦 Loaded ${productsData.products?.length || 0} existing products for ${brand.name}`);
       }
     } catch (error) {
       console.error('Error loading brand products:', error);
@@ -333,7 +367,17 @@ function MyBrandsPanel({ currentView }) {
         
         // Load the products from database to display them
         const productsData = await FashionArchiveAPI.getBrandProducts(selectedBrand.id);
-        setProducts(productsData.products || []);
+        if (productsData) {
+          if (productsData.collections) {
+            setCollections(productsData.collections);
+            setProducts(productsData.products || []);
+            setFilteredProducts(productsData.products || []);
+            setSelectedCategory('all');
+          } else {
+            setProducts(productsData.products || []);
+            setFilteredProducts(productsData.products || []);
+          }
+        }
         setSelectedProductIndex(0);
         
       } else {
@@ -374,7 +418,17 @@ function MyBrandsPanel({ currentView }) {
         
         // Load the products to display
         const productsData = await FashionArchiveAPI.getBrandProducts(selectedBrand.id);
-        setProducts(productsData.products || []);
+        if (productsData) {
+          if (productsData.collections) {
+            setCollections(productsData.collections);
+            setProducts(productsData.products || []);
+            setFilteredProducts(productsData.products || []);
+            setSelectedCategory('all');
+          } else {
+            setProducts(productsData.products || []);
+            setFilteredProducts(productsData.products || []);
+          }
+        }
         setSelectedProductIndex(0); // Reset to first product
         
       } else {
@@ -413,24 +467,21 @@ function MyBrandsPanel({ currentView }) {
   }
 
   return (
-    <div className="columns-container">
+    <div style={{ display: 'flex', height: '100vh', flexDirection: 'column', background: 'var(--mac-bg)' }}>
       {/* Title Bar */}
       <div className="mac-title-bar" style={{ 
-        position: 'fixed', 
-        top: '20px', 
-        left: 0, 
-        right: 0, 
-        zIndex: 100 
+        height: '20px',
+        flexShrink: 0
       }}>
         My Brands - {stats.total_brands || 0} brands, {stats.total_products || 0} products
       </div>
 
       {/* Main Content */}
-      <div style={{ display: 'flex', height: '100vh', paddingTop: '40px' }}>
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden', paddingTop: '8px' }}>
         
         {/* Left: Brands List - Similar to SeasonsPanel */}
         <div className="column" style={{ width: '300px' }}>
-          <div className="mac-panel" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+          <div className="mac-panel" style={{ height: '100%', display: 'flex', flexDirection: 'column', paddingTop: '20px' }}>
             
             {/* Title - matches seasons panel */}
             <div className="mac-label title">
@@ -438,7 +489,7 @@ function MyBrandsPanel({ currentView }) {
             </div>
 
             {/* Brands List - matches seasons listbox */}
-            <div className="mac-listbox mac-scrollbar" style={{ flex: 1, margin: '8px 0' }}>
+            <div className="mac-listbox mac-scrollbar" style={{ flex: 1, margin: '8px 0', marginTop: '16px' }}>
               {brands.length === 0 ? (
                 <div className="mac-listbox-item">
                   <div style={{ textAlign: 'center', padding: '20px', color: '#666' }}>
@@ -492,11 +543,6 @@ function MyBrandsPanel({ currentView }) {
                     {/* Brand Info Header */}
                     <div style={{ padding: '20px', paddingBottom: '10px' }}>
                       <h3 style={{ margin: '0 0 8px 0' }}>{selectedBrand.name}</h3>
-                      <div style={{ fontSize: '12px', color: '#666' }}>
-                        <div>🌐 {new URL(selectedBrand.url).hostname}</div>
-                        <div>📊 Strategy: {selectedBrand.scraping_strategy || 'Not determined'}</div>
-                        <div>📅 Added: {new Date(selectedBrand.date_added).toLocaleDateString()}</div>
-                      </div>
                     </div>
                     
                     {/* Collections List */}
@@ -514,16 +560,11 @@ function MyBrandsPanel({ currentView }) {
                     </div>
                   </div>
                 ) : (
-                  <div style={{ padding: '20px', flex: 1, display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
                     
                     {/* Brand Info Header */}
-                    <div style={{ marginBottom: '20px' }}>
+                    <div style={{ padding: '20px 20px 0 20px', marginBottom: '20px' }}>
                       <h3 style={{ margin: '0 0 8px 0' }}>{selectedBrand.name}</h3>
-                      <div style={{ fontSize: '12px', color: '#666' }}>
-                        <div>🌐 {new URL(selectedBrand.url).hostname}</div>
-                        <div>📊 Strategy: {selectedBrand.scraping_strategy || 'Not determined'}</div>
-                        <div>📅 Added: {new Date(selectedBrand.date_added).toLocaleDateString()}</div>
-                      </div>
                     </div>
 
                     {/* Scraping Status */}
@@ -545,13 +586,13 @@ function MyBrandsPanel({ currentView }) {
                     )}
 
                     {/* Products Gallery - Two Column Layout */}
-                    {products.length > 0 && (
+                    {filteredProducts.length > 0 && (
                       <div style={{ 
                         flex: 1, 
                         display: 'flex', 
                         gap: '16px',
                         minHeight: 0,
-                        maxHeight: 'calc(100vh - 200px)',
+                        maxHeight: 'calc(100vh - 100px)',
                         overflow: 'hidden'
                       }}>
                         
@@ -569,8 +610,51 @@ function MyBrandsPanel({ currentView }) {
                             marginBottom: '12px',
                             flexShrink: 0
                           }}>
-                            📦 Products Gallery ({products.length})
+                            📦 Products Gallery ({filteredProducts.length})
                           </div>
+                          
+                          {/* Category Filter Buttons - Classic Mac Style */}
+                          {Object.keys(collections).length > 0 && (
+                            <div style={{ 
+                              display: 'flex', 
+                              flexWrap: 'wrap', 
+                              gap: '2px', 
+                              marginBottom: '12px',
+                              flexShrink: 0 
+                            }}>
+                              <button
+                                className={`mac-button ${selectedCategory === 'all' ? 'selected' : ''}`}
+                                onClick={() => filterProductsByCategory('all')}
+                                style={{
+                                  fontSize: '12px',
+                                  padding: '2px 6px',
+                                  minWidth: 'auto',
+                                  backgroundColor: selectedCategory === 'all' ? 'var(--mac-selected-bg)' : 'var(--mac-button-bg)',
+                                  color: selectedCategory === 'all' ? 'var(--mac-selected-text)' : 'var(--mac-text)',
+                                  border: selectedCategory === 'all' ? '2px inset var(--mac-bg)' : '2px outset var(--mac-bg)'
+                                }}
+                              >
+                                All ({products.length})
+                              </button>
+                              {Object.entries(collections).map(([categoryName, categoryData]) => (
+                                <button
+                                  key={categoryName}
+                                  className={`mac-button ${selectedCategory === categoryName ? 'selected' : ''}`}
+                                  onClick={() => filterProductsByCategory(categoryName)}
+                                  style={{
+                                    fontSize: '12px',
+                                    padding: '2px 6px',
+                                    minWidth: 'auto',
+                                    backgroundColor: selectedCategory === categoryName ? 'var(--mac-selected-bg)' : 'var(--mac-button-bg)',
+                                    color: selectedCategory === categoryName ? 'var(--mac-selected-text)' : 'var(--mac-text)',
+                                    border: selectedCategory === categoryName ? '2px inset var(--mac-bg)' : '2px outset var(--mac-bg)'
+                                  }}
+                                >
+                                  {categoryName} ({categoryData.count})
+                                </button>
+                              ))}
+                            </div>
+                          )}
                           
                           <div className="mac-scrollbar" style={{ 
                             flex: 1, 
@@ -587,7 +671,7 @@ function MyBrandsPanel({ currentView }) {
                               const grouped = {};
                               const ungrouped = [];
                               
-                              products.forEach((product, index) => {
+                              filteredProducts.forEach((product, index) => {
                                 const collectionName = product.collection_name;
                                 if (collectionName) {
                                   if (!grouped[collectionName]) {
@@ -814,7 +898,7 @@ function MyBrandsPanel({ currentView }) {
                           {(() => {
                             // Show hovered product if hovering, otherwise show selected product
                             const displayIndex = hoveredProductIndex !== null ? hoveredProductIndex : selectedProductIndex;
-                            const currentProduct = products[displayIndex];
+                            const currentProduct = filteredProducts[displayIndex];
                             if (!currentProduct) return null;
                             
                             return (
@@ -860,7 +944,7 @@ function MyBrandsPanel({ currentView }) {
                                   
                                   
                                   <div style={{ fontSize: '11px', color: '#999' }}>
-                                    Product {(hoveredProductIndex !== null ? hoveredProductIndex : selectedProductIndex) + 1} of {products.length}
+                                    Product {(hoveredProductIndex !== null ? hoveredProductIndex : selectedProductIndex) + 1} of {filteredProducts.length}
                                   </div>
                                 </div>
 
@@ -925,17 +1009,17 @@ function MyBrandsPanel({ currentView }) {
                                     fontSize: '12px',
                                     color: '#666'
                                   }}>
-                                    {(hoveredProductIndex !== null ? hoveredProductIndex : selectedProductIndex) + 1} of {products.length} products
+                                    {(hoveredProductIndex !== null ? hoveredProductIndex : selectedProductIndex) + 1} of {filteredProducts.length} products
                                   </div>
                                   
                                   <button 
                                     className="mac-button" 
                                     onClick={() => {
-                                      const newIndex = Math.min(products.length - 1, selectedProductIndex + 1);
+                                      const newIndex = Math.min(filteredProducts.length - 1, selectedProductIndex + 1);
                                       setSelectedProductIndex(newIndex);
                                       scrollToProduct(newIndex);
                                     }}
-                                    disabled={selectedProductIndex === products.length - 1}
+                                    disabled={selectedProductIndex === filteredProducts.length - 1}
                                     style={{ minWidth: '80px' }}
                                   >
                                     Next ▶
@@ -971,7 +1055,7 @@ function MyBrandsPanel({ currentView }) {
                     )}
 
                     {/* Initial State */}
-                    {!scrapingLoading && !scrapingResult && products.length === 0 && (
+                    {!scrapingLoading && !scrapingResult && filteredProducts.length === 0 && (
                       <div style={{ 
                         flex: 1,
                         display: 'flex',

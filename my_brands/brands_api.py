@@ -16,12 +16,12 @@ import traceback
 from typing import Dict, Any, List
 import sys
 import os
+import hashlib
 
 # Add parent directory to path for config import
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import config
 
-from .brands_db import brands_db
 from .llm_client import create_my_brands_llm
 # Direct import of working scraper_premium functions
 try:
@@ -52,6 +52,10 @@ class BrandsAPI:
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         })
+    
+    def _generate_brand_id(self, slug: str) -> int:
+        """Generate consistent brand ID from slug using stable hash"""
+        return int(hashlib.md5(slug.encode()).hexdigest()[:8], 16) % 10000
     
     def add_brand(self) -> Dict[str, Any]:
         """
@@ -112,7 +116,7 @@ class BrandsAPI:
             brand_slug = self.collection_manager.create_brand(brand_name, url)
             
             # Generate consistent ID for API compatibility
-            brand_id = hash(brand_slug) % 10000
+            brand_id = self._generate_brand_id(brand_slug)
             
             return jsonify({
                 'success': True,
@@ -148,17 +152,21 @@ class BrandsAPI:
             # Convert to expected format for UI compatibility
             brands = []
             for brand_data in brands_data:
+                # Use last_scraped or provide default date
+                date_added = brand_data.get('last_scraped') or '2025-01-01T00:00:00Z'
+                last_scraped = brand_data.get('last_scraped') or '2025-01-01T00:00:00Z'
+                
                 brand = {
-                    'id': hash(brand_data['slug']) % 10000,  # Generate consistent ID from slug
+                    'id': self._generate_brand_id(brand_data['slug']),  # Generate consistent ID from slug
                     'slug': brand_data['slug'],
                     'name': brand_data['name'],
                     'url': brand_data['url'],
                     'validation_status': 'approved',  # All brands in collection are approved
                     'scraping_strategy': 'premium_scraper',
-                    'date_added': brand_data.get('last_scraped', '2025-01-01T00:00:00Z'),
+                    'date_added': date_added,
                     'product_count': brand_data.get('products_count', 0),
                     'collections_count': brand_data.get('collections_count', 0),
-                    'last_scraped': brand_data.get('last_scraped'),
+                    'last_scraped': last_scraped,
                     'status': brand_data.get('status', 'active')
                 }
                 brands.append(brand)
@@ -170,16 +178,7 @@ class BrandsAPI:
             
         except Exception as e:
             print(f"Error getting brands from collection manager: {e}")
-            # Fallback to database if collection manager fails
-            try:
-                brands = brands_db.get_all_brands()
-                for brand in brands:
-                    products = brands_db.get_brand_products(brand['id'])
-                    brand['product_count'] = len(products)
-                return jsonify({'brands': brands})
-            except Exception as db_error:
-                print(f"Database fallback also failed: {db_error}")
-                return jsonify({'error': str(e)}), 500
+            return jsonify({'error': str(e)}), 500
     
     def get_brand_details(self, brand_id: int) -> Dict[str, Any]:
         """
@@ -187,25 +186,45 @@ class BrandsAPI:
         Get detailed information about a specific brand
         """
         try:
-            brand = brands_db.get_brand_by_id(brand_id)
-            if not brand:
+            # Find brand by ID in collection manager
+            brands_data = self.collection_manager.list_brands()
+            target_brand = None
+            
+            for brand_data in brands_data:
+                if self._generate_brand_id(brand_data['slug']) == brand_id:
+                    target_brand = brand_data
+                    break
+            
+            if not target_brand:
                 return jsonify({'error': 'Brand not found'}), 404
             
-            # Get products for this brand
-            products = brands_db.get_brand_products(brand_id)
+            # Get products from collection manager
+            brand_products = self.collection_manager.get_brand_products(target_brand['slug'])
             
-            # Parse scraping config
-            scraping_config = {}
-            if brand.get('scraping_config'):
-                try:
-                    scraping_config = json.loads(brand['scraping_config'])
-                except:
-                    pass
+            # Flatten products from all collections
+            products = []
+            for collection_name, collection_products in brand_products.items():
+                for product in collection_products:
+                    formatted_product = {
+                        'id': int(hashlib.md5(f"{product.get('url', '')}{product.get('name', '')}".encode()).hexdigest()[:8], 16) % 10000,
+                        'name': product.get('name', 'Unknown Product'),
+                        'url': product.get('url', ''),
+                        'image_url': product.get('image_url', ''),
+                        'price': product.get('price'),
+                        'collection': collection_name
+                    }
+                    products.append(formatted_product)
             
             return jsonify({
-                'brand': brand,
+                'brand': {
+                    'id': brand_id,
+                    'name': target_brand['name'],
+                    'url': target_brand['url'],
+                    'slug': target_brand['slug'],
+                    'status': target_brand.get('status', 'active')
+                },
                 'products': products,
-                'scraping_config': scraping_config,
+                'scraping_config': {},  # No longer used
                 'product_count': len(products)
             })
             
@@ -219,34 +238,31 @@ class BrandsAPI:
         Discover collections for a brand without scraping products
         """
         try:
-            brand = brands_db.get_brand_by_id(brand_id)
-            if not brand:
+            # Find brand by ID in collection manager
+            brands_data = self.collection_manager.list_brands()
+            target_brand = None
+            
+            for brand_data in brands_data:
+                if self._generate_brand_id(brand_data['slug']) == brand_id:
+                    target_brand = brand_data
+                    break
+            
+            if not target_brand:
                 return jsonify({'error': 'Brand not found'}), 404
             
-            # Get scraping strategy
-            strategy = get_scraping_strategy(brand.get('scraping_strategy', 'homepage-all-products'))
+            # Get scraping strategy - using default for collection discovery
+            # Note: This functionality may need updating for new storage system
             
-            # Parse scraping config
-            scraping_config = {}
-            if brand.get('scraping_config'):
-                try:
-                    scraping_config = json.loads(brand['scraping_config'])
-                except:
-                    pass
-            
-            # Perform navigation discovery
-            result = strategy.scrape(brand['url'], scraping_config)
-            
-            # Check if we got collections or products
+            # Simple collection discovery by returning existing collections
+            brand_products = self.collection_manager.get_brand_products(target_brand['slug'])
             collections = []
-            if result.success and result.products:
-                for item in result.products:
-                    if item.detection_method == "navigation_discovery":
-                        collections.append({
-                            'name': item.title.replace('Collection: ', ''),
-                            'url': item.product_url,
-                            'type': 'collection'
-                        })
+            
+            for collection_name in brand_products.keys():
+                collections.append({
+                    'name': collection_name,
+                    'url': '',  # URL not stored in new system
+                    'type': 'collection'
+                })
             
             if collections:
                 return {
@@ -256,12 +272,11 @@ class BrandsAPI:
                     'message': f'Found {len(collections)} collections'
                 }
             else:
-                # This is a direct product page, not a navigation page
                 return {
                     'success': True,
                     'type': 'products',
-                    'product_count': result.total_found if result.success else 0,
-                    'message': 'Direct product page - no collections found'
+                    'product_count': 0,
+                    'message': 'No collections found - use scrape to discover products'
                 }
                 
         except Exception as e:
@@ -288,7 +303,7 @@ class BrandsAPI:
                 target_brand = None
                 
                 for brand_data in brands_data:
-                    if hash(brand_data['slug']) % 10000 == brand_id:
+                    if self._generate_brand_id(brand_data['slug']) == brand_id:
                         target_brand = brand_data
                         break
                 
@@ -366,6 +381,23 @@ class BrandsAPI:
                 extraction_pattern = pattern_analysis["extraction_pattern"]
                 yield f"data: {json.dumps({'status': 'pattern_found', 'message': 'Product pattern detected'})}\n\n"
                 
+                # Step 2.5: Discover pagination pattern (NEW)
+                yield f"data: {json.dumps({'status': 'pagination', 'message': 'Analyzing pagination pattern...'})}\n\n"
+                
+                pagination_start = time.time()
+                print(f"🔍 [{time.strftime('%H:%M:%S')}] Starting pagination pattern analysis...")
+                pagination_pattern = brand.analyze_pagination_pattern()
+                print(f"⏱️ [{time.strftime('%H:%M:%S')}] Pagination analysis completed in {time.time() - pagination_start:.2f}s")
+                
+                if pagination_pattern:
+                    print(f"✅ [{time.strftime('%H:%M:%S')}] Pagination pattern discovered: {pagination_pattern.get('type', 'N/A')}")
+                    pagination_type = pagination_pattern.get('type', 'none')
+                    yield f"data: {json.dumps({'status': 'pagination_found', 'message': f'Pagination pattern: {pagination_type}', 'pagination_type': pagination_type})}\n\n"
+                else:
+                    print(f"📝 [{time.strftime('%H:%M:%S')}] No pagination pattern found - single page categories")
+                    pagination_pattern = {"type": "none"}
+                    yield f"data: {json.dumps({'status': 'pagination_found', 'message': 'Single page categories - no pagination', 'pagination_type': 'none'})}\n\n"
+                
                 # Step 3: Fresh start - create brand and collection directories
                 print(f"🗂️ [{time.strftime('%H:%M:%S')}] Creating fresh brand directory...")
                 brand_slug = self.collection_manager.create_brand_fresh(
@@ -388,7 +420,8 @@ class BrandsAPI:
                 total_products = 0
                 collections_scraped = 0
                 
-                yield f"data: {json.dumps({'status': 'parallel_scraping', 'message': f'Starting parallel scraping of {len(included_urls)} collections...'})}\n\n"
+                pagination_msg = f" with {pagination_pattern.get('type', 'no')} pagination" if pagination_pattern.get('type') != 'none' else ""
+                yield f"data: {json.dumps({'status': 'parallel_scraping', 'message': f'Starting parallel scraping of {len(included_urls)} collections{pagination_msg}...'})}\n\n"
                 
                 from concurrent.futures import ThreadPoolExecutor, as_completed
                 category_results = []
@@ -403,14 +436,15 @@ class BrandsAPI:
                         
                         print(f"🚀 [{time.strftime('%H:%M:%S')}] Submitting {collection_name} for parallel processing")
                         
-                        # Submit with collection-specific images directory
+                        # Submit with collection-specific images directory and pagination pattern
                         future = executor.submit(
                             scrape_category_page,
                             collection_url,
                             [extraction_pattern], 
                             target_brand['name'],
-                            images_dir=collection_images_dirs[collection_url],
-                            download_images=True
+                            pagination_pattern,  # NEW: Pass pagination pattern
+                            collection_images_dirs[collection_url],
+                            True  # download_images=True
                         )
                         futures[future] = (collection_url, collection_name)
                     
@@ -422,9 +456,15 @@ class BrandsAPI:
                             result = future.result()
                             category_results.append(result)
                             
-                            print(f"📊 [{time.strftime('%H:%M:%S')}] Completed {collection_name}: {result.get('products_found', 0)} products")
                             products_count = result.get('products_found', 0)
-                            yield f"data: {json.dumps({'status': 'collection_completed', 'message': f'{collection_name}: {products_count} products found'})}\n\n"
+                            pages_processed = result.get('pages_processed', 1)
+                            pagination_detected = result.get('pagination_detected', False)
+                            
+                            pages_msg = f" from {pages_processed} pages" if pages_processed > 1 else ""
+                            pagination_status = " (paginated)" if pagination_detected else ""
+                            
+                            print(f"📊 [{time.strftime('%H:%M:%S')}] Completed {collection_name}: {products_count} products{pages_msg}{pagination_status}")
+                            yield f"data: {json.dumps({'status': 'collection_completed', 'message': f'{collection_name}: {products_count} products{pages_msg}', 'pages_processed': pages_processed, 'pagination_detected': pagination_detected})}\n\n"
                             
                             if result.get("success", False):
                                 products = result.get("products", [])
@@ -507,47 +547,25 @@ class BrandsAPI:
             target_brand = None
             
             for brand_data in brands_data:
-                if hash(brand_data['slug']) % 10000 == brand_id:
+                if self._generate_brand_id(brand_data['slug']) == brand_id:
                     target_brand = brand_data
                     break
             
             if not target_brand:
-                # Fallback to database
-                brand = brands_db.get_brand_by_id(brand_id)
-                if not brand:
-                    return jsonify({'error': 'Brand not found'}), 404
-                
-                products = brands_db.get_brand_products(brand_id)
-                
-                # Parse JSON fields for database products
-                for product in products:
-                    if product.get('images'):
-                        try:
-                            product['images'] = json.loads(product['images'])
-                        except:
-                            product['images'] = []
-                    
-                    if product.get('metadata'):
-                        try:
-                            product['metadata'] = json.loads(product['metadata'])
-                        except:
-                            product['metadata'] = {}
-                
-                return jsonify({
-                    'brand': brand,
-                    'products': products,
-                    'count': len(products)
-                })
+                return jsonify({'error': 'Brand not found'}), 404
             
             # Get products from collection manager
             brand_products = self.collection_manager.get_brand_products(target_brand['slug'])
             
-            # Convert to expected format for UI
-            products = []
+            # Convert to grouped format for UI with category navigation
+            collections_data = {}
+            all_products = []
+            
             for collection_name, collection_products in brand_products.items():
+                formatted_products = []
                 for product in collection_products:
                     formatted_product = {
-                        'id': hash(f"{product.get('url', '')}{product.get('name', '')}") % 10000,
+                        'id': int(hashlib.md5(f"{product.get('url', '')}{product.get('name', '')}".encode()).hexdigest()[:8], 16) % 10000,
                         'name': product.get('name', 'Unknown Product'),
                         'url': product.get('url', ''),
                         'image_url': product.get('image_url', ''),
@@ -559,7 +577,14 @@ class BrandsAPI:
                             'discovered_at': product.get('discovered_at')
                         }
                     }
-                    products.append(formatted_product)
+                    formatted_products.append(formatted_product)
+                    all_products.append(formatted_product)
+                
+                collections_data[collection_name] = {
+                    'name': collection_name,
+                    'products': formatted_products,
+                    'count': len(formatted_products)
+                }
             
             # Format brand info to match expected structure
             brand_info = {
@@ -572,8 +597,9 @@ class BrandsAPI:
             
             return jsonify({
                 'brand': brand_info,
-                'products': products,
-                'count': len(products)
+                'products': all_products,  # All products for backward compatibility
+                'collections': collections_data,  # Grouped by collection for new UI
+                'count': len(all_products)
             })
             
         except Exception as e:
@@ -583,18 +609,12 @@ class BrandsAPI:
     def add_product_favorite(self, product_id: int) -> Dict[str, Any]:
         """
         POST /api/products/{id}/favorite
-        Add a product to favorites
+        Add a product to favorites - Not implemented with new storage system
         """
         try:
-            data = request.get_json()
-            notes = data.get('notes', '')
-            
-            favorite_id = brands_db.add_favorite_product(product_id, notes)
-            
             return jsonify({
-                'success': True,
-                'message': 'Added to favorites',
-                'favorite_id': favorite_id
+                'success': False,
+                'message': 'Favorites not yet implemented with new storage system'
             })
             
         except Exception as e:
@@ -604,20 +624,10 @@ class BrandsAPI:
     def get_brand_favorites(self) -> Dict[str, Any]:
         """
         GET /api/brand-favorites
-        Get all favorite products from brands
+        Get all favorite products from brands - Not implemented with new storage system
         """
         try:
-            favorites = brands_db.get_favorite_products()
-            
-            # Parse JSON fields
-            for favorite in favorites:
-                if favorite.get('images'):
-                    try:
-                        favorite['images'] = json.loads(favorite['images'])
-                    except:
-                        favorite['images'] = []
-            
-            return jsonify({'favorites': favorites})
+            return jsonify({'favorites': []})
             
         except Exception as e:
             print(f"Error getting favorites: {e}")
@@ -629,7 +639,27 @@ class BrandsAPI:
         Get statistics about brands collection
         """
         try:
-            stats = brands_db.get_stats()
+            brands_data = self.collection_manager.list_brands()
+            
+            total_brands = len(brands_data)
+            total_products = sum(brand.get('products_count', 0) for brand in brands_data)
+            total_collections = sum(brand.get('collections_count', 0) for brand in brands_data)
+            
+            # Get status breakdown
+            active_brands = len([b for b in brands_data if b.get('status', 'active') == 'active'])
+            
+            # Get last updated date safely
+            last_scraped_dates = [b.get('last_scraped') for b in brands_data if b.get('last_scraped')]
+            last_updated = max(last_scraped_dates) if last_scraped_dates else '2025-01-01T00:00:00Z'
+            
+            stats = {
+                'total_brands': total_brands,
+                'active_brands': active_brands,
+                'total_products': total_products,
+                'total_collections': total_collections,
+                'last_updated': last_updated
+            }
+            
             return jsonify({'stats': stats})
             
         except Exception as e:
@@ -894,14 +924,9 @@ class BrandsAPI:
         print("🗑️  Cleared and recreated downloads folder")
     
     def _clear_brand_products(self, brand_id: int):
-        """Clear existing products for a brand to avoid accumulation"""
-        try:
-            existing_products = brands_db.get_brand_products(brand_id)
-            if existing_products:
-                print(f"🗑️  Clearing {len(existing_products)} existing products for brand")
-                brands_db._clear_brand_products(brand_id)
-        except Exception as e:
-            print(f"Warning: Could not clear existing products: {e}")
+        """Clear existing products for a brand - handled by collection manager"""
+        # Products are handled by collection manager now
+        print("🗑️  Product clearing handled by collection manager")
     
     def _download_product_images(self, products, cache_path=None) -> List[str]:
         """Download product images to brand cache folder using parallel processing"""

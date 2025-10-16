@@ -66,6 +66,7 @@ test_*.py
 collections/
 scraped_data/
 brand_collections/
+favourites/
 
 # Planning and development documentation (except README.md)
 *_TODO.md
