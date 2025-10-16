@@ -13,17 +13,19 @@ from ..models.brand import Brand
 from ..services.brand_service import BrandService
 from ..services.product_service import ProductService
 
-# Import scraper premium functions
+# Import scraper premium functions (proper location, not test files)
 try:
     import sys
     import os
     sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
     from scraper_premium.brand import Brand as ScraperBrand
     from scraper_premium.page_extractor import scrape_category_page
+    SCRAPER_PREMIUM_AVAILABLE = True
 except ImportError as e:
     print(f"Warning: Could not import scraper_premium functions: {e}")
     ScraperBrand = None
     scrape_category_page = None
+    SCRAPER_PREMIUM_AVAILABLE = False
 
 
 class ScrapingService:
@@ -37,9 +39,9 @@ class ScrapingService:
         """
         Stream brand products scraping with real-time progress
         
-        This is the main scraping orchestration method that was previously in brands_api.py
+        Uses proper scraper_premium API (not test files)
         """
-        if ScraperBrand is None or scrape_category_page is None:
+        if not SCRAPER_PREMIUM_AVAILABLE:
             yield f"data: {json.dumps({'status': 'error', 'message': 'Scraper premium not available'})}\n\n"
             return {'success': False, 'message': 'Scraper premium not available'}
         
