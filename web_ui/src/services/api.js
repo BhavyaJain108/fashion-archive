@@ -498,6 +498,41 @@ class FashionArchiveAPI {
       return { success: false, error: error.message };
     }
   }
+
+  // New hierarchical collection methods
+  static async getBrandCollections(brandId) {
+    try {
+      const response = await fetch(`${this.BASE_URL}/api/brands/${brandId}/collections`, {
+        method: 'GET'
+      });
+      
+      if (!response.ok) {
+        throw new Error(`API call failed: ${response.statusText}`);
+      }
+      
+      return await response.json();
+    } catch (error) {
+      console.error('Get brand collections API Error:', error);
+      return { collections: [], error: error.message };
+    }
+  }
+
+  static async getCollectionProducts(brandId, collectionSlug) {
+    try {
+      const response = await fetch(`${this.BASE_URL}/api/brands/${brandId}/collections/${collectionSlug}/products`, {
+        method: 'GET'
+      });
+      
+      if (!response.ok) {
+        throw new Error(`API call failed: ${response.statusText}`);
+      }
+      
+      return await response.json();
+    } catch (error) {
+      console.error('Get collection products API Error:', error);
+      return { products: [], error: error.message };
+    }
+  }
 }
 
 export { FashionArchiveAPI };
