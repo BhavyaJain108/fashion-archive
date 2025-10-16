@@ -535,10 +535,130 @@ class BrandsAPI:
             'message': 'Please use the streaming endpoint /scrape-stream for better progress tracking'
         })
     
+    def get_brand_categories(self, brand_id: int) -> Dict[str, Any]:
+        """
+        GET /api/brands/{id}/categories
+        Get categories/collections for a brand (without products for clean UX)
+        """
+        try:
+            # Find brand by ID in collection manager
+            brands_data = self.collection_manager.list_brands()
+            target_brand = None
+            
+            for brand_data in brands_data:
+                if self._generate_brand_id(brand_data['slug']) == brand_id:
+                    target_brand = brand_data
+                    break
+            
+            if not target_brand:
+                return jsonify({'error': 'Brand not found'}), 404
+            
+            # Get brand info to check if scraped
+            brand_info = self.collection_manager.get_brand_info(target_brand['slug'])
+            if not brand_info:
+                return jsonify({'error': 'Brand info not found'}), 404
+            
+            # Get collections without loading products
+            collections_data = {}
+            total_products = 0
+            
+            for collection in brand_info.get('collections', []):
+                collections_data[collection['name']] = {
+                    'name': collection['name'],
+                    'slug': collection['slug'], 
+                    'url': collection['url'],
+                    'count': collection['products_count'],
+                    'last_updated': collection['last_updated']
+                }
+                total_products += collection['products_count']
+            
+            return jsonify({
+                'brand': {
+                    'id': brand_id,
+                    'name': target_brand['name'],
+                    'url': target_brand['url'],
+                    'slug': target_brand['slug'],
+                    'status': target_brand.get('status', 'active'),
+                    'last_scraped': brand_info.get('stats', {}).get('last_scraped')
+                },
+                'categories': collections_data,
+                'total_categories': len(collections_data),
+                'total_products': total_products,
+                'is_scraped': len(collections_data) > 0
+            })
+            
+        except Exception as e:
+            print(f"Error getting brand categories: {e}")
+            return jsonify({'error': str(e)}), 500
+    
+    def get_category_products(self, brand_id: int, category_name: str) -> Dict[str, Any]:
+        """
+        GET /api/brands/{id}/categories/{category_name}/products  
+        Get products for a specific category within a brand
+        """
+        try:
+            # Find brand by ID
+            brands_data = self.collection_manager.list_brands()
+            target_brand = None
+            
+            for brand_data in brands_data:
+                if self._generate_brand_id(brand_data['slug']) == brand_id:
+                    target_brand = brand_data
+                    break
+            
+            if not target_brand:
+                return jsonify({'error': 'Brand not found'}), 404
+            
+            # Get products from collection manager for this specific category
+            brand_products = self.collection_manager.get_brand_products(target_brand['slug'])
+            
+            if category_name not in brand_products:
+                return jsonify({'error': f'Category "{category_name}" not found'}), 404
+            
+            # Format products for this category only
+            category_products = brand_products[category_name]
+            formatted_products = []
+            
+            for product in category_products:
+                formatted_product = {
+                    'id': int(hashlib.md5(f"{product.get('url', '')}{product.get('name', '')}".encode()).hexdigest()[:8], 16) % 10000,
+                    'name': product.get('name', 'Unknown Product'),
+                    'url': product.get('url', ''),
+                    'image_url': product.get('image_url', ''),
+                    'price': product.get('price'),
+                    'collection': category_name,
+                    'images': [product.get('image_url', '')] if product.get('image_url') else [],
+                    'metadata': {
+                        'collection_name': category_name,
+                        'discovered_at': product.get('discovered_at'),
+                        'brand': target_brand['name']
+                    }
+                }
+                formatted_products.append(formatted_product)
+            
+            return jsonify({
+                'brand': {
+                    'id': brand_id,
+                    'name': target_brand['name'],
+                    'url': target_brand['url'],
+                    'slug': target_brand['slug']
+                },
+                'category': {
+                    'name': category_name,
+                    'count': len(formatted_products)
+                },
+                'products': formatted_products,
+                'count': len(formatted_products)
+            })
+            
+        except Exception as e:
+            print(f"Error getting category products: {e}")
+            return jsonify({'error': str(e)}), 500
+
     def get_brand_products(self, brand_id: int) -> Dict[str, Any]:
         """
         GET /api/brands/{id}/products
-        Get products for a specific brand from collection storage
+        Get products for a specific brand from collection storage (LEGACY - use categories endpoints)
         """
         try:
             # First try to find brand by ID in collection manager
@@ -1150,6 +1270,12 @@ def register_brands_endpoints(app, brands_api=None):
     app.add_url_rule('/api/brands/<int:brand_id>/discover', methods=['POST'], view_func=brands_api.discover_brand_collections, endpoint='discover_brand_collections')
     app.add_url_rule('/api/brands/<int:brand_id>/scrape', methods=['POST'], view_func=brands_api.scrape_brand_products, endpoint='scrape_brand')
     app.add_url_rule('/api/brands/<int:brand_id>/scrape-stream', methods=['POST'], view_func=brands_api.scrape_brand_products_stream, endpoint='scrape_brand_stream')
+    
+    # NEW: Clean category-first endpoints for better UX
+    app.add_url_rule('/api/brands/<int:brand_id>/categories', methods=['GET'], view_func=brands_api.get_brand_categories, endpoint='get_brand_categories')
+    app.add_url_rule('/api/brands/<int:brand_id>/categories/<string:category_name>/products', methods=['GET'], view_func=brands_api.get_category_products, endpoint='get_category_products')
+    
+    # LEGACY: Keep for backward compatibility
     app.add_url_rule('/api/brands/<int:brand_id>/products', methods=['GET'], view_func=brands_api.get_brand_products, endpoint='get_brand_products')
     
     # Product favorites

@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { FashionArchiveAPI } from '../services/api';
 import MacModal from './MacModal';
 
-function MyBrandsPanel({ currentView }) {
+function MyBrandsPanel() {
   const [brands, setBrands] = useState([]);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({});
@@ -13,37 +13,19 @@ function MyBrandsPanel({ currentView }) {
   const [validationLoading, setValidationLoading] = useState(false);
   const [resolverLoading, setResolverLoading] = useState(false);
   const [scrapingLoading, setScrapingLoading] = useState(false);
-  const [products, setProducts] = useState([]);
   const [scrapingResult, setScrapingResult] = useState(null);
   const [selectedProductIndex, setSelectedProductIndex] = useState(0);
   const [hoveredProductIndex, setHoveredProductIndex] = useState(null); // Track hovered product for preview
   const [resultModal, setResultModal] = useState(null); // { type: 'success'|'error', title: '', message: '' }
   const [imageColors, setImageColors] = useState({}); // Store extracted colors for each image
-  const [collections, setCollections] = useState({}); // Store collections data from API
-  const [selectedCategory, setSelectedCategory] = useState('all'); // Track selected category filter
-  const [filteredProducts, setFilteredProducts] = useState([]); // Store filtered products
-
-  // Filter products by category
-  const filterProductsByCategory = (category) => {
-    setSelectedCategory(category);
-    if (category === 'all') {
-      setFilteredProducts(products);
-    } else {
-      const filtered = products.filter(product => product.collection === category);
-      setFilteredProducts(filtered);
-    }
-    setSelectedProductIndex(0);
-  };
-
-  // Update filtered products when products or selectedCategory changes
-  useEffect(() => {
-    if (selectedCategory === 'all') {
-      setFilteredProducts(products);
-    } else {
-      const filtered = products.filter(product => product.collection === selectedCategory);
-      setFilteredProducts(filtered);
-    }
-  }, [products, selectedCategory]);
+  
+  // NEW: Clean UX state management
+  const [viewMode, setViewMode] = useState('brand'); // 'brand' | 'categories' | 'products'
+  const [categories, setCategories] = useState({}); // Store categories without products
+  const [selectedCategory, setSelectedCategory] = useState(null); // Currently selected category
+  const [categoryProducts, setCategoryProducts] = useState([]); // Products for selected category
+  
+  // Legacy functions removed - new clean UX doesn't need these
 
   // Extract dominant color from image
   const extractImageColor = (imageUrl, productId) => {
@@ -113,14 +95,14 @@ function MyBrandsPanel({ currentView }) {
   // Keyboard navigation for products
   useEffect(() => {
     const handleKeyDown = (event) => {
-      // Only handle arrow keys when we have products
-      if (filteredProducts.length === 0) return;
+      // Only handle arrow keys when we have products and we're in products view
+      if (viewMode !== 'products' || categoryProducts.length === 0) return;
 
       switch (event.key) {
         case 'ArrowLeft':
           event.preventDefault();
           setSelectedProductIndex(prev => {
-            const newIndex = prev > 0 ? prev - 1 : filteredProducts.length - 1;
+            const newIndex = prev > 0 ? prev - 1 : categoryProducts.length - 1;
             // Scroll to show the new selection
             scrollToProduct(newIndex);
             return newIndex;
@@ -129,7 +111,7 @@ function MyBrandsPanel({ currentView }) {
         case 'ArrowRight':
           event.preventDefault();
           setSelectedProductIndex(prev => {
-            const newIndex = prev < filteredProducts.length - 1 ? prev + 1 : 0;
+            const newIndex = prev < categoryProducts.length - 1 ? prev + 1 : 0;
             // Scroll to show the new selection
             scrollToProduct(newIndex);
             return newIndex;
@@ -147,7 +129,7 @@ function MyBrandsPanel({ currentView }) {
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [filteredProducts.length]);
+  }, [viewMode, categoryProducts.length]);
 
   // Function to scroll gallery to show specific product
   const scrollToProduct = (productIndex) => {
@@ -265,31 +247,68 @@ function MyBrandsPanel({ currentView }) {
 
   const handleBrandSelect = async (brand) => {
     setSelectedBrand(brand);
-    // Clear previous results
-    setProducts([]);
-    setScrapingResult(null);
     
-    // Load existing products for this brand
+    // Clear previous results
+    setScrapingResult(null);
+    setCategoryProducts([]);
+    setSelectedCategory(null);
+    
+    // NEW: Load categories first (clean UX flow)
     try {
-      const productsData = await FashionArchiveAPI.getBrandProducts(brand.id);
-      if (productsData) {
-        // Handle new collections structure
-        if (productsData.collections) {
-          setCollections(productsData.collections);
-          setProducts(productsData.products || []);
-          setFilteredProducts(productsData.products || []);
-          setSelectedCategory('all');
+      const categoriesData = await FashionArchiveAPI.getBrandCategories(brand.id);
+      
+      if (categoriesData && !categoriesData.error) {
+        if (categoriesData.is_scraped) {
+          // Brand has been scraped - show categories
+          setCategories(categoriesData.categories);
+          setViewMode('categories');
+          console.log(`📦 Loaded ${categoriesData.total_categories} categories for ${brand.name}`);
         } else {
-          setProducts(productsData.products || []);
-          setFilteredProducts(productsData.products || []);
+          // Brand not scraped yet - show brand info
+          setCategories({});
+          setViewMode('brand');
+          console.log(`🏷️ Brand ${brand.name} not scraped yet`);
         }
-        setSelectedProductIndex(0);
-        console.log(`📦 Loaded ${productsData.products?.length || 0} existing products for ${brand.name}`);
+      } else {
+        console.error('Error loading categories:', categoriesData.error);
+        setViewMode('brand');
       }
     } catch (error) {
-      console.error('Error loading brand products:', error);
+      console.error('Error loading brand categories:', error);
+      setViewMode('brand');
     }
   };
+
+  const handleCategorySelect = async (categoryName) => {
+    if (!selectedBrand) return;
+    
+    setSelectedCategory(categoryName);
+    setCategoryProducts([]);
+    setSelectedProductIndex(0);
+    
+    try {
+      const productsData = await FashionArchiveAPI.getCategoryProducts(selectedBrand.id, categoryName);
+      
+      if (productsData && !productsData.error) {
+        setCategoryProducts(productsData.products || []);
+        setViewMode('products');
+        console.log(`📦 Loaded ${productsData.products?.length || 0} products for ${categoryName}`);
+        
+        // Extract colors for images
+        productsData.products?.forEach(product => {
+          if (product.image_url) {
+            extractImageColor(product.image_url, product.id);
+          }
+        });
+      } else {
+        console.error('Error loading category products:', productsData.error);
+      }
+    } catch (error) {
+      console.error('Error loading category products:', error);
+    }
+  };
+
+  // Removed handleBackToCategories - no longer needed in new always-visible UX
 
   const handleScrapeProducts = async () => {
     if (!selectedBrand) return;
@@ -365,20 +384,15 @@ function MyBrandsPanel({ currentView }) {
           collections: result.collections
         });
         
-        // Load the products from database to display them
-        const productsData = await FashionArchiveAPI.getBrandProducts(selectedBrand.id);
-        if (productsData) {
-          if (productsData.collections) {
-            setCollections(productsData.collections);
-            setProducts(productsData.products || []);
-            setFilteredProducts(productsData.products || []);
-            setSelectedCategory('all');
-          } else {
-            setProducts(productsData.products || []);
-            setFilteredProducts(productsData.products || []);
-          }
+        // NEW: After successful scraping, load categories for clean UX
+        const categoriesData = await FashionArchiveAPI.getBrandCategories(selectedBrand.id);
+        if (categoriesData && !categoriesData.error && categoriesData.is_scraped) {
+          setCategories(categoriesData.categories);
+          setViewMode('categories'); // Show categories with "select category" message
+          setSelectedCategory(null); // Clear any previous selection
+          setCategoryProducts([]); // Clear any previous products
+          console.log(`🔄 Refreshed categories after scraping - ${categoriesData.total_categories} categories`);
         }
-        setSelectedProductIndex(0);
         
       } else {
         setScrapingResult({
@@ -397,56 +411,7 @@ function MyBrandsPanel({ currentView }) {
     }
   };
 
-  const handleScrapeCollection = async (collectionUrl, collectionName) => {
-    if (!selectedBrand) return;
-    
-    setScrapingLoading(true);
-    console.log('🎯 Scraping collection:', collectionName, '→', collectionUrl);
-    
-    try {
-      const result = await FashionArchiveAPI.scrapeBrandProducts(selectedBrand.id, collectionUrl);
-      
-      if (result.success) {
-        setScrapingResult({
-          success: true,
-          type: 'products',
-          message: `${collectionName}: ${result.message}`,
-          productsCount: result.products?.length || 0,
-          strategy: result.strategy_used,
-          collectionName: collectionName
-        });
-        
-        // Load the products to display
-        const productsData = await FashionArchiveAPI.getBrandProducts(selectedBrand.id);
-        if (productsData) {
-          if (productsData.collections) {
-            setCollections(productsData.collections);
-            setProducts(productsData.products || []);
-            setFilteredProducts(productsData.products || []);
-            setSelectedCategory('all');
-          } else {
-            setProducts(productsData.products || []);
-            setFilteredProducts(productsData.products || []);
-          }
-        }
-        setSelectedProductIndex(0); // Reset to first product
-        
-      } else {
-        setScrapingResult({
-          success: false,
-          message: `${collectionName}: ${result.message || 'Scraping failed'}`
-        });
-      }
-    } catch (error) {
-      console.error('Error scraping collection:', error);
-      setScrapingResult({
-        success: false,
-        message: `Error scraping ${collectionName}. Please try again.`
-      });
-    } finally {
-      setScrapingLoading(false);
-    }
-  };
+  // Removed handleScrapeCollection - no longer used in new category-first UX
 
   if (loading) {
     return (
@@ -477,7 +442,7 @@ function MyBrandsPanel({ currentView }) {
       </div>
 
       {/* Main Content */}
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden', paddingTop: '8px' }}>
+      <div style={{ display: 'flex', flex: 1, minHeight: 0, paddingTop: '8px' }}>
         
         {/* Left: Brands List - Similar to SeasonsPanel */}
         <div className="column" style={{ width: '300px' }}>
@@ -498,7 +463,7 @@ function MyBrandsPanel({ currentView }) {
                   </div>
                 </div>
               ) : (
-                brands.map((brand, index) => (
+                brands.map((brand) => (
                   <div
                     key={brand.id}
                     className={`mac-listbox-item ${selectedBrand?.id === brand.id ? 'selected' : ''}`}
@@ -532,550 +497,409 @@ function MyBrandsPanel({ currentView }) {
           </div>
         </div>
 
-        {/* Right: Scraping Results and Products */}
+        {/* Right: Clean UX Flow */}
         <div className="column" style={{ flex: 1 }}>
           <div className="mac-panel" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
             {selectedBrand ? (
               <>
-                {/* Collection Selection State - Full Width */}
-                {!scrapingLoading && scrapingResult?.type === 'collections' ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                    {/* Brand Info Header */}
-                    <div style={{ padding: '20px', paddingBottom: '10px' }}>
-                      <h3 style={{ margin: '0 0 8px 0' }}>{selectedBrand.name}</h3>
+                {/* Brand Header */}
+                <div style={{ padding: '20px 20px 16px 20px', borderBottom: '1px solid #e0e0e0' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <h3 style={{ margin: '0', fontSize: '18px' }}>{selectedBrand.name}</h3>
+                  </div>
+                </div>
+
+                {/* Scraping Status */}
+                {scrapingLoading && (
+                  <div style={{ 
+                    margin: '20px',
+                    padding: '16px', 
+                    backgroundColor: '#f0f8ff', 
+                    border: '1px solid #d0e8ff',
+                    borderRadius: '4px'
+                  }}>
+                    <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '4px' }}>
+                      🔄 {scrapingResult?.message || 'Scraping Products...'}
                     </div>
-                    
-                    {/* Collections List */}
-                    <div className="mac-listbox mac-scrollbar" style={{ flex: 1, margin: '0 20px 20px 20px' }}>
-                      {scrapingResult.collections.map((collection, index) => (
-                        <div
-                          key={index}
-                          className="mac-listbox-item"
-                          onClick={() => handleScrapeCollection(collection.url, collection.name)}
-                          style={{ cursor: 'pointer' }}
-                        >
-                          📁 {collection.name}
-                        </div>
-                      ))}
+                    <div style={{ fontSize: '12px', color: '#666' }}>
+                      {scrapingResult?.stage === 'downloading' ? 'Downloading product images...' : 
+                       scrapingResult?.stage === 'analysis' ? 'AI analyzing website structure...' :
+                       scrapingResult?.stage === 'discovery' ? 'Discovering product collections...' :
+                       'Setting up parallel scraping system...'}
                     </div>
                   </div>
-                ) : (
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                    
-                    {/* Brand Info Header */}
-                    <div style={{ padding: '20px 20px 0 20px', marginBottom: '20px' }}>
-                      <h3 style={{ margin: '0 0 8px 0' }}>{selectedBrand.name}</h3>
-                    </div>
+                )}
 
-                    {/* Scraping Status */}
-                    {scrapingLoading && (
-                      <div style={{ 
-                        padding: '16px', 
-                        backgroundColor: '#f0f8ff', 
-                        border: '1px solid #d0e8ff',
-                        borderRadius: '4px',
-                        marginBottom: '16px'
-                      }}>
-                        <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '4px' }}>
-                          🔄 Scraping Products...
-                        </div>
-                        <div style={{ fontSize: '12px', color: '#666' }}>
-                          Analyzing website and downloading product images to downloads folder
-                        </div>
+                {/* MAIN CONTENT AREA */}
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                  
+                  {/* Brand View - Show scrape button */}
+                  {viewMode === 'brand' && (
+                    <div style={{ 
+                      flex: 1,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: '#666',
+                      padding: '40px'
+                    }}>
+                      <div style={{ fontSize: '48px', marginBottom: '20px' }}>🛍️</div>
+                      <div style={{ fontSize: '18px', marginBottom: '12px', textAlign: 'center' }}>
+                        Ready to discover {selectedBrand.name} products
                       </div>
-                    )}
+                      <div style={{ fontSize: '14px', textAlign: 'center', marginBottom: '24px', lineHeight: '1.4' }}>
+                        Click "Scrape Products" to analyze the website and<br />
+                        discover all product categories and collections
+                      </div>
+                    </div>
+                  )}
 
-                    {/* Products Gallery - Two Column Layout */}
-                    {filteredProducts.length > 0 && (
+                  {/* Categories + Products View - Always show category buttons when scraped */}
+                  {(viewMode === 'categories' || viewMode === 'products') && Object.keys(categories).length > 0 && (
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                      
+                      {/* Category Toggle Buttons - Mac Style */}
                       <div style={{ 
-                        flex: 1, 
                         display: 'flex', 
-                        gap: '16px',
-                        minHeight: 0,
-                        maxHeight: 'calc(100vh - 100px)',
-                        overflow: 'hidden'
+                        flexWrap: 'wrap', 
+                        gap: '4px',
+                        padding: '12px 20px',
+                        borderBottom: '1px solid #e0e0e0',
+                        backgroundColor: 'var(--mac-bg)'
                       }}>
-                        
-                        {/* Left: Product Gallery - Organized by Collections */}
-                        <div style={{ 
-                          width: '50%', 
-                          display: 'flex', 
-                          flexDirection: 'column',
-                          minHeight: 0,
-                          maxHeight: '100%'
-                        }}>
-                          <div style={{ 
-                            fontSize: '14px', 
-                            fontWeight: 'bold', 
-                            marginBottom: '12px',
-                            flexShrink: 0
-                          }}>
-                            📦 Products Gallery ({filteredProducts.length})
-                          </div>
-                          
-                          {/* Category Filter Buttons - Classic Mac Style */}
-                          {Object.keys(collections).length > 0 && (
-                            <div style={{ 
-                              display: 'flex', 
-                              flexWrap: 'wrap', 
-                              gap: '2px', 
-                              marginBottom: '12px',
-                              flexShrink: 0 
-                            }}>
-                              <button
-                                className={`mac-button ${selectedCategory === 'all' ? 'selected' : ''}`}
-                                onClick={() => filterProductsByCategory('all')}
-                                style={{
-                                  fontSize: '12px',
-                                  padding: '2px 6px',
-                                  minWidth: 'auto',
-                                  backgroundColor: selectedCategory === 'all' ? 'var(--mac-selected-bg)' : 'var(--mac-button-bg)',
-                                  color: selectedCategory === 'all' ? 'var(--mac-selected-text)' : 'var(--mac-text)',
-                                  border: selectedCategory === 'all' ? '2px inset var(--mac-bg)' : '2px outset var(--mac-bg)'
-                                }}
-                              >
-                                All ({products.length})
-                              </button>
-                              {Object.entries(collections).map(([categoryName, categoryData]) => (
-                                <button
-                                  key={categoryName}
-                                  className={`mac-button ${selectedCategory === categoryName ? 'selected' : ''}`}
-                                  onClick={() => filterProductsByCategory(categoryName)}
-                                  style={{
-                                    fontSize: '12px',
-                                    padding: '2px 6px',
-                                    minWidth: 'auto',
-                                    backgroundColor: selectedCategory === categoryName ? 'var(--mac-selected-bg)' : 'var(--mac-button-bg)',
-                                    color: selectedCategory === categoryName ? 'var(--mac-selected-text)' : 'var(--mac-text)',
-                                    border: selectedCategory === categoryName ? '2px inset var(--mac-bg)' : '2px outset var(--mac-bg)'
-                                  }}
-                                >
-                                  {categoryName} ({categoryData.count})
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                          
-                          <div className="mac-scrollbar" style={{ 
-                            flex: 1, 
-                            overflowY: 'auto',
-                            overflowX: 'hidden',
-                            border: '1px solid #e0e0e0',
-                            borderRadius: '4px',
-                            padding: '8px',
-                            minHeight: 0,
-                            maxHeight: '100%'
-                          }}>
-                            {(() => {
-                              // Group products by collection
-                              const grouped = {};
-                              const ungrouped = [];
-                              
-                              filteredProducts.forEach((product, index) => {
-                                const collectionName = product.collection_name;
-                                if (collectionName) {
-                                  if (!grouped[collectionName]) {
-                                    grouped[collectionName] = [];
-                                  }
-                                  grouped[collectionName].push({ ...product, originalIndex: index });
-                                } else {
-                                  ungrouped.push({ ...product, originalIndex: index });
-                                }
-                              });
-                              
-                              const collectionNames = Object.keys(grouped);
-                              const hasCollections = collectionNames.length > 0;
-                              
-                              return (
-                                <div style={{ width: '100%' }}>
-                                  {/* Show collections if they exist */}
-                                  {hasCollections && collectionNames.map(collectionName => (
-                                    <div key={collectionName} style={{ marginBottom: '24px' }}>
-                                      {/* Collection Header */}
-                                      <div style={{ 
-                                        fontSize: '12px', 
-                                        fontWeight: 'bold', 
-                                        color: '#666',
-                                        marginBottom: '8px',
-                                        padding: '4px 8px',
-                                        backgroundColor: '#f8f9fa',
-                                        border: '1px solid #e9ecef',
-                                        borderRadius: '4px'
-                                      }}>
-                                        📁 {collectionName} ({grouped[collectionName].length} products)
-                                      </div>
-                                      
-                                      {/* Collection Products Grid */}
-                                      <div style={{
-                                        display: 'grid',
-                                        gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
-                                        gap: '8px',
-                                        width: '100%',
-                                        marginBottom: '12px'
-                                      }}>
-                                        {grouped[collectionName].map((product) => (
-                                          <div
-                                            key={product.id}
-                                            data-product-index={product.originalIndex}
-                                            className={`gallery-item ${product.originalIndex === selectedProductIndex ? 'selected' : ''}`}
-                                            style={{
-                                              cursor: 'pointer',
-                                              border: product.originalIndex === selectedProductIndex ? '2px solid #007bff' : 'none',
-                                              borderRadius: '4px',
-                                              padding: '4px',
-                                              backgroundColor: imageColors[product.id]?.background || '#e0e0e0'
-                                            }}
-                                            onClick={() => setSelectedProductIndex(product.originalIndex)}
-                                            onMouseEnter={() => setHoveredProductIndex(product.originalIndex)}
-                                            onMouseLeave={() => setHoveredProductIndex(null)}
-                                          >
-                                            <div style={{ 
-                                              width: '100%', 
-                                              aspectRatio: '1',
-                                              overflow: 'hidden',
-                                              borderRadius: '2px',
-                                              marginBottom: '4px'
-                                            }}>
-                                              <img 
-                                                src={product.images && product.images[0] ? product.images[0] : product.image_url}
-                                                alt={product.name}
-                                                style={{ 
-                                                  width: '100%',
-                                                  height: '100%',
-                                                  objectFit: 'cover'
-                                                }}
-                                                onLoad={() => {
-                                                  const imageUrl = product.images && product.images[0] ? product.images[0] : product.image_url;
-                                                  extractImageColor(imageUrl, product.id);
-                                                }}
-                                                onError={(e) => {
-                                                  e.target.style.display = 'none';
-                                                  e.target.nextSibling.style.display = 'flex';
-                                                }}
-                                              />
-                                              <div style={{ 
-                                                width: '100%',
-                                                height: '100%',
-                                                backgroundColor: '#f0f0f0',
-                                                display: 'none',
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                fontSize: '10px',
-                                                color: '#999'
-                                              }}>
-                                                No Image
-                                              </div>
-                                            </div>
-                                            <div style={{ 
-                                              fontSize: '12px', 
-                                              textAlign: 'center',
-                                              lineHeight: '1.2',
-                                              height: '24px',
-                                              overflow: 'hidden',
-                                              display: '-webkit-box',
-                                              WebkitLineClamp: 2,
-                                              WebkitBoxOrient: 'vertical',
-                                              color: imageColors[product.id]?.text || '#000'
-                                            }}>
-                                              {product.name?.replace(`[${collectionName}] `, '') || 'Untitled'}
-                                            </div>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  ))}
-                                  
-                                  {/* Show ungrouped products if any */}
-                                  {ungrouped.length > 0 && (
-                                    <div style={{ marginBottom: '24px' }}>
-                                      {hasCollections && (
-                                        <div style={{ 
-                                          fontSize: '12px', 
-                                          fontWeight: 'bold', 
-                                          color: '#666',
-                                          marginBottom: '8px',
-                                          padding: '4px 8px',
-                                          backgroundColor: '#f8f9fa',
-                                          border: '1px solid #e9ecef',
-                                          borderRadius: '4px'
-                                        }}>
-                                          📦 Other Products ({ungrouped.length} products)
-                                        </div>
-                                      )}
-                                      
-                                      <div style={{
-                                        display: 'grid',
-                                        gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
-                                        gap: '8px',
-                                        width: '100%'
-                                      }}>
-                                        {ungrouped.map((product) => (
-                                          <div
-                                            key={product.id}
-                                            data-product-index={product.originalIndex}
-                                            className={`gallery-item ${product.originalIndex === selectedProductIndex ? 'selected' : ''}`}
-                                            style={{
-                                              cursor: 'pointer',
-                                              border: product.originalIndex === selectedProductIndex ? '2px solid #007bff' : 'none',
-                                              borderRadius: '4px',
-                                              padding: '4px',
-                                              backgroundColor: imageColors[product.id]?.background || '#e0e0e0'
-                                            }}
-                                            onClick={() => setSelectedProductIndex(product.originalIndex)}
-                                            onMouseEnter={() => setHoveredProductIndex(product.originalIndex)}
-                                            onMouseLeave={() => setHoveredProductIndex(null)}
-                                          >
-                                            <div style={{ 
-                                              width: '100%', 
-                                              aspectRatio: '1',
-                                              overflow: 'hidden',
-                                              borderRadius: '2px',
-                                              marginBottom: '4px'
-                                            }}>
-                                              <img 
-                                                src={product.images && product.images[0] ? product.images[0] : product.image_url}
-                                                alt={product.name}
-                                                style={{ 
-                                                  width: '100%',
-                                                  height: '100%',
-                                                  objectFit: 'cover'
-                                                }}
-                                                onLoad={() => {
-                                                  const imageUrl = product.images && product.images[0] ? product.images[0] : product.image_url;
-                                                  extractImageColor(imageUrl, product.id);
-                                                }}
-                                                onError={(e) => {
-                                                  e.target.style.display = 'none';
-                                                  e.target.nextSibling.style.display = 'flex';
-                                                }}
-                                              />
-                                              <div style={{ 
-                                                width: '100%',
-                                                height: '100%',
-                                                backgroundColor: '#f0f0f0',
-                                                display: 'none',
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                fontSize: '10px',
-                                                color: '#999'
-                                              }}>
-                                                No Image
-                                              </div>
-                                            </div>
-                                            <div style={{ 
-                                              fontSize: '12px', 
-                                              textAlign: 'center',
-                                              lineHeight: '1.2',
-                                              height: '24px',
-                                              overflow: 'hidden',
-                                              display: '-webkit-box',
-                                              WebkitLineClamp: 2,
-                                              WebkitBoxOrient: 'vertical',
-                                              color: imageColors[product.id]?.text || '#000'
-                                            }}>
-                                              {product.name}
-                                            </div>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })()}
-                          </div>
-                        </div>
+                          {Object.entries(categories).map(([categoryName, categoryData]) => (
+                            <button
+                              key={categoryName}
+                              className="mac-button"
+                              onClick={() => handleCategorySelect(categoryName)}
+                              style={{
+                                fontSize: '12px',
+                                padding: '4px 8px',
+                                minWidth: 'auto',
+                                backgroundColor: selectedCategory === categoryName ? 'var(--mac-selected-bg)' : 'var(--mac-button-bg)',
+                                color: selectedCategory === categoryName ? 'var(--mac-selected-text)' : 'var(--mac-text)',
+                                border: selectedCategory === categoryName ? '2px inset var(--mac-bg)' : '2px outset var(--mac-bg)',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              {categoryName} ({categoryData.count})
+                            </button>
+                          ))}
+                      </div>
 
-                        {/* Right: Selected Product Details */}
+                      {/* Products Display Area */}
+                      {viewMode === 'products' && categoryProducts.length > 0 ? (
                         <div style={{ 
                           flex: 1, 
                           display: 'flex', 
-                          flexDirection: 'column',
+                          gap: '16px',
+                          padding: '20px',
                           minHeight: 0,
-                          maxHeight: '100%',
                           overflow: 'hidden'
                         }}>
-                          {(() => {
-                            // Show hovered product if hovering, otherwise show selected product
-                            const displayIndex = hoveredProductIndex !== null ? hoveredProductIndex : selectedProductIndex;
-                            const currentProduct = filteredProducts[displayIndex];
-                            if (!currentProduct) return null;
-                            
-                            return (
-                              <>
-                                {/* Product Info Header */}
-                                <div style={{ 
-                                  padding: '16px',
-                                  border: '1px solid #e0e0e0',
+                      
+                      {/* Product Gallery */}
+                      <div style={{ 
+                        width: '50%', 
+                        display: 'flex', 
+                        flexDirection: 'column',
+                        minHeight: 0
+                      }}>
+                        <div className="mac-label" style={{ 
+                          fontSize: '12px', 
+                          marginBottom: '8px',
+                          flexShrink: 0,
+                          padding: '4px'
+                        }}>
+                          {selectedCategory} ({categoryProducts.length} products)
+                        </div>
+                        
+                        <div className="mac-scrollbar" style={{ 
+                          flex: 1, 
+                          overflowY: 'auto',
+                          border: '1px solid #e0e0e0',
+                          borderRadius: '4px',
+                          padding: '8px'
+                        }}>
+                          <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
+                            gap: '8px',
+                            width: '100%'
+                          }}>
+                            {categoryProducts.map((product, index) => (
+                              <div
+                                key={product.id}
+                                data-product-index={index}
+                                className={`gallery-item ${index === selectedProductIndex ? 'selected' : ''}`}
+                                style={{
+                                  cursor: 'pointer',
+                                  border: index === selectedProductIndex ? '2px solid #007bff' : '1px solid #e0e0e0',
                                   borderRadius: '4px',
-                                  marginBottom: '16px',
-                                  backgroundColor: '#fff',
-                                  position: 'relative'
-                                }}>
-                                  {/* Visit Product button - top right */}
-                                  <button 
-                                    className="mac-button"
-                                    onClick={() => {
-                                      if (currentProduct.url) {
-                                        window.open(currentProduct.url, '_blank');
-                                      }
-                                    }}
-                                    style={{ 
-                                      position: 'absolute',
-                                      top: '16px',
-                                      right: '16px',
-                                      backgroundColor: '#007bff',
-                                      color: '#fff',
-                                      fontSize: '12px'
-                                    }}
-                                  >
-                                    Visit Product 🛍️
-                                  </button>
-                                  
-                                  <div style={{ fontSize: '16px', fontWeight: 'bold', marginBottom: '8px', paddingRight: '140px' }}>
-                                    {currentProduct.name}
-                                  </div>
-                                  
-                                  {currentProduct.price && (
-                                    <div style={{ fontSize: '14px', color: '#0066cc', marginBottom: '8px' }}>
-                                      💰 {currentProduct.price}
-                                    </div>
-                                  )}
-                                  
-                                  
-                                  <div style={{ fontSize: '11px', color: '#999' }}>
-                                    Product {(hoveredProductIndex !== null ? hoveredProductIndex : selectedProductIndex) + 1} of {filteredProducts.length}
-                                  </div>
-                                </div>
-
-                                {/* Main Product Image */}
+                                  padding: '4px',
+                                  backgroundColor: imageColors[product.id]?.background || '#f8f9fa'
+                                }}
+                                onClick={() => setSelectedProductIndex(index)}
+                                onMouseEnter={() => setHoveredProductIndex(index)}
+                                onMouseLeave={() => setHoveredProductIndex(null)}
+                              >
                                 <div style={{ 
-                                  flex: 1,
-                                  border: '1px solid #e0e0e0',
-                                  borderRadius: '4px',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  minHeight: 0,
+                                  width: '100%', 
+                                  aspectRatio: '1',
                                   overflow: 'hidden',
-                                  padding: '8px',
-                                  backgroundColor: imageColors[currentProduct.id]?.background || '#fff'
+                                  borderRadius: '2px',
+                                  marginBottom: '4px'
                                 }}>
                                   <img 
-                                    src={currentProduct.images && currentProduct.images[0] ? currentProduct.images[0] : currentProduct.image_url}
-                                    alt={currentProduct.name}
+                                    src={product.image_url}
+                                    alt={product.name}
                                     style={{ 
-                                      maxWidth: '100%',
-                                      maxHeight: '100%',
+                                      width: '100%',
+                                      height: '100%',
                                       objectFit: 'contain'
                                     }}
                                     onLoad={() => {
-                                      const imageUrl = currentProduct.images && currentProduct.images[0] ? currentProduct.images[0] : currentProduct.image_url;
-                                      extractImageColor(imageUrl, currentProduct.id);
+                                      extractImageColor(product.image_url, product.id);
                                     }}
                                     onError={(e) => {
-                                      e.target.alt = 'Image not found';
-                                      e.target.style.background = '#f0f0f0';
+                                      e.target.style.display = 'none';
+                                      e.target.nextSibling.style.display = 'flex';
                                     }}
                                   />
-                                </div>
-
-                                {/* Navigation Controls */}
-                                <div style={{ 
-                                  display: 'flex', 
-                                  alignItems: 'center', 
-                                  padding: '8px',
-                                  border: '1px solid #e0e0e0',
-                                  borderRadius: '4px',
-                                  backgroundColor: '#fff',
-                                  marginTop: '16px'
-                                }}>
-                                  <button 
-                                    className="mac-button" 
-                                    onClick={() => {
-                                      const newIndex = Math.max(0, selectedProductIndex - 1);
-                                      setSelectedProductIndex(newIndex);
-                                      scrollToProduct(newIndex);
-                                    }}
-                                    disabled={selectedProductIndex === 0}
-                                    style={{ minWidth: '80px' }}
-                                  >
-                                    ◀ Previous
-                                  </button>
-                                  
                                   <div style={{ 
-                                    flex: 1, 
-                                    textAlign: 'center',
-                                    fontSize: '12px',
-                                    color: '#666'
+                                    width: '100%',
+                                    height: '100%',
+                                    backgroundColor: '#f0f0f0',
+                                    display: 'none',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    fontSize: '10px',
+                                    color: '#999'
                                   }}>
-                                    {(hoveredProductIndex !== null ? hoveredProductIndex : selectedProductIndex) + 1} of {filteredProducts.length} products
+                                    No Image
                                   </div>
-                                  
-                                  <button 
-                                    className="mac-button" 
-                                    onClick={() => {
-                                      const newIndex = Math.min(filteredProducts.length - 1, selectedProductIndex + 1);
-                                      setSelectedProductIndex(newIndex);
-                                      scrollToProduct(newIndex);
-                                    }}
-                                    disabled={selectedProductIndex === filteredProducts.length - 1}
-                                    style={{ minWidth: '80px' }}
-                                  >
-                                    Next ▶
-                                  </button>
                                 </div>
-                              </>
-                            );
-                          })()}
+                                <div style={{ 
+                                  fontSize: '11px', 
+                                  textAlign: 'center',
+                                  lineHeight: '1.2',
+                                  height: '32px',
+                                  overflow: 'hidden',
+                                  display: '-webkit-box',
+                                  WebkitLineClamp: 2,
+                                  WebkitBoxOrient: 'vertical',
+                                  color: imageColors[product.id]?.text || '#000'
+                                }}>
+                                  {product.name}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       </div>
-                    )}
 
-
-                    {/* Error State */}
-                    {!scrapingLoading && scrapingResult && !scrapingResult.success && (
+                      {/* Selected Product Details */}
                       <div style={{ 
-                        flex: 1,
-                        display: 'flex',
+                        flex: 1, 
+                        display: 'flex', 
                         flexDirection: 'column',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        color: '#dc3545',
-                        textAlign: 'center'
+                        minHeight: 0
                       }}>
-                        <div style={{ fontSize: '32px', marginBottom: '16px' }}>❌</div>
-                        <div style={{ fontSize: '16px', marginBottom: '8px', fontWeight: 'bold' }}>
-                          Scraping Failed
-                        </div>
-                        <div style={{ fontSize: '14px' }}>
-                          {scrapingResult.message}
-                        </div>
-                      </div>
-                    )}
+                        {(() => {
+                          const displayIndex = hoveredProductIndex !== null ? hoveredProductIndex : selectedProductIndex;
+                          const currentProduct = categoryProducts[displayIndex];
+                          if (!currentProduct) return null;
+                          
+                          return (
+                            <>
+                              {/* Product Info Header */}
+                              <div style={{ 
+                                padding: '16px',
+                                border: '1px solid #e0e0e0',
+                                borderRadius: '4px',
+                                marginBottom: '16px',
+                                backgroundColor: '#fff',
+                                position: 'relative'
+                              }}>
+                                <button 
+                                  className="mac-button"
+                                  onClick={() => {
+                                    if (currentProduct.url) {
+                                      window.open(currentProduct.url, '_blank');
+                                    }
+                                  }}
+                                  style={{ 
+                                    position: 'absolute',
+                                    top: '16px',
+                                    right: '16px',
+                                    backgroundColor: '#007bff',
+                                    color: '#fff',
+                                    fontSize: '12px'
+                                  }}
+                                >
+                                  Visit Product 🛍️
+                                </button>
+                                
+                                <div style={{ fontSize: '16px', fontWeight: 'bold', marginBottom: '8px', paddingRight: '140px' }}>
+                                  {currentProduct.name}
+                                </div>
+                                
+                                {currentProduct.price && (
+                                  <div style={{ fontSize: '14px', color: '#0066cc', marginBottom: '8px' }}>
+                                    💰 {currentProduct.price}
+                                  </div>
+                                )}
+                                
+                                <div style={{ fontSize: '11px', color: '#999' }}>
+                                  Product {(hoveredProductIndex !== null ? hoveredProductIndex : selectedProductIndex) + 1} of {categoryProducts.length}
+                                </div>
+                              </div>
 
-                    {/* Initial State */}
-                    {!scrapingLoading && !scrapingResult && filteredProducts.length === 0 && (
-                      <div style={{ 
-                        flex: 1,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        color: '#666'
-                      }}>
-                        <div style={{ fontSize: '32px', marginBottom: '16px' }}>🛍️</div>
-                        <div style={{ fontSize: '16px', marginBottom: '8px' }}>
-                          Ready to scrape {selectedBrand.name}
-                        </div>
-                        <div style={{ fontSize: '12px', textAlign: 'center' }}>
-                          Click "Scrape Products" to discover collections and extract products<br />
-                          No validation needed - this brand is already approved!
-                        </div>
+                              {/* Main Product Image */}
+                              <div style={{ 
+                                flex: 1,
+                                border: '1px solid #e0e0e0',
+                                borderRadius: '4px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                minHeight: 0,
+                                overflow: 'hidden',
+                                padding: '8px',
+                                backgroundColor: imageColors[currentProduct.id]?.background || '#fff'
+                              }}>
+                                <img 
+                                  src={currentProduct.image_url}
+                                  alt={currentProduct.name}
+                                  style={{ 
+                                    maxWidth: '100%',
+                                    maxHeight: '100%',
+                                    objectFit: 'contain',
+                                    backgroundColor: 'transparent'
+                                  }}
+                                  onLoad={() => {
+                                    extractImageColor(currentProduct.image_url, currentProduct.id);
+                                  }}
+                                  onError={(e) => {
+                                    e.target.alt = 'Image not found';
+                                    e.target.style.background = '#f0f0f0';
+                                  }}
+                                />
+                              </div>
+
+                              {/* Navigation Controls */}
+                              <div style={{ 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                padding: '8px',
+                                border: '1px solid #e0e0e0',
+                                borderRadius: '4px',
+                                backgroundColor: '#fff',
+                                marginTop: '16px'
+                              }}>
+                                <button 
+                                  className="mac-button" 
+                                  onClick={() => {
+                                    const newIndex = Math.max(0, selectedProductIndex - 1);
+                                    setSelectedProductIndex(newIndex);
+                                    scrollToProduct(newIndex);
+                                  }}
+                                  disabled={selectedProductIndex === 0}
+                                  style={{ minWidth: '80px' }}
+                                >
+                                  ◀ Previous
+                                </button>
+                                
+                                <div style={{ 
+                                  flex: 1, 
+                                  textAlign: 'center',
+                                  fontSize: '12px',
+                                  color: '#666'
+                                }}>
+                                  {(hoveredProductIndex !== null ? hoveredProductIndex : selectedProductIndex) + 1} of {categoryProducts.length} products
+                                </div>
+                                
+                                <button 
+                                  className="mac-button" 
+                                  onClick={() => {
+                                    const newIndex = Math.min(categoryProducts.length - 1, selectedProductIndex + 1);
+                                    setSelectedProductIndex(newIndex);
+                                    scrollToProduct(newIndex);
+                                  }}
+                                  disabled={selectedProductIndex === categoryProducts.length - 1}
+                                  style={{ minWidth: '80px' }}
+                                >
+                                  Next ▶
+                                </button>
+                              </div>
+                            </>
+                          );
+                        })()}
                       </div>
-                    )}
-                  </div>
-                )}
+                    </div>
+                      ) : viewMode === 'categories' ? (
+                        /* Category Selection Message */
+                        <div style={{ 
+                          flex: 1,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          padding: '40px'
+                        }}>
+                          <div style={{ fontSize: '24px', marginBottom: '12px' }}>👆</div>
+                          <div className="mac-label" style={{ fontSize: '14px', marginBottom: '8px', textAlign: 'center' }}>
+                            Select a category above to view products
+                          </div>
+                          <div className="mac-text" style={{ fontSize: '11px', textAlign: 'center' }}>
+                            Click any category button to see its products
+                          </div>
+                        </div>
+                      ) : (
+                        /* No products in selected category */
+                        <div style={{ 
+                          flex: 1,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          padding: '40px'
+                        }}>
+                          <div style={{ fontSize: '32px', marginBottom: '16px' }}>🔍</div>
+                          <div className="mac-label" style={{ fontSize: '14px', marginBottom: '8px', textAlign: 'center' }}>
+                            No products found in {selectedCategory}
+                          </div>
+                          <div className="mac-text" style={{ fontSize: '11px', textAlign: 'center' }}>
+                            This category may be empty or still loading.
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Empty State - No categories found */}
+                  {Object.keys(categories).length === 0 && !scrapingLoading && viewMode !== 'brand' && (
+                    <div style={{ 
+                      flex: 1,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: '#666',
+                      padding: '40px'
+                    }}>
+                      <div style={{ fontSize: '48px', marginBottom: '20px' }}>📦</div>
+                      <div style={{ fontSize: '16px', marginBottom: '8px' }}>
+                        No categories found
+                      </div>
+                      <div style={{ fontSize: '12px', textAlign: 'center' }}>
+                        Brand may not be scraped yet. Try clicking "Scrape Products".
+                      </div>
+                    </div>
+                  )}
+                  
+                </div>
               </>
             ) : (
               <div style={{ 
@@ -1087,7 +911,7 @@ function MyBrandsPanel({ currentView }) {
                 flexDirection: 'column'
               }}>
                 <div style={{ fontSize: '32px', marginBottom: '16px' }}>🏷️</div>
-                <div>Select a brand to start scraping</div>
+                <div>Select a brand to start browsing</div>
               </div>
             )}
           </div>

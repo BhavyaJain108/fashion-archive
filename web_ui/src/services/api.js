@@ -383,6 +383,42 @@ class FashionArchiveAPI {
     }
   }
 
+  // NEW: Clean category-first API methods for better UX
+  static async getBrandCategories(brandId) {
+    try {
+      const response = await fetch(`${this.BASE_URL}/api/brands/${brandId}/categories`, {
+        method: 'GET'
+      });
+      
+      if (!response.ok) {
+        throw new Error(`API call failed: ${response.statusText}`);
+      }
+      
+      return await response.json();
+    } catch (error) {
+      console.error('Get brand categories API Error:', error);
+      return { categories: {}, error: error.message };
+    }
+  }
+
+  static async getCategoryProducts(brandId, categoryName) {
+    try {
+      const response = await fetch(`${this.BASE_URL}/api/brands/${brandId}/categories/${encodeURIComponent(categoryName)}/products`, {
+        method: 'GET'
+      });
+      
+      if (!response.ok) {
+        throw new Error(`API call failed: ${response.statusText}`);
+      }
+      
+      return await response.json();
+    } catch (error) {
+      console.error('Get category products API Error:', error);
+      return { products: [], error: error.message };
+    }
+  }
+
+  // LEGACY: Keep for backward compatibility
   static async getBrandProducts(brandId) {
     try {
       const response = await fetch(`${this.BASE_URL}/api/brands/${brandId}/products`, {
