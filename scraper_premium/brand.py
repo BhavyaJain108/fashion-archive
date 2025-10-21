@@ -484,16 +484,24 @@ Find the HTML structure around the product link and return:
 2. CSS selectors that would help to find all similar product containers
 3. CSS selectors that would help to find images, names, links within each similar product container
 
+IMPORTANT EXTRACTION STRATEGY:
+- PRIMARY: Extract product names from image URLs/filenames when possible (e.g., "red-wool-sweater.jpg" → "Red Wool Sweater")
+- FALLBACK: Use CSS selectors for name extraction only when image URLs don't contain meaningful names
+- The image_selector is CRITICAL as it's the primary source for product names
+
 IMPORTANT: The container_selector should match ALL products on the page, not just this specific one. Remove any attributes related to stock status, availability, pricing, or other filtering conditions. Keep structural classes that identify the container type, but remove filtering attributes.
 
 Example: If you find a product in <x-cell prod-instock="true" class="product-card">, return "x-cell.product-card" as the container_selector, NOT "x-cell[prod-instock='true']".
+
+Analyze the image sources in the HTML context - do they contain meaningful product names that could be extracted? Include this assessment in your pattern analysis.
 
 Return JSON:
 {{
     "container_selector": "CSS selector for product containers",
     "image_selector": "CSS selector for images within container", 
-    "name_selector": "CSS selector for names within container",
-    "link_selector": "CSS selector for product links within container"
+    "name_selector": "CSS selector for names within container (fallback only)",
+    "link_selector": "CSS selector for product links within container",
+    "image_name_extraction": "yes|no - whether image URLs contain extractable product names"
 }}
 """.strip()
         
@@ -823,7 +831,9 @@ Return JSON:
                     # Skip problematic products but continue
                     continue
             
-            print(f"   📦 Found {new_products} new products from {len(new_containers_data)} containers ({duplicates_skipped} duplicates)")
+            # Only print if we found products to avoid spam
+            if new_products > 0:
+                print(f"   📦 Found {len(new_containers_data)} containers")
             
         except Exception as e:
             print(f"⚠️  Error extracting products: {e}")

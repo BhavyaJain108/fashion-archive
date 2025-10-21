@@ -284,9 +284,61 @@ class EnhancedFashionVideoSearch:
         
         return video_result
     
+    def get_streaming_url(self, search_query: str) -> Optional[Dict]:
+        """
+        Get video info for embedding/streaming - NO downloads, NO yt-dlp processing
+        
+        Returns:
+            Dict with video info for embedding, None otherwise
+        """
+        print(f"🔍 GETTING VIDEO FOR STREAMING: {search_query}")
+        print("=" * 60)
+        
+        # Use Google search directly - bypass all verification/download logic
+        print(f"🌐 Using Google video search...")
+        google_result = self.google_search.search_fashion_show(search_query)
+        
+        if not google_result:
+            print("❌ No videos found via Google search")
+            return None
+        
+        print(f"📹 Found video: {google_result.title}")
+        print(f"🔗 YouTube URL: {google_result.url}")
+        
+        # Extract video ID for embedding
+        video_id = None
+        import re
+        patterns = [
+            r'(?:youtube\.com/watch\?v=|youtu\.be/)([a-zA-Z0-9_-]{11})',
+            r'youtube\.com/embed/([a-zA-Z0-9_-]{11})',
+            r'youtube\.com/v/([a-zA-Z0-9_-]{11})'
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, google_result.url)
+            if match:
+                video_id = match.group(1)
+                break
+        
+        if not video_id:
+            print("❌ Could not extract video ID")
+            return None
+        
+        print(f"✅ Video ID: {video_id}")
+        print(f"🎬 Embed URL: https://www.youtube.com/embed/{video_id}")
+        
+        # Return info for frontend to handle embedding/streaming - NO yt-dlp involved
+        return {
+            'video_id': video_id,
+            'youtube_url': google_result.url,
+            'embed_url': f"https://www.youtube.com/embed/{video_id}",
+            'title': google_result.title,
+            'thumbnail': f"https://img.youtube.com/vi/{video_id}/maxresdefault.jpg"
+        }
+
     def search_verify_and_download(self, search_query: str) -> Optional[str]:
         """
-        Search using Google, verify, and download the best match with fallback
+        Search using Google and download the best match with fallback
         
         Returns:
             Path to downloaded file if successful, None otherwise
@@ -294,7 +346,7 @@ class EnhancedFashionVideoSearch:
         print(f"🔍 SEARCHING AND DOWNLOADING: {search_query}")
         print("=" * 60)
         
-        # First, try the verified best match from Google search
+        # Get the best match from Google search
         best_video = self.search_and_verify(search_query)
         
         if best_video:
@@ -314,7 +366,7 @@ class EnhancedFashionVideoSearch:
         else:
             print("❌ No primary video found, trying fallback candidates...")
         
-        # Fallback: Get all video candidates and try verify-then-download loop
+        # Fallback: Get all video candidates and try downloading each
         print(f"\n🔄 TRYING FALLBACK VIDEO CANDIDATES...")
         
         try:
@@ -330,9 +382,9 @@ class EnhancedFashionVideoSearch:
             
             print(f"📋 Found {len(remaining_candidates)} fallback candidates")
             
-            # Try each candidate: verify then download if verified
+            # Try each candidate for download
             attempt = 1
-            max_attempts = 5  # Same as verification loop
+            max_attempts = 5
             
             while remaining_candidates and attempt <= max_attempts:
                 print(f"\n🔄 FALLBACK ATTEMPT {attempt}/{max_attempts}")
@@ -358,7 +410,7 @@ class EnhancedFashionVideoSearch:
                 
                 print(f"📹 Candidate title: {actual_title}")
                 
-                # Create VideoResult for verification
+                # Create VideoResult for download
                 candidate_video = VideoResult(
                     title=actual_title,
                     url=candidate_url,
@@ -366,22 +418,8 @@ class EnhancedFashionVideoSearch:
                     source="google_fallback"
                 )
                 
-                # Verify this single candidate
-                print(f"🤖 Verifying candidate...")
-                verification_result = self.verifier.verify_video_matches(search_query, [candidate_video])
-                
-                if not verification_result.is_match:
-                    print(f"🚫 VERIFICATION FAILED: {verification_result.reasoning}")
-                    # Remove this candidate and try next
-                    remaining_candidates.remove(candidate_url)
-                    attempt += 1
-                    continue
-                
-                print(f"✅ VERIFICATION PASSED: {verification_result.reasoning}")
-                print(f"🎯 Confidence: {verification_result.confidence:.2f}")
-                
-                # Try downloading the verified candidate
-                print(f"📥 Downloading verified candidate...")
+                # Try downloading this candidate
+                print(f"📥 Downloading candidate...")
                 try:
                     downloaded_path = self._download_video(candidate_video)
                     if downloaded_path:
@@ -415,13 +453,145 @@ class EnhancedFashionVideoSearch:
             
             output_file = self.videos_dir / f"{video.title[:100].replace('/', '-')}.mp4"
             
-            ydl_opts = {
-                'format': 'best[ext=mp4]/best',
-                'outtmpl': str(output_file),
-                'quiet': True,
-                'no_warnings': True,
-                'extract_flat': False
-            }
+            # Get available formats by parsing --list-formats output
+            print("🔍 Getting available formats...")
+            
+            import subprocess
+            import re
+            
+            try:
+                # Run yt-dlp --list-formats to get format list
+                result = subprocess.run([
+                    'yt-dlp', '--list-formats', video.url
+                ], capture_output=True, text=True, timeout=30)
+                
+                if result.returncode != 0:
+                    print(f"❌ Format listing failed: {result.stderr}")
+                    raise Exception("Format listing failed")
+                
+                format_output = result.stdout
+                print("📋 Available formats:")
+                print(format_output)
+                
+                # Parse format lines to find video and audio formats
+                video_formats = []
+                audio_formats = []
+                
+                for line in format_output.split('\n'):
+                    # Look for lines with format ID, skip storyboard
+                    if re.match(r'^\d+\s+\w+', line.strip()) and 'storyboard' not in line:
+                        format_id = line.split()[0]
+                        
+                        # Check if it's video-only or audio-only
+                        if 'video only' in line:
+                            # Extract resolution for video formats
+                            resolution_match = re.search(r'(\d+)x(\d+)', line)
+                            if resolution_match:
+                                height = int(resolution_match.group(2))
+                                video_formats.append((format_id, height, line))
+                        elif 'audio only' in line:
+                            audio_formats.append((format_id, line))
+                
+                print(f"📊 Found {len(video_formats)} video formats, {len(audio_formats)} audio formats")
+                
+                if not video_formats and not audio_formats:
+                    print("❌ No valid formats found, using best")
+                    best_format = 'best'
+                elif video_formats and audio_formats:
+                    # Try formats from best to worst until one works
+                    video_formats.sort(key=lambda x: x[1], reverse=True)  # Sort by height, highest first
+                    audio_format = audio_formats[0][0]  # Use best audio format
+                    
+                    for i, (video_id, height, line) in enumerate(video_formats):
+                        format_to_try = f"{video_id}+{audio_format}"
+                        print(f"📹 Trying format {i+1}/{len(video_formats)}: {format_to_try} ({height}p)")
+                        
+                        ydl_opts = {
+                            'format': format_to_try,
+                            'outtmpl': str(output_file),
+                            'quiet': False,
+                            'no_warnings': False,
+                            'concurrent_fragment_downloads': 8,
+                            'http_chunk_size': 10485760,
+                            'retries': 10,
+                            'fragment_retries': 10
+                        }
+                        
+                        try:
+                            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                                ydl.download([video.url])
+                            
+                            if output_file.exists():
+                                print(f"✅ Downloaded: {output_file.name}")
+                                return str(output_file)
+                            else:
+                                print(f"❌ Format {format_to_try} failed, trying next...")
+                                continue
+                                
+                        except Exception as e:
+                            print(f"❌ Format {format_to_try} error: {e}, trying next...")
+                            continue
+                    
+                    print("❌ All video+audio formats failed")
+                    return None
+                    
+                elif video_formats:
+                    # Try video-only formats from best to worst
+                    video_formats.sort(key=lambda x: x[1], reverse=True)
+                    
+                    for i, (video_id, height, line) in enumerate(video_formats):
+                        print(f"📹 Trying video-only format {i+1}/{len(video_formats)}: {video_id} ({height}p)")
+                        
+                        ydl_opts = {
+                            'format': video_id,
+                            'outtmpl': str(output_file),
+                            'quiet': False,
+                            'no_warnings': False,
+                            'concurrent_fragment_downloads': 8,
+                            'http_chunk_size': 10485760,
+                            'retries': 10,
+                            'fragment_retries': 10
+                        }
+                        
+                        try:
+                            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                                ydl.download([video.url])
+                            
+                            if output_file.exists():
+                                print(f"✅ Downloaded: {output_file.name}")
+                                return str(output_file)
+                            else:
+                                print(f"❌ Format {video_id} failed, trying next...")
+                                continue
+                                
+                        except Exception as e:
+                            print(f"❌ Format {video_id} error: {e}, trying next...")
+                            continue
+                    
+                    print("❌ All video formats failed")
+                    return None
+                else:
+                    print("📹 Fallback to 'best' format")
+                    ydl_opts = {
+                        'format': 'best',
+                        'outtmpl': str(output_file),
+                        'quiet': False,
+                        'no_warnings': False,
+                        'concurrent_fragment_downloads': 8,
+                        'http_chunk_size': 10485760,
+                        'retries': 10,
+                        'fragment_retries': 10
+                    }
+                
+            except Exception as e:
+                print(f"⚠️ Error getting formats: {e}")
+                print("🔄 Attempting download with best available format...")
+                ydl_opts = {
+                    'format': 'best',
+                    'outtmpl': str(output_file),
+                    'quiet': False,
+                    'no_warnings': False
+                }
             
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([video.url])

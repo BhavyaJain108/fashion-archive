@@ -507,7 +507,6 @@ class BrandsAPI:
                                     total_products += len(formatted_products)
                                     collections_scraped += 1
                                     
-                                    print(f"✅ [{time.strftime('%H:%M:%S')}] Collection saved in {time.time() - save_start:.2f}s")
                                     yield f"data: {json.dumps({'status': 'collection_saved', 'message': f'Saved {collection_name}: {len(formatted_products)} products'})}\n\n"
                                 else:
                                     print(f"⚠️ [{time.strftime('%H:%M:%S')}] No products found in '{collection_name}'")

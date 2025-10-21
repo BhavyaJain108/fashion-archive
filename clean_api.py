@@ -304,6 +304,38 @@ def download_video():
     except Exception as e:
         return jsonify({'error': str(e), 'success': False}), 500
 
+@app.route('/api/stream-video', methods=['POST'])
+def stream_video():
+    """Get streaming URL for direct video playback"""
+    try:
+        # Only import if available
+        try:
+            from claude_video_verifier import EnhancedFashionVideoSearch
+            video_search_engine = EnhancedFashionVideoSearch()
+        except ImportError:
+            return jsonify({'streamingUrl': None, 'success': False, 'error': 'Video search not available'})
+        
+        data = request.get_json()
+        collection = data.get('collection', {})
+        
+        collection_name = f"{collection.get('designer', '')} {collection.get('season', '')} {collection.get('year', '')}"
+        streaming_info = video_search_engine.get_streaming_url(collection_name)
+        
+        if streaming_info:
+            return jsonify({
+                'success': True,
+                'videoId': streaming_info['video_id'],
+                'youtubeUrl': streaming_info['youtube_url'],
+                'embedUrl': streaming_info['embed_url'],
+                'title': streaming_info['title'],
+                'thumbnail': streaming_info['thumbnail']
+            })
+        else:
+            return jsonify({'streamingUrl': None, 'success': False, 'error': 'No streaming URL found'})
+        
+    except Exception as e:
+        return jsonify({'error': str(e), 'success': False}), 500
+
 @app.route('/api/image')
 def serve_image():
     try:

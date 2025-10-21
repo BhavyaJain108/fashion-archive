@@ -157,9 +157,10 @@ def _extract_with_scrolling(page_url: str, pattern: Dict[str, str], brand_name: 
             # Scroll and extract
             last_height = 0
             scroll_count = 0
-            max_scrolls = 20
             
-            while scroll_count < max_scrolls:
+            print(f"   🔄 Starting scroll extraction for: {page_url}")
+            
+            while True:
                 # Extract products from current page state
                 new_products = _extract_products_from_current_state(
                     page, page_url, pattern, brand_name, category_name, seen_urls
@@ -168,7 +169,12 @@ def _extract_with_scrolling(page_url: str, pattern: Dict[str, str], brand_name: 
                 
                 # Check if we've reached the bottom
                 current_height = page.evaluate("document.body.scrollHeight")
+                scroll_count += 1
+                
+                print(f"   📏 Scroll #{scroll_count}: height {last_height} → {current_height}, found {len(new_products)} new products")
+                
                 if current_height == last_height:
+                    print(f"   ✅ Reached bottom after {scroll_count} scrolls, stopping")
                     break
                 
                 # Scroll down and wait
@@ -176,7 +182,6 @@ def _extract_with_scrolling(page_url: str, pattern: Dict[str, str], brand_name: 
                 page.wait_for_timeout(2000)
                 
                 last_height = current_height
-                scroll_count += 1
             
         finally:
             browser.close()
@@ -206,6 +211,45 @@ def _extract_products_from_current_state(page, page_url: str, pattern: Dict[str,
     
     extraction_result = page.evaluate(f"""
         () => {{
+            // Helper function to extract product name from image URL
+            function extractNameFromImageUrl(imageUrl) {{
+                try {{
+                    // Extract filename from URL
+                    const urlParts = imageUrl.split('/');
+                    let filename = urlParts[urlParts.length - 1];
+                    
+                    // Remove query parameters
+                    filename = filename.split('?')[0];
+                    
+                    // Remove file extension
+                    filename = filename.replace(/\\.(jpg|jpeg|png|webp|gif|svg)$/i, '');
+                    
+                    // Skip if filename is too short or looks like an ID
+                    if (filename.length < 3 || /^[0-9a-f]+$/i.test(filename)) {{
+                        return 'Unknown';
+                    }}
+                    
+                    // Convert URL-friendly format to readable name
+                    let productName = filename
+                        .replace(/[-_]/g, ' ')  // Replace hyphens and underscores with spaces
+                        .replace(/([a-z])([A-Z])/g, '$1 $2')  // Add space before capital letters
+                        .replace(/\\s+/g, ' ')  // Normalize multiple spaces
+                        .trim();
+                    
+                    // Capitalize first letter of each word
+                    productName = productName.replace(/\\b\\w/g, l => l.toUpperCase());
+                    
+                    // Return the extracted name if it looks valid
+                    if (productName.length > 2 && productName !== filename.toUpperCase()) {{
+                        return productName;
+                    }}
+                    
+                    return 'Unknown';
+                }} catch (e) {{
+                    return 'Unknown';
+                }}
+            }}
+            
             const containers = document.querySelectorAll({container_selector_escaped});
             const products = [];
             
@@ -223,16 +267,7 @@ def _extract_products_from_current_state(page, page_url: str, pattern: Dict[str,
                     href = container.getAttribute('href');
                 }}
                 
-                // Extract product name - trust LLM selector completely
-                let name = 'Unknown';
-                if ({name_selector_escaped}) {{
-                    const nameEl = container.querySelector({name_selector_escaped});
-                    if (nameEl) {{
-                        name = nameEl.innerText || nameEl.textContent || 'Unknown';
-                    }}
-                }}
-                
-                // Extract image - trust LLM selector but check common image attributes
+                // Extract image first - needed for both display and name extraction
                 let imageSrc = '';
                 if ({image_selector_escaped}) {{
                     const imgEl = container.querySelector({image_selector_escaped});
@@ -244,6 +279,28 @@ def _extract_products_from_current_state(page, page_url: str, pattern: Dict[str,
                                   imgEl.getAttribute('data-original') ||
                                   imgEl.getAttribute('data-srcset')?.split(',')[0]?.split(' ')[0] || 
                                   '';
+                    }}
+                }}
+                
+                // Extract product name - PRIMARY: from image URL, FALLBACK: from CSS selector
+                let name = 'Unknown';
+                
+                // First try to extract from image URL
+                if (imageSrc) {{
+                    const extractedName = extractNameFromImageUrl(imageSrc);
+                    if (extractedName && extractedName !== 'Unknown') {{
+                        name = extractedName;
+                    }}
+                }}
+                
+                // Fallback to CSS selector if image extraction failed
+                if (name === 'Unknown' && {name_selector_escaped}) {{
+                    const nameEl = container.querySelector({name_selector_escaped});
+                    if (nameEl) {{
+                        const selectorName = nameEl.innerText || nameEl.textContent || '';
+                        if (selectorName.trim()) {{
+                            name = selectorName.trim();
+                        }}
                     }}
                 }}
                 
