@@ -1,0 +1,3356 @@
+{
+  "gullylabs": {
+    "name": "Gully Labs",
+    "homepage_url": "https://gullylabs.com",
+    "collections": {
+      "https://gullylabs.com/collections/craft-leather-sneakers": 7,
+      "https://gullylabs.com/collections/everyday-wear-sneakers": 14,
+      "https://gullylabs.com/collections/vintage-trainer": 3,
+      "https://gullylabs.com/collections/collaborations": 11,
+      "https://gullylabs.com/collections/craft-leather-sneakers-women": 7,
+      "https://gullylabs.com/collections/everyday-wear-sneakers-women": 11,
+      "https://gullylabs.com/collections/vintage-trainer-women": 3,
+      "https://gullylabs.com/collections/collaborations-women": 7,
+      "https://gullylabs.com/collections/all-accessories": 7
+    },
+    "navigation": [
+      {
+        "name": "Featured Collections",
+        "url": null,
+        "reasoning": "Organizational category for special collections and collaborations",
+        "children": [
+          {
+            "name": "Bestsellers",
+            "url": "https://gullylabs.com/collections/best-sellers",
+            "reasoning": "Direct product category for popular items",
+            "children": null
+          },
+          {
+            "name": "New Arrivals",
+            "url": "https://gullylabs.com/collections/new-arrivals",
+            "reasoning": "Direct product category for latest products",
+            "children": null
+          },
+          {
+            "name": "Collaborations",
+            "url": "https://gullylabs.com/collections/collaborations",
+            "reasoning": "Special collaboration products category",
+            "children": null
+          },
+          {
+            "name": "GULLY LABS X RAGA | AANDHI",
+            "url": "https://gullylabs.com/collections/gully-labs-x-raga-aandhi",
+            "reasoning": "Featured collaboration collection",
+            "children": null
+          }
+        ]
+      },
+      {
+        "name": "Men's Sneakers",
+        "url": null,
+        "reasoning": "Organizational category for men's footwear types",
+        "children": [
+          {
+            "name": "Craft Leather Sneakers",
+            "url": "https://gullylabs.com/collections/craft-leather-sneakers",
+            "reasoning": "Specific men's sneaker category for premium leather shoes",
+            "children": null
+          },
+          {
+            "name": "Everyday Wear Sneakers",
+            "url": "https://gullylabs.com/collections/everyday-wear-sneakers",
+            "reasoning": "Specific men's sneaker category for casual daily wear",
+            "children": null
+          },
+          {
+            "name": "Vintage Trainer",
+            "url": "https://gullylabs.com/collections/vintage-trainer",
+            "reasoning": "Specific men's sneaker category for retro-style trainers",
+            "children": null
+          }
+        ]
+      },
+      {
+        "name": "Women's Sneakers",
+        "url": null,
+        "reasoning": "Organizational category for women's footwear types",
+        "children": [
+          {
+            "name": "Craft Leather Sneakers",
+            "url": "https://gullylabs.com/collections/craft-leather-sneakers-women",
+            "reasoning": "Specific women's sneaker category for premium leather shoes",
+            "children": null
+          },
+          {
+            "name": "Everyday Wear Sneakers",
+            "url": "https://gullylabs.com/collections/everyday-wear-sneakers-women",
+            "reasoning": "Specific women's sneaker category for casual daily wear",
+            "children": null
+          },
+          {
+            "name": "Vintage Trainer",
+            "url": "https://gullylabs.com/collections/vintage-trainer-women",
+            "reasoning": "Specific women's sneaker category for retro-style trainers",
+            "children": null
+          },
+          {
+            "name": "Collaborations",
+            "url": "https://gullylabs.com/collections/collaborations-women",
+            "reasoning": "Women's collaboration sneaker products",
+            "children": null
+          }
+        ]
+      },
+      {
+        "name": "Gender-Specific Collections",
+        "url": null,
+        "reasoning": "Organizational category for gender-based product browsing",
+        "children": [
+          {
+            "name": "Men's Sneakers",
+            "url": "https://gullylabs.com/collections/mens-sneakers",
+            "reasoning": "Complete men's sneaker collection",
+            "children": null
+          },
+          {
+            "name": "Women's Sneakers",
+            "url": "https://gullylabs.com/collections/womens-sneakers",
+            "reasoning": "Complete women's sneaker collection",
+            "children": null
+          }
+        ]
+      },
+      {
+        "name": "Accessories",
+        "url": null,
+        "reasoning": "Organizational category for non-footwear products",
+        "children": [
+          {
+            "name": "All Accessories",
+            "url": "https://gullylabs.com/collections/all-accessories",
+            "reasoning": "General accessories category",
+            "children": null
+          },
+          {
+            "name": "Shoe Care Kits",
+            "url": "https://gullylabs.com/collections/shoe-care-kits",
+            "reasoning": "Specific accessory category for shoe maintenance products",
+            "children": null
+          }
+        ]
+      },
+      {
+        "name": "All Sneakers",
+        "url": "https://gullylabs.com/collections/all-sneakers",
+        "reasoning": "Complete sneaker collection across all categories",
+        "children": null
+      }
+    ],
+    "pattern": {
+      "analysis": "Looking at the HTML structure, I can see a slider section with bestseller products. Each product is contained within a 'swiper-slide' div that holds a complete product unit with link, image, and alt text. The structure shows: swiper-slide > a.slider-product-card > img. The 'swiper-slide' class represents the core container for each individual product in this slider layout. While 'slider-product-card' is more semantic, it's the anchor tag which is the link itself, not the container. The 'swiper-slide' is the actual container that would be present across different slider implementations and provides the boundary for each product unit.",
+      "container_selector": ".swiper-slide",
+      "image_selector": "img",
+      "name_selector": null,
+      "link_selector": "a",
+      "image_name_extraction": "yes",
+      "alternative_selectors": [
+        ".slider-product-card",
+        "a[href*='/products/']"
+      ]
+    },
+    "product_html": "product_html/gullylabs.html"
+  },
+  "entire_studios": {
+    "name": "Entire Studios",
+    "homepage_url": "https://www.entirestudios.com/",
+    "collections": {
+      "https://www.entirestudios.com/collection/aw25/tag:aw25main": null,
+      "https://www.entirestudios.com/uniform/all": null,
+      "https://www.entirestudios.com/collection/aw25-pre/tag:aw25pre": null,
+      "https://www.entirestudios.com/collection/drop-10/tag:drop10": null,
+      "https://www.entirestudios.com/collection/eyewear/tag:eyewear": null,
+      "https://www.entirestudios.com/virtual-pop-up": null
+    },
+    "navigation": [
+      {
+        "name": "Collections",
+        "url": null,
+        "reasoning": "Organizational parent for seasonal collections",
+        "children": [
+          {
+            "name": "AW25",
+            "url": "https://www.entirestudios.com/collection/aw25/tag:aw25main",
+            "reasoning": "Main Autumn/Winter 2025 collection - primary seasonal product category",
+            "children": null
+          },
+          {
+            "name": "AW25 Pre",
+            "url": "https://www.entirestudios.com/collection/aw25-pre/tag:aw25pre",
+            "reasoning": "Pre-collection for Autumn/Winter 2025 - distinct seasonal product category",
+            "children": null
+          },
+          {
+            "name": "SS25",
+            "url": "https://www.entirestudios.com/collection/drop-10/tag:drop10",
+            "reasoning": "Spring/Summer 2025 collection - seasonal product category",
+            "children": null
+          }
+        ]
+      },
+      {
+        "name": "UNIFORM",
+        "url": "https://www.entirestudios.com/uniform/all",
+        "reasoning": "Dedicated uniform/basics product line - distinct product category",
+        "children": null
+      },
+      {
+        "name": "Eyewear",
+        "url": "https://www.entirestudios.com/collection/eyewear/tag:eyewear",
+        "reasoning": "Accessories category for eyewear products",
+        "children": null
+      }
+    ],
+    "pattern": {
+      "analysis": "Looking at the HTML structure, I can see multiple product containers with the class 'es-character'. Each container represents a distinct product with its own image, link, title, and pricing information. The structure shows products like 'PLEATED WOMENS PANT TOBACCO', 'APEX WOOL TOP BROWN', and 'RAW TUBE BROWN'. Each product is wrapped in a div with class 'es-character' and contains an anchor tag with the product link, product images, and detailed product information including title and price within 'es-product-info' elements. The 'es-character' class appears to be the semantic container that holds all product-related information and is consistent across all products shown. Some containers have additional modifier classes like 'es-character--repeat-garment' but the base 'es-character' class is present on all product containers.",
+      "container_selector": ".es-character",
+      "image_selector": "img",
+      "name_selector": ".es-product-uniform-garment-title",
+      "link_selector": "a",
+      "image_name_extraction": "yes",
+      "alternative_selectors": [
+        ".es-character-inner",
+        ".es-with-labels-garment",
+        ".es-product-info"
+      ]
+    },
+    "product_html": "product_html/entire_studios.html"
+  },
+  "jukuhara": {
+    "name": "Jukuhara",
+    "homepage_url": "https://jukuhara.jp/",
+    "collections": {
+      "https://jukuhara.jp/collections/t-shirts-compressions": 22,
+      "https://jukuhara.jp/collections/jerseys-1": 5,
+      "https://jukuhara.jp/collections/pants": 4,
+      "https://jukuhara.jp/collections/hoodies-jackets": 4,
+      "https://jukuhara.jp/collections/accessories": 4,
+      "https://jukuhara.jp/collections/jp-sounds-capsule": 7
+    },
+    "navigation": [
+      {
+        "name": "T-Shirts & Compressions",
+        "url": "https://jukuhara.jp/collections/t-shirts-compressions",
+        "reasoning": "Main category for t-shirts and compression wear - includes both regular t-shirts and performance compression garments",
+        "children": null
+      },
+      {
+        "name": "Jerseys",
+        "url": "https://jukuhara.jp/collections/jerseys-1",
+        "reasoning": "Dedicated category for sports/athletic jerseys - distinct from regular t-shirts",
+        "children": null
+      },
+      {
+        "name": "Pants",
+        "url": "https://jukuhara.jp/collections/pants",
+        "reasoning": "Main category for all types of pants including sweatpants and balloon pants",
+        "children": null
+      },
+      {
+        "name": "Hoodies & Jackets",
+        "url": "https://jukuhara.jp/collections/hoodies-jackets",
+        "reasoning": "Combined category for outerwear including hoodies, zip-up jackets, and other jacket styles",
+        "children": null
+      },
+      {
+        "name": "Accessories",
+        "url": "https://jukuhara.jp/collections/accessories",
+        "reasoning": "Category for non-clothing items like jewelry, beanies, boxers, and other accessories",
+        "children": null
+      },
+      {
+        "name": "JP Sounds",
+        "url": "https://jukuhara.jp/collections/jp-sounds-capsule",
+        "reasoning": "Special collection/capsule line - appears to be a themed product line with its own distinct branding",
+        "children": null
+      }
+    ],
+    "pattern": {
+      "analysis": "Looking at the HTML structure, I can see multiple product containers using custom elements. Each product is contained within an `<x-cell>` element that has a `prod-instock` attribute (either 'true' or 'false'). This custom element contains all the product information including the card-image div with product images, card-meta with product details, titles, prices, and links. The `prod-instock` attribute is a strong semantic indicator that these x-cell elements specifically represent product containers. Each container has a complete product structure with .card-image containing the product images and links, and .card-meta containing the product title, vendor, and price information. The product links are found in multiple places within each container - both in the image area and in the title area.",
+      "container_selector": "x-cell[prod-instock]",
+      "image_selector": ".card-image img",
+      "name_selector": ".card-title a",
+      "link_selector": ".card-image a",
+      "image_name_extraction": "yes",
+      "alternative_selectors": [
+        "x-cell",
+        ".card-image",
+        ".card-meta"
+      ]
+    },
+    "product_html": "product_html/jukuhara.html"
+  },
+  "kuurth": {
+    "name": "Kuurth",
+    "homepage_url": "https://kuurth.com/",
+    "collections": {
+      "https://kuurth.com/collections/rings": 151,
+      "https://kuurth.com/collections/necklaces": 80,
+      "https://kuurth.com/collections/earrings": 56,
+      "https://kuurth.com/collections/bracelets": 42,
+      "https://kuurth.com/collections/all-silver": 244,
+      "https://kuurth.com/collections/all-gold": 26,
+      "https://kuurth.com/collections/stainless-steel": 50,
+      "https://kuurth.com/collections/gemstones": 23,
+      "https://kuurth.com/collections/watches": 16
+    },
+    "navigation": [
+      {
+        "name": "New",
+        "url": "https://kuurth.com/collections/vigil-tempus-iii",
+        "reasoning": "Featured new collection page for browsing latest products",
+        "children": null
+      },
+      {
+        "name": "Jewelry",
+        "url": null,
+        "reasoning": "Main product category organizing all jewelry types",
+        "children": [
+          {
+            "name": "Rings",
+            "url": "https://kuurth.com/collections/rings",
+            "reasoning": "Specific jewelry category for rings",
+            "children": null
+          },
+          {
+            "name": "Necklaces",
+            "url": "https://kuurth.com/collections/necklaces",
+            "reasoning": "Specific jewelry category for necklaces",
+            "children": null
+          },
+          {
+            "name": "Earrings",
+            "url": "https://kuurth.com/collections/earrings",
+            "reasoning": "Specific jewelry category for earrings",
+            "children": null
+          },
+          {
+            "name": "Bracelets",
+            "url": "https://kuurth.com/collections/bracelets",
+            "reasoning": "Specific jewelry category for bracelets",
+            "children": null
+          }
+        ]
+      },
+      {
+        "name": "By Material",
+        "url": null,
+        "reasoning": "Organizational category for jewelry organized by material type",
+        "children": [
+          {
+            "name": "Sterling Silver 925",
+            "url": "https://kuurth.com/collections/all-silver",
+            "reasoning": "Products filtered by sterling silver material",
+            "children": null
+          },
+          {
+            "name": "18k Gold Plating",
+            "url": "https://kuurth.com/collections/all-gold",
+            "reasoning": "Products filtered by gold plating material",
+            "children": null
+          },
+          {
+            "name": "Stainless Steel",
+            "url": "https://kuurth.com/collections/stainless-steel",
+            "reasoning": "Products filtered by stainless steel material",
+            "children": null
+          },
+          {
+            "name": "Gemstones",
+            "url": "https://kuurth.com/collections/gemstones",
+            "reasoning": "Products featuring gemstones",
+            "children": null
+          }
+        ]
+      },
+      {
+        "name": "Watches",
+        "url": "https://kuurth.com/collections/watches",
+        "reasoning": "Dedicated category for watch products",
+        "children": null
+      },
+      {
+        "name": "Best Sellers",
+        "url": "https://kuurth.com/collections/best-sellers",
+        "reasoning": "Curated collection of popular products",
+        "children": null
+      },
+      {
+        "name": "Sanctuary Collection",
+        "url": "https://kuurth.com/collections/sanctuary",
+        "reasoning": "Specific themed collection page",
+        "children": null
+      }
+    ],
+    "pattern": {
+      "analysis": "Looking at the HTML structure, I can see two product containers in a grid layout. Each product is contained within an `<li>` element with classes 'col-span-2 lg:col-span-4 bg-scheme-background text-scheme-text'. Inside each li, there's a div with the class 'type-product-grid-item' that contains all the product information including image, name, price, and product link. The 'type-product-grid-item' class is semantic and specifically identifies product grid items, making it the most reliable selector. This class appears to be part of a consistent product display system and would work across different page layouts. The container includes a product link (a tag with href to product page), product images, product name, and price information - all the essential product data.",
+      "container_selector": ".type-product-grid-item",
+      "image_selector": "img[alt*='Vigil'], img[src*='kuurth.com/cdn/shop/files/']",
+      "name_selector": "a .sr-only",
+      "link_selector": "a[href*='/products/']",
+      "image_name_extraction": "yes",
+      "alternative_selectors": [
+        "li.col-span-2",
+        ".group.relative.flex",
+        "li[class*='col-span']"
+      ]
+    },
+    "product_html": "product_html/kuurth.html"
+  },
+  "pool_house_new_york": {
+    "name": "Pool House New York",
+    "homepage_url": "https://poolhousenewyork.com/",
+    "collections": {
+      "https://poolhousenewyork.com/collections/mens-t-shirts": 111,
+      "https://poolhousenewyork.com/collections/mens-zip-ups": 25,
+      "https://poolhousenewyork.com/collections/jeans": 40,
+      "https://poolhousenewyork.com/collections/denim-jackets": 2,
+      "https://poolhousenewyork.com/collections/sweatpants-mens": 24,
+      "https://poolhousenewyork.com/collections/button-ups": 16,
+      "https://poolhousenewyork.com/collections/tank-tops/Tank-Tops": 6,
+      "https://poolhousenewyork.com/collections/gym-tees": 3,
+      "https://poolhousenewyork.com/collections/shorts": 3,
+      "https://poolhousenewyork.com/collections/hats": 5,
+      "https://poolhousenewyork.com/collections/tote-bags": 1,
+      "https://poolhousenewyork.com/collections/jeans-sweatpants": 1
+    },
+    "navigation": [
+      {
+        "name": "Featured Collections",
+        "url": null,
+        "reasoning": "Organizational category for special product groupings and promotions",
+        "children": [
+          {
+            "name": "New Releases",
+            "url": "https://poolhousenewyork.com/collections/new-releases",
+            "reasoning": "Featured collection showcasing latest product drops",
+            "children": null
+          },
+          {
+            "name": "Best-Sellers",
+            "url": "https://poolhousenewyork.com/collections/best-sellers",
+            "reasoning": "Featured collection of top-performing products",
+            "children": null
+          },
+          {
+            "name": "This Week's Drop",
+            "url": "https://poolhousenewyork.com/collections/this-weeks-drop",
+            "reasoning": "Weekly featured product releases",
+            "children": null
+          },
+          {
+            "name": "Black Friday Sale",
+            "url": "https://poolhousenewyork.com/collections/black-friday-sale",
+            "reasoning": "Promotional sale collection",
+            "children": null
+          }
+        ]
+      },
+      {
+        "name": "Tops",
+        "url": null,
+        "reasoning": "Organizational category for upper body clothing items",
+        "children": [
+          {
+            "name": "T-Shirts",
+            "url": "https://poolhousenewyork.com/collections/mens-t-shirts",
+            "reasoning": "Core apparel category for regular t-shirts",
+            "children": null
+          },
+          {
+            "name": "Tank Tops",
+            "url": "https://poolhousenewyork.com/collections/tank-tops/Tank-Tops",
+            "reasoning": "Sleeveless shirt category",
+            "children": null
+          },
+          {
+            "name": "Gym Tees",
+            "url": "https://poolhousenewyork.com/collections/gym-tees",
+            "reasoning": "Athletic/fitness focused t-shirt category",
+            "children": null
+          },
+          {
+            "name": "Button-Ups",
+            "url": "https://poolhousenewyork.com/collections/button-ups",
+            "reasoning": "Formal/casual shirt category with buttons",
+            "children": null
+          },
+          {
+            "name": "Hoodies & Zip-Ups",
+            "url": "https://poolhousenewyork.com/collections/mens-zip-ups",
+            "reasoning": "Sweatshirt and hoodie category",
+            "children": null
+          }
+        ]
+      },
+      {
+        "name": "Outerwear",
+        "url": null,
+        "reasoning": "Organizational category for jackets and outer garments",
+        "children": [
+          {
+            "name": "Denim Jackets",
+            "url": "https://poolhousenewyork.com/collections/denim-jackets",
+            "reasoning": "Specific jacket category for denim outerwear",
+            "children": null
+          }
+        ]
+      },
+      {
+        "name": "Bottoms",
+        "url": null,
+        "reasoning": "Organizational category for lower body clothing",
+        "children": [
+          {
+            "name": "Jeans + Pants",
+            "url": "https://poolhousenewyork.com/collections/jeans",
+            "reasoning": "Primary bottoms category including denim and pants",
+            "children": null
+          },
+          {
+            "name": "Sweatpants",
+            "url": "https://poolhousenewyork.com/collections/sweatpants-mens",
+            "reasoning": "Casual/athletic pants category",
+            "children": null
+          },
+          {
+            "name": "Shorts",
+            "url": "https://poolhousenewyork.com/collections/shorts",
+            "reasoning": "Short pants category for warm weather",
+            "children": null
+          },
+          {
+            "name": "Jeans & Sweatpants Combined",
+            "url": "https://poolhousenewyork.com/collections/jeans-sweatpants",
+            "reasoning": "Combined collection of jeans and sweatpants",
+            "children": null
+          }
+        ]
+      },
+      {
+        "name": "Accessories",
+        "url": null,
+        "reasoning": "Organizational category for non-clothing items and accessories",
+        "children": [
+          {
+            "name": "Hats",
+            "url": "https://poolhousenewyork.com/collections/hats",
+            "reasoning": "Headwear accessory category",
+            "children": null
+          },
+          {
+            "name": "Bags",
+            "url": "https://poolhousenewyork.com/collections/tote-bags",
+            "reasoning": "Bag and tote accessory category",
+            "children": null
+          }
+        ]
+      },
+      {
+        "name": "Gift Cards",
+        "url": "https://poolhousenewyork.com/products/gift-card",
+        "reasoning": "Gift card product for purchasing store credit",
+        "children": null
+      }
+    ],
+    "pattern": {
+      "analysis": "Looking at the HTML structure, I can see a product grid with individual products contained within `<li class=\"column\">` elements. Each product is wrapped in a `<product-card>` custom element, which is the most semantic and reliable container. The product-card contains all product information: images, title link, vendor, and price. This custom element tag is ideal as it's specifically designed for products and won't match non-product elements like the promotion banner (which uses a different li structure). The product images are within the figure element, the product link is the main anchor with the product title, and there's a dedicated product-card-title class for the name.",
+      "container_selector": "product-card",
+      "image_selector": "img.product-primary-image",
+      "name_selector": ".product-card-title",
+      "link_selector": ".product-featured-image-link",
+      "image_name_extraction": "yes",
+      "alternative_selectors": [
+        "li.column",
+        ".product-card",
+        "li.column product-card"
+      ]
+    },
+    "product_html": "product_html/pool_house_new_york.html"
+  },
+  "bluorng": {
+    "name": "Bluorng",
+    "homepage_url": "https://bluorng.com/",
+    "collections": {
+      "https://bluorng.com/collections/t-shirts": 338,
+      "https://bluorng.com/collections/polos": 16,
+      "https://bluorng.com/collections/shirts-unisex": 40,
+      "https://bluorng.com/collections/jackets": 7,
+      "https://bluorng.com/collections/hoodies": 27,
+      "https://bluorng.com/collections/sweatshirts": 10,
+      "https://bluorng.com/collections/cargos": 5,
+      "https://bluorng.com/collections/jeans": 15,
+      "https://bluorng.com/collections/shorts": 12,
+      "https://bluorng.com/collections/pants": 16,
+      "https://bluorng.com/collections/jersey": 12
+    },
+    "navigation": [
+      {
+        "name": "NEW IN",
+        "url": "https://bluorng.com/collections/new-in",
+        "reasoning": "Featured new arrivals category for latest products",
+        "children": null
+      },
+      {
+        "name": "Tops",
+        "url": null,
+        "reasoning": "Organizational category for upper body clothing",
+        "children": [
+          {
+            "name": "T-Shirts",
+            "url": "https://bluorng.com/collections/t-shirts",
+            "reasoning": "Main t-shirts category with subcategories",
+            "children": [
+              {
+                "name": "Oversized T-shirts",
+                "url": "https://bluorng.com/collections/oversized-t-shirts",
+                "reasoning": "Specific t-shirt style subcategory",
+                "children": null
+              },
+              {
+                "name": "Acid Wash T-shirts",
+                "url": "https://bluorng.com/collections/acid-wash-t-shirts",
+                "reasoning": "Specific t-shirt treatment subcategory",
+                "children": null
+              },
+              {
+                "name": "Crew Neck T-shirts",
+                "url": "https://bluorng.com/collections/crew-neck-t-shirts",
+                "reasoning": "Specific t-shirt neckline subcategory",
+                "children": null
+              },
+              {
+                "name": "Printed T-shirts",
+                "url": "https://bluorng.com/collections/printed-t-shirts",
+                "reasoning": "Specific t-shirt design subcategory",
+                "children": null
+              },
+              {
+                "name": "Quotes T-shirts",
+                "url": "https://bluorng.com/collections/quotes-t-shirts",
+                "reasoning": "Specific t-shirt design subcategory with quotes",
+                "children": null
+              },
+              {
+                "name": "Round Neck T-shirts",
+                "url": "https://bluorng.com/collections/round-neck-t-shirts",
+                "reasoning": "Specific t-shirt neckline subcategory",
+                "children": null
+              },
+              {
+                "name": "Black T-shirts",
+                "url": "https://bluorng.com/collections/black-t-shirts",
+                "reasoning": "Color-specific t-shirt subcategory",
+                "children": null
+              },
+              {
+                "name": "White T-shirts",
+                "url": "https://bluorng.com/collections/white-t-shirts",
+                "reasoning": "Color-specific t-shirt subcategory",
+                "children": null
+              },
+              {
+                "name": "Blue T-shirts",
+                "url": "https://bluorng.com/collections/blue-t-shirts",
+                "reasoning": "Color-specific t-shirt subcategory",
+                "children": null
+              },
+              {
+                "name": "Red T-shirts",
+                "url": "https://bluorng.com/collections/red-t-shirts",
+                "reasoning": "Color-specific t-shirt subcategory",
+                "children": null
+              }
+            ]
+          },
+          {
+            "name": "Polos",
+            "url": "https://bluorng.com/collections/polos",
+            "reasoning": "Polo shirts category",
+            "children": null
+          },
+          {
+            "name": "Shirts",
+            "url": "https://bluorng.com/collections/shirts-unisex",
+            "reasoning": "Main shirts category with subcategories",
+            "children": [
+              {
+                "name": "Printed Shirts",
+                "url": "https://bluorng.com/collections/printed-shirts",
+                "reasoning": "Specific shirt design subcategory",
+                "children": null
+              },
+              {
+                "name": "Checked Shirts",
+                "url": "https://bluorng.com/collections/checked-shirts",
+                "reasoning": "Specific shirt pattern subcategory",
+                "children": null
+              },
+              {
+                "name": "Casual Shirts",
+                "url": "https://bluorng.com/collections/casual-shirts",
+                "reasoning": "Specific shirt style subcategory",
+                "children": null
+              },
+              {
+                "name": "Full-sleeve Shirts",
+                "url": "https://bluorng.com/collections/full-sleeve-shirts",
+                "reasoning": "Specific shirt sleeve length subcategory",
+                "children": null
+              },
+              {
+                "name": "Half-sleeve Shirts",
+                "url": "https://bluorng.com/collections/half-sleeve-shirts",
+                "reasoning": "Specific shirt sleeve length subcategory",
+                "children": null
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "Outerwear",
+        "url": null,
+        "reasoning": "Organizational category for outer layer clothing",
+        "children": [
+          {
+            "name": "Hoodies",
+            "url": "https://bluorng.com/collections/hoodies",
+            "reasoning": "Main hoodies category with subcategories",
+            "children": [
+              {
+                "name": "Hoodie Combo (Unisex)",
+                "url": "https://bluorng.com/collections/hoodie-combo-unisex",
+                "reasoning": "Specific hoodie combo subcategory",
+                "children": null
+              },
+              {
+                "name": "Black Hoodies",
+                "url": "https://bluorng.com/collections/black-hoodies",
+                "reasoning": "Color-specific hoodie subcategory",
+                "children": null
+              }
+            ]
+          },
+          {
+            "name": "Sweatshirts",
+            "url": "https://bluorng.com/collections/sweatshirts",
+            "reasoning": "Main sweatshirts category with subcategories",
+            "children": [
+              {
+                "name": "Printed Sweatshirts",
+                "url": "https://bluorng.com/collections/printed-sweatshirts",
+                "reasoning": "Specific sweatshirt design subcategory",
+                "children": null
+              }
+            ]
+          },
+          {
+            "name": "Jackets",
+            "url": "https://bluorng.com/collections/jackets",
+            "reasoning": "Main jackets category with subcategories",
+            "children": [
+              {
+                "name": "Casual Jackets",
+                "url": "https://bluorng.com/collections/casual-jackets",
+                "reasoning": "Specific jacket style subcategory",
+                "children": null
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "Bottoms",
+        "url": null,
+        "reasoning": "Organizational category for lower body clothing",
+        "children": [
+          {
+            "name": "Pants",
+            "url": "https://bluorng.com/collections/pants",
+            "reasoning": "General pants category",
+            "children": null
+          },
+          {
+            "name": "Jeans",
+            "url": "https://bluorng.com/collections/jeans",
+            "reasoning": "Denim pants category",
+            "children": null
+          },
+          {
+            "name": "Cargos",
+            "url": "https://bluorng.com/collections/cargos",
+            "reasoning": "Cargo pants category",
+            "children": null
+          },
+          {
+            "name": "Shorts",
+            "url": "https://bluorng.com/collections/shorts",
+            "reasoning": "Shorts category",
+            "children": null
+          },
+          {
+            "name": "Joggers",
+            "url": "https://bluorng.com/collections/joggers",
+            "reasoning": "Athletic/casual pants category",
+            "children": null
+          }
+        ]
+      },
+      {
+        "name": "Accessories",
+        "url": "https://bluorng.com/collections/acessories",
+        "reasoning": "Accessories category including bags",
+        "children": null
+      }
+    ],
+    "pattern": {
+      "analysis": "Looking at the HTML structure, I can see multiple product containers within `<li class=\"grid__item\">` elements. Each product is wrapped in a `<div class=\"card-wrapper product-card-wrapper\">` which contains all product information including image, name, link, and price. The `card-wrapper` class is semantic and specifically indicates product cards, making it more reliable than the layout-focused `grid__item`. Within each container, there's a clear structure with `.card__media` for images, `.card__heading` for product names/links, and `.price` for pricing. The product names are clearly visible in the heading links, and image URLs contain meaningful product identifiers.",
+      "container_selector": ".card-wrapper",
+      "image_selector": "img",
+      "name_selector": ".card__heading a",
+      "link_selector": ".card__heading a",
+      "image_name_extraction": "yes",
+      "alternative_selectors": [
+        ".grid__item",
+        ".product-card-wrapper",
+        ".card",
+        ".card__inner"
+      ]
+    },
+    "product_html": "product_html/bluorng.html"
+  },
+  "scuffers": {
+    "name": "Scuffers",
+    "homepage_url": "https://scuffers.com/",
+    "collections": {
+      "https://scuffers.com/collections/hoodies": 178,
+      "https://scuffers.com/collections/t-shirts": 224,
+      "https://scuffers.com/collections/crewnecks": 29,
+      "https://scuffers.com/collections/knitwear": 85,
+      "https://scuffers.com/collections/pants-sweatpants": 98,
+      "https://scuffers.com/collections/long-sleeves": 47,
+      "https://scuffers.com/collections/polos": 60,
+      "https://scuffers.com/collections/shirts": 38,
+      "https://scuffers.com/collections/tank-tops": 10,
+      "https://scuffers.com/collections/shorts": 38,
+      "https://scuffers.com/collections/swimwear": 17,
+      "https://scuffers.com/collections/outerwear": 65,
+      "https://scuffers.com/collections/the-basics-by-scuffers": 29,
+      "https://scuffers.com/collections/caps": 53,
+      "https://scuffers.com/collections/beanies": 21,
+      "https://scuffers.com/collections/bags": 14,
+      "https://scuffers.com/collections/bandanas": 4,
+      "https://scuffers.com/collections/belts": 29,
+      "https://scuffers.com/collections/underwear": 16,
+      "https://scuffers.com/collections/socks": 10,
+      "https://scuffers.com/collections/scarves": 3,
+      "https://scuffers.com/collections/wallets": 9,
+      "https://scuffers.com/collections/jewelry": 14,
+      "https://scuffers.com/collections/ff-merch": 2,
+      "https://scuffers.com/collections/iconic-camo-sneakers": 3,
+      "https://scuffers.com/pages/iconic-braided-sneakers": 3,
+      "https://scuffers.com/pages/iconic-mules": 2,
+      "https://scuffers.com/pages/sneakers": 5,
+      "https://scuffers.com/collections/tops-woman": 52,
+      "https://scuffers.com/collections/long-sleeve-woman": 14,
+      "https://scuffers.com/collections/tank-top": 8,
+      "https://scuffers.com/collections/women-shirts": 13,
+      "https://scuffers.com/collections/women-knitwear": 4,
+      "https://scuffers.com/collections/women-pants": 20,
+      "https://scuffers.com/collections/women-shorts": 7,
+      "https://scuffers.com/collections/skirts": 15,
+      "https://scuffers.com/collections/women-swimwear": 4,
+      "https://scuffers.com/collections/women-outerwear": 6,
+      "https://scuffers.com/collections/shopper-bags": 4
+    },
+    "navigation": [
+      {
+        "name": "Featured Collections",
+        "url": null,
+        "reasoning": "Organizational category for special product groupings and highlights",
+        "children": [
+          {
+            "name": "New Arrivals",
+            "url": "https://scuffers.com/collections/new",
+            "reasoning": "Featured collection showcasing latest products",
+            "children": null
+          },
+          {
+            "name": "Best Sellers",
+            "url": "https://scuffers.com/collections/best-sellers",
+            "reasoning": "Featured collection of popular items",
+            "children": null
+          },
+          {
+            "name": "Back in Stock",
+            "url": "https://scuffers.com/collections/back-in-stock",
+            "reasoning": "Featured collection of restocked items",
+            "children": null
+          },
+          {
+            "name": "The Basics by Scuffers",
+            "url": "https://scuffers.com/collections/the-basics-by-scuffers",
+            "reasoning": "Brand's essential/basic clothing line",
+            "children": null
+          }
+        ]
+      },
+      {
+        "name": "Clothing",
+        "url": null,
+        "reasoning": "Main organizational category for all apparel items",
+        "children": [
+          {
+            "name": "Tops",
+            "url": null,
+            "reasoning": "Organizational subcategory for upper body clothing",
+            "children": [
+              {
+                "name": "Hoodies",
+                "url": "https://scuffers.com/collections/hoodies",
+                "reasoning": "Specific clothing category for hooded sweatshirts",
+                "children": null
+              },
+              {
+                "name": "T-Shirts",
+                "url": "https://scuffers.com/collections/t-shirts",
+                "reasoning": "Specific clothing category for t-shirts",
+                "children": null
+              },
+              {
+                "name": "Crewnecks",
+                "url": "https://scuffers.com/collections/crewnecks",
+                "reasoning": "Specific clothing category for crew neck sweatshirts",
+                "children": null
+              },
+              {
+                "name": "Long Sleeves",
+                "url": "https://scuffers.com/collections/long-sleeves",
+                "reasoning": "Specific clothing category for long sleeve shirts",
+                "children": null
+              },
+              {
+                "name": "Polos",
+                "url": "https://scuffers.com/collections/polos",
+                "reasoning": "Specific clothing category for polo shirts",
+                "children": null
+              },
+              {
+                "name": "Shirts",
+                "url": "https://scuffers.com/collections/shirts",
+                "reasoning": "Specific clothing category for dress/casual shirts",
+                "children": null
+              },
+              {
+                "name": "Tank Tops",
+                "url": "https://scuffers.com/collections/tank-tops",
+                "reasoning": "Specific clothing category for sleeveless shirts",
+                "children": null
+              }
+            ]
+          },
+          {
+            "name": "Knitwear",
+            "url": "https://scuffers.com/collections/knitwear",
+            "reasoning": "Specific clothing category for knitted garments",
+            "children": null
+          },
+          {
+            "name": "Bottoms",
+            "url": null,
+            "reasoning": "Organizational subcategory for lower body clothing",
+            "children": [
+              {
+                "name": "Pants & Sweatpants",
+                "url": "https://scuffers.com/collections/pants-sweatpants",
+                "reasoning": "Specific clothing category for pants and sweatpants",
+                "children": null
+              },
+              {
+                "name": "Shorts",
+                "url": "https://scuffers.com/collections/shorts",
+                "reasoning": "Specific clothing category for shorts",
+                "children": null
+              }
+            ]
+          },
+          {
+            "name": "Outerwear",
+            "url": "https://scuffers.com/collections/outerwear",
+            "reasoning": "Specific clothing category for jackets and outer garments",
+            "children": null
+          },
+          {
+            "name": "Swimwear",
+            "url": "https://scuffers.com/collections/swimwear",
+            "reasoning": "Specific clothing category for swim clothing",
+            "children": null
+          }
+        ]
+      },
+      {
+        "name": "Accessories",
+        "url": "https://scuffers.com/collections/accessories",
+        "reasoning": "Main category for fashion accessories and add-ons",
+        "children": [
+          {
+            "name": "Headwear",
+            "url": null,
+            "reasoning": "Organizational subcategory for head accessories",
+            "children": [
+              {
+                "name": "Caps",
+                "url": "https://scuffers.com/collections/caps",
+                "reasoning": "Specific accessory category for caps and hats",
+                "children": null
+              },
+              {
+                "name": "Beanies",
+                "url": "https://scuffers.com/collections/beanies",
+                "reasoning": "Specific accessory category for knit hats",
+                "children": null
+              }
+            ]
+          },
+          {
+            "name": "Bags",
+            "url": "https://scuffers.com/collections/bags",
+            "reasoning": "Specific accessory category for bags and backpacks",
+            "children": null
+          },
+          {
+            "name": "Style Accessories",
+            "url": null,
+            "reasoning": "Organizational subcategory for fashion and style accessories",
+            "children": [
+              {
+                "name": "Bandanas",
+                "url": "https://scuffers.com/collections/bandanas",
+                "reasoning": "Specific accessory category for bandanas",
+                "children": null
+              },
+              {
+                "name": "Belts",
+                "url": "https://scuffers.com/collections/belts",
+                "reasoning": "Specific accessory category for belts",
+                "children": null
+              },
+              {
+                "name": "Scarves",
+                "url": "https://scuffers.com/collections/scarves",
+                "reasoning": "Specific accessory category for scarves",
+                "children": null
+              },
+              {
+                "name": "Jewelry",
+                "url": "https://scuffers.com/collections/jewelry",
+                "reasoning": "Specific accessory category for jewelry items",
+                "children": null
+              }
+            ]
+          },
+          {
+            "name": "Personal Items",
+            "url": null,
+            "reasoning": "Organizational subcategory for personal accessories and essentials",
+            "children": [
+              {
+                "name": "Wallets",
+                "url": "https://scuffers.com/collections/wallets",
+                "reasoning": "Specific accessory category for wallets",
+                "children": null
+              },
+              {
+                "name": "Underwear",
+                "url": "https://scuffers.com/collections/underwear",
+                "reasoning": "Specific clothing category for undergarments",
+                "children": null
+              },
+              {
+                "name": "Socks",
+                "url": "https://scuffers.com/collections/socks",
+                "reasoning": "Specific accessory category for socks",
+                "children": null
+              }
+            ]
+          },
+          {
+            "name": "FF Merch",
+            "url": "https://scuffers.com/collections/ff-merch",
+            "reasoning": "Specific collection for branded merchandise",
+            "children": null
+          }
+        ]
+      },
+      {
+        "name": "Footwear",
+        "url": "https://scuffers.com/collections/footwear",
+        "reasoning": "Main category for shoes and sneakers",
+        "children": [
+          {
+            "name": "Iconic Camo Sneakers",
+            "url": "https://scuffers.com/collections/iconic-camo-sneakers",
+            "reasoning": "Specific footwear collection for camo pattern sneakers",
+            "children": null
+          },
+          {
+            "name": "Iconic Braided Sneakers",
+            "url": "https://scuffers.com/pages/iconic-braided-sneakers",
+            "reasoning": "Specific footwear collection for braided style sneakers",
+            "children": null
+          },
+          {
+            "name": "Iconic Mule Sneakers",
+            "url": "https://scuffers.com/pages/iconic-mules",
+            "reasoning": "Specific footwear collection for mule style sneakers",
+            "children": null
+          },
+          {
+            "name": "Iconic Sneakers",
+            "url": "https://scuffers.com/pages/sneakers",
+            "reasoning": "Main collection for brand's signature sneakers",
+            "children": null
+          }
+        ]
+      },
+      {
+        "name": "Just Women",
+        "url": "https://scuffers.com/collections/woman",
+        "reasoning": "Dedicated section for women's clothing and accessories",
+        "children": [
+          {
+            "name": "Women's Featured",
+            "url": null,
+            "reasoning": "Organizational subcategory for women's special collections",
+            "children": [
+              {
+                "name": "New Arrivals",
+                "url": "https://scuffers.com/collections/new-arrivals-women",
+                "reasoning": "Women's new arrivals collection",
+                "children": null
+              },
+              {
+                "name": "Back in Stock",
+                "url": "https://scuffers.com/collections/back-in-stock-woman",
+                "reasoning": "Women's restocked items collection",
+                "children": null
+              }
+            ]
+          },
+          {
+            "name": "Women's Clothing",
+            "url": null,
+            "reasoning": "Organizational subcategory for women's apparel",
+            "children": [
+              {
+                "name": "Women's Tops",
+                "url": null,
+                "reasoning": "Organizational subcategory for women's upper body clothing",
+                "children": [
+                  {
+                    "name": "Tops",
+                    "url": "https://scuffers.com/collections/tops-woman",
+                    "reasoning": "Women's general tops category",
+                    "children": null
+                  },
+                  {
+                    "name": "Long Sleeves",
+                    "url": "https://scuffers.com/collections/long-sleeve-woman",
+                    "reasoning": "Women's long sleeve shirts",
+                    "children": null
+                  },
+                  {
+                    "name": "Tank Tops",
+                    "url": "https://scuffers.com/collections/tank-top",
+                    "reasoning": "Women's tank tops",
+                    "children": null
+                  },
+                  {
+                    "name": "Shirts",
+                    "url": "https://scuffers.com/collections/women-shirts",
+                    "reasoning": "Women's shirts collection",
+                    "children": null
+                  }
+                ]
+              },
+              {
+                "name": "Knitwear",
+                "url": "https://scuffers.com/collections/women-knitwear",
+                "reasoning": "Women's knitted garments",
+                "children": null
+              },
+              {
+                "name": "Women's Bottoms",
+                "url": null,
+                "reasoning": "Organizational subcategory for women's lower body clothing",
+                "children": [
+                  {
+                    "name": "Pants",
+                    "url": "https://scuffers.com/collections/women-pants",
+                    "reasoning": "Women's pants collection",
+                    "children": null
+                  },
+                  {
+                    "name": "Shorts",
+                    "url": "https://scuffers.com/collections/women-shorts",
+                    "reasoning": "Women's shorts collection",
+                    "children": null
+                  },
+                  {
+                    "name": "Skirts",
+                    "url": "https://scuffers.com/collections/skirts",
+                    "reasoning": "Women's skirts collection",
+                    "children": null
+                  }
+                ]
+              },
+              {
+                "name": "Swimwear",
+                "url": "https://scuffers.com/collections/women-swimwear",
+                "reasoning": "Women's swimwear collection",
+                "children": null
+              },
+              {
+                "name": "Outerwear",
+                "url": "https://scuffers.com/collections/women-outerwear",
+                "reasoning": "Women's jackets and outer garments",
+                "children": null
+              },
+              {
+                "name": "Underwear",
+                "url": "https://scuffers.com/collections/women-underwear",
+                "reasoning": "Women's undergarments",
+                "children": null
+              }
+            ]
+          },
+          {
+            "name": "Women's Accessories",
+            "url": "https://scuffers.com/collections/accessories-woman",
+            "reasoning": "Women's accessories collection",
+            "children": [
+              {
+                "name": "Shopper Bags",
+                "url": "https://scuffers.com/collections/shopper-bags",
+                "reasoning": "Women's shopping bags collection",
+                "children": null
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "pattern": {
+      "analysis": "Looking at the HTML structure, I can identify two distinct product containers. The first appears to be for a 'NINA CAMO TOP' and the second is for 'BODEGA BROWN HOODIE' (which matches our target product link). Both products share the same container structure with class 'product-block cc-product-block'. This class appears to be the semantic container that holds all product information including images, links, titles, and prices. The structure shows: 1) A main container with 'product-block cc-product-block' classes, 2) Inner content wrapped in 'product-block__inner', 3) Product links with href to product pages, 4) Images within swiper containers or rimage wrappers, 5) Product titles with class 'ProductBlock__Title'. The 'product-block' class is semantic and specifically designed for product containers, making it more reliable than layout classes like 'column' or 'filter-vip'.",
+      "container_selector": ".product-block.cc-product-block",
+      "image_selector": ".rimage__image",
+      "name_selector": ".ProductBlock__Title",
+      "link_selector": "a[href*='/products/']",
+      "image_name_extraction": "yes",
+      "alternative_selectors": [
+        ".product-block__inner",
+        ".filter-vip.product-block",
+        ".column.quintin",
+        "[data-tags]"
+      ]
+    },
+    "product_html": "product_html/scuffers.html"
+  },
+  "jacquemus": {
+    "name": "Jacquemus",
+    "homepage_url": "https://www.jacquemus.com",
+    "collections": null,
+    "navigation": [],
+    "pattern": null,
+    "product_html": "product_html/jacquemus.html"
+  },
+  "maison_margiela": {
+    "name": "Maison Margiela",
+    "homepage_url": "https://www.maisonmargiela.com/wx/",
+    "collections": null,
+    "navigation": [
+      {
+        "name": "Maison Margiela",
+        "url": null,
+        "reasoning": "Main brand division organizing all Maison Margiela products",
+        "children": [
+          {
+            "name": "Women",
+            "url": null,
+            "reasoning": "Gender-based category organizing women's products",
+            "children": [
+              {
+                "name": "Featured",
+                "url": null,
+                "reasoning": "Special collections and collaborations",
+                "children": [
+                  {
+                    "name": "New Arrivals",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/women/featured/new-arrivals/",
+                    "reasoning": "Latest women's products available for purchase",
+                    "children": null
+                  },
+                  {
+                    "name": "Loved to Death",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/women/featured/loved-to-death/",
+                    "reasoning": "Special collection of women's products",
+                    "children": null
+                  },
+                  {
+                    "name": "Maison Margiela x Gentle Monster",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/women/featured/maison-margiela-x-gentle-monster/",
+                    "reasoning": "Collaboration collection for women",
+                    "children": null
+                  },
+                  {
+                    "name": "ICONS",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/women/featured/icons/",
+                    "reasoning": "Iconic women's pieces collection",
+                    "children": null
+                  }
+                ]
+              },
+              {
+                "name": "Ready-to-wear",
+                "url": "https://www.maisonmargiela.com/wx/maison-margiela/women/ready-to-wear/",
+                "reasoning": "Main women's clothing category",
+                "children": [
+                  {
+                    "name": "Coats & Jackets",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/women/ready-to-wear/coats-jackets/",
+                    "reasoning": "Women's outerwear subcategory",
+                    "children": null
+                  },
+                  {
+                    "name": "Knitwear",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/women/ready-to-wear/knitwear/",
+                    "reasoning": "Women's knitted garments",
+                    "children": null
+                  },
+                  {
+                    "name": "Dresses",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/women/ready-to-wear/dresses/",
+                    "reasoning": "Women's dress collection",
+                    "children": null
+                  },
+                  {
+                    "name": "Jeans & Trousers",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/women/ready-to-wear/jeans-trousers/",
+                    "reasoning": "Women's bottom wear",
+                    "children": null
+                  },
+                  {
+                    "name": "Tops & Bodysuits",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/women/ready-to-wear/tops-bodysuits/",
+                    "reasoning": "Women's tops and bodysuits",
+                    "children": null
+                  },
+                  {
+                    "name": "Skirts",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/women/ready-to-wear/skirts/",
+                    "reasoning": "Women's skirt collection",
+                    "children": null
+                  },
+                  {
+                    "name": "Shirts",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/women/ready-to-wear/shirts/",
+                    "reasoning": "Women's shirt collection",
+                    "children": null
+                  }
+                ]
+              },
+              {
+                "name": "Bags",
+                "url": "https://www.maisonmargiela.com/wx/maison-margiela/women/bags/",
+                "reasoning": "Women's bag collection",
+                "children": [
+                  {
+                    "name": "5AC",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/women/bags/5ac/",
+                    "reasoning": "Specific bag line for women",
+                    "children": null
+                  },
+                  {
+                    "name": "Dress-Age",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/women/bags/dress-age/",
+                    "reasoning": "Specific bag line for women",
+                    "children": null
+                  },
+                  {
+                    "name": "Glam Slam",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/women/bags/glam-slam/",
+                    "reasoning": "Specific bag line for women",
+                    "children": null
+                  },
+                  {
+                    "name": "Shoulder Bags",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/women/bags/shoulder-bags/",
+                    "reasoning": "Women's shoulder bag category",
+                    "children": null
+                  },
+                  {
+                    "name": "Top Handle Bags",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/women/bags/top-handle-bags-1/",
+                    "reasoning": "Women's top handle bag category",
+                    "children": null
+                  },
+                  {
+                    "name": "Sports & Backpacks",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/women/bags/sports-backpacks/",
+                    "reasoning": "Women's sports and backpack category",
+                    "children": null
+                  }
+                ]
+              },
+              {
+                "name": "Shoes",
+                "url": "https://www.maisonmargiela.com/wx/maison-margiela/women/shoes/",
+                "reasoning": "Women's footwear collection",
+                "children": [
+                  {
+                    "name": "Tabi",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/women/shoes/tabi/",
+                    "reasoning": "Iconic Tabi shoe line for women",
+                    "children": null
+                  },
+                  {
+                    "name": "Sprinters",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/women/shoes/sprinters/",
+                    "reasoning": "Sprinter shoe line for women",
+                    "children": null
+                  },
+                  {
+                    "name": "Boots & Ankle Boots",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/women/shoes/boots-ankle-boots/",
+                    "reasoning": "Women's boot collection",
+                    "children": null
+                  },
+                  {
+                    "name": "Replica",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/women/shoes/replica/",
+                    "reasoning": "Replica shoe line for women",
+                    "children": null
+                  },
+                  {
+                    "name": "Sneakers",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/women/shoes/sneakers/",
+                    "reasoning": "Women's sneaker collection",
+                    "children": null
+                  },
+                  {
+                    "name": "Flats",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/women/shoes/flats/",
+                    "reasoning": "Women's flat shoe collection",
+                    "children": null
+                  },
+                  {
+                    "name": "Heels",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/women/shoes/heels/",
+                    "reasoning": "Women's heel collection",
+                    "children": null
+                  }
+                ]
+              },
+              {
+                "name": "Accessories",
+                "url": "https://www.maisonmargiela.com/wx/maison-margiela/women/accessories/",
+                "reasoning": "Women's accessories collection",
+                "children": [
+                  {
+                    "name": "Small leather goods",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/women/accessories/small-leather-goods/",
+                    "reasoning": "Women's small leather accessories",
+                    "children": null
+                  },
+                  {
+                    "name": "Jewellery",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/women/accessories/jewellery/",
+                    "reasoning": "Women's jewelry collection",
+                    "children": null
+                  },
+                  {
+                    "name": "Other Accessories",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/women/accessories/other-accessories/",
+                    "reasoning": "Additional women's accessories",
+                    "children": null
+                  }
+                ]
+              },
+              {
+                "name": "Fragrances",
+                "url": "https://www.maisonmargiela.com/wx/maison-margiela/women/fragrances/",
+                "reasoning": "Women's fragrance collection",
+                "children": [
+                  {
+                    "name": "Perfumes",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/women/fragrances/perfumes-1/",
+                    "reasoning": "Women's perfume collection",
+                    "children": null
+                  },
+                  {
+                    "name": "Candles",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/women/fragrances/candles/",
+                    "reasoning": "Women's scented candle collection",
+                    "children": null
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "name": "Men",
+            "url": null,
+            "reasoning": "Gender-based category organizing men's products",
+            "children": [
+              {
+                "name": "Featured",
+                "url": null,
+                "reasoning": "Special collections and collaborations for men",
+                "children": [
+                  {
+                    "name": "New Arrivals",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/men/featured/new-arrivals/",
+                    "reasoning": "Latest men's products available for purchase",
+                    "children": null
+                  },
+                  {
+                    "name": "Loved to Death",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/men/featured/loved-to-death/",
+                    "reasoning": "Special collection of men's products",
+                    "children": null
+                  },
+                  {
+                    "name": "Maison Margiela x Gentle Monster",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/men/featured/maison-margiela-x-gentle-monster/",
+                    "reasoning": "Collaboration collection for men",
+                    "children": null
+                  },
+                  {
+                    "name": "ICONS",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/men/featured/icons/",
+                    "reasoning": "Iconic men's pieces collection",
+                    "children": null
+                  }
+                ]
+              },
+              {
+                "name": "Ready-to-wear",
+                "url": "https://www.maisonmargiela.com/wx/maison-margiela/men/ready-to-wear/",
+                "reasoning": "Main men's clothing category",
+                "children": [
+                  {
+                    "name": "Coats & Jackets",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/men/ready-to-wear/coats-jackets/",
+                    "reasoning": "Men's outerwear subcategory",
+                    "children": null
+                  },
+                  {
+                    "name": "Knitwear",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/men/ready-to-wear/knitwear/",
+                    "reasoning": "Men's knitted garments",
+                    "children": null
+                  },
+                  {
+                    "name": "Jeans & Trousers",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/men/ready-to-wear/jeans-trousers/",
+                    "reasoning": "Men's bottom wear",
+                    "children": null
+                  },
+                  {
+                    "name": "Shirts",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/men/ready-to-wear/shirts/",
+                    "reasoning": "Men's shirt collection",
+                    "children": null
+                  },
+                  {
+                    "name": "Tops",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/men/ready-to-wear/tops/",
+                    "reasoning": "Men's top collection",
+                    "children": null
+                  }
+                ]
+              },
+              {
+                "name": "Bags",
+                "url": "https://www.maisonmargiela.com/wx/maison-margiela/men/bags/",
+                "reasoning": "Men's bag collection",
+                "children": [
+                  {
+                    "name": "5AC",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/men/bags/5ac/",
+                    "reasoning": "Specific bag line for men",
+                    "children": null
+                  },
+                  {
+                    "name": "Dress-Age",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/men/bags/dress-age/",
+                    "reasoning": "Specific bag line for men",
+                    "children": null
+                  },
+                  {
+                    "name": "Glam Slam",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/men/bags/glam-slam/",
+                    "reasoning": "Specific bag line for men",
+                    "children": null
+                  },
+                  {
+                    "name": "Top Handle Bags",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/men/bags/top-handle-bags/",
+                    "reasoning": "Men's top handle bag category",
+                    "children": null
+                  },
+                  {
+                    "name": "Shoulder Bags",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/men/bags/shoulder-bags/",
+                    "reasoning": "Men's shoulder bag category",
+                    "children": null
+                  },
+                  {
+                    "name": "Sports & Backpacks",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/men/bags/sports-backpacks/",
+                    "reasoning": "Men's sports and backpack category",
+                    "children": null
+                  }
+                ]
+              },
+              {
+                "name": "Shoes",
+                "url": "https://www.maisonmargiela.com/wx/maison-margiela/men/shoes/",
+                "reasoning": "Men's footwear collection",
+                "children": [
+                  {
+                    "name": "Replica",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/men/shoes/replica/",
+                    "reasoning": "Replica shoe line for men",
+                    "children": null
+                  },
+                  {
+                    "name": "Sprinters",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/men/shoes/sprinters/",
+                    "reasoning": "Sprinter shoe line for men",
+                    "children": null
+                  },
+                  {
+                    "name": "Boots & Ankle Boots",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/men/shoes/boots-ankle-boots/",
+                    "reasoning": "Men's boot collection",
+                    "children": null
+                  },
+                  {
+                    "name": "Tabi",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/men/shoes/tabi/",
+                    "reasoning": "Iconic Tabi shoe line for men",
+                    "children": null
+                  },
+                  {
+                    "name": "Sneakers",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/men/shoes/sneakers/",
+                    "reasoning": "Men's sneaker collection",
+                    "children": null
+                  },
+                  {
+                    "name": "Flats",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/men/shoes/flats/",
+                    "reasoning": "Men's flat shoe collection",
+                    "children": null
+                  }
+                ]
+              },
+              {
+                "name": "Accessories",
+                "url": "https://www.maisonmargiela.com/wx/maison-margiela/men/accessories/",
+                "reasoning": "Men's accessories collection",
+                "children": [
+                  {
+                    "name": "Small leather goods",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/men/accessories/small-leather-goods/",
+                    "reasoning": "Men's small leather accessories",
+                    "children": null
+                  },
+                  {
+                    "name": "Jewellery",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/men/accessories/jewellery/",
+                    "reasoning": "Men's jewelry collection",
+                    "children": null
+                  },
+                  {
+                    "name": "Other Accessories",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/men/accessories/other-accessories/",
+                    "reasoning": "Additional men's accessories",
+                    "children": null
+                  }
+                ]
+              },
+              {
+                "name": "Fragrances",
+                "url": "https://www.maisonmargiela.com/wx/maison-margiela/men/fragrances/",
+                "reasoning": "Men's fragrance collection",
+                "children": [
+                  {
+                    "name": "Perfumes",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/men/fragrances/perfumes/",
+                    "reasoning": "Men's perfume collection",
+                    "children": null
+                  },
+                  {
+                    "name": "Candles",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/men/fragrances/candles/",
+                    "reasoning": "Men's scented candle collection",
+                    "children": null
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "name": "Unisex",
+            "url": null,
+            "reasoning": "Gender-neutral category organizing unisex products",
+            "children": [
+              {
+                "name": "Featured",
+                "url": null,
+                "reasoning": "Special collections and collaborations for unisex",
+                "children": [
+                  {
+                    "name": "New Arrivals",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/unisex/featured/new-arrivals/",
+                    "reasoning": "Latest unisex products available for purchase",
+                    "children": null
+                  },
+                  {
+                    "name": "Loved to Death",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/unisex/featured/loved-to-death/",
+                    "reasoning": "Special collection of unisex products",
+                    "children": null
+                  },
+                  {
+                    "name": "Maison Margiela x Gentle Monster",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/unisex/featured/maison-margiela-x-gentle-monster/",
+                    "reasoning": "Collaboration collection for unisex",
+                    "children": null
+                  },
+                  {
+                    "name": "ICONS",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/unisex/featured/icons/",
+                    "reasoning": "Iconic unisex pieces collection",
+                    "children": null
+                  }
+                ]
+              },
+              {
+                "name": "Bags",
+                "url": "https://www.maisonmargiela.com/wx/maison-margiela/unisex/bags/",
+                "reasoning": "Unisex bag collection",
+                "children": [
+                  {
+                    "name": "5AC",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/unisex/bags/5ac/",
+                    "reasoning": "Specific bag line for unisex",
+                    "children": null
+                  },
+                  {
+                    "name": "Dress-Age",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/unisex/bags/dress-age/",
+                    "reasoning": "Specific bag line for unisex",
+                    "children": null
+                  },
+                  {
+                    "name": "Glam Slam",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/unisex/bags/glam-slam/",
+                    "reasoning": "Specific bag line for unisex",
+                    "children": null
+                  },
+                  {
+                    "name": "Top Handle Bag",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/unisex/bags/top-handle-bag/",
+                    "reasoning": "Unisex top handle bag category",
+                    "children": null
+                  },
+                  {
+                    "name": "Shoulder Bags",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/unisex/bags/shoulder-bags/",
+                    "reasoning": "Unisex shoulder bag category",
+                    "children": null
+                  },
+                  {
+                    "name": "Sports & Backpacks",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/unisex/bags/sports-backpacks/",
+                    "reasoning": "Unisex sports and backpack category",
+                    "children": null
+                  }
+                ]
+              },
+              {
+                "name": "Accessories",
+                "url": "https://www.maisonmargiela.com/wx/maison-margiela/unisex/accessories/",
+                "reasoning": "Unisex accessories collection",
+                "children": [
+                  {
+                    "name": "Small leather goods",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/unisex/accessories/small-leather-goods/",
+                    "reasoning": "Unisex small leather accessories",
+                    "children": null
+                  },
+                  {
+                    "name": "Jewellery",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/unisex/accessories/jewellery/",
+                    "reasoning": "Unisex jewelry collection",
+                    "children": null
+                  },
+                  {
+                    "name": "Other Accessories",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/unisex/accessories/other-accessories/",
+                    "reasoning": "Additional unisex accessories",
+                    "children": null
+                  }
+                ]
+              },
+              {
+                "name": "Fragrances",
+                "url": "https://www.maisonmargiela.com/wx/maison-margiela/unisex/fragrances/",
+                "reasoning": "Unisex fragrance collection",
+                "children": [
+                  {
+                    "name": "Perfumes",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/unisex/fragrances/perfumes/",
+                    "reasoning": "Unisex perfume collection",
+                    "children": null
+                  },
+                  {
+                    "name": "Candles",
+                    "url": "https://www.maisonmargiela.com/wx/maison-margiela/unisex/fragrances/candles/",
+                    "reasoning": "Unisex scented candle collection",
+                    "children": null
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "MM6",
+        "url": null,
+        "reasoning": "Secondary brand division organizing all MM6 products",
+        "children": [
+          {
+            "name": "Women",
+            "url": null,
+            "reasoning": "Gender-based category organizing MM6 women's products",
+            "children": [
+              {
+                "name": "Featured",
+                "url": null,
+                "reasoning": "Special collections and collaborations for MM6 women",
+                "children": [
+                  {
+                    "name": "New Arrivals",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/women/featured/new-arrivals/",
+                    "reasoning": "Latest MM6 women's products",
+                    "children": null
+                  },
+                  {
+                    "name": "MM6 x Salomon",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/women/featured/mm6-x-salomon/",
+                    "reasoning": "MM6 collaboration with Salomon for women",
+                    "children": null
+                  },
+                  {
+                    "name": "MM6 Spiga",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/women/featured/mm6-spiga/",
+                    "reasoning": "MM6 Spiga collection for women",
+                    "children": null
+                  },
+                  {
+                    "name": "MM6 x Dr. Martens",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/women/featured/mm6-x-dr.-martens/",
+                    "reasoning": "MM6 collaboration with Dr. Martens for women",
+                    "children": null
+                  }
+                ]
+              },
+              {
+                "name": "Ready-to-wear",
+                "url": "https://www.maisonmargiela.com/wx/mm6/women/ready-to-wear/",
+                "reasoning": "MM6 women's clothing category",
+                "children": [
+                  {
+                    "name": "View All",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/women/ready-to-wear/view-all/",
+                    "reasoning": "Complete MM6 women's ready-to-wear collection",
+                    "children": null
+                  },
+                  {
+                    "name": "Dresses",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/women/ready-to-wear/dresses/",
+                    "reasoning": "MM6 women's dress collection",
+                    "children": null
+                  },
+                  {
+                    "name": "Skirts",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/women/ready-to-wear/skirts/",
+                    "reasoning": "MM6 women's skirt collection",
+                    "children": null
+                  },
+                  {
+                    "name": "Jeans & Trousers",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/women/ready-to-wear/jeans-trousers/",
+                    "reasoning": "MM6 women's bottom wear",
+                    "children": null
+                  },
+                  {
+                    "name": "Shirts",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/women/ready-to-wear/shirts/",
+                    "reasoning": "MM6 women's shirt collection",
+                    "children": null
+                  },
+                  {
+                    "name": "Tops & Bodysuits",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/women/ready-to-wear/tops-bodysuits/",
+                    "reasoning": "MM6 women's tops and bodysuits",
+                    "children": null
+                  },
+                  {
+                    "name": "Sweatshirts",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/women/ready-to-wear/sweatshirts/",
+                    "reasoning": "MM6 women's sweatshirt collection",
+                    "children": null
+                  },
+                  {
+                    "name": "Knitwear",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/women/ready-to-wear/knitwear/",
+                    "reasoning": "MM6 women's knitted garments",
+                    "children": null
+                  },
+                  {
+                    "name": "Outerwear",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/women/ready-to-wear/outerwear/",
+                    "reasoning": "MM6 women's outerwear collection",
+                    "children": null
+                  }
+                ]
+              },
+              {
+                "name": "Shoes",
+                "url": "https://www.maisonmargiela.com/wx/mm6/women/shoes/",
+                "reasoning": "MM6 women's footwear collection",
+                "children": [
+                  {
+                    "name": "View All",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/women/shoes/view-all/",
+                    "reasoning": "Complete MM6 women's shoe collection",
+                    "children": null
+                  },
+                  {
+                    "name": "MM6 x Salomon",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/women/shoes/mm6-x-salomon/",
+                    "reasoning": "MM6 x Salomon shoe collaboration for women",
+                    "children": null
+                  },
+                  {
+                    "name": "Sneakers",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/women/shoes/sneakers/",
+                    "reasoning": "MM6 women's sneaker collection",
+                    "children": null
+                  },
+                  {
+                    "name": "Boots & Ankle Boots",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/women/shoes/boots-ankle-boots/",
+                    "reasoning": "MM6 women's boot collection",
+                    "children": null
+                  },
+                  {
+                    "name": "Flats",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/women/shoes/flats/",
+                    "reasoning": "MM6 women's flat shoe collection",
+                    "children": null
+                  },
+                  {
+                    "name": "Heels",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/women/shoes/heels/",
+                    "reasoning": "MM6 women's heel collection",
+                    "children": null
+                  }
+                ]
+              },
+              {
+                "name": "Bags",
+                "url": "https://www.maisonmargiela.com/wx/mm6/women/bags/",
+                "reasoning": "MM6 women's bag collection",
+                "children": [
+                  {
+                    "name": "View All",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/women/bags/view-all/",
+                    "reasoning": "Complete MM6 women's bag collection",
+                    "children": null
+                  },
+                  {
+                    "name": "Japanese Bag",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/women/bags/japanese-bag/",
+                    "reasoning": "MM6 Japanese bag line for women",
+                    "children": null
+                  },
+                  {
+                    "name": "Handbags",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/women/bags/handbags-2/",
+                    "reasoning": "MM6 women's handbag collection",
+                    "children": null
+                  },
+                  {
+                    "name": "Mini bags",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/women/bags/mini-bags/",
+                    "reasoning": "MM6 women's mini bag collection",
+                    "children": null
+                  }
+                ]
+              },
+              {
+                "name": "Accessories",
+                "url": "https://www.maisonmargiela.com/wx/mm6/women/accessories/",
+                "reasoning": "MM6 women's accessories collection",
+                "children": [
+                  {
+                    "name": "View All",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/women/accessories/view-all/",
+                    "reasoning": "Complete MM6 women's accessories collection",
+                    "children": null
+                  },
+                  {
+                    "name": "Small Leather Goods",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/women/accessories/small-leather-goods/",
+                    "reasoning": "MM6 women's small leather accessories",
+                    "children": null
+                  },
+                  {
+                    "name": "Jewellery",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/women/accessories/jewellery/",
+                    "reasoning": "MM6 women's jewelry collection",
+                    "children": null
+                  },
+                  {
+                    "name": "Other accessories",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/women/accessories/other-accessories/",
+                    "reasoning": "Additional MM6 women's accessories",
+                    "children": null
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "name": "Men",
+            "url": null,
+            "reasoning": "Gender-based category organizing MM6 men's products",
+            "children": [
+              {
+                "name": "Featured",
+                "url": null,
+                "reasoning": "Special collections and collaborations for MM6 men",
+                "children": [
+                  {
+                    "name": "New Arrivals",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/men/featured/new-arrivals/",
+                    "reasoning": "Latest MM6 men's products",
+                    "children": null
+                  },
+                  {
+                    "name": "MM6 x Salomon",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/men/featured/mm6-x-salomon/",
+                    "reasoning": "MM6 collaboration with Salomon for men",
+                    "children": null
+                  },
+                  {
+                    "name": "MM6 Spiga",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/men/featured/mm6-spiga/",
+                    "reasoning": "MM6 Spiga collection for men",
+                    "children": null
+                  },
+                  {
+                    "name": "Pitti Uomo",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/men/featured/pitti-uomo/",
+                    "reasoning": "MM6 Pitti Uomo collection for men",
+                    "children": null
+                  },
+                  {
+                    "name": "MM6 x Dr. Martens",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/men/featured/mm6-x-dr.-martens/",
+                    "reasoning": "MM6 collaboration with Dr. Martens for men",
+                    "children": null
+                  }
+                ]
+              },
+              {
+                "name": "Ready-to-wear",
+                "url": "https://www.maisonmargiela.com/wx/mm6/men/ready-to-wear/",
+                "reasoning": "MM6 men's clothing category",
+                "children": [
+                  {
+                    "name": "View All",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/men/ready-to-wear/view-all/",
+                    "reasoning": "Complete MM6 men's ready-to-wear collection",
+                    "children": null
+                  },
+                  {
+                    "name": "Jeans & Trousers",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/men/ready-to-wear/jeans-trousers/",
+                    "reasoning": "MM6 men's bottom wear",
+                    "children": null
+                  },
+                  {
+                    "name": "Shirts",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/men/ready-to-wear/shirts/",
+                    "reasoning": "MM6 men's shirt collection",
+                    "children": null
+                  },
+                  {
+                    "name": "Tops & Bodysuits",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/men/ready-to-wear/tops-bodysuits/",
+                    "reasoning": "MM6 men's tops and bodysuits",
+                    "children": null
+                  },
+                  {
+                    "name": "Sweatshirts",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/men/ready-to-wear/sweatshirts/",
+                    "reasoning": "MM6 men's sweatshirt collection",
+                    "children": null
+                  },
+                  {
+                    "name": "Knitwear",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/men/ready-to-wear/knitwear/",
+                    "reasoning": "MM6 men's knitted garments",
+                    "children": null
+                  },
+                  {
+                    "name": "Outerwear",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/men/ready-to-wear/outerwear/",
+                    "reasoning": "MM6 men's outerwear collection",
+                    "children": null
+                  }
+                ]
+              },
+              {
+                "name": "Shoes",
+                "url": "https://www.maisonmargiela.com/wx/mm6/men/shoes/",
+                "reasoning": "MM6 men's footwear collection",
+                "children": [
+                  {
+                    "name": "View All",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/men/shoes/view-all/",
+                    "reasoning": "Complete MM6 men's shoe collection",
+                    "children": null
+                  },
+                  {
+                    "name": "MM6 x Salomon",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/men/shoes/mm6-x-salomon/",
+                    "reasoning": "MM6 x Salomon shoe collaboration for men",
+                    "children": null
+                  },
+                  {
+                    "name": "Boots & ankle boots",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/men/shoes/boots-ankle-boots/",
+                    "reasoning": "MM6 men's boot collection",
+                    "children": null
+                  },
+                  {
+                    "name": "Sneakers",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/men/shoes/sneakers/",
+                    "reasoning": "MM6 men's sneaker collection",
+                    "children": null
+                  },
+                  {
+                    "name": "Flats",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/men/shoes/flats/",
+                    "reasoning": "MM6 men's flat shoe collection",
+                    "children": null
+                  }
+                ]
+              },
+              {
+                "name": "Bags",
+                "url": "https://www.maisonmargiela.com/wx/mm6/men/bags/",
+                "reasoning": "MM6 men's bag collection",
+                "children": [
+                  {
+                    "name": "View All",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/men/bags/view-all/",
+                    "reasoning": "Complete MM6 men's bag collection",
+                    "children": null
+                  },
+                  {
+                    "name": "Japanese Bag",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/men/bags/japanese-bag/",
+                    "reasoning": "MM6 Japanese bag line for men",
+                    "children": null
+                  },
+                  {
+                    "name": "Handbags",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/men/bags/handbags/",
+                    "reasoning": "MM6 men's handbag collection",
+                    "children": null
+                  },
+                  {
+                    "name": "Mini bags",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/men/bags/mini-bags/",
+                    "reasoning": "MM6 men's mini bag collection",
+                    "children": null
+                  }
+                ]
+              },
+              {
+                "name": "Accessories",
+                "url": "https://www.maisonmargiela.com/wx/mm6/men/accessories/",
+                "reasoning": "MM6 men's accessories collection",
+                "children": [
+                  {
+                    "name": "View All",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/men/accessories/view-all/",
+                    "reasoning": "Complete MM6 men's accessories collection",
+                    "children": null
+                  },
+                  {
+                    "name": "Small Leather Goods",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/men/accessories/small-leather-goods/",
+                    "reasoning": "MM6 men's small leather accessories",
+                    "children": null
+                  },
+                  {
+                    "name": "Jewellery",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/men/accessories/jewellery/",
+                    "reasoning": "MM6 men's jewelry collection",
+                    "children": null
+                  },
+                  {
+                    "name": "Other accessories",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/men/accessories/other-accessories/",
+                    "reasoning": "Additional MM6 men's accessories",
+                    "children": null
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "name": "Unisex",
+            "url": null,
+            "reasoning": "Gender-neutral category organizing MM6 unisex products",
+            "children": [
+              {
+                "name": "Featured",
+                "url": null,
+                "reasoning": "Special collections and collaborations for MM6 unisex",
+                "children": [
+                  {
+                    "name": "New Arrivals",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/unisex/featured/new-arrivals/",
+                    "reasoning": "Latest MM6 unisex products",
+                    "children": null
+                  },
+                  {
+                    "name": "MM6 x Salomon",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/unisex/featured/mm6-x-salomon/",
+                    "reasoning": "MM6 collaboration with Salomon for unisex",
+                    "children": null
+                  },
+                  {
+                    "name": "MM6 Spiga",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/unisex/featured/mm6-spiga/",
+                    "reasoning": "MM6 Spiga collection for unisex",
+                    "children": null
+                  },
+                  {
+                    "name": "MM6 x Dr. Martens",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/unisex/featured/mm6-x-dr.-martens/",
+                    "reasoning": "MM6 collaboration with Dr. Martens for unisex",
+                    "children": null
+                  }
+                ]
+              },
+              {
+                "name": "Bags",
+                "url": "https://www.maisonmargiela.com/wx/mm6/unisex/bags/",
+                "reasoning": "MM6 unisex bag collection",
+                "children": [
+                  {
+                    "name": "View All",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/unisex/bags/view-all/",
+                    "reasoning": "Complete MM6 unisex bag collection",
+                    "children": null
+                  },
+                  {
+                    "name": "Japanese Bag",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/unisex/bags/japanese-bag/",
+                    "reasoning": "MM6 Japanese bag line for unisex",
+                    "children": null
+                  },
+                  {
+                    "name": "Handbags",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/unisex/bags/handbags/",
+                    "reasoning": "MM6 unisex handbag collection",
+                    "children": null
+                  },
+                  {
+                    "name": "Mini bags",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/unisex/bags/mini-bags/",
+                    "reasoning": "MM6 unisex mini bag collection",
+                    "children": null
+                  }
+                ]
+              },
+              {
+                "name": "Accessories",
+                "url": "https://www.maisonmargiela.com/wx/mm6/unisex/accessories/",
+                "reasoning": "MM6 unisex accessories collection",
+                "children": [
+                  {
+                    "name": "View All",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/unisex/accessories/view-all/",
+                    "reasoning": "Complete MM6 unisex accessories collection",
+                    "children": null
+                  },
+                  {
+                    "name": "Small Leather Goods",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/unisex/accessories/small-leather-goods/",
+                    "reasoning": "MM6 unisex small leather accessories",
+                    "children": null
+                  },
+                  {
+                    "name": "Jewellery",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/unisex/accessories/jewellery/",
+                    "reasoning": "MM6 unisex jewelry collection",
+                    "children": null
+                  },
+                  {
+                    "name": "Other accessories",
+                    "url": "https://www.maisonmargiela.com/wx/mm6/unisex/accessories/other-accessories/",
+                    "reasoning": "Additional MM6 unisex accessories",
+                    "children": null
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "pattern": {
+      "analysis": "Looking at the HTML structure, I can identify a clear product container pattern. The product is wrapped in a `<div class=\"product\" data-pid=\"S58WU0246P7452HB126\">` which serves as the main container. This div contains all product information including the article element with product details, images, title, and links. The `.product` class with `data-pid` attribute is semantic and reliable for identifying individual product containers. Inside this container, there's an `<article class=\"product-brand mm-product-card -brand-mm\">` that contains the actual product content. For images, they are nested within `.tile-image` classes inside the image container structure. The product name is found in the link with class `.product-link`. The main product link is the anchor tag with href pointing to the product page.",
+      "container_selector": ".product[data-pid]",
+      "image_selector": ".tile-image",
+      "name_selector": ".product-link",
+      "link_selector": "a[href*=\".html\"]",
+      "image_name_extraction": "yes",
+      "alternative_selectors": [
+        ".product-brand",
+        "article.mm-product-card",
+        ".single-element-content",
+        ".mm-product-card"
+      ]
+    },
+    "product_html": "product_html/maison_margiela.html"
+  },
+  "balenciaga": {
+    "name": "Balenciaga",
+    "homepage_url": "https://www.balenciaga.com/en-en",
+    "collections": null,
+    "navigation": [
+      {
+        "name": "Winter 25",
+        "url": "https://www.balenciaga.com/en-en/winter25",
+        "reasoning": "Seasonal collection category with specific products",
+        "children": null
+      },
+      {
+        "name": "Women",
+        "url": null,
+        "reasoning": "Main gender category organizing women's products",
+        "children": [
+          {
+            "name": "Discover",
+            "url": null,
+            "reasoning": "Special collections and collaborations for women",
+            "children": [
+              {
+                "name": "Skiwear",
+                "url": "https://www.balenciaga.com/en-en/women/discover/skiwear-for-women",
+                "reasoning": "Specific seasonal clothing category",
+                "children": null
+              },
+              {
+                "name": "Winter 25",
+                "url": "https://www.balenciaga.com/en-en/winter25/winter-25-women",
+                "reasoning": "Women's seasonal collection",
+                "children": null
+              },
+              {
+                "name": "Balenciaga x Puma",
+                "url": "https://www.balenciaga.com/en-en/women/discover/discover-women-balenciaga-puma-collaboration",
+                "reasoning": "Collaboration collection for women",
+                "children": null
+              },
+              {
+                "name": "Hamptons",
+                "url": "https://www.balenciaga.com/en-en/discover/hamptons-women",
+                "reasoning": "Special collection category",
+                "children": null
+              },
+              {
+                "name": "Britney Spears Series",
+                "url": "https://www.balenciaga.com/en-en/women/discover/discover-britney-spears-series",
+                "reasoning": "Celebrity collaboration collection",
+                "children": null
+              },
+              {
+                "name": "Fall 25",
+                "url": "https://www.balenciaga.com/en-en/fall25/fall-25-women",
+                "reasoning": "Women's seasonal collection",
+                "children": null
+              },
+              {
+                "name": "Ambassador Fanclub Series",
+                "url": "https://www.balenciaga.com/en-en/women/discover/women-discover-ambassador-fanclub-series",
+                "reasoning": "Special series collection",
+                "children": null
+              },
+              {
+                "name": "Scholl Collaboration",
+                "url": "https://www.balenciaga.com/en-en/women/shoes/scholl-women",
+                "reasoning": "Collaboration footwear collection",
+                "children": null
+              },
+              {
+                "name": "Wardrobe Staples",
+                "url": "https://www.balenciaga.com/en-en/discover/wardrobe-staples-women",
+                "reasoning": "Essential pieces collection",
+                "children": null
+              }
+            ]
+          },
+          {
+            "name": "Ready-to-Wear",
+            "url": null,
+            "reasoning": "Main clothing category for women",
+            "children": [
+              {
+                "name": "View All",
+                "url": "https://www.balenciaga.com/en-en/women/ready-to-wear/view-all",
+                "reasoning": "Complete women's clothing collection",
+                "children": null
+              },
+              {
+                "name": "Coats & Jackets",
+                "url": "https://www.balenciaga.com/en-en/women/ready-to-wear/coats-jackets",
+                "reasoning": "Outerwear category",
+                "children": null
+              },
+              {
+                "name": "Sweatshirts",
+                "url": "https://www.balenciaga.com/en-en/women/ready-to-wear/sweatshirts",
+                "reasoning": "Casual wear category",
+                "children": null
+              },
+              {
+                "name": "T-Shirts",
+                "url": "https://www.balenciaga.com/en-en/women/ready-to-wear/t-shirts",
+                "reasoning": "Basic tops category",
+                "children": null
+              },
+              {
+                "name": "Knitwear",
+                "url": "https://www.balenciaga.com/en-en/women/ready-to-wear/knitwear",
+                "reasoning": "Knitted clothing category",
+                "children": null
+              },
+              {
+                "name": "Tops & Shirts",
+                "url": "https://www.balenciaga.com/en-en/women/ready-to-wear/tops-shirts",
+                "reasoning": "Formal and casual tops",
+                "children": null
+              },
+              {
+                "name": "Dresses & Skirts",
+                "url": "https://www.balenciaga.com/en-en/women/ready-to-wear/dresses-skirts",
+                "reasoning": "Feminine clothing category",
+                "children": null
+              },
+              {
+                "name": "Pants",
+                "url": "https://www.balenciaga.com/en-en/women/ready-to-wear/pants",
+                "reasoning": "Bottom wear category",
+                "children": null
+              },
+              {
+                "name": "Denim",
+                "url": "https://www.balenciaga.com/en-en/women/ready-to-wear/women-rtw-denim",
+                "reasoning": "Denim clothing category",
+                "children": null
+              },
+              {
+                "name": "Leather",
+                "url": "https://www.balenciaga.com/en-en/women/ready-to-wear/women-rtw-leather",
+                "reasoning": "Leather clothing category",
+                "children": null
+              },
+              {
+                "name": "Activewear",
+                "url": "https://www.balenciaga.com/en-en/women/ready-to-wear/activewear",
+                "reasoning": "Sports and fitness clothing",
+                "children": null
+              },
+              {
+                "name": "Underwear & Swimwear",
+                "url": "https://www.balenciaga.com/en-en/women/ready-to-wear/underwear-swimwear",
+                "reasoning": "Intimate apparel and swimwear",
+                "children": null
+              },
+              {
+                "name": "Kids",
+                "url": "https://www.balenciaga.com/en-en/women/ready-to-wear/kids_ready-to-wear",
+                "reasoning": "Children's clothing in women's section",
+                "children": null
+              }
+            ]
+          },
+          {
+            "name": "Shoes",
+            "url": null,
+            "reasoning": "Women's footwear category",
+            "children": [
+              {
+                "name": "View All",
+                "url": "https://www.balenciaga.com/en-en/women/shoes/view-all",
+                "reasoning": "Complete women's shoe collection",
+                "children": null
+              },
+              {
+                "name": "Sneakers",
+                "url": "https://www.balenciaga.com/en-en/women/shoes/sneakers",
+                "reasoning": "Casual footwear category",
+                "children": null
+              },
+              {
+                "name": "Boots & Ankle Boots",
+                "url": "https://www.balenciaga.com/en-en/women/shoes/boots-and-ankle-boots",
+                "reasoning": "Boot footwear category",
+                "children": null
+              },
+              {
+                "name": "Pumps & Heels",
+                "url": "https://www.balenciaga.com/en-en/women/shoes/pumps-heels",
+                "reasoning": "Formal footwear category",
+                "children": null
+              },
+              {
+                "name": "Sandals & Mules",
+                "url": "https://www.balenciaga.com/en-en/women/shoes/sandals-mules",
+                "reasoning": "Open footwear category",
+                "children": null
+              },
+              {
+                "name": "Kids Shoes",
+                "url": "https://www.balenciaga.com/en-en/women/shoes/kids_shoes",
+                "reasoning": "Children's footwear in women's section",
+                "children": null
+              },
+              {
+                "name": "City",
+                "url": "https://www.balenciaga.com/en-en/women/shoes/city",
+                "reasoning": "Specific shoe line",
+                "children": null
+              },
+              {
+                "name": "Puma Collaboration",
+                "url": "https://www.balenciaga.com/en-en/women/shoes/women-shoes-puma-collaboration",
+                "reasoning": "Collaboration footwear",
+                "children": null
+              },
+              {
+                "name": "Runner",
+                "url": "https://www.balenciaga.com/en-en/women/shoes/runner",
+                "reasoning": "Running shoe line",
+                "children": null
+              },
+              {
+                "name": "3XL",
+                "url": "https://www.balenciaga.com/en-en/women/shoes/3xl",
+                "reasoning": "Specific sneaker line",
+                "children": null
+              },
+              {
+                "name": "Track",
+                "url": "https://www.balenciaga.com/en-en/women/shoes/track",
+                "reasoning": "Athletic shoe line",
+                "children": null
+              },
+              {
+                "name": "Venom",
+                "url": "https://www.balenciaga.com/en-en/women/shoes/venom",
+                "reasoning": "Specific shoe line",
+                "children": null
+              },
+              {
+                "name": "Strike",
+                "url": "https://www.balenciaga.com/en-en/women/shoes/strike",
+                "reasoning": "Specific shoe line",
+                "children": null
+              },
+              {
+                "name": "Alaska",
+                "url": "https://www.balenciaga.com/en-en/women/shoes/alaska",
+                "reasoning": "Specific shoe line",
+                "children": null
+              }
+            ]
+          },
+          {
+            "name": "Bags",
+            "url": null,
+            "reasoning": "Women's handbag category",
+            "children": [
+              {
+                "name": "View All",
+                "url": "https://www.balenciaga.com/en-en/women/bags/view-all",
+                "reasoning": "Complete women's bag collection",
+                "children": null
+              },
+              {
+                "name": "Handbags",
+                "url": "https://www.balenciaga.com/en-en/women/bags/handbags",
+                "reasoning": "Traditional handbag category",
+                "children": null
+              },
+              {
+                "name": "Shoulder Bags",
+                "url": "https://www.balenciaga.com/en-en/women/bags/shoulder-bags",
+                "reasoning": "Shoulder-carried bags",
+                "children": null
+              },
+              {
+                "name": "Mini Bags",
+                "url": "https://www.balenciaga.com/en-en/women/bags/mini-bags",
+                "reasoning": "Small bag category",
+                "children": null
+              },
+              {
+                "name": "Chain Bags",
+                "url": "https://www.balenciaga.com/en-en/women/bags/chain-bags",
+                "reasoning": "Bags with chain straps",
+                "children": null
+              },
+              {
+                "name": "Tote Bags",
+                "url": "https://www.balenciaga.com/en-en/women/bags/tote-bags",
+                "reasoning": "Large shopping bags",
+                "children": null
+              },
+              {
+                "name": "Bag Charms",
+                "url": "https://www.balenciaga.com/en-en/women/bags/women-bags-charms",
+                "reasoning": "Bag accessories",
+                "children": null
+              },
+              {
+                "name": "Hampton",
+                "url": "https://www.balenciaga.com/en-en/women/discover/hampton-bag",
+                "reasoning": "Specific bag line",
+                "children": null
+              },
+              {
+                "name": "Monaco",
+                "url": "https://www.balenciaga.com/en-en/women/bags/monaco",
+                "reasoning": "Specific bag line",
+                "children": null
+              }
+            ]
+          },
+          {
+            "name": "Small Leather Goods",
+            "url": null,
+            "reasoning": "Women's leather accessories category",
+            "children": [
+              {
+                "name": "View All",
+                "url": "https://www.balenciaga.com/en-en/women/small-leather-goods/view-all",
+                "reasoning": "Complete small leather goods collection",
+                "children": null
+              },
+              {
+                "name": "Wallets on Chain",
+                "url": "https://www.balenciaga.com/en-en/women/small-leather-goods/wallets-on-chain",
+                "reasoning": "Chain wallet category",
+                "children": null
+              },
+              {
+                "name": "Wallets",
+                "url": "https://www.balenciaga.com/en-en/women/small-leather-goods/wallets",
+                "reasoning": "Traditional wallet category",
+                "children": null
+              },
+              {
+                "name": "Card Holders",
+                "url": "https://www.balenciaga.com/en-en/women/small-leather-goods/card-holders",
+                "reasoning": "Card storage accessories",
+                "children": null
+              },
+              {
+                "name": "Clutch & Pouch",
+                "url": "https://www.balenciaga.com/en-en/women/small-leather-goods/clutch-pouch",
+                "reasoning": "Small bag category",
+                "children": null
+              },
+              {
+                "name": "Le City",
+                "url": "https://www.balenciaga.com/en-en/women/small-leather-goods/le-city",
+                "reasoning": "Specific leather goods line",
+                "children": null
+              },
+              {
+                "name": "Rodeo",
+                "url": "https://www.balenciaga.com/en-en/women/small-leather-goods/rodeo",
+                "reasoning": "Specific leather goods line",
+                "children": null
+              },
+              {
+                "name": "Hourglass",
+                "url": "https://www.balenciaga.com/en-en/women/small-leather-goods/hourglass",
+                "reasoning": "Specific leather goods line",
+                "children": null
+              },
+              {
+                "name": "Le Cagole",
+                "url": "https://www.balenciaga.com/en-en/women/small-leather-goods/le-cagole",
+                "reasoning": "Specific leather goods line",
+                "children": null
+              },
+              {
+                "name": "Envelope",
+                "url": "https://www.balenciaga.com/en-en/women/small-leather-goods/envelope",
+                "reasoning": "Specific leather goods line",
+                "children": null
+              },
+              {
+                "name": "Cash",
+                "url": "https://www.balenciaga.com/en-en/women/small-leather-goods/cash",
+                "reasoning": "Specific leather goods line",
+                "children": null
+              },
+              {
+                "name": "Monaco",
+                "url": "https://www.balenciaga.com/en-en/women/small-leather-goods/monaco",
+                "reasoning": "Specific leather goods line",
+                "children": null
+              },
+              {
+                "name": "Crush",
+                "url": "https://www.balenciaga.com/en-en/women/small-leather-goods/crush",
+                "reasoning": "Specific leather goods line",
+                "children": null
+              }
+            ]
+          },
+          {
+            "name": "Accessories",
+            "url": null,
+            "reasoning": "Women's accessories category",
+            "children": [
+              {
+                "name": "View All",
+                "url": "https://www.balenciaga.com/en-en/women/accessories/view-all",
+                "reasoning": "Complete women's accessories collection",
+                "children": null
+              },
+              {
+                "name": "Sunglasses",
+                "url": "https://www.balenciaga.com/en-en/women/accessories/sunglasses",
+                "reasoning": "Eyewear category",
+                "children": null
+              },
+              {
+                "name": "Belts",
+                "url": "https://www.balenciaga.com/en-en/women/accessories/belts",
+                "reasoning": "Belt accessories",
+                "children": null
+              },
+              {
+                "name": "Scarves & Caps",
+                "url": "https://www.balenciaga.com/en-en/women/accessories/scarves-caps",
+                "reasoning": "Head and neck accessories",
+                "children": null
+              },
+              {
+                "name": "Socks",
+                "url": "https://www.balenciaga.com/en-en/women/accessories/socks",
+                "reasoning": "Hosiery category",
+                "children": null
+              },
+              {
+                "name": "Phone Accessories & Keyrings",
+                "url": "https://www.balenciaga.com/en-en/women/accessories/phone-accessories-keyrings",
+                "reasoning": "Tech and key accessories",
+                "children": null
+              },
+              {
+                "name": "Other Accessories",
+                "url": "https://www.balenciaga.com/en-en/women/accessories/other",
+                "reasoning": "Miscellaneous accessories",
+                "children": null
+              },
+              {
+                "name": "Objects",
+                "url": "https://www.balenciaga.com/en-en/women/accessories/women_accessories_objects",
+                "reasoning": "Lifestyle objects and accessories",
+                "children": null
+              },
+              {
+                "name": "Jewelry",
+                "url": "https://www.balenciaga.com/en-en/women/accessories/jewelry",
+                "reasoning": "Jewelry category",
+                "children": null
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "Men",
+        "url": null,
+        "reasoning": "Main gender category organizing men's products",
+        "children": [
+          {
+            "name": "Discover",
+            "url": null,
+            "reasoning": "Special collections and collaborations for men",
+            "children": [
+              {
+                "name": "Skiwear",
+                "url": "https://www.balenciaga.com/en-en/men/discover/skiwear-for-men",
+                "reasoning": "Men's seasonal clothing category",
+                "children": null
+              },
+              {
+                "name": "Winter 25",
+                "url": "https://www.balenciaga.com/en-en/winter25/winter-25-men",
+                "reasoning": "Men's seasonal collection",
+                "children": null
+              },
+              {
+                "name": "Automobili Lamborghini",
+                "url": "https://www.balenciaga.com/en-en/men/discover/discover-men-automobililamborghini",
+                "reasoning": "Collaboration collection",
+                "children": null
+              },
+              {
+                "name": "Fall 25",
+                "url": "https://www.balenciaga.com/en-en/fall25/fall-25-men",
+                "reasoning": "Men's seasonal collection",
+                "children": null
+              },
+              {
+                "name": "Scholl Collaboration",
+                "url": "https://www.balenciaga.com/en-en/men/shoes/scholl",
+                "reasoning": "Collaboration footwear collection",
+                "children": null
+              },
+              {
+                "name": "Basket Series",
+                "url": "https://www.balenciaga.com/en-en/men/discover/discover-men-basketseries",
+                "reasoning": "Special series collection",
+                "children": null
+              }
+            ]
+          },
+          {
+            "name": "Ready-to-Wear",
+            "url": null,
+            "reasoning": "Main clothing category for men",
+            "children": [
+              {
+                "name": "View All",
+                "url": "https://www.balenciaga.com/en-en/men/ready-to-wear/view-all",
+                "reasoning": "Complete men's clothing collection",
+                "children": null
+              },
+              {
+                "name": "Coats & Jackets",
+                "url": "https://www.balenciaga.com/en-en/men/ready-to-wear/coats-jackets",
+                "reasoning": "Men's outerwear category",
+                "children": null
+              },
+              {
+                "name": "Sweatshirts",
+                "url": "https://www.balenciaga.com/en-en/men/ready-to-wear/sweatshirts",
+                "reasoning": "Men's casual wear category",
+                "children": null
+              },
+              {
+                "name": "T-Shirts",
+                "url": "https://www.balenciaga.com/en-en/men/ready-to-wear/t-shirts",
+                "reasoning": "Men's basic tops category",
+                "children": null
+              },
+              {
+                "name": "Knitwear",
+                "url": "https://www.balenciaga.com/en-en/men/ready-to-wear/knitwear",
+                "reasoning": "Men's knitted clothing category",
+                "children": null
+              },
+              {
+                "name": "Tops & Shirts",
+                "url": "https://www.balenciaga.com/en-en/men/ready-to-wear/tops-shirts",
+                "reasoning": "Men's formal and casual tops",
+                "children": null
+              },
+              {
+                "name": "Pants",
+                "url": "https://www.balenciaga.com/en-en/men/ready-to-wear/pants",
+                "reasoning": "Men's bottom wear category",
+                "children": null
+              },
+              {
+                "name": "Denim",
+                "url": "https://www.balenciaga.com/en-en/men/ready-to-wear/men-denim",
+                "reasoning": "Men's denim clothing category",
+                "children": null
+              },
+              {
+                "name": "Activewear",
+                "url": "https://www.balenciaga.com/en-en/men/ready-to-wear/activewear",
+                "reasoning": "Men's sports and fitness clothing",
+                "children": null
+              },
+              {
+                "name": "Underwear & Swimwear",
+                "url": "https://www.balenciaga.com/en-en/men/ready-to-wear/underwear-swimwear",
+                "reasoning": "Men's intimate apparel and swimwear",
+                "children": null
+              },
+              {
+                "name": "Kids",
+                "url": "https://www.balenciaga.com/en-en/men/ready-to-wear/kids_ready-to-wear",
+                "reasoning": "Children's clothing in men's section",
+                "children": null
+              }
+            ]
+          },
+          {
+            "name": "Shoes",
+            "url": null,
+            "reasoning": "Men's footwear category",
+            "children": [
+              {
+                "name": "View All",
+                "url": "https://www.balenciaga.com/en-en/men/shoes/view-all",
+                "reasoning": "Complete men's shoe collection",
+                "children": null
+              },
+              {
+                "name": "Sneakers",
+                "url": "https://www.balenciaga.com/en-en/men/shoes/sneakers",
+                "reasoning": "Men's casual footwear category",
+                "children": null
+              },
+              {
+                "name": "Boots & Derbies",
+                "url": "https://www.balenciaga.com/en-en/men/shoes/boots-derbies",
+                "reasoning": "Men's formal and boot footwear",
+                "children": null
+              },
+              {
+                "name": "Sandals & Mules",
+                "url": "https://www.balenciaga.com/en-en/men/shoes/sandals-mules",
+                "reasoning": "Men's open footwear category",
+                "children": null
+              },
+              {
+                "name": "Kids Shoes",
+                "url": "https://www.balenciaga.com/en-en/men/shoes/men_shoes_kids",
+                "reasoning": "Children's footwear in men's section",
+                "children": null
+              },
+              {
+                "name": "City",
+                "url": "https://www.balenciaga.com/en-en/men/shoes/city",
+                "reasoning": "Specific men's shoe line",
+                "children": null
+              },
+              {
+                "name": "Puma Collaboration",
+                "url": "https://www.balenciaga.com/en-en/men/shoes/men-shoes-puma-collaboration",
+                "reasoning": "Men's collaboration footwear",
+                "children": null
+              },
+              {
+                "name": "Runner",
+                "url": "https://www.balenciaga.com/en-en/men/shoes/runner",
+                "reasoning": "Men's running shoe line",
+                "children": null
+              },
+              {
+                "name": "3XL",
+                "url": "https://www.balenciaga.com/en-en/men/shoes/3xl",
+                "reasoning": "Men's specific sneaker line",
+                "children": null
+              },
+              {
+                "name": "Track",
+                "url": "https://www.balenciaga.com/en-en/men/shoes/track",
+                "reasoning": "Men's athletic shoe line",
+                "children": null
+              },
+              {
+                "name": "Venom",
+                "url": "https://www.balenciaga.com/en-en/men/shoes/venom",
+                "reasoning": "Men's specific shoe line",
+                "children": null
+              },
+              {
+                "name": "Stomper",
+                "url": "https://www.balenciaga.com/en-en/men/shoes/stomper",
+                "reasoning": "Men's specific shoe line",
+                "children": null
+              },
+              {
+                "name": "Strike",
+                "url": "https://www.balenciaga.com/en-en/men/shoes/strike",
+                "reasoning": "Men's specific shoe line",
+                "children": null
+              }
+            ]
+          },
+          {
+            "name": "Bags",
+            "url": null,
+            "reasoning": "Men's bag category",
+            "children": [
+              {
+                "name": "View All",
+                "url": "https://www.balenciaga.com/en-en/men/bags/view-all",
+                "reasoning": "Complete men's bag collection",
+                "children": null
+              },
+              {
+                "name": "Bags & Totes",
+                "url": "https://www.balenciaga.com/en-en/men/bags/bags-and-totes",
+                "reasoning": "Men's handbag and tote category",
+                "children": null
+              },
+              {
+                "name": "Backpacks",
+                "url": "https://www.balenciaga.com/en-en/men/bags/backpacks",
+                "reasoning": "Men's backpack category",
+                "children": null
+              },
+              {
+                "name": "Belt Bags",
+                "url": "https://www.balenciaga.com/en-en/men/bags/beltbags",
+                "reasoning": "Men's waist bag category",
+                "children": null
+              },
+              {
+                "name": "Crossbodies & Messengers",
+                "url": "https://www.balenciaga.com/en-en/men/bags/crossbodies-messengers",
+                "reasoning": "Men's shoulder bag category",
+                "children": null
+              },
+              {
+                "name": "Le City",
+                "url": "https://www.balenciaga.com/en-en/men/bags/le-city",
+                "reasoning": "Men's specific bag line",
+                "children": null
+              },
+              {
+                "name": "Rodeo",
+                "url": "https://www.balenciaga.com/en-en/men/bags/men-rodeo-bags",
+                "reasoning": "Men's specific bag line",
+                "children": null
+              },
+              {
+                "name": "Explorer",
+                "url": "https://www.balenciaga.com/en-en/men/bags/explorer",
+                "reasoning": "Men's specific bag line",
+                "children": null
+              },
+              {
+                "name": "Superbusy",
+                "url": "https://www.balenciaga.com/en-en/men/bags/superbusy",
+                "reasoning": "Men's specific bag line",
+                "children": null
+              }
+            ]
+          },
+          {
+            "name": "Small Leather Goods",
+            "url": null,
+            "reasoning": "Men's leather accessories category",
+            "children": [
+              {
+                "name": "View All",
+                "url": "https://www.balenciaga.com/en-en/men/small-leather-goods/view-all",
+                "reasoning": "Complete men's small leather goods collection",
+                "children": null
+              },
+              {
+                "name": "Wallets",
+                "url": "https://www.balenciaga.com/en-en/men/small-leather-goods/wallets",
+                "reasoning": "Men's wallet category",
+                "children": null
+              },
+              {
+                "name": "Card Holders",
+                "url": "https://www.balenciaga.com/en-en/men/small-leather-goods/card-holders",
+                "reasoning": "Men's card storage accessories",
+                "children": null
+              },
+              {
+                "name": "Clutch & Pouch",
+                "url": "https://www.balenciaga.com/en-en/men/small-leather-goods/clutch-pouch",
+                "reasoning": "Men's small bag category",
+                "children": null
+              },
+              {
+                "name": "Cash",
+                "url": "https://www.balenciaga.com/en-en/men/small-leather-goods/cash",
+                "reasoning": "Men's specific leather goods line",
+                "children": null
+              },
+              {
+                "name": "Monaco",
+                "url": "https://www.balenciaga.com/en-en/men/small-leather-goods/monaco",
+                "reasoning": "Men's specific leather goods line",
+                "children": null
+              },
+              {
+                "name": "Rodeo",
+                "url": "https://www.balenciaga.com/en-en/men/small-leather-goods/men-rodeo-slg",
+                "reasoning": "Men's specific leather goods line",
+                "children": null
+              },
+              {
+                "name": "Passport Holders",
+                "url": "https://www.balenciaga.com/en-en/men/small-leather-goods/passport",
+                "reasoning": "Men's travel accessories",
+                "children": null
+              }
+            ]
+          },
+          {
+            "name": "Accessories",
+            "url": null,
+            "reasoning": "Men's accessories category",
+            "children": [
+              {
+                "name": "View All",
+                "url": "https://www.balenciaga.com/en-en/men/accessories/view-all",
+                "reasoning": "Complete men's accessories collection",
+                "children": null
+              },
+              {
+                "name": "Sunglasses",
+                "url": "https://www.balenciaga.com/en-en/men/accessories/sunglasses",
+                "reasoning": "Men's eyewear category",
+                "children": null
+              },
+              {
+                "name": "Belts",
+                "url": "https://www.balenciaga.com/en-en/men/accessories/belts",
+                "reasoning": "Men's belt accessories",
+                "children": null
+              },
+              {
+                "name": "Scarves & Caps",
+                "url": "https://www.balenciaga.com/en-en/men/accessories/scarves-caps",
+                "reasoning": "Men's head and neck accessories",
+                "children": null
+              },
+              {
+                "name": "Socks",
+                "url": "https://www.balenciaga.com/en-en/men/accessories/socks",
+                "reasoning": "Men's hosiery category",
+                "children": null
+              },
+              {
+                "name": "Phone Accessories & Keyrings",
+                "url": "https://www.balenciaga.com/en-en/men/accessories/phone-accessories-keyrings",
+                "reasoning": "Men's tech and key accessories",
+                "children": null
+              },
+              {
+                "name": "Objects",
+                "url": "https://www.balenciaga.com/en-en/men/accessories/men_accessories_objects",
+                "reasoning": "Men's lifestyle objects and accessories",
+                "children": null
+              },
+              {
+                "name": "Jewelry",
+                "url": "https://www.balenciaga.com/en-en/men/accessories/jewelry",
+                "reasoning": "Men's jewelry category",
+                "children": null
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "Bags",
+        "url": null,
+        "reasoning": "Main bags category organizing by specific bag lines",
+        "children": [
+          {
+            "name": "All Bags",
+            "url": "https://www.balenciaga.com/en-en/bags/view-all",
+            "reasoning": "Complete bag collection across all categories",
+            "children": null
+          },
+          {
+            "name": "Le City",
+            "url": "https://www.balenciaga.com/en-en/women/bags/le-city",
+            "reasoning": "Iconic bag line",
+            "children": null
+          },
+          {
+            "name": "Rodeo",
+            "url": "https://www.balenciaga.com/en-en/women/bags/rodeo",
+            "reasoning": "Specific bag line",
+            "children": null
+          },
+          {
+            "name": "Bel Air",
+            "url": "https://www.balenciaga.com/en-en/women/bags/bel-air",
+            "reasoning": "Specific bag line",
+            "children": null
+          },
+          {
+            "name": "Carrie",
+            "url": "https://www.balenciaga.com/en-en/women/bags/carrie",
+            "reasoning": "Specific bag line",
+            "children": null
+          },
+          {
+            "name": "Le Cagole",
+            "url": "https://www.balenciaga.com/en-en/women/bags/le-cagole",
+            "reasoning": "Specific bag line",
+            "children": null
+          },
+          {
+            "name": "Hourglass",
+            "url": "https://www.balenciaga.com/en-en/women/bags/hourglass",
+            "reasoning": "Specific bag line",
+            "children": null
+          }
+        ]
+      },
+      {
+        "name": "Fragrance",
+        "url": "https://www.balenciaga.com/en-en/fragrance",
+        "reasoning": "Perfume and fragrance category",
+        "children": null
+      },
+      {
+        "name": "Couture",
+        "url": "https://www.balenciaga.com/en-en/couture",
+        "reasoning": "High-end couture collection",
+        "children": null
+      },
+      {
+        "name": "Gifts",
+        "url": null,
+        "reasoning": "Gift category organized by recipient",
+        "children": [
+          {
+            "name": "For Women",
+            "url": null,
+            "reasoning": "Women's gift category",
+            "children": [
+              {
+                "name": "Bags",
+                "url": "https://www.balenciaga.com/en-en/gifts/for-women/gifts_women_bags",
+                "reasoning": "Women's gift bags",
+                "children": null
+              },
+              {
+                "name": "Jewelry",
+                "url": "https://www.balenciaga.com/en-en/women/accessories/jewelry",
+                "reasoning": "Women's gift jewelry",
+                "children": null
+              },
+              {
+                "name": "Accessories",
+                "url": "https://www.balenciaga.com/en-en/gifts/for-women/gifts-women-accessories",
+                "reasoning": "Women's gift accessories",
+                "children": null
+              }
+            ]
+          },
+          {
+            "name": "For Men",
+            "url": null,
+            "reasoning": "Men's gift category",
+            "children": [
+              {
+                "name": "Bags",
+                "url": "https://www.balenciaga.com/en-en/gifts/for-men/gifts_men_bags",
+                "reasoning": "Men's gift bags",
+                "children": null
+              },
+              {
+                "name": "Jewelry",
+                "url": "https://www.balenciaga.com/en-en/men/accessories/jewelry",
+                "reasoning": "Men's gift jewelry",
+                "children": null
+              },
+              {
+                "name": "Accessories",
+                "url": "https://www.balenciaga.com/en-en/gifts/for-men/gifts-men-accessories",
+                "reasoning": "Men's gift accessories",
+                "children": null
+              }
+            ]
+          },
+          {
+            "name": "For Kids",
+            "url": "https://www.balenciaga.com/en-en/gifts/for-kids",
+            "reasoning": "Children's gift category",
+            "children": null
+          },
+          {
+            "name": "Home",
+            "url": "https://www.balenciaga.com/en-en/gifts/gift-home",
+            "reasoning": "Home and lifestyle gifts",
+            "children": null
+          },
+          {
+            "name": "Personalization",
+            "url": "https://www.balenciaga.com/en-en/gifts/personalization",
+            "reasoning": "Customizable gift options",
+            "children": null
+          }
+        ]
+      }
+    ],
+    "pattern": {
+      "analysis": "Looking at the HTML structure, I can see this is a Balenciaga product listing page. The core product container is an `<article>` element with class `c-product`. This element contains all the essential product information including images, product name, sizes, and links. The article element uses semantic HTML and has a clear BEM-style class naming convention. Within this container, there's a main product link with class `c-product__focus` that contains the image slider and product information. The product name is found in an h2 element with class `c-product__name`. Images are contained within the slider structure using class `c-product__image`. The image URLs contain the product code (845978WBDH09320) but not human-readable product names.",
+      "container_selector": "article.c-product",
+      "image_selector": ".c-product__image",
+      "name_selector": ".c-product__name",
+      "link_selector": ".c-product__focus",
+      "image_name_extraction": "no",
+      "alternative_selectors": [
+        ".c-product",
+        "article[itemtype*='Product']",
+        ".l-productgrid__item article",
+        "[data-pid]"
+      ]
+    },
+    "product_html": "product_html/balenciaga.html"
+  }
+}
