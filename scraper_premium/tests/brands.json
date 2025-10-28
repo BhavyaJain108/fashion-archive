@@ -147,18 +147,25 @@
       }
     ],
     "pattern": {
-      "analysis": "Looking at the HTML structure, I can see a slider section with bestseller products. Each product is contained within a 'swiper-slide' div that holds a complete product unit with link, image, and alt text. The structure shows: swiper-slide > a.slider-product-card > img. The 'swiper-slide' class represents the core container for each individual product in this slider layout. While 'slider-product-card' is more semantic, it's the anchor tag which is the link itself, not the container. The 'swiper-slide' is the actual container that would be present across different slider implementations and provides the boundary for each product unit.",
-      "container_selector": ".swiper-slide",
-      "image_selector": "img",
-      "name_selector": null,
-      "link_selector": "a",
+      "analysis": "Analyzing the three product examples, I can see each product is contained within an `x-cell` element with multiple specific classes and attributes. All products share the classes 'swiper-slide pro-card' and have the attribute 'prod-instock=\"true\"'. They also have data-gender attributes (mens/womens) and data-left-image attributes. This combination provides maximum specificity. For images, all products have a .card-image container with .primary div containing the main product image. Product names are consistently found in h2.card-title elements with links. The product links appear in multiple locations but the most reliable is within the .card-title h2 element. Image URLs contain meaningful product identifiers that could be used for name extraction as fallback.",
+      "container_selector": "x-cell.swiper-slide.pro-card[prod-instock=\"true\"]",
+      "image_selector": ".card-image .primary picture img",
+      "name_selector": "h2.card-title a",
+      "link_selector": "h2.card-title a",
       "image_name_extraction": "yes",
       "alternative_selectors": [
-        ".slider-product-card",
-        "a[href*='/products/']"
+        "x-cell.pro-card",
+        ".swiper-slide.pro-card",
+        "x-cell[prod-instock]",
+        ".card-image a",
+        ".card-meta h2 a"
       ]
     },
-    "product_html": "product_html/gullylabs.html"
+    "product_html": "product_html/gullylabs.html",
+    "scroll_test": [
+      "https://gullylabs.com/collections/best-sellers",
+      15
+    ]
   },
   "entire_studios": {
     "name": "Entire Studios",
@@ -223,7 +230,11 @@
         ".es-product-info"
       ]
     },
-    "product_html": "product_html/entire_studios.html"
+    "product_html": "product_html/entire_studios.html",
+    "scroll_test": [
+      "https://www.entirestudios.com/collection/aw25/tag:aw25main",
+      161
+    ]
   },
   "jukuhara": {
     "name": "Jukuhara",
@@ -275,19 +286,24 @@
       }
     ],
     "pattern": {
-      "analysis": "Looking at the HTML structure, I can see multiple product containers using custom elements. Each product is contained within an `<x-cell>` element that has a `prod-instock` attribute (either 'true' or 'false'). This custom element contains all the product information including the card-image div with product images, card-meta with product details, titles, prices, and links. The `prod-instock` attribute is a strong semantic indicator that these x-cell elements specifically represent product containers. Each container has a complete product structure with .card-image containing the product images and links, and .card-meta containing the product title, vendor, and price information. The product links are found in multiple places within each container - both in the image area and in the title area.",
+      "analysis": "All three products are contained within `x-cell` custom elements that have a `prod-instock` attribute (either 'true' or 'false'). This combination provides excellent specificity as custom elements are uncommon and the data attribute is product-specific. Each product has a consistent structure: card-image div containing product links and images, followed by card-meta containing product information. The product names are consistently found in h2 elements with class 'card-title h4', and the main product links are in the card-image section with class 'no-style' and tabindex='-1'. Images are within picture elements in the primary div. This structure is identical across all three products, making the selectors highly reliable.",
       "container_selector": "x-cell[prod-instock]",
-      "image_selector": ".card-image img",
-      "name_selector": ".card-title a",
-      "link_selector": ".card-image a",
+      "image_selector": ".card-image .primary picture img",
+      "name_selector": ".card-meta .card-title.h4 a",
+      "link_selector": ".card-image a.no-style[tabindex='-1']",
       "image_name_extraction": "yes",
       "alternative_selectors": [
         "x-cell",
         ".card-image",
-        ".card-meta"
+        "x-cell[class='']",
+        ".card-meta .card-title a"
       ]
     },
-    "product_html": "product_html/jukuhara.html"
+    "product_html": "product_html/jukuhara.html",
+    "scroll_test": [
+      "https://jukuhara.jp/collections/t-shirts-compressions",
+      22
+    ]
   },
   "kuurth": {
     "name": "Kuurth",
@@ -392,19 +408,24 @@
       }
     ],
     "pattern": {
-      "analysis": "Looking at the HTML structure, I can see two product containers in a grid layout. Each product is contained within an `<li>` element with classes 'col-span-2 lg:col-span-4 bg-scheme-background text-scheme-text'. Inside each li, there's a div with the class 'type-product-grid-item' that contains all the product information including image, name, price, and product link. The 'type-product-grid-item' class is semantic and specifically identifies product grid items, making it the most reliable selector. This class appears to be part of a consistent product display system and would work across different page layouts. The container includes a product link (a tag with href to product page), product images, product name, and price information - all the essential product data.",
-      "container_selector": ".type-product-grid-item",
-      "image_selector": "img[alt*='Vigil'], img[src*='kuurth.com/cdn/shop/files/']",
-      "name_selector": "a .sr-only",
-      "link_selector": "a[href*='/products/']",
-      "image_name_extraction": "yes",
+      "analysis": "Analyzing the three product examples, I can identify a highly specific pattern. Each product is contained within a list item with classes 'col-span-2 lg:col-span-4 bg-scheme-background text-scheme-text'. Inside each li, there's a div with the highly specific combination 'group relative flex h-full flex-col text-center hover:text-scheme-accent type-product-grid-item'. The 'type-product-grid-item' class is particularly semantic and product-specific. Each container also has a data-color-scheme attribute set to 'scheme1'. For maximum specificity, I'm combining the semantic class 'type-product-grid-item' with layout classes and the data attribute. Within each container: the product link uses 'absolute inset-0 z-10' classes, the main product image is within 'image-with-placeholder' elements with specific classes 'peer/image block absolute inset-0 w-full h-full object-contain is-complete', and product names are in paragraph elements with 'aria-hidden=\"true\"' within the pricing section. The image URLs contain meaningful product identifiers but not clean extractable names.",
+      "container_selector": "div.group.relative.flex.h-full.flex-col.text-center.hover\\:text-scheme-accent.type-product-grid-item[data-color-scheme=\"scheme1\"]",
+      "image_selector": "image-with-placeholder img.peer\\/image.block.absolute.inset-0.w-full.h-full.object-contain.is-complete",
+      "name_selector": "div.justify-between.py-4.px-section-horizontal-spacing.flex div.text-left.w-3\\/5.break-word p[aria-hidden=\"true\"]",
+      "link_selector": "a.absolute.inset-0.z-10",
+      "image_name_extraction": "no",
       "alternative_selectors": [
-        "li.col-span-2",
-        ".group.relative.flex",
-        "li[class*='col-span']"
+        "li.col-span-2.lg\\:col-span-4.bg-scheme-background.text-scheme-text",
+        "div.type-product-grid-item",
+        "div.group.relative.flex",
+        "a[href*=\"/products/\"]"
       ]
     },
-    "product_html": "product_html/kuurth.html"
+    "product_html": "product_html/kuurth.html",
+    "scroll_test": [
+      "https://kuurth.com/collections/rings",
+      151
+    ]
   },
   "pool_house_new_york": {
     "name": "Pool House New York",
@@ -575,7 +596,11 @@
         "li.column product-card"
       ]
     },
-    "product_html": "product_html/pool_house_new_york.html"
+    "product_html": "product_html/pool_house_new_york.html",
+    "scroll_test": [
+      "https://poolhousenewyork.com/collections/mens-t-shirts",
+      111
+    ]
   },
   "bluorng": {
     "name": "Bluorng",
@@ -827,7 +852,11 @@
         ".card__inner"
       ]
     },
-    "product_html": "product_html/bluorng.html"
+    "product_html": "product_html/bluorng.html",
+    "scroll_test": [
+      "https://bluorng.com/collections/shirts-unisex",
+      40
+    ]
   },
   "scuffers": {
     "name": "Scuffers",
@@ -1251,20 +1280,25 @@
       }
     ],
     "pattern": {
-      "analysis": "Looking at the HTML structure, I can identify two distinct product containers. The first appears to be for a 'NINA CAMO TOP' and the second is for 'BODEGA BROWN HOODIE' (which matches our target product link). Both products share the same container structure with class 'product-block cc-product-block'. This class appears to be the semantic container that holds all product information including images, links, titles, and prices. The structure shows: 1) A main container with 'product-block cc-product-block' classes, 2) Inner content wrapped in 'product-block__inner', 3) Product links with href to product pages, 4) Images within swiper containers or rimage wrappers, 5) Product titles with class 'ProductBlock__Title'. The 'product-block' class is semantic and specifically designed for product containers, making it more reliable than layout classes like 'column' or 'filter-vip'.",
-      "container_selector": ".product-block.cc-product-block",
-      "image_selector": ".rimage__image",
-      "name_selector": ".ProductBlock__Title",
+      "analysis": "Analyzing the three product examples, I can identify a highly specific pattern. Each product is contained within a div with multiple specific classes: 'filter-vip', 'product-block', 'cc-product-block', 'hover-image', 'product-block--quickbuy', 'column', 'quintin', and 'cc-initialized'. All products also have a 'data-tags' attribute containing product metadata. This combination provides maximum specificity. Within each container, there's a consistent structure: product links are 'a' elements with 'href' attributes pointing to product pages, images are found within '.rimage__image' elements (with lazyload classes), and product names are in '.title.ProductBlock__Title' spans. The data-tags attribute adds crucial product-specific identification, and the combination of all these classes ensures we're targeting actual product blocks rather than other page elements.",
+      "container_selector": "div.filter-vip.product-block.cc-product-block.hover-image.product-block--quickbuy.column.quintin.cc-initialized[data-tags]",
+      "image_selector": "img.rimage__image.lazyload",
+      "name_selector": "span.title.ProductBlock__Title",
       "link_selector": "a[href*='/products/']",
       "image_name_extraction": "yes",
       "alternative_selectors": [
-        ".product-block__inner",
-        ".filter-vip.product-block",
-        ".column.quintin",
-        "[data-tags]"
+        "div.product-block",
+        "div.cc-product-block",
+        "div.filter-vip",
+        "div.product-block.cc-product-block",
+        "div[data-tags]"
       ]
     },
-    "product_html": "product_html/scuffers.html"
+    "product_html": "product_html/scuffers.html",
+    "scroll_test": [
+      "https://scuffers.com/collections/new",
+      57
+    ]
   },
   "jacquemus": {
     "name": "Jacquemus",
@@ -1272,7 +1306,11 @@
     "collections": null,
     "navigation": [],
     "pattern": null,
-    "product_html": "product_html/jacquemus.html"
+    "product_html": "product_html/jacquemus.html",
+    "scroll_test": [
+      "",
+      null
+    ]
   },
   "maison_margiela": {
     "name": "Maison Margiela",
@@ -2344,20 +2382,24 @@
       }
     ],
     "pattern": {
-      "analysis": "Looking at the HTML structure, I can identify a clear product container pattern. The product is wrapped in a `<div class=\"product\" data-pid=\"S58WU0246P7452HB126\">` which serves as the main container. This div contains all product information including the article element with product details, images, title, and links. The `.product` class with `data-pid` attribute is semantic and reliable for identifying individual product containers. Inside this container, there's an `<article class=\"product-brand mm-product-card -brand-mm\">` that contains the actual product content. For images, they are nested within `.tile-image` classes inside the image container structure. The product name is found in the link with class `.product-link`. The main product link is the anchor tag with href pointing to the product page.",
-      "container_selector": ".product[data-pid]",
-      "image_selector": ".tile-image",
-      "name_selector": ".product-link",
-      "link_selector": "a[href*=\".html\"]",
+      "analysis": "All three products share a consistent structure within `article.product-brand.mm-product-card.-brand-mm` containers. Each product has a main product link with class `single-element-content-image` containing the product images, and a separate product name link with classes `product-link mm-product-card__title product-card-title`. The products have unique data attributes like `data-tile-id` and `data-master-id` on their containers. For maximum specificity, I'm combining the semantic classes (product-brand, mm-product-card) with the brand-specific class (-brand-mm) to create highly discriminating selectors. The image selector targets the first image within the mouseover container, and the name selector uses the specific combination of product-link classes that are unique to product titles.",
+      "container_selector": "article.product-brand.mm-product-card.-brand-mm",
+      "image_selector": ".mm-product-card__hero__default .tile-image.first-image",
+      "name_selector": "a.product-link.mm-product-card__title.product-card-title",
+      "link_selector": "a.single-element-content-image",
       "image_name_extraction": "yes",
       "alternative_selectors": [
-        ".product-brand",
         "article.mm-product-card",
-        ".single-element-content",
-        ".mm-product-card"
+        ".single-element-content.product-tile",
+        ".product-brand",
+        "div.product"
       ]
     },
-    "product_html": "product_html/maison_margiela.html"
+    "product_html": "product_html/maison_margiela.html",
+    "scroll_test": [
+      "https://www.maisonmargiela.com/wx/maison-margiela/women/featured/new-arrivals/",
+      60
+    ]
   },
   "balenciaga": {
     "name": "Balenciaga",
@@ -3351,6 +3393,10 @@
         "[data-pid]"
       ]
     },
-    "product_html": "product_html/balenciaga.html"
+    "product_html": "product_html/balenciaga.html",
+    "scroll_test": [
+      "https://www.balenciaga.com/en-en/men/shoes/sneakers",
+      116
+    ]
   }
 }

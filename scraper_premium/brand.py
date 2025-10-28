@@ -22,6 +22,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, current_dir)
 
 from llm_handler import LLMHandler
+from prompts import PromptManager
 from product import Product
 from image_downloader import ImageDownloader
 
@@ -87,11 +88,11 @@ class Brand:
             all_links = self.extract_page_links(first_page_url)
             # Links extracted
             
-            product_link = self._find_product_link(all_links, first_page_url)
+            product_links = self._find_product_links(all_links, first_page_url)
             
-            if not product_link:
-                print(f"❌ LLM failed to identify product link from {len(all_links)} links")
-                raise Exception(f"No valid product link found {all_links}")
+            if not product_links:
+                print(f"❌ LLM failed to identify product links from {len(all_links)} links")
+                raise Exception(f"No valid product links found {all_links}")
             
             # Product link found
             
@@ -100,8 +101,8 @@ class Brand:
             if not html_content:
                 raise Exception("Failed to fetch HTML content")
             
-            # Step 2: Analyze pattern around that specific link
-            pattern_analysis = self._analyze_link_pattern(html_content, product_link, first_page_url)
+            # Step 2: Analyze pattern around multiple product links
+            pattern_analysis = self._analyze_link_pattern(html_content, product_links, first_page_url)
             
             if not pattern_analysis:
                 raise Exception("Failed to analyze link pattern")
@@ -205,7 +206,7 @@ If no pagination:
 """.strip()
         
         try:
-            llm_response = self.llm_handler.call(prompt, expected_format="json")
+            llm_response = self.llm_handler.call(prompt, expected_format="json", response_model=PaginationAnalysis)
             
             if llm_response.get("success", False):
                 data = llm_response.get("data", {})
@@ -385,134 +386,198 @@ If no pagination:
         unique_links = sorted(list(set(filtered_links)))
         return unique_links
     
-    def _find_product_link(self, all_links: List[str], base_url: str) -> str:
+    def extract_page_links_with_context(self, url: str) -> List[dict]:
         """
-        Step 1: Use LLM to identify one valid product link from all page links
+        Extract all links from a page with their HTML context.
+        
+        Args:
+            url: The URL to extract links from
+            
+        Returns:
+            List of dicts with keys: url, text, context, parent_tag, classes
         """
-        # Format links for prompt - give it ALL links
-        links_text = "\n".join(f"- {link}" for link in all_links)
+        from bs4 import BeautifulSoup
         
-        # Debug: print link count only
-        # Sending links to LLM
+        html_content = self.get_page_html(url)
+        if not html_content:
+            return []
         
-        prompt = f"""
-Find ONE link that leads to a product page from this fashion website.
-
-Website: {base_url}
-All links found:
-{links_text}
-
-Return the ONE best product link that leads to an individual clothing/fashion item.
-Exclude: collections, categories, about pages, contact, search, account, blog.
-
-Return only the URL, nothing else.
-""".strip()
+        soup = BeautifulSoup(html_content, 'html.parser')
+        links_with_context = []
         
-        # Use Sonnet 3.5 for quality
+        # Find all anchor tags and track position
+        for position_index, a_tag in enumerate(soup.find_all('a', href=True)):
+            href = a_tag.get('href', '')
+            
+            # Skip empty, javascript, mailto, tel, and anchor links
+            if not href or href.startswith(('#', 'javascript:', 'mailto:', 'tel:')):
+                continue
+            
+            # Convert relative URLs to absolute
+            if href.startswith('/'):
+                href = urljoin(url, href)
+            elif not href.startswith('http'):
+                continue  # Skip relative paths without leading slash
+            
+            # Only include links from the same domain
+            base_domain = f"{urlparse(url).scheme}://{urlparse(url).netloc}"
+            if not (href.startswith(base_domain) or href.startswith('/')):
+                continue
+            
+            # Update the href in the tag to be absolute for the full_element
+            original_href = a_tag.get('href')
+            a_tag['href'] = href  # Set to absolute URL
+            
+            # Extract essential information
+            link_info = {
+                'url': href,
+                'position_index': position_index,
+                'full_element': str(a_tag)[:200] + '...' if len(str(a_tag)) > 200 else str(a_tag)
+            }
+            
+            # Restore original href to not modify the soup
+            a_tag['href'] = original_href
+            
+            links_with_context.append(link_info)
+        
+        # Remove duplicates by URL while keeping the first occurrence
+        seen_urls = set()
+        unique_links = []
+        for link_info in links_with_context:
+            if link_info['url'] not in seen_urls:
+                seen_urls.add(link_info['url'])
+                unique_links.append(link_info)
+        
+        return unique_links
+    
+    def _get_context_snippet(self, element, max_length=100):
+        """Get a snippet of text context around an element"""
+        # Get text from parent or surrounding elements
+        parent = element.parent
+        if parent:
+            parent_text = parent.get_text(strip=True)
+            # Find the position of our element's text in parent
+            element_text = element.get_text(strip=True)
+            if element_text and element_text in parent_text:
+                start = parent_text.find(element_text)
+                # Get some context before and after
+                context_start = max(0, start - 30)
+                context_end = min(len(parent_text), start + len(element_text) + 30)
+                context = parent_text[context_start:context_end]
+                if len(context) > max_length:
+                    context = context[:max_length] + '...'
+                return context
+        
+        return element.get_text(strip=True)[:max_length]
+    
+    def _find_product_links(self, all_links: List[str], page_url: str) -> List[str]:
+        """
+        Step 1: Use LLM to identify up to 3 valid product links from all page links
+        """
+        from prompts.product_link_finder import get_prompt, get_response_model
+        
+        # Use structured prompt from prompts module
+        prompt = get_prompt(page_url, all_links)
+        
+        # Try structured output first
+        llm_response = self.llm_handler.call(prompt, expected_format="json", response_model=get_response_model())
+        
+        if llm_response.get("success", False):
+            data = llm_response.get("data", {})
+            product_urls = data.get("product_urls", [])
+            
+            # Validate URLs exist in the original links
+            valid_urls = []
+            for url in product_urls:
+                if url in all_links:
+                    valid_urls.append(url)
+            
+            if valid_urls:
+                print(f"🔗 Found {len(valid_urls)} product links for pattern analysis")
+                return valid_urls
+        
+        # Fallback to text response if structured fails
         llm_response = self.llm_handler.call(prompt, expected_format="text")
-        
-        # LLM response received
         
         if llm_response.get("success", False):
             response_text = llm_response.get("response", "").strip()
-            # Extract URL from response - find exact match or best match
-            
-            # First try exact match
+            # Extract URLs from response
+            found_urls = []
             for link in all_links:
-                if link == response_text:
-                    # Exact match found
-                    return link
+                if link in response_text and link not in found_urls:
+                    found_urls.append(link)
+                    if len(found_urls) >= 3:  # Limit to 3
+                        break
             
-            # Then try if response contains the link
-            for link in all_links:
-                if response_text in link:
-                    print(f"✅ Response contained in link: {link}")
-                    return link
-                    
-            # Finally try if link is in response (but prioritize longer/more specific links)
-            best_match = ""
-            for link in all_links:
-                if link in response_text and len(link) > len(best_match):
-                    best_match = link
-            
-            if best_match:
-                print(f"✅ Best match found: {best_match}")
-                return best_match
-            
-            print(f"❌ No link matched in response: {response_text}")
+            if found_urls:
+                print(f"🔗 Fallback found {len(found_urls)} product links")
+                return found_urls
         
-        return ""
+        print(f"❌ No product links found")
+        return []
     
-    def _analyze_link_pattern(self, html_content: str, product_link: str, base_url: str) -> dict:
+    def _analyze_link_pattern(self, html_content: str, product_links: List[str], base_url: str) -> dict:
         """
-        Step 2: Analyze HTML around the specific product link to find container pattern
+        Step 2: Analyze HTML around multiple product links to find container pattern
         """
-        # Extract the product path from the full URL
-        from urllib.parse import urlparse
-        parsed_link = urlparse(product_link)
-        link_path = parsed_link.path
-        
-        # Find surrounding HTML context (search for the href in HTML)
+        # Extract HTML contexts for all product links
         import re
-        # Look for the actual <a> tag with this href
-        href_pattern = rf'<a[^>]*href="{re.escape(link_path)}"[^>]*>.*?</a>'
-        match = re.search(href_pattern, html_content, re.DOTALL | re.IGNORECASE)
+        from urllib.parse import urlparse
         
-        if not match:
-            # Try with relative href
-            href_pattern = rf'<a[^>]*href="{re.escape(product_link)}"[^>]*>.*?</a>'
+        product_contexts = []
+        
+        for product_link in product_links:
+            # Extract the product path from the full URL
+            parsed_link = urlparse(product_link)
+            link_path = parsed_link.path
+            
+            # Find surrounding HTML context (search for the href in HTML)
+            # Look for the actual <a> tag with this href
+            href_pattern = rf'<a[^>]*href="{re.escape(link_path)}"[^>]*>.*?</a>'
             match = re.search(href_pattern, html_content, re.DOTALL | re.IGNORECASE)
+            
+            if not match:
+                # Try with relative href
+                href_pattern = rf'<a[^>]*href="{re.escape(product_link)}"[^>]*>.*?</a>'
+                match = re.search(href_pattern, html_content, re.DOTALL | re.IGNORECASE)
+            
+            if match:
+                # Extract context around the match (3000 chars before and after)
+                match_start = match.start()
+                context_start = max(0, match_start - 3750)
+                context_end = min(len(html_content), match.end() + 3000)
+                context_html = html_content[context_start:context_end]
+                product_contexts.append((product_link, context_html))
         
-        if not match:
+        if not product_contexts:
             return {}
         
-        # Get 2000 characters before and after the match for context
-        match_start = match.start()
-        context_start = max(0, match_start - 2500)
-        context_end = min(len(html_content), match.end() + 2500)
-        context_html = html_content[context_start:context_end]
+        # Use updated prompt that handles multiple product contexts
+        from prompts.product_pattern_analysis import get_prompt, get_response_model
         
-        prompt = f"""
-Analyze this HTML containing a product link and identify the container pattern in a way that will help code based extraction
-
-Product Link: {product_link}
-HTML Context:
-{context_html}
-
-Find the HTML structure around the product link and return:
-1. What element contains/wraps the product link? 
-2. CSS selectors that would help to find all similar product containers
-3. CSS selectors that would help to find images, names, links within each similar product container
-
-IMPORTANT EXTRACTION STRATEGY:
-- PRIMARY: Extract product names from image URLs/filenames when possible (e.g., "red-wool-sweater.jpg" → "Red Wool Sweater")
-- FALLBACK: Use CSS selectors for name extraction only when image URLs don't contain meaningful names
-- The image_selector is CRITICAL as it's the primary source for product names
-
-IMPORTANT: The container_selector should match ALL products on the page, not just this specific one. Remove any attributes related to stock status, availability, pricing, or other filtering conditions. Keep structural classes that identify the container type, but remove filtering attributes.
-
-Example: If you find a product in <x-cell prod-instock="true" class="product-card">, return "x-cell.product-card" as the container_selector, NOT "x-cell[prod-instock='true']".
-
-Analyze the image sources in the HTML context - do they contain meaningful product names that could be extracted? Include this assessment in your pattern analysis.
-
-Return JSON:
-{{
-    "container_selector": "CSS selector for product containers",
-    "image_selector": "CSS selector for images within container", 
-    "name_selector": "CSS selector for names within container (fallback only)",
-    "link_selector": "CSS selector for product links within container",
-    "image_name_extraction": "yes|no - whether image URLs contain extractable product names"
-}}
-""".strip()
         
-        # Use Haiku for speed
-        llm_response = self.llm_handler.call(prompt, expected_format="json")
+        # Debug: Log the product contexts being analyzed
+        print(f"📄 Analyzing {len(product_contexts)} product contexts")
+        for i, (link, context) in enumerate(product_contexts, 1):
+            print(f"🔗 Product {i}: {link}")
+            print(f"📏 Context length: {len(context)} characters")
+        
+        # Use Haiku for speed with structured output
+        prompt = get_prompt(product_contexts)
+        llm_response = self.llm_handler.call(prompt, expected_format="json", response_model=get_response_model())
         
         if llm_response.get("success", False):
             data = llm_response.get("data", {})
             if data and "container_selector" in data:
-                # Pattern extracted successfully - now extract actual sample data
-                sample_product = self._extract_sample_product(html_content, data, product_link, base_url)
+                # Log LLM's reasoning for debugging
+                print(f"🧠 LLM Analysis: {data.get('analysis', 'No reasoning provided')}")
+                print(f"🎯 Chosen Selector: {data.get('container_selector')}")
+                if data.get('alternative_selectors'):
+                    print(f"🔍 Alternatives Considered: {', '.join(data.get('alternative_selectors', []))}")
+                
+                # Pattern extracted successfully - now extract actual sample data using first product
+                first_product_link = product_links[0]
+                sample_product = self._extract_sample_product(html_content, data, first_product_link, base_url)
                 
                 return {
                     "extraction_pattern": data,
@@ -521,6 +586,8 @@ Return JSON:
             else:
                 # LLM succeeded but didn't provide valid pattern
                 print(f"⚠️  LLM response missing required selectors:")
+                print(f"📋 Raw LLM response: {llm_response}")
+                print(f"📋 Parsed data: {data}")
                 # Raw response data available
                 return {"error": "Missing required CSS selectors", "partial_data": data}
         else:

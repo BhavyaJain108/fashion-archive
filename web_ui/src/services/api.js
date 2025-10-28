@@ -69,7 +69,7 @@ class FashionArchiveAPI {
     return `${this.BASE_URL}/api/video?path=${encodeURIComponent(videoPath)}`;
   }
 
-  // Clean up downloads (matches tkinter cleanup_previous_downloads)
+  // Clean up cache (matches tkinter cleanup_previous_downloads)
   static async cleanupDownloads() {
     const response = await this.callPython('/api/cleanup');
     return response.success;

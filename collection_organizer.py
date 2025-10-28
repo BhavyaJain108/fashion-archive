@@ -500,8 +500,8 @@ class CollectionOrganizer:
     
     def generate_folder_name(self, collection: CollectionInfo) -> str:
         """Generate a clean folder name for the collection."""
-        # Always return 'downloads' to prevent renaming
-        return "downloads"
+        # Always return 'images' to prevent renaming (now in cache structure)
+        return "images"
         
         # Original code commented out:
         # parts = []

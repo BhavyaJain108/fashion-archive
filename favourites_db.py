@@ -22,11 +22,18 @@ class FavouritesDB:
     - User metadata (date added, notes)
     """
     
-    def __init__(self, db_path="favourites.db", favourites_dir="favourites"):
+    def __init__(self, favourites_base_dir="favourites"):
         """Initialize database connection and create tables if needed"""
-        self.db_path = db_path
-        self.favourites_dir = Path(favourites_dir)
-        self.favourites_dir.mkdir(exist_ok=True)  # Create favourites directory
+        self.favourites_base_dir = Path(favourites_base_dir)
+        self.favourites_base_dir.mkdir(exist_ok=True)  # Create base favourites directory
+        
+        # Database goes inside the favourites directory
+        self.db_path = self.favourites_base_dir / "favourites.db"
+        
+        # Images go in images subfolder for better organization
+        self.favourites_dir = self.favourites_base_dir / "images"
+        self.favourites_dir.mkdir(exist_ok=True)  # Create images directory
+        
         self.init_database()
     
     def init_database(self):
@@ -321,5 +328,5 @@ class FavouritesDB:
             print(f"Error during cleanup: {e}")
             return 0
 
-# Global database instance
+# Global database instance - will create favourites/favourites.db and favourites/images/
 favourites_db = FavouritesDB()

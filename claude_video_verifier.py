@@ -244,9 +244,9 @@ class EnhancedFashionVideoSearch:
         self.google_search = GoogleVideoSearch()
         self.verifier = ClaudeVideoVerifier(claude_api_key)
         
-        # Create videos directory if it doesn't exist
-        self.videos_dir = Path("videos")
-        self.videos_dir.mkdir(exist_ok=True)
+        # Create videos directory in cache if it doesn't exist
+        self.videos_dir = Path("high_fashion_cache/videos")
+        self.videos_dir.mkdir(parents=True, exist_ok=True)
     
     def search_and_verify(self, search_query: str) -> Optional[VideoResult]:
         """

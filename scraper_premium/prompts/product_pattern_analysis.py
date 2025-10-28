@@ -12,76 +12,77 @@ from pydantic import BaseModel, Field
 class ProductPatternAnalysis(BaseModel):
     """Structured output for product pattern analysis"""
     analysis: str = Field(description="Explanation of reasoning and selectors considered")
-    container_selector: str = Field(description="Exact CSS selector for product containers")
-    image_selector: str = Field(description="Exact CSS selector for images within container")
-    name_selector: Optional[str] = Field(description="Exact CSS selector for names within container")
-    link_selector: str = Field(description="Exact CSS selector for product links within container")
+    container_selector: str = Field(description="Most precise CSS selector for product containers")
+    image_selector: str = Field(description="Most precise CSS selector for images within container")
+    name_selector: Optional[str] = Field(description="Most precise CSS selector for names within container")
+    link_selector: str = Field(description="Most precise CSS selector for product links within container")
     image_name_extraction: str = Field(description="yes or no - whether image URLs contain extractable names")
     alternative_selectors: List[str] = Field(default=[], description="Other selectors considered but rejected")
 
 
-def get_prompt(product_link: str, context_html: str) -> str:
+def get_prompt(product_contexts: List[tuple]) -> str:
     """Generate product pattern analysis prompt"""
-    return f"""
-You are analyzing an e-commerce product listing page to identify the CORE CONTAINER that represents each individual product.
-Your goal is to find the most reliable, minimal selector that identifies product containers across different page layouts.
-
-Product Link: {product_link}
+    
+    # Format multiple product contexts
+    contexts_text = ""
+    for i, (product_link, context_html) in enumerate(product_contexts, 1):
+        contexts_text += f"""
+PRODUCT {i}:
+Link: {product_link}
 HTML Context:
 {context_html}
+"""
+    
+    return f"""
+You are analyzing an e-commerce product listing page to identify the CORE ATTRIBUTES (url, image, name) that represents each individual product.
+Your goal is to find the MOST PRECISE AND DISCRIMINATING selector that identifies the products in the provided examples.
 
-LOGICAL ANALYSIS PROCESS:
-1. Locate the provided product link in the HTML
-2. Find the ACTUAL PRESENT container that holds product information (image, name, link, price)
-3. Use the EXACT container visible in the HTML context - don't assume parent wrappers exist
-4. Look for the most SEMANTIC identifier (tag name, meaningful class, data attribute)
-5. Choose the SIMPLEST selector that works with the HTML structure provided
-6. Verify the selector excludes non-product elements (nav, ads, related items)
+CRITICAL REQUIREMENT: MAXIMUM SPECIFICITY IS DESIRED
+- You are ONLY analyzing the provided product examples - ignore any other potential content on the page
+- Use the MOST SPECIFIC classes/attributes available on ALL provided products
+- Combining multiple identifiers is ALWAYS better than using single generic ones
+- High specificity protects against false matches and is the PRIMARY goal
 
-CRITICAL: Work with the HTML structure AS PROVIDED - don't assume missing parent containers exist.
+{contexts_text}
 
-SELECTOR PRIORITY (choose the first that works):
-1. **Custom element tags**: product-card, x-cell, product-item
-2. **Semantic classes**: .product, .product-card, .item
-3. **Inner semantic classes**: .product__inner, .product-block__inner, .c-product__item
-4. **Data attributes**: [data-product], [prod-instock]
-5. **Component classes**: .card (if specifically for products)
-6. **Layout classes**: Only as last resort (.grid__item, .column)
+MANDATORY PRECISION RULES:
+1. **USE ALL COMMON IDENTIFIERS**: If all products share multiple classes/attributes, combine them
+2. **INCLUDE DATA ATTRIBUTES**: Product-specific attributes add crucial specificity  
+3. **AVOID LAYOUT-ONLY SELECTORS**: Single layout classes are too generic
+4. **SEMANTIC + LAYOUT**: Combine semantic meaning with layout for best precision
 
-HANDLE PARTIAL HTML:
-- If you see `.product-block__inner` but no `.product-block`, use `.product-block__inner`
-- If you see `.c-product__item` but no `.c-product`, use `.c-product__item`
-- Select based on what's ACTUALLY PRESENT in the HTML context
+SELECTOR CONSTRUCTION STRATEGY:
+1. **Multiple specific classes**: Combine all classes that appear on ALL products
+2. **Semantic + attributes**: Product-meaningful classes with data attributes
+3. **Custom elements**: Non-standard HTML elements are often product-specific
+4. **Child selectors**: Use descendant selectors (space) or direct child (>) when needed
+5. **AVOID**: Single generic classes that could match non-products
 
-CONTAINER SELECTOR LOGIC:
-The container selector must be:
-- COMPREHENSIVE: Matches every product container on the page
-- PRECISE: Specific enough to exclude navigation, ads, or other non-product elements
-- FLEXIBLE: Works for both full page layouts AND isolated product elements
-- MINIMAL: Use the simplest selector that reliably identifies product containers
+IMPORTANT CSS COMPATIBILITY:
+- Use STANDARD CSS selectors only (class, id, attribute, descendant, child)
+- DO NOT use modern selectors like :has(), :is(), :where(), :not() 
+- DO NOT use complex pseudo-selectors that may not be supported
+- Stick to basic selectors: .class, #id, [attribute], div > .class, .parent .child
 
-CRITICAL SELECTOR GUIDELINES:
-1. **Avoid over-specific selectors**: Don't chain multiple classes unless absolutely necessary
-2. **Prioritize semantic containers**: Look for elements that naturally contain complete product info
-3. **Test mental model**: The selector should work on a page with 1 product or 100 products
-4. **Consider tag types**: Custom elements (like <product-card>, <x-cell>) often indicate containers
-5. **Avoid layout-specific classes**: Classes like 'grid__item', 'column' may not always be present
+ANALYSIS PROCESS:
+1. Find the MAIN CONTAINER element that wraps each complete product (image, link, name)
+2. List ALL classes and attributes on that SPECIFIC CONTAINER element for each example
+3. Identify which classes/attributes appear on the SAME CONTAINER element across ALL three products
+4. Combine ONLY the classes/attributes from that single container element
+5. DO NOT mix classes from different nested elements (container vs inner elements)
 
-COMMON RELIABLE PATTERNS:
-- Custom elements: product-card, x-cell, product-item
-- Semantic classes: .product, .product-card, .item
-- Data attributes: [data-product], [prod-instock]
-- Avoid: Layout classes (.grid__item, .column, .flex), position classes (.first, .last)
+CRITICAL: Your selector must target ONE SPECIFIC ELEMENT TYPE
+- If the container is a div with classes A and B, use: div.A.B
+- Do NOT combine classes from parent + child elements like: div.parent.child-class
+- Each class in your selector must exist on the SAME HTML element
 
-IMAGE EXTRACTION STRATEGY:
-Product names should primarily come from product URLs, then image filenames/URLs when they contain meaningful names. CSS text selectors are fallback only.
+SPECIFICITY CHECK:
+Ask yourself: "Is this the MOST SPECIFIC selector possible using all available classes/attributes from the examples?"
+If NO, combine more identifiers to maximize precision. Overly specific is better than under-specific.
 
-EXTENSIBILITY FOCUS:
-The pattern should work across different:
-- Page layouts (grid, list, slider)
-- Container structures (with/without wrapper elements)  
-- HTML frameworks (Shopify, custom, etc.)
-- Product quantities (single product vs full catalog pages)
+NAME EXTRACTION STRATEGY:
+Product names should primarily come from product URLs if possible. CSS text selectors are first fallback, and final fallback is image filenames/URLs when they contain meaningful names.
+
 """.strip()
 
 

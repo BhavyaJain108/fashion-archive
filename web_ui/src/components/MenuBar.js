@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { FashionArchiveAPI } from '../services/api';
 
-function MenuBar({ currentPage, onPageSwitch, currentView, onViewChange }) {
+function MenuBar({ currentPage, onPageSwitch, currentView, onViewChange, currentUser, onLogout }) {
   const [showToolsMenu, setShowToolsMenu] = useState(false);
   const [showPagesMenu, setShowPagesMenu] = useState(false);
   const [showViewMenu, setShowViewMenu] = useState(false);
@@ -357,6 +357,39 @@ function MenuBar({ currentPage, onPageSwitch, currentView, onViewChange }) {
             </div>
           )}
         </div>
+
+        {/* User Info Display - Right side of menu bar */}
+        {currentUser && (
+          <div style={{
+            marginLeft: 'auto',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            paddingRight: '8px'
+          }}>
+            <span style={{
+              fontSize: '12px',
+              color: '#000',
+              padding: '2px 4px'
+            }}>
+              User: {currentUser.username}
+            </span>
+            <div 
+              onClick={onLogout}
+              style={{
+                padding: '2px 8px',
+                cursor: 'pointer',
+                backgroundColor: 'transparent',
+                color: '#000',
+                fontSize: '12px'
+              }}
+              onMouseEnter={(e) => e.target.style.backgroundColor = '#d0d0d0'}
+              onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
+            >
+              Logout
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Click outside to close menus */}

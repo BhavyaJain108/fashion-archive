@@ -6,9 +6,18 @@ import VideoWindow from './components/VideoModal';
 import MenuBar from './components/MenuBar';
 import FavouritesPanel from './components/FavouritesPanel';
 import MyBrandsPanel from './components/MyBrandsPanel';
+import LoginModal from './components/LoginModal';
 import { FashionArchiveAPI } from './services/api';
 
 function App() {
+  console.log('🔍 App.js function called - component loading');
+  
+  // Authentication State
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [sessionToken, setSessionToken] = useState(null);
+  const [showLoginModal, setShowLoginModal] = useState(true);
+  
   // Page State
   const [currentPage, setCurrentPage] = useState('high-fashion'); // 'high-fashion', 'favourites', or 'my-brands'
   
@@ -42,22 +51,118 @@ function App() {
   const [currentVideoPath, setCurrentVideoPath] = useState(null);
   const [videoDownloadState, setVideoDownloadState] = useState('none'); // 'none', 'loading', 'ready'
 
-  // Initialize - Load seasons on startup (matches tkinter)
+  // Check for existing session on startup
   useEffect(() => {
-    const loadSeasons = async () => {
-      try {
-        setIsLoading(true);
-        const seasonsData = await FashionArchiveAPI.getSeasons();
-        setSeasons(seasonsData);
-        setIsLoading(false);
-      } catch (error) {
-        console.error('Error loading seasons:', error);
-        setIsLoading(false);
+    console.log('🔍 App.js useEffect running - checking existing session');
+    const checkExistingSession = async () => {
+      const savedToken = localStorage.getItem('fashionArchiveToken');
+      const savedUser = localStorage.getItem('fashionArchiveUser');
+      console.log('🔍 Saved token:', savedToken ? 'exists' : 'none');
+      console.log('🔍 Saved user:', savedUser ? 'exists' : 'none');
+      
+      if (savedToken && savedUser) {
+        try {
+          // Validate the saved session
+          const response = await fetch('http://localhost:8081/api/auth/validate', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ session_token: savedToken }),
+          });
+          
+          const data = await response.json();
+          
+          if (data.success && data.valid) {
+            // Session is still valid
+            setCurrentUser(JSON.parse(savedUser));
+            setSessionToken(savedToken);
+            setIsAuthenticated(true);
+            setShowLoginModal(false);
+            
+            // Load seasons in background
+            loadSeasonsInBackground();
+          } else {
+            // Session expired, clear storage
+            localStorage.removeItem('fashionArchiveToken');
+            localStorage.removeItem('fashionArchiveUser');
+            setShowLoginModal(true);
+          }
+        } catch (error) {
+          console.error('Session validation failed:', error);
+          localStorage.removeItem('fashionArchiveToken');
+          localStorage.removeItem('fashionArchiveUser');
+          setShowLoginModal(true);
+          setIsLoading(false); // Important: Stop loading on error
+        }
+      } else {
+        // No saved session, show login
+        console.log('🔍 No saved session, showing login modal');
+        setShowLoginModal(true);
+        setIsLoading(false); // Important: Stop loading when no session
       }
     };
     
-    loadSeasons();
+    checkExistingSession();
   }, []);
+
+  // Load seasons in background after authentication
+  const loadSeasonsInBackground = async () => {
+    try {
+      setIsLoading(true);
+      const seasonsData = await FashionArchiveAPI.getSeasons();
+      setSeasons(seasonsData);
+      setIsLoading(false);
+    } catch (error) {
+      console.error('Error loading seasons:', error);
+      setIsLoading(false);
+    }
+  };
+
+  // Handle successful login
+  const handleLogin = (user, token) => {
+    setCurrentUser(user);
+    setSessionToken(token);
+    setIsAuthenticated(true);
+    setShowLoginModal(false);
+    
+    // Load seasons after login
+    loadSeasonsInBackground();
+  };
+
+  // Handle logout
+  const handleLogout = async () => {
+    try {
+      if (sessionToken) {
+        await fetch('http://localhost:8081/api/auth/logout', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ session_token: sessionToken }),
+        });
+      }
+    } catch (error) {
+      console.error('Logout error:', error);
+    } finally {
+      // Clear local state and storage
+      localStorage.removeItem('fashionArchiveToken');
+      localStorage.removeItem('fashionArchiveUser');
+      setCurrentUser(null);
+      setSessionToken(null);
+      setIsAuthenticated(false);
+      setShowLoginModal(true);
+      
+      // Reset app state
+      setSeasons([]);
+      setSelectedSeason(null);
+      setCollections([]);
+      setSelectedCollection(null);
+      setCurrentImages([]);
+      setColumn2Activated(false);
+      setColumn3Activated(false);
+    }
+  };
 
   // Handle season selection - show column 2 (collections) with progress tracking
   const handleSeasonSelect = async (season) => {
@@ -241,7 +346,10 @@ function App() {
     setCurrentView(viewMode);
   };
 
+  console.log('🔍 App.js render - isLoading:', isLoading, 'showLoginModal:', showLoginModal, 'isAuthenticated:', isAuthenticated);
+
   if (isLoading) {
+    console.log('🔍 Showing loading screen');
     return (
       <div className="columns-container">
         <div className="loading">
@@ -259,6 +367,8 @@ function App() {
         onPageSwitch={handlePageSwitch}
         currentView={currentView}
         onViewChange={handleViewChange}
+        currentUser={currentUser}
+        onLogout={handleLogout}
       />
       
       {/* Title Bar - matches tkinter window title */}
@@ -337,6 +447,13 @@ function App() {
           onClose={() => setVideoModalOpen(false)}
         />
       )}
+
+      {/* Login Modal - Show on startup */}
+      <LoginModal 
+        isOpen={showLoginModal}
+        onLogin={handleLogin}
+        onClose={() => {}} // Can't close without logging in
+      />
     </div>
   );
 }

@@ -2,10 +2,6 @@
 .env
 *.env
 
-# Video files and downloads
-videos/
-downloads/
-
 # Documents and generated content
 documents/
 
@@ -63,10 +59,9 @@ tmp/
 test_*.py
 
 # Collection data and scraped content
-collections/
-scraped_data/
 brand_collections/
 favourites/
+high_fashion_cache/
 
 # Planning and development documentation (except README.md)
 *_TODO.md

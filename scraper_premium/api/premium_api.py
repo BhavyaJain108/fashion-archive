@@ -374,9 +374,10 @@ class PremiumScraperAPI:
                     'is_scrapable': False
                 }, 200
             
-            # Build navigation prompt and analyze
-            prompt = brand._build_navigation_prompt(links)
-            llm_response = brand.llm_handler.call(prompt, expected_format="json")
+            # Get navigation prompt and model from centralized prompts
+            from prompts import PromptManager
+            prompt_data = PromptManager.get_navigation_analysis_prompt(brand.url, links)
+            llm_response = brand.llm_handler.call(prompt_data['prompt'], expected_format="json", response_model=prompt_data['model'])
             
             if not llm_response.get("success", False):
                 return {

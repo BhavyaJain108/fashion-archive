@@ -63,47 +63,20 @@ def extract_products_from_page(page_url: str, patterns: List[Dict[str, str]], br
     }
     
     try:
-        # Try existing patterns first
-        for i, pattern in enumerate(patterns):
-            result["metrics"]["patterns_tried"] += 1
+        # Use only the first (primary) pattern
+        if not patterns:
+            result["error"] = "No patterns provided"
+            return result
             
-            try:
-                products = _extract_with_scrolling(page_url, pattern, brand_name, category_name)
-                
-                # Pattern worked if no exception was thrown (products is a list, even if empty)
-                result["products"] = products
-                result["success"] = True
-                result["pattern_used"] = i
-                result["metrics"]["products_extracted"] = len(products)
-                break
-                    
-            except Exception as pattern_error:
-                # This pattern failed, try next one
-                continue
+        pattern = patterns[0]
+        result["metrics"]["patterns_tried"] = 1
         
-        # If all patterns failed, try to discover new pattern (only on first pages)
-        if not result["success"] and allow_pattern_discovery:
-            try:
-                new_pattern = _discover_pattern_from_page(page_url, brand_name)
-                if new_pattern:
-                    # Try the newly discovered pattern
-                    products = _extract_with_scrolling(page_url, new_pattern, brand_name, category_name)
-                    
-                    if products:
-                        result["products"] = products
-                        result["success"] = True
-                        result["pattern_used"] = "new"
-                        result["new_pattern"] = new_pattern
-                        result["metrics"]["products_extracted"] = len(products)
-                    else:
-                        result["error"] = "New pattern discovered but no products extracted"
-                else:
-                    result["error"] = "All patterns failed and no new pattern could be discovered"
-                    
-            except Exception as discovery_error:
-                result["error"] = f"Pattern discovery failed: {discovery_error}"
-        elif not result["success"] and not allow_pattern_discovery:
-            result["error"] = "All patterns failed and pattern discovery disabled for non-first pages"
+        products = _extract_with_scrolling(page_url, pattern, brand_name, category_name)
+        
+        result["products"] = products
+        result["success"] = len(products) > 0
+        result["pattern_used"] = 0
+        result["metrics"]["products_extracted"] = len(products)
         
     except Exception as e:
         result["error"] = str(e)
@@ -154,34 +127,30 @@ def _extract_with_scrolling(page_url: str, pattern: Dict[str, str], brand_name: 
                     raise Exception(f"No containers found with selector: {container_selector}")
                 # If containers exist but wait_for_selector failed, continue anyway
             
-            # Scroll and extract
+            # Scroll to bottom first, then extract all products
             last_height = 0
             scroll_count = 0
             
-            print(f"   🔄 Starting scroll extraction for: {page_url}")
+            print(f"   🔄 Scrolling to load all content for: {page_url}")
             
             while True:
-                # Extract products from current page state
-                new_products = _extract_products_from_current_state(
-                    page, page_url, pattern, brand_name, category_name, seen_urls
-                )
-                products.extend(new_products)
-                
-                # Check if we've reached the bottom
                 current_height = page.evaluate("document.body.scrollHeight")
                 scroll_count += 1
                 
-                print(f"   📏 Scroll #{scroll_count}: height {last_height} → {current_height}, found {len(new_products)} new products")
+                print(f"   📏 Scroll #{scroll_count}: height {last_height} → {current_height}")
                 
                 if current_height == last_height:
-                    print(f"   ✅ Reached bottom after {scroll_count} scrolls, stopping")
+                    print(f"   ✅ Reached bottom after {scroll_count} scrolls, extracting products...")
                     break
                 
-                # Scroll down and wait
                 page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                 page.wait_for_timeout(2000)
-                
                 last_height = current_height
+            
+            # Extract all products once after scrolling complete
+            products = _extract_products_from_current_state(
+                page, page_url, pattern, brand_name, category_name, seen_urls
+            )
             
         finally:
             browser.close()
@@ -282,12 +251,12 @@ def _extract_products_from_current_state(page, page_url: str, pattern: Dict[str,
                     }}
                 }}
                 
-                // Extract product name - PRIMARY: from image URL, FALLBACK: from CSS selector
+                // Extract product name - PRIORITY: product URL > CSS selector > image URL
                 let name = 'Unknown';
                 
-                // First try to extract from image URL
-                if (imageSrc) {{
-                    const extractedName = extractNameFromImageUrl(imageSrc);
+                // First try to extract from product URL (best source)
+                if (href) {{
+                    const extractedName = extractNameFromImageUrl(href); // Reuse same logic for URLs
                     if (extractedName && extractedName !== 'Unknown') {{
                         name = extractedName;
                     }}
@@ -297,10 +266,27 @@ def _extract_products_from_current_state(page, page_url: str, pattern: Dict[str,
                 if (name === 'Unknown' && {name_selector_escaped}) {{
                     const nameEl = container.querySelector({name_selector_escaped});
                     if (nameEl) {{
-                        const selectorName = nameEl.innerText || nameEl.textContent || '';
+                        let selectorName = '';
+                        
+                        // If name selector points to an img element, check alt attribute first
+                        if (nameEl.tagName.toLowerCase() === 'img') {{
+                            selectorName = nameEl.getAttribute('alt') || nameEl.getAttribute('title') || '';
+                        }} else {{
+                            // For non-img elements, use text content
+                            selectorName = nameEl.innerText || nameEl.textContent || '';
+                        }}
+                        
                         if (selectorName.trim()) {{
                             name = selectorName.trim();
                         }}
+                    }}
+                }}
+                
+                // Final fallback: extract from image URL if still unknown
+                if (name === 'Unknown' && imageSrc) {{
+                    const extractedName = extractNameFromImageUrl(imageSrc);
+                    if (extractedName && extractedName !== 'Unknown') {{
+                        name = extractedName;
                     }}
                 }}
                 
@@ -385,34 +371,6 @@ def extract_category_name(url: str) -> str:
     return "Main Collection"
 
 
-def _discover_pattern_from_page(page_url: str, brand_name: str) -> Dict[str, str]:
-    """
-    Discover a new product extraction pattern by analyzing the page.
-    Uses the same logic as the Brand.analyze_product_pattern method.
-    """
-    try:
-        # Import here to avoid circular imports
-        sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        from brand import Brand
-        
-        # Create a temporary Brand instance for pattern discovery
-        parsed = urlparse(page_url)
-        base_url = f"{parsed.scheme}://{parsed.netloc}"
-        
-        temp_brand = Brand(base_url)
-        temp_brand.starting_pages_queue = [page_url]
-        
-        # Use existing pattern detection logic
-        pattern_result = temp_brand.analyze_product_pattern()
-        
-        if pattern_result and temp_brand.product_extraction_pattern:
-            return temp_brand.product_extraction_pattern
-        else:
-            return None
-            
-    except Exception as e:
-        print(f"⚠️  Pattern discovery failed for {page_url}: {e}")
-        return None
 
 
 def generate_pagination_url(base_url: str, pagination_pattern: Dict[str, Any], page_number: int) -> str:
@@ -480,18 +438,9 @@ def extract_next_button_url(current_page_html: str, pagination_pattern: Dict[str
         next_selector = pagination_pattern.get("next_selector", "")
         
         if not next_selector:
-            # Try common next button selectors
-            next_selectors = [
-                "a[aria-label*='next' i]",
-                "a[title*='next' i]", 
-                ".next a",
-                ".pagination-next a",
-                "a:contains('Next')",
-                "a:contains('→')",
-                "a:contains('>')"
-            ]
-        else:
-            next_selectors = [next_selector]
+            return None
+        
+        next_selectors = [next_selector]
         
         for selector in next_selectors:
             try:

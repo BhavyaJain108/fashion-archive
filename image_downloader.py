@@ -32,7 +32,7 @@ except ImportError:
 class DownloadConfig:
     """Configuration class for the image downloader."""
     url: str
-    output_dir: str = "downloads"
+    output_dir: str = "high_fashion_cache/images"
     max_images: Optional[int] = None
     delay: float = 1.0
     timeout: int = 30
@@ -196,14 +196,14 @@ class ImageDownloader:
     
     def download_all(self) -> List[str]:
         """Download all images from the configured URL using parallel processing."""
-        # Clean up existing downloads folder first
+        # Clean up existing images folder first
         output_dir = Path(self.config.output_dir)
         if output_dir.exists():
             import shutil
-            print(f"Removing existing downloads folder: {output_dir}")
+            print(f"Removing existing images folder: {output_dir}")
             shutil.rmtree(output_dir)
         
-        # Create fresh downloads folder
+        # Create fresh images folder
         output_dir.mkdir(parents=True, exist_ok=True)
         
         soup = self.fetch_page(self.config.url)
@@ -282,7 +282,7 @@ def save_config_to_file(config: DownloadConfig, filepath: str):
 def main():
     parser = argparse.ArgumentParser(description="Download images from websites")
     parser.add_argument("url", help="URL to download images from")
-    parser.add_argument("-o", "--output", default="downloads", help="Output directory")
+    parser.add_argument("-o", "--output", default="high_fashion_cache/images", help="Output directory")
     parser.add_argument("-n", "--max-images", type=int, help="Maximum number of images")
     parser.add_argument("-d", "--delay", type=float, default=1.0, help="Delay between downloads")
     parser.add_argument("-t", "--timeout", type=int, default=30, help="Request timeout")
