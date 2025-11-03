@@ -34,18 +34,44 @@ class ClaudeInterface(LLMInterface):
             if not self.api_key:
                 raise ValueError("Claude API key not found")
             self.client = Anthropic(api_key=self.api_key)
-            self.model = model or os.getenv('CLAUDE_MODEL', 'claude-3-5-sonnet-20241022')
+            self.model = model or os.getenv('CLAUDE_MODEL', 'claude-sonnet-4-20250514')
         except ImportError:
             raise ImportError("anthropic package not installed. Run: pip install anthropic")
     
-    def generate(self, prompt: str, max_tokens: int = 1000, temperature: float = 0.0) -> str:
-        response = self.client.messages.create(
-            model=self.model,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            messages=[{"role": "user", "content": prompt}]
-        )
-        return response.content[0].text.strip()
+    def generate(self, prompt: str, max_tokens: int = 1000, temperature: float = 0.0, response_model=None) -> str:
+        if response_model:
+            # Use structured output with tools
+            response = self.client.messages.create(
+                model=self.model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                messages=[{"role": "user", "content": prompt}],
+                tool_choice={"type": "tool", "name": "structured_output"},
+                tools=[{
+                    "name": "structured_output",
+                    "description": "Return structured data matching the schema",
+                    "input_schema": response_model.model_json_schema()
+                }]
+            )
+            
+            # Extract structured data from tool use
+            if response.content and len(response.content) > 0:
+                for content_block in response.content:
+                    if hasattr(content_block, 'tool_use') and content_block.tool_use:
+                        return content_block.tool_use.input
+                    elif hasattr(content_block, 'input'):
+                        return content_block.input
+            
+            raise ValueError("No structured output received from API")
+        else:
+            # Regular text generation
+            response = self.client.messages.create(
+                model=self.model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            return response.content[0].text.strip()
 
 
 class OpenAIInterface(LLMInterface):

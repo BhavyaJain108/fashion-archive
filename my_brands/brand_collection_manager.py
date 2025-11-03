@@ -480,3 +480,195 @@ class BrandCollectionManager:
         # Remove old exports beyond keep_count
         for old_export in export_files[keep_count:]:
             old_export.unlink()
+    
+    def save_navigation_tree(self, brand_slug: str, navigation_tree: List[Dict]) -> bool:
+        """
+        Save navigation tree structure to brand_info.json.
+        
+        Args:
+            brand_slug: Brand slug identifier
+            navigation_tree: Navigation tree structure from LLM analysis
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            brand_dir = self.base_dir / brand_slug
+            if not brand_dir.exists():
+                return False
+            
+            brand_info_file = brand_dir / "brand_info.json"
+            brand_info = self._load_json(brand_info_file)
+            
+            if not brand_info:
+                return False
+            
+            # Add navigation tree to brand info
+            brand_info['navigation'] = navigation_tree
+            brand_info['navigation_updated'] = datetime.now().isoformat()
+            
+            # Save updated brand info
+            self._save_json(brand_info_file, brand_info)
+            
+            print(f"✅ Saved navigation tree for {brand_slug}")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Error saving navigation tree for {brand_slug}: {e}")
+            return False
+    
+    def create_hierarchical_collections(self, brand_slug: str, navigation_tree: List[Dict]) -> Dict[str, str]:
+        """
+        Create hierarchical folder structure matching navigation tree.
+        
+        Args:
+            brand_slug: Brand slug identifier
+            navigation_tree: Navigation tree structure
+            
+        Returns:
+            Dictionary mapping URLs to collection folder paths
+        """
+        import sys
+        import os
+        # Add scraper_premium to path
+        scraper_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'scraper_premium')
+        if scraper_path not in sys.path:
+            sys.path.append(scraper_path)
+        from page_extractor import extract_collection_hierarchy
+        
+        url_to_path = {}
+        
+        try:
+            # Get hierarchical structure info
+            collections_info = extract_collection_hierarchy(navigation_tree)
+            
+            brand_dir = self.base_dir / brand_slug / "collections"
+            brand_dir.mkdir(parents=True, exist_ok=True)
+            
+            for collection_info in collections_info:
+                name = collection_info['name']
+                url = collection_info['url']
+                path = collection_info['path']
+                has_url = collection_info['has_url']
+                
+                # Convert path to filesystem-safe folder structure
+                folder_path = self._create_safe_folder_path(brand_dir, path)
+                folder_path.mkdir(parents=True, exist_ok=True)
+                
+                # If this collection has a URL, it needs products/images folders
+                if has_url and url:
+                    # Create products.json and images folder
+                    products_file = folder_path / "products.json"
+                    images_dir = folder_path / "images"
+                    collection_info_file = folder_path / "collection_info.json"
+                    
+                    images_dir.mkdir(exist_ok=True)
+                    
+                    # Initialize empty products file if it doesn't exist
+                    if not products_file.exists():
+                        initial_products = {
+                            "collection": {
+                                "name": name,
+                                "url": url,
+                                "slug": self._generate_collection_slug(name, url),
+                                "created": datetime.now().isoformat()
+                            },
+                            "products": []
+                        }
+                        self._save_json(products_file, initial_products)
+                    
+                    # Initialize collection info file
+                    if not collection_info_file.exists():
+                        collection_info_data = {
+                            "name": name,
+                            "url": url,
+                            "path": path,
+                            "created": datetime.now().isoformat(),
+                            "pattern_used": None,
+                            "last_scraped": None,
+                            "products_count": 0
+                        }
+                        self._save_json(collection_info_file, collection_info_data)
+                    
+                    # Map URL to folder path for later use
+                    url_to_path[url] = str(folder_path)
+            
+            print(f"✅ Created hierarchical collections for {brand_slug}")
+            return url_to_path
+            
+        except Exception as e:
+            print(f"❌ Error creating hierarchical collections for {brand_slug}: {e}")
+            return {}
+    
+    def _create_safe_folder_path(self, base_dir: Path, hierarchical_path: str) -> Path:
+        """
+        Convert hierarchical path to safe filesystem path.
+        
+        Args:
+            base_dir: Base collections directory
+            hierarchical_path: Path like "Parent/Child/Grandchild"
+            
+        Returns:
+            Safe filesystem path
+        """
+        # Split path and slugify each component
+        path_components = hierarchical_path.split('/')
+        safe_components = []
+        
+        for component in path_components:
+            safe_component = self._generate_collection_slug(component, "")
+            safe_components.append(safe_component)
+        
+        return base_dir / Path(*safe_components)
+    
+    def store_collection_results(self, brand_slug: str, collection_url: str, collection_name: str, 
+                                 products: List[Dict], extraction_pattern: Dict, 
+                                 url_to_path_mapping: Dict[str, str]) -> bool:
+        """
+        Store scraping results for a specific collection.
+        
+        Args:
+            brand_slug: Brand slug identifier
+            collection_url: URL of the scraped collection
+            collection_name: Name of the collection
+            products: List of extracted products
+            extraction_pattern: Pattern used for extraction
+            url_to_path_mapping: Mapping from URLs to folder paths
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            if collection_url not in url_to_path_mapping:
+                print(f"⚠️ No folder mapping found for {collection_url}")
+                return False
+            
+            collection_path = Path(url_to_path_mapping[collection_url])
+            
+            # Update products.json
+            products_file = collection_path / "products.json"
+            products_data = self._load_json(products_file)
+            
+            if products_data:
+                products_data["products"] = products
+                products_data["collection"]["last_updated"] = datetime.now().isoformat()
+                products_data["collection"]["products_count"] = len(products)
+                self._save_json(products_file, products_data)
+            
+            # Update collection_info.json with pattern and stats
+            collection_info_file = collection_path / "collection_info.json"
+            collection_info = self._load_json(collection_info_file)
+            
+            if collection_info:
+                collection_info["pattern_used"] = extraction_pattern
+                collection_info["last_scraped"] = datetime.now().isoformat()
+                collection_info["products_count"] = len(products)
+                collection_info["scrape_success"] = True
+                self._save_json(collection_info_file, collection_info)
+            
+            print(f"✅ Stored {len(products)} products for {collection_name}")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Error storing collection results for {collection_name}: {e}")
+            return False

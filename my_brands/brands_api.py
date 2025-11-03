@@ -31,7 +31,6 @@ try:
     if scraper_path not in sys.path:
         sys.path.append(scraper_path)
     
-    from scraper_premium.tests.test_full_pipeline import test_full_brand_scrape
     SCRAPER_PREMIUM_AVAILABLE = True
 except ImportError as e:
     print(f"⚠️ scraper_premium not available: {e}")
@@ -326,7 +325,8 @@ class BrandsAPI:
                 print(f"🚀 [{time.strftime('%H:%M:%S')}] Starting scrape for {target_brand['name']}")
                 
                 from scraper_premium.brand import Brand
-                from scraper_premium.tests.test_full_pipeline import scrape_category_page, extract_category_name
+                from scraper_premium.page_extractor import extract_category_name, get_first_leaf_url, extract_all_urls_from_navigation_tree
+                from scraper_premium.prompts import PromptManager
                 
                 print(f"⏱️ [{time.strftime('%H:%M:%S')}] Imports loaded in {time.time() - start_time:.2f}s")
                 
@@ -334,190 +334,180 @@ class BrandsAPI:
                 brand = Brand(target_brand['url'])
                 print(f"⏱️ [{time.strftime('%H:%M:%S')}] Brand initialized in {time.time() - brand_init_start:.2f}s")
                 
-                # Step 1: Get category pages
-                yield f"data: {json.dumps({'status': 'navigation', 'message': 'Finding product categories...'})}\n\n"
+                # Step 1: Navigation Analysis - Get navigation tree
+                yield f"data: {json.dumps({'status': 'navigation', 'message': 'Analyzing brand navigation structure...'})}\n\n"
                 
-                links_start = time.time()
-                print(f"🔍 [{time.strftime('%H:%M:%S')}] Extracting page links...")
-                links = brand.extract_page_links(target_brand['url'])
-                print(f"⏱️ [{time.strftime('%H:%M:%S')}] Links extracted in {time.time() - links_start:.2f}s - Found {len(links) if links else 0} links")
-                if not links:
+                nav_start = time.time()
+                print(f"🔍 [{time.strftime('%H:%M:%S')}] Extracting page links with context...")
+                links_with_context = brand.extract_page_links_with_context(target_brand['url'])
+                print(f"⏱️ [{time.strftime('%H:%M:%S')}] Links with context extracted in {time.time() - nav_start:.2f}s - Found {len(links_with_context) if links_with_context else 0} links")
+                
+                if not links_with_context:
                     yield f"data: {json.dumps({'status': 'error', 'error': 'No links found on brand website'})}\n\n"
                     return
                 
-                # Get LLM navigation analysis
+                # Get LLM navigation analysis using proper prompt
                 llm_start = time.time()
-                print(f"🤖 [{time.strftime('%H:%M:%S')}] Building navigation prompt...")
-                prompt = brand._build_navigation_prompt(links)
+                print(f"🤖 [{time.strftime('%H:%M:%S')}] Building navigation analysis prompt...")
+                prompt_data = PromptManager.get_navigation_analysis_prompt(target_brand['url'], links_with_context)
                 print(f"🤖 [{time.strftime('%H:%M:%S')}] Calling LLM for navigation analysis...")
-                llm_response = brand.llm_handler.call(prompt, expected_format="json")
+                llm_response = brand.llm_handler.call(prompt_data['prompt'], expected_format="json", response_model=prompt_data['model'])
                 print(f"⏱️ [{time.strftime('%H:%M:%S')}] LLM navigation analysis completed in {time.time() - llm_start:.2f}s")
                 
                 if not llm_response.get("success", False):
                     yield f"data: {json.dumps({'status': 'error', 'error': 'Navigation analysis failed'})}\n\n"
                     return
                 
-                included_urls = llm_response.get("data", {}).get("included_urls", [])
-                if not included_urls:
-                    yield f"data: {json.dumps({'status': 'error', 'error': 'No product categories found'})}\n\n"
+                # Extract navigation tree from LLM response
+                navigation_tree = llm_response.get("data", {}).get("category_tree", [])
+                if not navigation_tree:
+                    yield f"data: {json.dumps({'status': 'error', 'error': 'No navigation tree structure found'})}\n\n"
                     return
                 
-                yield f"data: {json.dumps({'status': 'found_categories', 'count': len(included_urls)})}\n\n"
+                print(f"✅ [{time.strftime('%H:%M:%S')}] Navigation tree extracted with {len(navigation_tree)} top-level categories")
+                yield f"data: {json.dumps({'status': 'navigation_found', 'message': f'Found navigation tree with {len(navigation_tree)} categories'})}\n\n"
                 
-                # Step 2: Detect pattern
-                yield f"data: {json.dumps({'status': 'pattern', 'message': 'Analyzing product pattern...'})}\n\n"
-                
-                pattern_start = time.time()
-                print(f"🔍 [{time.strftime('%H:%M:%S')}] Setting up pattern analysis with first URL: {included_urls[0]['url']}")
-                brand.starting_pages_queue = [included_urls[0]["url"]]
-                print(f"🤖 [{time.strftime('%H:%M:%S')}] Starting product pattern analysis...")
-                pattern_analysis = brand.analyze_product_pattern()
-                print(f"⏱️ [{time.strftime('%H:%M:%S')}] Pattern analysis completed in {time.time() - pattern_start:.2f}s")
-                
-                if not pattern_analysis or not pattern_analysis.get("extraction_pattern"):
-                    yield f"data: {json.dumps({'status': 'error', 'error': 'Failed to detect product pattern'})}\n\n"
-                    return
-                
-                extraction_pattern = pattern_analysis["extraction_pattern"]
-                yield f"data: {json.dumps({'status': 'pattern_found', 'message': 'Product pattern detected'})}\n\n"
-                
-                # Step 2.5: Discover pagination pattern (NEW)
-                yield f"data: {json.dumps({'status': 'pagination', 'message': 'Analyzing pagination pattern...'})}\n\n"
-                
-                pagination_start = time.time()
-                print(f"🔍 [{time.strftime('%H:%M:%S')}] Starting pagination pattern analysis...")
-                pagination_pattern = brand.analyze_pagination_pattern()
-                print(f"⏱️ [{time.strftime('%H:%M:%S')}] Pagination analysis completed in {time.time() - pagination_start:.2f}s")
-                
-                if pagination_pattern:
-                    print(f"✅ [{time.strftime('%H:%M:%S')}] Pagination pattern discovered: {pagination_pattern.get('type', 'N/A')}")
-                    pagination_type = pagination_pattern.get('type', 'none')
-                    yield f"data: {json.dumps({'status': 'pagination_found', 'message': f'Pagination pattern: {pagination_type}', 'pagination_type': pagination_type})}\n\n"
-                else:
-                    print(f"📝 [{time.strftime('%H:%M:%S')}] No pagination pattern found - single page categories")
-                    pagination_pattern = {"type": "none"}
-                    yield f"data: {json.dumps({'status': 'pagination_found', 'message': 'Single page categories - no pagination', 'pagination_type': 'none'})}\n\n"
-                
-                # Step 3: Fresh start - create brand and collection directories
-                print(f"🗂️ [{time.strftime('%H:%M:%S')}] Creating fresh brand directory...")
+                # Step 2: Store Navigation Tree
+                print(f"💾 [{time.strftime('%H:%M:%S')}] Creating fresh brand directory...")
                 brand_slug = self.collection_manager.create_brand_fresh(
                     target_brand['name'], 
                     target_brand['url']
                 )
                 
-                # Create collection directories upfront
-                collection_images_dirs = {}
-                for collection_data in included_urls:
-                    collection_url = collection_data["url"]
-                    collection_name = extract_category_name(collection_url)
-                    images_dir = self.collection_manager.create_collection_directory(
-                        brand_slug, collection_name, collection_url
-                    )
-                    collection_images_dirs[collection_url] = images_dir
-                    print(f"📁 [{time.strftime('%H:%M:%S')}] Created directory for {collection_name}")
+                print(f"💾 [{time.strftime('%H:%M:%S')}] Saving navigation tree...")
+                navigation_saved = self.collection_manager.save_navigation_tree(brand_slug, navigation_tree)
+                if not navigation_saved:
+                    yield f"data: {json.dumps({'status': 'error', 'error': 'Failed to save navigation tree'})}\n\n"
+                    return
                 
-                # Step 4: Scrape collections in parallel
+                yield f"data: {json.dumps({'status': 'navigation_saved', 'message': 'Navigation tree saved successfully'})}\n\n"
+                
+                # Step 3: Pattern Discovery using first leaf URL
+                yield f"data: {json.dumps({'status': 'pattern', 'message': 'Discovering product pattern...'})}\n\n"
+                
+                pattern_start = time.time()
+                print(f"🔍 [{time.strftime('%H:%M:%S')}] Finding first leaf URL for pattern discovery...")
+                first_leaf_url = get_first_leaf_url(navigation_tree)
+                
+                if not first_leaf_url:
+                    yield f"data: {json.dumps({'status': 'error', 'error': 'No leaf URLs found in navigation tree'})}\n\n"
+                    return
+                
+                print(f"🔍 [{time.strftime('%H:%M:%S')}] Using {first_leaf_url} for pattern discovery")
+                brand.starting_pages_queue = [first_leaf_url]
+                print(f"🤖 [{time.strftime('%H:%M:%S')}] Starting product pattern analysis...")
+                pattern_analysis = brand.analyze_product_pattern()
+                print(f"⏱️ [{time.strftime('%H:%M:%S')}] Pattern analysis completed in {time.time() - pattern_start:.2f}s")
+                
+                if not pattern_analysis or not brand.product_extraction_pattern:
+                    yield f"data: {json.dumps({'status': 'error', 'error': 'Failed to detect product pattern'})}\n\n"
+                    return
+                
+                extraction_pattern = brand.product_extraction_pattern
+                print(f"✅ [{time.strftime('%H:%M:%S')}] Pattern discovered: {extraction_pattern.get('container_selector', 'N/A')}")
+                yield f"data: {json.dumps({'status': 'pattern_found', 'message': 'Product pattern detected'})}\n\n"
+                
+                # Step 4: Create Hierarchical Collections Structure
+                yield f"data: {json.dumps({'status': 'creating_structure', 'message': 'Creating hierarchical collections structure...'})}\n\n"
+                
+                structure_start = time.time()
+                print(f"🗂️ [{time.strftime('%H:%M:%S')}] Creating hierarchical folder structure...")
+                url_to_path_mapping = self.collection_manager.create_hierarchical_collections(brand_slug, navigation_tree)
+                print(f"⏱️ [{time.strftime('%H:%M:%S')}] Structure created in {time.time() - structure_start:.2f}s")
+                
+                if not url_to_path_mapping:
+                    yield f"data: {json.dumps({'status': 'error', 'error': 'Failed to create collection structure'})}\n\n"
+                    return
+                
+                yield f"data: {json.dumps({'status': 'structure_created', 'message': f'Created {len(url_to_path_mapping)} collection folders'})}\n\n"
+                
+                # Step 5: Extract ALL URLs for Parallel Processing
+                print(f"🔍 [{time.strftime('%H:%M:%S')}] Extracting all URLs from navigation tree...")
+                all_category_urls = extract_all_urls_from_navigation_tree(navigation_tree)
+                print(f"✅ [{time.strftime('%H:%M:%S')}] Found {len(all_category_urls)} URLs to process")
+                
+                if not all_category_urls:
+                    yield f"data: {json.dumps({'status': 'error', 'error': 'No URLs found in navigation tree'})}\n\n"
+                    return
+                
+                # Set up brand for parallel processing using built-in capabilities
+                brand.starting_pages_queue = all_category_urls
+                
+                yield f"data: {json.dumps({'status': 'parallel_setup', 'message': f'Starting parallel processing of {len(all_category_urls)} categories...'})}\n\n"
+                
+                # Step 6: Use Brand's Built-in Parallel Processing
                 total_products = 0
-                collections_scraped = 0
                 
-                pagination_msg = f" with {pagination_pattern.get('type', 'no')} pagination" if pagination_pattern.get('type') != 'none' else ""
-                yield f"data: {json.dumps({'status': 'parallel_scraping', 'message': f'Starting parallel scraping of {len(included_urls)} collections{pagination_msg}...'})}\n\n"
+                processing_start = time.time()
+                print(f"🚀 [{time.strftime('%H:%M:%S')}] Starting parallel processing using Brand's built-in capabilities...")
                 
-                from concurrent.futures import ThreadPoolExecutor, as_completed
-                category_results = []
+                # Use Brand's built-in parallel processing
+                total_products_discovered = brand.process_all_starting_pages()
                 
-                # Process categories in parallel (like test_full_pipeline)
-                with ThreadPoolExecutor(max_workers=3) as executor:
-                    futures = {}
-                    
-                    for collection_data in included_urls:
-                        collection_url = collection_data["url"]
+                processing_time = time.time() - processing_start
+                print(f"⏱️ [{time.strftime('%H:%M:%S')}] Parallel processing completed in {processing_time:.2f}s")
+                print(f"✅ [{time.strftime('%H:%M:%S')}] Total products discovered: {total_products_discovered}")
+                
+                yield f"data: {json.dumps({'status': 'processing_complete', 'message': f'Parallel processing complete: {total_products_discovered} products discovered'})}\n\n"
+                
+                # Step 7: Store Results in Hierarchical Structure
+                yield f"data: {json.dumps({'status': 'storing_results', 'message': 'Storing results in hierarchical structure...'})}\n\n"
+                
+                storage_start = time.time()
+                collections_stored = 0
+                
+                # Process results from brand's product queue and store hierarchically
+                print(f"💾 [{time.strftime('%H:%M:%S')}] Processing brand's product queue for storage...")
+                
+                # Group products by their source URL for hierarchical storage
+                products_by_url = {}
+                while not brand.product_queue.empty():
+                    try:
+                        product = brand.product_queue.get_nowait()
+                        source_url = getattr(product, 'source_url', None)
+                        
+                        if source_url and source_url in all_category_urls:
+                            if source_url not in products_by_url:
+                                products_by_url[source_url] = []
+                            
+                            # Convert Product object to dict format expected by storage
+                            product_dict = {
+                                "name": getattr(product, 'title', 'Unknown'),
+                                "url": getattr(product, 'href', ''),
+                                "image_url": getattr(product, 'image_url', ''),
+                                "price": getattr(product, 'price', ''),
+                                "discovered_at": datetime.now().isoformat(),
+                                "brand": target_brand['name']
+                            }
+                            products_by_url[source_url].append(product_dict)
+                    except:
+                        break
+                
+                # Store each collection's results
+                for collection_url, products in products_by_url.items():
+                    if products:
                         collection_name = extract_category_name(collection_url)
                         
-                        print(f"🚀 [{time.strftime('%H:%M:%S')}] Submitting {collection_name} for parallel processing")
-                        
-                        # Submit with collection-specific images directory and pagination pattern
-                        future = executor.submit(
-                            scrape_category_page,
-                            collection_url,
-                            [extraction_pattern], 
-                            target_brand['name'],
-                            pagination_pattern,  # NEW: Pass pagination pattern
-                            collection_images_dirs[collection_url],
-                            True  # download_images=True
+                        success = self.collection_manager.store_collection_results(
+                            brand_slug=brand_slug,
+                            collection_url=collection_url,
+                            collection_name=collection_name,
+                            products=products,
+                            extraction_pattern=extraction_pattern,
+                            url_to_path_mapping=url_to_path_mapping
                         )
-                        futures[future] = (collection_url, collection_name)
-                    
-                    # Collect results as they complete
-                    for future in as_completed(futures):
-                        collection_url, collection_name = futures[future]
                         
-                        try:
-                            result = future.result()
-                            category_results.append(result)
-                            
-                            products_count = result.get('products_found', 0)
-                            pages_processed = result.get('pages_processed', 1)
-                            pagination_detected = result.get('pagination_detected', False)
-                            
-                            pages_msg = f" from {pages_processed} pages" if pages_processed > 1 else ""
-                            pagination_status = " (paginated)" if pagination_detected else ""
-                            
-                            print(f"📊 [{time.strftime('%H:%M:%S')}] Completed {collection_name}: {products_count} products{pages_msg}{pagination_status}")
-                            yield f"data: {json.dumps({'status': 'collection_completed', 'message': f'{collection_name}: {products_count} products{pages_msg}', 'pages_processed': pages_processed, 'pagination_detected': pagination_detected})}\n\n"
-                            
-                            if result.get("success", False):
-                                products = result.get("products", [])
-                                
-                                if products:
-                                    # Convert data format: product_name -> name, product_url -> url
-                                    formatted_products = []
-                                    for product in products:
-                                        formatted_product = {
-                                            "name": product.get("product_name", "Unknown"),
-                                            "url": product.get("product_url", ""),
-                                            "image_url": product.get("image_url", ""),
-                                            "price": product.get("price", ""),
-                                            "category_name": product.get("category_name", collection_name),
-                                            "discovered_at": product.get("discovered_at"),
-                                            "brand": product.get("brand", target_brand['name'])
-                                        }
-                                        formatted_products.append(formatted_product)
-                                    
-                                    # Save to brand_collections structure
-                                    save_start = time.time()
-                                    print(f"💾 [{time.strftime('%H:%M:%S')}] Saving {len(formatted_products)} products from '{collection_name}'...")
-                                    
-                                    scrape_stats = {
-                                        "extraction_time": result.get("extraction_time", 0),
-                                        "success": True,
-                                        "products_found": len(formatted_products),
-                                        "pattern_used": result.get("pattern_used")
-                                    }
-                                    
-                                    self.collection_manager.save_collection_scrape(
-                                        brand_slug=brand_slug,
-                                        collection_name=collection_name,
-                                        collection_url=collection_url,
-                                        products=formatted_products,
-                                        extraction_pattern=extraction_pattern,
-                                        scrape_stats=scrape_stats
-                                    )
-                                    
-                                    total_products += len(formatted_products)
-                                    collections_scraped += 1
-                                    
-                                    yield f"data: {json.dumps({'status': 'collection_saved', 'message': f'Saved {collection_name}: {len(formatted_products)} products'})}\n\n"
-                                else:
-                                    print(f"⚠️ [{time.strftime('%H:%M:%S')}] No products found in '{collection_name}'")
-                            else:
-                                print(f"❌ [{time.strftime('%H:%M:%S')}] Failed to scrape '{collection_name}': {result.get('error', 'Unknown error')}")
-                                
-                        except Exception as e:
-                            print(f"❌ [{time.strftime('%H:%M:%S')}] Exception scraping '{collection_name}': {e}")
-                            yield f"data: {json.dumps({'status': 'collection_error', 'message': f'Error scraping {collection_name}: {str(e)}'})}\n\n"
+                        if success:
+                            collections_stored += 1
+                            total_products += len(products)
+                            print(f"✅ [{time.strftime('%H:%M:%S')}] Stored {len(products)} products for {collection_name}")
+                            yield f"data: {json.dumps({'status': 'collection_stored', 'message': f'Stored {collection_name}: {len(products)} products'})}\n\n"
                 
-                yield f"data: {json.dumps({'status': 'completed', 'message': f'Successfully scraped {collections_scraped} collections with {total_products} products', 'success': True, 'total_products': total_products, 'collections': {}})}\n\n"
+                storage_time = time.time() - storage_start
+                print(f"⏱️ [{time.strftime('%H:%M:%S')}] Storage completed in {storage_time:.2f}s")
+                print(f"📊 [{time.strftime('%H:%M:%S')}] Final results: {total_products} products across {collections_stored} collections")
+                
+                yield f"data: {json.dumps({'status': 'completed', 'message': f'Successfully scraped {collections_stored} collections with {total_products} products', 'success': True, 'total_products': total_products, 'collections_stored': collections_stored})}\n\n"
                 
             except Exception as e:
                 yield f"data: {json.dumps({'status': 'error', 'error': str(e)})}\n\n"

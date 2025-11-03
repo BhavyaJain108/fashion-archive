@@ -82,113 +82,103 @@ class LLMHandler:
             self.client = None
             print("⚠️  ClaudeInterface not available - WebFetch calls will be used")
     
-    def call(self, prompt: str, expected_format: str = "json", response_model: BaseModel = None, max_tokens: int = 8192) -> Dict[str, Any]:
+    def call(self, prompt: str, expected_format: str = "json", response_model: BaseModel = None, max_tokens: int = 8192, max_retries: int = 4) -> Dict[str, Any]:
         """
-        Generic LLM call with response parsing
+        Generic LLM call with response parsing and intelligent retry logic
         
         Args:
             prompt: The prompt to send
             expected_format: Expected response format ("json", "text")
             response_model: Pydantic model class for structured JSON output
             max_tokens: Maximum tokens for response (default: 8192)
+            max_retries: Maximum number of retries on different errors (default: 4)
             
         Returns:
             Dictionary with parsed response and metadata
         """
-        # If using structured output, append JSON schema to prompt
-        if expected_format == "json" and response_model:
-            schema = self._get_json_schema(response_model)
-            prompt = f"{prompt}\n\nRespond with valid JSON matching this schema:\n{schema}"
         start_time = time.time()
+        errors_seen = set()
         
-        try:
-            if self.client:
-                # Use ClaudeInterface if available
-                response = self.client.generate(prompt, max_tokens=max_tokens)
-            else:
-                # Fallback - caller should handle WebFetch
-                raise NotImplementedError("No LLM client available - use WebFetch externally")
-            
-            latency_ms = (time.time() - start_time) * 1000
-            
-            if expected_format == "json":
-                return self._parse_json_response(response, latency_ms, response_model)
-            else:
-                return {
-                    "response": response,
-                    "latency_ms": latency_ms,
-                    "success": True
-                }
-                
-        except Exception as e:
-            latency_ms = (time.time() - start_time) * 1000
-            return {
-                "error": str(e),
-                "latency_ms": latency_ms,
-                "success": False
-            }
-    
-    def _get_json_schema(self, model_class: BaseModel) -> str:
-        """Generate JSON schema from Pydantic model"""
-        try:
-            schema = model_class.model_json_schema()
-            return json.dumps(schema, indent=2)
-        except Exception as e:
-            return f"Error generating schema: {e}"
-    
-    def _parse_json_response(self, response: str, latency_ms: float, response_model: BaseModel = None) -> Dict[str, Any]:
-        """Parse JSON from LLM response with robust error handling"""
-        try:
-            # Try to extract JSON from response
-            if isinstance(response, str):
-                # Look for JSON in the response
-                start_idx = response.find('{')
-                end_idx = response.rfind('}') + 1
-                if start_idx != -1 and end_idx != -1:
-                    json_str = response[start_idx:end_idx]
-                    
-                    # Try to fix common JSON issues
-                    json_str = self._fix_common_json_issues(json_str)
-                    
-                    # Parse JSON
-                    raw_result = json.loads(json_str)
-                    
-                    # If we have a Pydantic model, validate and parse
-                    if response_model:
-                        try:
-                            validated_result = response_model(**raw_result)
-                            result = validated_result.model_dump()
-                        except Exception as validation_error:
-                            print(f"⚠️  Pydantic validation failed: {validation_error}")
-                            result = raw_result  # Fall back to raw JSON
+        for attempt in range(max_retries + 1):
+            try:
+                if self.client:
+                    if expected_format == "json" and response_model:
+                        # Use structured output with native API
+                        response = self.client.generate(prompt, max_tokens=max_tokens, response_model=response_model)
+                        
+                        latency_ms = (time.time() - start_time) * 1000
+                        
+                        # response is already the structured data
+                        if response_model:
+                            try:
+                                validated_result = response_model(**response)
+                                result = validated_result.model_dump()
+                            except Exception as validation_error:
+                                print(f"⚠️  Pydantic validation failed: {validation_error}")
+                                result = response
+                        else:
+                            result = response
+                        
+                        return {
+                            "data": result,
+                            "latency_ms": latency_ms,
+                            "success": True,
+                            "attempts": attempt + 1
+                        }
                     else:
-                        result = raw_result
+                        # Regular text generation
+                        response = self.client.generate(prompt, max_tokens=max_tokens)
+                        latency_ms = (time.time() - start_time) * 1000
+                        
+                        return {
+                            "response": response,
+                            "latency_ms": latency_ms,
+                            "success": True,
+                            "attempts": attempt + 1
+                        }
                 else:
-                    raise ValueError("No JSON found in response")
-            else:
-                result = response
-            
-            # Add metadata
-            return {
-                "data": result,
-                "latency_ms": latency_ms,
-                "success": True
-            }
-            
-        except (json.JSONDecodeError, ValueError) as e:
-            return {
-                "error": f"Failed to parse JSON: {str(e)}",
-                "raw_response": response,
-                "latency_ms": latency_ms,
-                "success": False
-            }
+                    raise NotImplementedError("No LLM client available - use WebFetch externally")
+                    
+            except Exception as e:
+                error_str = str(e)
+                error_type = type(e).__name__
+                
+                # Check if this is a new error we haven't seen
+                error_signature = f"{error_type}: {error_str}"
+                
+                # Determine if we should retry
+                should_retry = False
+                wait_seconds = 0
+                
+                # Always retry on timeout/rate limit errors
+                if any(keyword in error_str.lower() for keyword in ['timeout', 'rate limit', 'too many requests', 'overloaded']):
+                    should_retry = True
+                    wait_seconds = min(2 ** attempt, 30)  # Exponential backoff, max 30s
+                    print(f"🔄 Retry {attempt + 1}/{max_retries} after {wait_seconds}s due to: {error_str}")
+                
+                # Retry on new errors (not seen before)
+                elif error_signature not in errors_seen:
+                    should_retry = True
+                    errors_seen.add(error_signature)
+                    wait_seconds = 1  # Short wait for new errors
+                    print(f"🔄 Retry {attempt + 1}/{max_retries} on new error: {error_str}")
+                
+                # Don't retry if we've seen this exact error before (unless it's timeout/rate limit)
+                else:
+                    print(f"❌ Skipping retry - already seen error: {error_str}")
+                
+                # If this is the last attempt or we shouldn't retry, return error
+                if attempt >= max_retries or not should_retry:
+                    latency_ms = (time.time() - start_time) * 1000
+                    return {
+                        "error": error_str,
+                        "latency_ms": latency_ms,
+                        "success": False,
+                        "attempts": attempt + 1,
+                        "errors_seen": list(errors_seen)
+                    }
+                
+                # Wait before retry
+                if wait_seconds > 0:
+                    time.sleep(wait_seconds)
     
-    def _fix_common_json_issues(self, json_str: str) -> str:
-        """Fix common JSON formatting issues"""
-        # Remove trailing commas before closing brackets/braces
-        json_str = re.sub(r',(\s*[}\]])', r'\1', json_str)
-        
-        # Ensure double quotes around keys and string values
-        # This is a simple fix - more complex scenarios might need better handling
-        
-        return json_str

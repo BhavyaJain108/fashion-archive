@@ -147,18 +147,15 @@
       }
     ],
     "pattern": {
-      "analysis": "Analyzing the three product examples, I can see each product is contained within an `x-cell` element with multiple specific classes and attributes. All products share the classes 'swiper-slide pro-card' and have the attribute 'prod-instock=\"true\"'. They also have data-gender attributes (mens/womens) and data-left-image attributes. This combination provides maximum specificity. For images, all products have a .card-image container with .primary div containing the main product image. Product names are consistently found in h2.card-title elements with links. The product links appear in multiple locations but the most reliable is within the .card-title h2 element. Image URLs contain meaningful product identifiers that could be used for name extraction as fallback.",
+      "analysis": "Looking at the three product examples, I need to identify the main container element that wraps each complete product. \n\nAll three products share the same container structure:\n- Element: `<x-cell>` (custom HTML element)\n- Classes: `swiper-slide pro-card` (both classes appear on ALL products)\n- Additional attributes: `prod-instock=\"true\"` and `data-gender` (present on all)\n\nThe container element `<x-cell class=\"swiper-slide pro-card\"` contains:\n1. Product images with links\n2. Product metadata including name in h2.card-title\n3. Product links with href attributes\n\nFor the link selector, within each container there are multiple `<a>` elements, but the main product link is consistently found in the `h2.card-title` element as `h2.card-title a.no-style`.\n\nFor the name selector, the product name is contained within the same link element `h2.card-title a.no-style`.\n\nThe combination of custom element `x-cell` with the specific classes `swiper-slide pro-card` provides high specificity while the `prod-instock` attribute adds additional discrimination against non-product elements.",
       "container_selector": "x-cell.swiper-slide.pro-card[prod-instock=\"true\"]",
-      "image_selector": ".card-image .primary picture img",
-      "name_selector": "h2.card-title a",
-      "link_selector": "h2.card-title a",
-      "image_name_extraction": "yes",
+      "name_selector": "h2.card-title a.no-style",
+      "link_selector": "h2.card-title a.no-style",
       "alternative_selectors": [
+        "x-cell.swiper-slide.pro-card",
         "x-cell.pro-card",
         ".swiper-slide.pro-card",
-        "x-cell[prod-instock]",
-        ".card-image a",
-        ".card-meta h2 a"
+        "x-cell[prod-instock]"
       ]
     },
     "product_html": "product_html/gullylabs.html",
@@ -218,22 +215,20 @@
       }
     ],
     "pattern": {
-      "analysis": "Looking at the HTML structure, I can see multiple product containers with the class 'es-character'. Each container represents a distinct product with its own image, link, title, and pricing information. The structure shows products like 'PLEATED WOMENS PANT TOBACCO', 'APEX WOOL TOP BROWN', and 'RAW TUBE BROWN'. Each product is wrapped in a div with class 'es-character' and contains an anchor tag with the product link, product images, and detailed product information including title and price within 'es-product-info' elements. The 'es-character' class appears to be the semantic container that holds all product-related information and is consistent across all products shown. Some containers have additional modifier classes like 'es-character--repeat-garment' but the base 'es-character' class is present on all product containers.",
-      "container_selector": ".es-character",
-      "image_selector": "img",
+      "analysis": "Looking at the three product examples, I need to identify the main container element that wraps each complete product.\n\nPRODUCT 1 (apex-wool-top-brown):\n- Container: `<div class=\"es-character es-character--3\">`\n- Link: `<a href=\"https://www.entirestudios.com/product/apex-wool-top-brown\" class=\"es-character-inner es-character-inner--blackout-countdown\">`\n- Name: Found in `.es-product-uniform-garment-title` containing \"APEX WOOL TOP BROWN\"\n\nPRODUCT 2 (apex-wool-top-dust-grey):\n- Container: `<div class=\"es-character es-character--8\">`\n- Link: `<a href=\"https://www.entirestudios.com/product/apex-wool-top-dust-grey\" class=\"es-character-inner es-character-inner--blackout-countdown\">`\n- Name: Found in `.es-product-uniform-garment-title` containing \"APEX WOOL TOP DUST GREY\"\n\nPRODUCT 3 (apex-wool-top-mustard):\n- Container: `<div class=\"es-character es-character--5\">`\n- Link: `<a href=\"https://www.entirestudios.com/product/apex-wool-top-mustard\" class=\"es-character-inner es-character-inner--blackout-countdown\">`\n- Name: Found in `.es-product-uniform-garment-title` containing \"APEX WOOL TOP MUSTARD\"\n\nINTERSECTION ANALYSIS:\nAll three products share the same container structure:\n- Main container: `div` with classes `es-character` (ALL have this)\n- Each has a numbered variant like `es-character--3`, `es-character--8`, `es-character--5` (these are unique per product)\n- All contain an `<a>` element with classes `es-character-inner` and `es-character-inner--blackout-countdown`\n\nThe most precise selector that captures ALL products is `div.es-character` since:\n1. All products use a div element as the main container\n2. All have the `es-character` class\n3. The numbered variants (--3, --8, --5) are unique identifiers but not shared across all products\n\nFor links: All products have `a.es-character-inner.es-character-inner--blackout-countdown` within the container.\n\nFor names: All products have `.es-product-uniform-garment-title` containing the product name, but this can also be extracted from the URL structure.",
+      "container_selector": "div.es-character",
       "name_selector": ".es-product-uniform-garment-title",
-      "link_selector": "a",
-      "image_name_extraction": "yes",
+      "link_selector": "a.es-character-inner.es-character-inner--blackout-countdown",
       "alternative_selectors": [
-        ".es-character-inner",
-        ".es-with-labels-garment",
-        ".es-product-info"
+        "div.es-character.es-character--*",
+        ".es-character",
+        "a.es-character-inner"
       ]
     },
     "product_html": "product_html/entire_studios.html",
     "scroll_test": [
       "https://www.entirestudios.com/collection/aw25/tag:aw25main",
-      161
+      104
     ]
   },
   "jukuhara": {
@@ -286,23 +281,22 @@
       }
     ],
     "pattern": {
-      "analysis": "All three products are contained within `x-cell` custom elements that have a `prod-instock` attribute (either 'true' or 'false'). This combination provides excellent specificity as custom elements are uncommon and the data attribute is product-specific. Each product has a consistent structure: card-image div containing product links and images, followed by card-meta containing product information. The product names are consistently found in h2 elements with class 'card-title h4', and the main product links are in the card-image section with class 'no-style' and tabindex='-1'. Images are within picture elements in the primary div. This structure is identical across all three products, making the selectors highly reliable.",
+      "analysis": "Looking at the three product examples, I need to identify the main container element that wraps each complete product.\n\nFor all three products, the main container is an `x-cell` element with specific attributes:\n- Product 1: `<x-cell class=\"\" prod-instock=\"false\">`\n- Product 2: `<x-cell class=\"\" prod-instock=\"false\">`  \n- Product 3: `<x-cell class=\"\" prod-instock=\"true\">`\n\nAll products share:\n1. The `x-cell` custom element (highly specific to this site's product grid)\n2. The `prod-instock` attribute (product-specific data attribute)\n3. A `class=\"\"` attribute (though empty, it's consistently present)\n\nThis container wraps the complete product structure including:\n- `.card-image` with product link and images\n- `.card-meta` with vendor, title, and price information\n\nFor the product link, all products have the same structure: `a[href^=\"/products/\"]` within the `.card-image` div.\n\nFor the product name, all products have: `h2.card-title.h4 > a.no-style` within the `.card-meta` section.\n\nThe `x-cell[prod-instock]` selector is highly specific because:\n1. `x-cell` is a custom element unique to this site's framework\n2. `prod-instock` is a product-specific data attribute\n3. This combination is unlikely to match non-product elements",
       "container_selector": "x-cell[prod-instock]",
-      "image_selector": ".card-image .primary picture img",
-      "name_selector": ".card-meta .card-title.h4 a",
-      "link_selector": ".card-image a.no-style[tabindex='-1']",
-      "image_name_extraction": "yes",
+      "name_selector": "h2.card-title.h4 > a.no-style",
+      "link_selector": "div.card-image > a.no-style",
       "alternative_selectors": [
+        "x-cell.class",
         "x-cell",
-        ".card-image",
-        "x-cell[class='']",
-        ".card-meta .card-title a"
+        "[prod-instock]",
+        "div.card-image",
+        "h2.card-title"
       ]
     },
     "product_html": "product_html/jukuhara.html",
     "scroll_test": [
       "https://jukuhara.jp/collections/t-shirts-compressions",
-      22
+      20
     ]
   },
   "kuurth": {
@@ -408,23 +402,21 @@
       }
     ],
     "pattern": {
-      "analysis": "Analyzing the three product examples, I can identify a highly specific pattern. Each product is contained within a list item with classes 'col-span-2 lg:col-span-4 bg-scheme-background text-scheme-text'. Inside each li, there's a div with the highly specific combination 'group relative flex h-full flex-col text-center hover:text-scheme-accent type-product-grid-item'. The 'type-product-grid-item' class is particularly semantic and product-specific. Each container also has a data-color-scheme attribute set to 'scheme1'. For maximum specificity, I'm combining the semantic class 'type-product-grid-item' with layout classes and the data attribute. Within each container: the product link uses 'absolute inset-0 z-10' classes, the main product image is within 'image-with-placeholder' elements with specific classes 'peer/image block absolute inset-0 w-full h-full object-contain is-complete', and product names are in paragraph elements with 'aria-hidden=\"true\"' within the pricing section. The image URLs contain meaningful product identifiers but not clean extractable names.",
-      "container_selector": "div.group.relative.flex.h-full.flex-col.text-center.hover\\:text-scheme-accent.type-product-grid-item[data-color-scheme=\"scheme1\"]",
-      "image_selector": "image-with-placeholder img.peer\\/image.block.absolute.inset-0.w-full.h-full.object-contain.is-complete",
-      "name_selector": "div.justify-between.py-4.px-section-horizontal-spacing.flex div.text-left.w-3\\/5.break-word p[aria-hidden=\"true\"]",
+      "analysis": "Looking at the three product examples, I need to identify the main container element that wraps each complete product.\n\nFor all three products, the main container structure is:\n- `<li class=\"col-span-2 lg:col-span-4 bg-scheme-background text-scheme-text\">`\n  - Contains a `<div class=\"group relative flex h-full flex-col text-center hover:text-scheme-accent type-product-grid-item\" data-color-scheme=\"scheme1\">`\n    - Which contains the product link `<a href=\"/collections/vigil-tempus-iii/products/...\" class=\"absolute inset-0 z-10\">`\n    - And the product name in `<span class=\"sr-only\">Product Name</span>`\n\nThe most precise container selector combines the semantic product grid item class with the data attribute that appears on all products:\n- `type-product-grid-item` - semantic class indicating this is a product grid item\n- `data-color-scheme=\"scheme1\"` - data attribute present on all products\n- `group` - interaction class for hover effects\n- `relative` - positioning class\n\nFor the link, it's consistently an `<a>` tag with classes `absolute inset-0 z-10` inside the container.\n\nFor the name, it's consistently in a `<span class=\"sr-only\">` element inside the link.\n\nThe combination of `div.group.type-product-grid-item[data-color-scheme=\"scheme1\"]` provides high specificity by combining:\n1. Semantic meaning (type-product-grid-item)\n2. Interaction behavior (group)\n3. Data attribute (data-color-scheme)\n4. Element type (div)\n\nThis avoids generic layout classes and focuses on product-specific identifiers.",
+      "container_selector": "div.group.type-product-grid-item[data-color-scheme=\"scheme1\"]",
+      "name_selector": "span.sr-only",
       "link_selector": "a.absolute.inset-0.z-10",
-      "image_name_extraction": "no",
       "alternative_selectors": [
-        "li.col-span-2.lg\\:col-span-4.bg-scheme-background.text-scheme-text",
         "div.type-product-grid-item",
+        "li.col-span-2.lg\\:col-span-4",
         "div.group.relative.flex",
-        "a[href*=\"/products/\"]"
+        ".type-product-grid-item[data-color-scheme]"
       ]
     },
     "product_html": "product_html/kuurth.html",
     "scroll_test": [
       "https://kuurth.com/collections/rings",
-      151
+      24
     ]
   },
   "pool_house_new_york": {
@@ -584,22 +576,21 @@
       }
     ],
     "pattern": {
-      "analysis": "Looking at the HTML structure, I can see a product grid with individual products contained within `<li class=\"column\">` elements. Each product is wrapped in a `<product-card>` custom element, which is the most semantic and reliable container. The product-card contains all product information: images, title link, vendor, and price. This custom element tag is ideal as it's specifically designed for products and won't match non-product elements like the promotion banner (which uses a different li structure). The product images are within the figure element, the product link is the main anchor with the product title, and there's a dedicated product-card-title class for the name.",
-      "container_selector": "product-card",
-      "image_selector": "img.product-primary-image",
-      "name_selector": ".product-card-title",
-      "link_selector": ".product-featured-image-link",
-      "image_name_extraction": "yes",
+      "analysis": "Looking at the three product examples, I need to identify the main container element that wraps each complete product.\n\nFrom the HTML analysis:\n\nPRODUCT 1: The main container is `<product-card class=\"product-card text-left\">` which contains the figure with images, product info div with vendor, title link, and pricing.\n\nPRODUCT 2: Same structure - `<product-card class=\"product-card text-left\">` containing figure, product-card-info div with all product details.\n\nPRODUCT 3: Same structure - `<product-card class=\"product-card text-left\">` containing figure, product-card-info div.\n\nAll three products share the exact same container element: `product-card` (custom HTML element) with classes \"product-card\" and \"text-left\".\n\nFor the link selector, within each product-card container, there are multiple links but the main product link is consistently found at `a.product-featured-image-link` (the image link) and `a.product-card-title` (the title link). The title link is more semantically appropriate for the main product link.\n\nFor the name selector, the product names are consistently found in `a.product-card-title` which contains the product title text.\n\nThe combination of the custom element `product-card` with the specific classes provides high specificity while being present across all products. This avoids generic layout classes and focuses on the semantic product container.",
+      "container_selector": "product-card.product-card.text-left",
+      "name_selector": "a.product-card-title",
+      "link_selector": "a.product-card-title",
       "alternative_selectors": [
-        "li.column",
+        "product-card",
         ".product-card",
-        "li.column product-card"
+        "a.product-featured-image-link",
+        ".product-card-info a"
       ]
     },
     "product_html": "product_html/pool_house_new_york.html",
     "scroll_test": [
       "https://poolhousenewyork.com/collections/mens-t-shirts",
-      111
+      22
     ]
   },
   "bluorng": {
@@ -839,17 +830,15 @@
       }
     ],
     "pattern": {
-      "analysis": "Looking at the HTML structure, I can see multiple product containers within `<li class=\"grid__item\">` elements. Each product is wrapped in a `<div class=\"card-wrapper product-card-wrapper\">` which contains all product information including image, name, link, and price. The `card-wrapper` class is semantic and specifically indicates product cards, making it more reliable than the layout-focused `grid__item`. Within each container, there's a clear structure with `.card__media` for images, `.card__heading` for product names/links, and `.price` for pricing. The product names are clearly visible in the heading links, and image URLs contain meaningful product identifiers.",
-      "container_selector": ".card-wrapper",
-      "image_selector": "img",
-      "name_selector": ".card__heading a",
-      "link_selector": ".card__heading a",
-      "image_name_extraction": "yes",
+      "analysis": "Looking at the three product examples, I need to identify the main container element that wraps each complete product.\n\nFor each product, I can see the structure follows this pattern:\n- Each product is wrapped in an `<li>` element with classes: \"grid__item scroll-trigger animate--slide-in scroll-trigger--offscreen\"\n- Inside that is a `<div>` with classes: \"card-wrapper product-card-wrapper underline-links-hover\"\n\nLet me analyze the classes that appear on ALL container elements:\n\nProduct 1 container: `<div class=\"card-wrapper product-card-wrapper underline-links-hover\">`\nProduct 2 container: `<div class=\"card-wrapper product-card-wrapper underline-links-hover\">`  \nProduct 3 container: `<div class=\"card-wrapper product-card-wrapper underline-links-hover\">`\n\nAll three products have the exact same container element with classes: \"card-wrapper\", \"product-card-wrapper\", and \"underline-links-hover\".\n\nThis container is the most precise selector as it:\n1. Uses multiple specific classes that appear on ALL products\n2. The \"product-card-wrapper\" class is semantically meaningful for products\n3. Combines three classes for high specificity to avoid false matches\n\nFor the link selector, within each container I can see consistent `<a>` elements with class \"full-unstyled-link\" that contain the product URLs.\n\nFor the name selector, the product names appear in the link text and can be extracted from the URLs, so I'll set this to null as URL extraction is preferred.",
+      "container_selector": "div.card-wrapper.product-card-wrapper.underline-links-hover",
+      "name_selector": null,
+      "link_selector": "a.full-unstyled-link",
       "alternative_selectors": [
-        ".grid__item",
-        ".product-card-wrapper",
-        ".card",
-        ".card__inner"
+        "div.card-wrapper",
+        "div.product-card-wrapper",
+        "li.grid__item",
+        ".card-wrapper.product-card-wrapper"
       ]
     },
     "product_html": "product_html/bluorng.html",
@@ -1280,29 +1269,26 @@
       }
     ],
     "pattern": {
-      "analysis": "Analyzing the three product examples, I can identify a highly specific pattern. Each product is contained within a div with multiple specific classes: 'filter-vip', 'product-block', 'cc-product-block', 'hover-image', 'product-block--quickbuy', 'column', 'quintin', and 'cc-initialized'. All products also have a 'data-tags' attribute containing product metadata. This combination provides maximum specificity. Within each container, there's a consistent structure: product links are 'a' elements with 'href' attributes pointing to product pages, images are found within '.rimage__image' elements (with lazyload classes), and product names are in '.title.ProductBlock__Title' spans. The data-tags attribute adds crucial product-specific identification, and the combination of all these classes ensures we're targeting actual product blocks rather than other page elements.",
-      "container_selector": "div.filter-vip.product-block.cc-product-block.hover-image.product-block--quickbuy.column.quintin.cc-initialized[data-tags]",
-      "image_selector": "img.rimage__image.lazyload",
+      "analysis": "Looking at the three product examples, I need to identify the main container element that wraps each complete product. \n\nAnalyzing the HTML structure:\n- Product 1: The main container is `<div class=\"filter-vip product-block cc-product-block hover-image product-block--quickbuy column quintin cc-initialized\">`\n- Product 2: The main container is `<div class=\"filter-vip product-block cc-product-block hover-image product-block--quickbuy column quintin cc-initialized\">`  \n- Product 3: The main container is `<div class=\"filter-vip product-block cc-product-block hover-image product-block--quickbuy column quintin cc-initialized\">`\n\nAll three products share the exact same classes on their main container element: `filter-vip`, `product-block`, `cc-product-block`, `hover-image`, `product-block--quickbuy`, `column`, `quintin`, and `cc-initialized`.\n\nFor maximum specificity, I'll combine the most distinctive classes that clearly identify this as a product block. The combination of `product-block`, `cc-product-block`, and `product-block--quickbuy` provides strong semantic meaning and specificity.\n\nFor the product link, each container has an `<a>` element with `href` pointing to the product URL. The most reliable selector is `a[href*=\"/products/\"]` within the container.\n\nFor the product name, each product has a `<span class=\"title ProductBlock__Title\">` containing the product name. This provides a highly specific selector for name extraction.",
+      "container_selector": "div.product-block.cc-product-block.product-block--quickbuy",
       "name_selector": "span.title.ProductBlock__Title",
-      "link_selector": "a[href*='/products/']",
-      "image_name_extraction": "yes",
+      "link_selector": "a[href*=\"/products/\"]",
       "alternative_selectors": [
-        "div.product-block",
-        "div.cc-product-block",
-        "div.filter-vip",
-        "div.product-block.cc-product-block",
-        "div[data-tags]"
+        "div.filter-vip.product-block",
+        "div.product-block.hover-image",
+        ".cc-product-block",
+        "div.product-block.column.quintin"
       ]
     },
     "product_html": "product_html/scuffers.html",
     "scroll_test": [
-      "https://scuffers.com/collections/new",
-      57
+      "https://scuffers.com/collections/scarves",
+      30
     ]
   },
   "jacquemus": {
     "name": "Jacquemus",
-    "homepage_url": "https://www.jacquemus.com",
+    "homepage_url": "https://www.jacquemus.com/en_us?srsltid=AfmBOorvAa87nJsS18PV5QG4LhyJC1Bok5S-GSGqwTK1C7M2KaNvLB88",
     "collections": null,
     "navigation": [],
     "pattern": null,
@@ -2382,23 +2368,21 @@
       }
     ],
     "pattern": {
-      "analysis": "All three products share a consistent structure within `article.product-brand.mm-product-card.-brand-mm` containers. Each product has a main product link with class `single-element-content-image` containing the product images, and a separate product name link with classes `product-link mm-product-card__title product-card-title`. The products have unique data attributes like `data-tile-id` and `data-master-id` on their containers. For maximum specificity, I'm combining the semantic classes (product-brand, mm-product-card) with the brand-specific class (-brand-mm) to create highly discriminating selectors. The image selector targets the first image within the mouseover container, and the name selector uses the specific combination of product-link classes that are unique to product titles.",
+      "analysis": "Looking at the three product examples, I need to identify the main container element that wraps each complete product.\n\nFor all three products, the main container structure is:\n- `<li>` element with classes: \"col-6 col-sm-3 mb-2 mb-sm-4 -brand-mm single-element show-second-image even\"\n- Contains a `<div class=\"product\">` with data-pid attribute\n- Inside that is `<article class=\"product-brand mm-product-card -brand-mm\">`\n\nThe most precise container that encompasses each complete product is the `<article>` element with classes \"product-brand mm-product-card -brand-mm\". This element contains:\n1. The product link (single-element-content-image)\n2. The product name (in the tile-body section)\n3. All product-specific content\n\nAll three products share these exact same classes on their article element:\n- product-brand\n- mm-product-card  \n- -brand-mm\n\nFor the product link, all products have an `<a>` element with class \"single-element-content-image\" that contains the product URL.\n\nFor the product name, all products have an `<a>` element with classes \"product-link mm-product-card__title product-card-title\" that contains the product name text.\n\nThe combination of these three classes (product-brand.mm-product-card.-brand-mm) provides high specificity while being present on all product containers.",
       "container_selector": "article.product-brand.mm-product-card.-brand-mm",
-      "image_selector": ".mm-product-card__hero__default .tile-image.first-image",
       "name_selector": "a.product-link.mm-product-card__title.product-card-title",
       "link_selector": "a.single-element-content-image",
-      "image_name_extraction": "yes",
       "alternative_selectors": [
-        "article.mm-product-card",
-        ".single-element-content.product-tile",
-        ".product-brand",
-        "div.product"
+        "div.product",
+        "li.single-element",
+        ".mm-product-card",
+        "article.product-brand"
       ]
     },
     "product_html": "product_html/maison_margiela.html",
     "scroll_test": [
       "https://www.maisonmargiela.com/wx/maison-margiela/women/featured/new-arrivals/",
-      60
+      59
     ]
   },
   "balenciaga": {
@@ -3380,23 +3364,21 @@
       }
     ],
     "pattern": {
-      "analysis": "Looking at the HTML structure, I can see this is a Balenciaga product listing page. The core product container is an `<article>` element with class `c-product`. This element contains all the essential product information including images, product name, sizes, and links. The article element uses semantic HTML and has a clear BEM-style class naming convention. Within this container, there's a main product link with class `c-product__focus` that contains the image slider and product information. The product name is found in an h2 element with class `c-product__name`. Images are contained within the slider structure using class `c-product__image`. The image URLs contain the product code (845978WBDH09320) but not human-readable product names.",
-      "container_selector": "article.c-product",
-      "image_selector": ".c-product__image",
-      "name_selector": ".c-product__name",
-      "link_selector": ".c-product__focus",
-      "image_name_extraction": "no",
+      "analysis": "Looking at the three product examples, I need to identify the main container element that wraps each complete product.\n\nFor all three products, the main container structure is:\n- `<article class=\"c-product\" data-pid=\"[PRODUCT_ID]\">` - This is the outermost product container\n- Inside this is `<div class=\"c-product__item\">` - This contains all product elements (wishlist, swatches, link, etc.)\n\nThe `<article>` element has:\n- Class: \"c-product\" (consistent across all products)\n- Attribute: data-pid with unique product IDs (\"845978WBDH09320\", \"845393WA9191080\", \"8468752AB5Q1000\")\n\nThe main product link is:\n- `<a class=\"c-product__focus\" href=\"[PRODUCT_URL]\" data-action=\"handlePLPProduct\" data-ref=\"link\" itemprop=\"url\" data-pid=\"[PRODUCT_ID]\">`\n\nThe product name is found in:\n- `<h2 class=\"c-product__name\">` containing the product name text\n\nFor maximum specificity, I'll target the article element with both its semantic class and the data-pid attribute. The link selector will target the specific anchor with its distinctive classes and attributes. The name selector will target the h2 with the specific product name class.\n\nAll products share the same structural pattern with consistent class names, making this a reliable selector pattern.",
+      "container_selector": "article.c-product[data-pid]",
+      "name_selector": "h2.c-product__name",
+      "link_selector": "a.c-product__focus[data-ref=\"link\"][itemprop=\"url\"]",
       "alternative_selectors": [
-        ".c-product",
-        "article[itemtype*='Product']",
-        ".l-productgrid__item article",
-        "[data-pid]"
+        "article.c-product",
+        ".c-product[data-pid]",
+        "a.c-product__focus",
+        ".c-product__focus[data-action='handlePLPProduct']"
       ]
     },
     "product_html": "product_html/balenciaga.html",
     "scroll_test": [
-      "https://www.balenciaga.com/en-en/men/shoes/sneakers",
-      116
+      "https://www.balenciaga.com/en-en/winter25",
+      460
     ]
   }
 }

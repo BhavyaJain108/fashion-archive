@@ -277,18 +277,26 @@ If no pagination:
                 # Just use the first container as fallback
                 target_container = containers[0]
             
-            # Extract image using the pattern
-            image_url = "N/A"
-            image_selector = pattern.get('image_selector', 'img')
-            if image_selector:
-                img_element = target_container.select_one(image_selector)
-                if img_element:
-                    img_src = img_element.get('src') or img_element.get('data-src') or img_element.get('data-lazy-src')
-                    if img_src:
-                        if img_src.startswith('http'):
-                            image_url = img_src
-                        else:
-                            image_url = urljoin(base_url, img_src)
+            # Extract images using new approach - get all img tags in container
+            images = []
+            img_elements = target_container.select('img')
+            for img_element in img_elements:
+                img_src = img_element.get('src') or img_element.get('data-src') or img_element.get('data-lazy-src')
+                if img_src:
+                    if img_src.startswith('http'):
+                        image_url = img_src
+                    else:
+                        image_url = urljoin(base_url, img_src)
+                    
+                    images.append({
+                        "src": image_url,
+                        "alt": img_element.get('alt', ''),
+                        "width": int(img_element.get('width', 0)) if img_element.get('width') else 0,
+                        "height": int(img_element.get('height', 0)) if img_element.get('height') else 0
+                    })
+            
+            # Use first image for backward compatibility
+            primary_image = images[0]['src'] if images else "N/A"
             
             # Extract name using the pattern
             product_name = "Sample Product"
@@ -301,13 +309,15 @@ If no pagination:
             return {
                 "name": product_name,
                 "product_url": product_link,
-                "image_url": image_url
+                "images": images,
+                "image_url": primary_image  # Keep for backward compatibility
             }
             
         except Exception as e:
             return {
                 "name": "Sample Product",
                 "product_url": product_link,
+                "images": [],
                 "image_url": f"N/A - Error: {e}"
             }
     
@@ -482,6 +492,10 @@ If no pagination:
         # Try structured output first
         llm_response = self.llm_handler.call(prompt, expected_format="json", response_model=get_response_model())
         
+        # Debug: print LLM response
+        if not llm_response.get("success", False):
+            print(f"🐛 LLM call failed: {llm_response.get('error', 'Unknown error')}")
+        
         if llm_response.get("success", False):
             data = llm_response.get("data", {})
             product_urls = data.get("product_urls", [])
@@ -496,22 +510,21 @@ If no pagination:
                 print(f"🔗 Found {len(valid_urls)} product links for pattern analysis")
                 return valid_urls
         
-        # Fallback to text response if structured fails
-        llm_response = self.llm_handler.call(prompt, expected_format="text")
-        
-        if llm_response.get("success", False):
-            response_text = llm_response.get("response", "").strip()
-            # Extract URLs from response
-            found_urls = []
-            for link in all_links:
-                if link in response_text and link not in found_urls:
-                    found_urls.append(link)
-                    if len(found_urls) >= 3:  # Limit to 3
+        # Simple heuristic fallback when LLM fails
+        print("🔧 Using heuristic fallback to find product links")
+        heuristic_urls = []
+        for link in all_links:
+            # Look for common product URL patterns
+            if any(pattern in link.lower() for pattern in ['/product/', '/products/', '/item/', '/items/']):
+                # Exclude homepage and category pages
+                if not link.endswith('/') and '?' not in link and '#' not in link:
+                    heuristic_urls.append(link)
+                    if len(heuristic_urls) >= 3:  # Limit to 3
                         break
-            
-            if found_urls:
-                print(f"🔗 Fallback found {len(found_urls)} product links")
-                return found_urls
+        
+        if heuristic_urls:
+            print(f"🔗 Heuristic found {len(heuristic_urls)} product links")
+            return heuristic_urls
         
         print(f"❌ No product links found")
         return []
@@ -601,13 +614,11 @@ If no pagination:
                 {
                     "container_selector": ".product, .product-item, .collection-item",
                     "link_selector": "a[href*='/product']",
-                    "image_selector": "img",
                     "name_selector": ".product-title, .product-name, h3, h4"
                 },
                 {
                     "container_selector": "[data-product], [data-product-id]",
                     "link_selector": "a",
-                    "image_selector": "img",
                     "name_selector": "[data-product-title], .title"
                 }
             ]
@@ -781,7 +792,6 @@ Return JSON:
             # Get other selectors - use only what pattern provides (no defaults)
             link_selector = self.product_extraction_pattern.get('link_selector') or ''
             name_selector = self.product_extraction_pattern.get('name_selector') or ''
-            image_selector = self.product_extraction_pattern.get('image_selector') or ''
             
             # Get ALL containers (no JavaScript marking - rely on URL deduplication)
             # Safely escape selectors for JavaScript
@@ -789,7 +799,6 @@ Return JSON:
             container_selector_escaped = json.dumps(container_selector)
             link_selector_escaped = json.dumps(link_selector)
             name_selector_escaped = json.dumps(name_selector)
-            image_selector_escaped = json.dumps(image_selector)
             
             extraction_result = page.evaluate(f"""
                 () => {{
@@ -818,19 +827,33 @@ Return JSON:
                             }}
                         }}
                         
-                        let imageSrc = '';
-                        if ({image_selector_escaped}) {{
-                            const imgEl = container.querySelector({image_selector_escaped});
-                            if (imgEl) {{
-                                imageSrc = imgEl.getAttribute('src') || imgEl.getAttribute('data-src') || '';
+                        // Extract all images from container
+                        const images = [];
+                        const imgElements = container.querySelectorAll('img');
+                        imgElements.forEach(img => {{
+                            const src = img.getAttribute('src') || 
+                                       img.getAttribute('data-src') || 
+                                       img.getAttribute('data-lazy-src') || 
+                                       img.getAttribute('data-original') || '';
+                            if (src) {{
+                                images.push({{
+                                    src: src,
+                                    alt: img.getAttribute('alt') || '',
+                                    width: parseInt(img.width) || 0,
+                                    height: parseInt(img.height) || 0
+                                }});
                             }}
-                        }}
+                        }});
+                        
+                        // Use first image for backward compatibility
+                        let imageSrc = images.length > 0 ? images[0].src : '';
                         
                         if (href) {{
                             newProducts.push({{
                                 href: href,
                                 name: name.trim(),
-                                image: imageSrc
+                                images: images,
+                                image: imageSrc  // Keep for backward compatibility
                             }});
                         }} else {{
                             noLinkCount++;
@@ -930,7 +953,6 @@ Return JSON:
             # Get other selectors - use only what pattern provides
             link_selector = self.product_extraction_pattern.get('link_selector')  # No default
             name_selector = self.product_extraction_pattern.get('name_selector')  # No default
-            image_selector = self.product_extraction_pattern.get('image_selector')  # No default
             
             # Find all product containers
             containers = page.query_selector_all(container_selector)
@@ -963,13 +985,28 @@ Return JSON:
                         if name_element:
                             product_name = name_element.inner_text().strip()
                     
-                    # Extract product image
-                    product_image = ""
-                    image_element = container.query_selector(image_selector)
-                    if image_element:
-                        product_image = image_element.get_attribute('src') or ""
-                        if product_image and not product_image.startswith('http'):
-                            product_image = urljoin(source_url, product_image)
+                    # Extract all product images from container
+                    product_images = []
+                    image_elements = container.query_selector_all('img')
+                    for img_el in image_elements:
+                        img_src = img_el.get_attribute('src') or img_el.get_attribute('data-src') or ""
+                        if img_src:
+                            if img_src.startswith('//'):
+                                img_src = 'https:' + img_src
+                            elif img_src.startswith('/'):
+                                img_src = urljoin(source_url, img_src)
+                            elif not img_src.startswith('http'):
+                                img_src = urljoin(source_url, img_src)
+                            
+                            product_images.append({
+                                "src": img_src,
+                                "alt": img_el.get_attribute('alt') or '',
+                                "width": int(img_el.get_attribute('width') or 0),
+                                "height": int(img_el.get_attribute('height') or 0)
+                            })
+                    
+                    # Use first image for backward compatibility
+                    product_image = product_images[0]['src'] if product_images else ""
                     
                     # Create Product object and queue it
                     product = Product(
