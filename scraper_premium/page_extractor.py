@@ -6,8 +6,6 @@ Pure functions for extracting products from individual pages.
 No shared state, designed for parallel processing.
 """
 
-import sys
-import os
 import time
 from typing import Dict, List, Any, Optional
 from datetime import datetime
@@ -120,7 +118,6 @@ def _extract_with_scrolling(page_url: str, pattern: Dict[str, str], brand_name: 
     Internal function to handle the actual scrolling and extraction logic.
     """
     products = []
-    seen_urls = set()  # Page-local deduplication only
     pagination_triggers_found = []  # Track what pagination triggers were found
     
     with sync_playwright() as p:
@@ -138,9 +135,6 @@ def _extract_with_scrolling(page_url: str, pattern: Dict[str, str], brand_name: 
             
             # Get selectors from pattern
             container_selector = pattern.get('container_selector', '')
-            link_selector = pattern.get('link_selector', 'a')
-            name_selector = pattern.get('name_selector', '')
-            image_selector = pattern.get('image_selector', 'img')
             
             if not container_selector:
                 raise Exception("No container selector in pattern")
@@ -164,8 +158,7 @@ def _extract_with_scrolling(page_url: str, pattern: Dict[str, str], brand_name: 
             else:
                 print(f"   📄 No pagination elements detected - using standard bottom scroll")
             
-            # Scroll to bottom first, then extract all products
-            last_height = 0
+            # Initialize scrolling variables
             scroll_count = 0
             no_change_count = 0
             
@@ -214,9 +207,6 @@ def _extract_with_scrolling(page_url: str, pattern: Dict[str, str], brand_name: 
                 else:
                     # Height changed, reset the no-change counter
                     no_change_count = 0
-                
-                # Update last height for next iteration
-                last_height = new_height
             
             # Always check for load more after scrolling is complete (regardless of scrolling method)
             print(f"   🔍 Scrolling complete, checking for load more buttons...")
@@ -260,7 +250,7 @@ def _extract_with_scrolling(page_url: str, pattern: Dict[str, str], brand_name: 
             
             # Extract all products once after scrolling complete
             products = _extract_products_from_current_state(
-                page, page_url, pattern, brand_name, category_name, seen_urls
+                page, page_url, pattern, brand_name, category_name
             )
             
         finally:
@@ -273,7 +263,7 @@ def _extract_with_scrolling(page_url: str, pattern: Dict[str, str], brand_name: 
 
 
 def _extract_products_from_current_state(page, page_url: str, pattern: Dict[str, str], 
-                                       brand_name: str, category_name: str, seen_urls: set) -> List[Dict[str, Any]]:
+                                       brand_name: str, category_name: str) -> List[Dict[str, Any]]:
     """
     Extract products from the current state of the page.
     """
@@ -593,7 +583,7 @@ def _extract_products_from_current_state(page, page_url: str, pattern: Dict[str,
             products_by_url[product_url] = product
             products.append(product)
             
-        except Exception as e:
+        except Exception:
             # Skip problematic products but continue
             continue
     
@@ -807,7 +797,7 @@ def extract_multiple_pages(page_urls: List[str], patterns: List[Dict[str, str]],
     
     Args:
         page_urls: List of page URLs to extract from
-        pattern: Product extraction pattern
+        patterns: Product extraction patterns
         brand_name: Optional brand name
         
     Returns:
@@ -817,7 +807,7 @@ def extract_multiple_pages(page_urls: List[str], patterns: List[Dict[str, str]],
     
     for page_url in page_urls:
         print(f"  🔄 Processing: {extract_category_name(page_url)}")
-        result = extract_products_from_page(page_url, pattern, brand_name, allow_pattern_discovery=True)
+        result = extract_products_from_page(page_url, patterns, brand_name, allow_pattern_discovery=True)
         results.append(result)
         
         status = "✅" if result["success"] else "❌"
@@ -1122,67 +1112,6 @@ def _click_load_more_button(page, selector: str) -> bool:
         return False
 
 
-def _smart_scroll_to_pagination_or_bottom(page):
-    """
-    Smart scrolling that finds ONE pagination trigger, scrolls to it, then to page bottom.
-    This handles sites that have lazy loading pagination triggers in the middle with footer content below.
-    Has nothing to do with load more buttons - this is purely for lazy loading triggers.
-    
-    Returns:
-        str or None: The selector of the pagination trigger found, or None if none found
-    """
-    try:
-        # Define common lazy loading pagination trigger selectors
-        pagination_trigger_selectors = [
-            # Common pagination containers (triggers lazy loading when visible)
-            '.pagination',
-            '.pager', 
-            '.page-navigation',
-            '[class*="pagination"]',
-            '[class*="pager"]',
-            
-            # Infinite scroll triggers
-            '.infinite-scroll',
-            '.scroll-trigger', 
-            '[class*="infinite"]',
-            '[class*="scroll-trigger"]',
-            '[data-infinite]',
-            
-            # Generic navigation containers
-            'nav[role="navigation"]',
-            '[role="navigation"]',
-            '.nav-pagination',
-            '.pagination-wrapper'
-        ]
-        
-        # Find the FIRST pagination trigger
-        for selector in pagination_trigger_selectors:
-            try:
-                elements = page.locator(selector)
-                if elements.count() > 0:
-                    # Get the last element (usually closest to more content)
-                    trigger_element = elements.last
-                    if trigger_element.is_visible():
-                        # Step 1: Scroll to trigger to activate lazy loading
-                        trigger_element.scroll_into_view()
-                        page.wait_for_timeout(1000)  # Wait for lazy loading activation
-                        
-                        # Step 2: Then scroll to the very bottom
-                        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                        
-                        return selector  # Return the found trigger
-            except:
-                continue
-        
-        # No pagination triggers found - just scroll to bottom
-        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-        return None
-            
-    except Exception:
-        # Fallback to normal scroll on any error
-        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-        return None
-
 
 def _detect_pagination_element(page):
     """
@@ -1223,7 +1152,7 @@ def _detect_pagination_element(page):
         return None
 
 
-def _scroll_using_pagination_element(page, pagination_selector, pagination_triggers_found):
+def _scroll_using_pagination_element(page, pagination_selector, _pagination_triggers_found):
     """
     Pagination-based scrolling: Keep scrolling to pagination element until it stops moving.
     """
@@ -1231,7 +1160,7 @@ def _scroll_using_pagination_element(page, pagination_selector, pagination_trigg
         scroll_count = 0
         last_pagination_position = None
         stable_count = 0
-        max_stable_attempts = 3
+        max_stable_attempts = 2
         
         print(f"   🎯 Using pagination element as scroll target: {pagination_selector}")
         
@@ -1281,40 +1210,3 @@ def _scroll_using_pagination_element(page, pagination_selector, pagination_trigg
         print(f"   ❌ Error in pagination scrolling: {e}")
 
 
-def _scroll_to_pagination_element(page, pagination_selector):
-    """
-    Scroll to pagination element and STOP there. 
-    The pagination element becomes our scrolling target instead of page bottom.
-    """
-    try:
-        # Scroll to pagination element
-        pagination_element = page.locator(pagination_selector).last
-        if pagination_element.is_visible():
-            # Get pagination element position
-            pagination_position = pagination_element.bounding_box()
-            if pagination_position:
-                page_bottom = page.evaluate("document.body.scrollHeight")
-                pagination_y = pagination_position['y'] + pagination_position['height']
-                distance_to_bottom = page_bottom - pagination_y
-                print(f"   📍 Pagination element at {pagination_y:.0f}px, page bottom at {page_bottom}px")
-                print(f"   📏 Distance from pagination to bottom: {distance_to_bottom:.0f}px")
-                
-                # ONLY scroll to pagination element - DO NOT scroll to bottom  
-                pagination_element.scroll_into_view_if_needed()
-                page.wait_for_timeout(1000)  # Wait for lazy loading activation
-                
-                # Check if scrolling to pagination triggered new content
-                new_page_bottom = page.evaluate("document.body.scrollHeight")
-                if new_page_bottom != page_bottom:
-                    print(f"   🎯 Scrolling to pagination triggered content: {page_bottom} → {new_page_bottom}")
-                else:
-                    print(f"   📄 Scrolling to pagination - no new content triggered")
-            else:
-                # If we can't get position, just scroll to the element
-                pagination_element.scroll_into_view()
-        else:
-            # Fallback to bottom if pagination element not visible
-            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-    except Exception:
-        # Fallback to normal scroll
-        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")

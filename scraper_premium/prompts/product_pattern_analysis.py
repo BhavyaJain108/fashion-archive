@@ -54,6 +54,7 @@ IMPORTANT CSS COMPATIBILITY:
 - Use STANDARD CSS selectors only (class, id, attribute, descendant, child)
 - DO NOT use modern selectors like :has(), :is(), :where(), :not() 
 - DO NOT use complex pseudo-selectors that may not be supported
+- Use proper syntax. I should not get a SyntaxError when using the selector in document.querySelectorAll()
 - Stick to basic selectors: .class, #id, [attribute], div > .class, .parent .child
 
 ANALYSIS PROCESS:
