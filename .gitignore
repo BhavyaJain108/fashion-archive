@@ -56,7 +56,7 @@ temp/
 tmp/
 
 # Test files
-test_*.py
+# test_*.py (commented out to allow custom test files)
 
 # Collection data and scraped content
 brand_collections/
