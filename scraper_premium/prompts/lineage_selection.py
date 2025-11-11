@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 class LineageSelection(BaseModel):
     """Structured output for lineage selection analysis"""
     analysis: str = Field(description="Reasoning for identifying which lineages represent genuine catalog products vs recommendations/ads")
-    valid_lineages: List[str] = Field(description="List of exact lineage strings that represent genuine catalog products for this category")
+    valid_lineage_numbers: List[int] = Field(description="List of numbers (1-indexed) corresponding to the lineages that represent genuine catalog products")
     confidence: str = Field(description="High/Medium/Low confidence in this selection")
 
 
@@ -44,6 +44,8 @@ You are analyzing product extraction results from an e-commerce category page to
 1. Classify each lineage as either:
    - **Valid catalog product** - genuine "{page_category}" products from the main category listing
    - **Invalid** - recommendations, ads, navigation, search suggestions, headers, footers, etc.
+   - they will have the smiilar product card structure
+   What we want to understand is that even with the similar product strucutre what lineage represents the actual category products vs promotional and recommended content.
 
 2. Look for patterns that indicate non-catalog content:
    - Search modals, suggestions, recommendations containers
@@ -51,9 +53,14 @@ You are analyzing product extraction results from an e-commerce category page to
    - Sidebar widgets
    - Advertisement sections
 
-3. Return the exact lineage strings (from the list above) that represent genuine catalog products
+3. Return the NUMBERS (1, 2, 3, etc.) of the lineages that represent genuine catalog products
 
-**Important:** Return the complete lineage strings exactly as they appear above - no modifications. Include ALL lineages that represent legitimate "{page_category}" products.
+4. You may encounter cases where: 
+    - All the lineages are valid catalog products (return all numbers)
+    - Very few or just one of the lineages are NOT valid catalog products (return subset of numbers. Ususally the case when there are a lot of products)
+    - Only one lineage is valid catalog products (return single number)
+
+**Important:** Return only the numbers from the numbered list above. For example, if lineages #1, #3, and #5 are valid, return [1, 3, 5].
 """.strip()
 
 

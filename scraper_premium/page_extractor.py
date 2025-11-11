@@ -16,9 +16,19 @@ from playwright.sync_api import sync_playwright
 from collections import Counter
 from llm_handler import LLMHandler
 from prompts import lineage_selection
+# Import modal bypass for load more functionality
+try:
+    from tests.modal_bypass_engine import bypass_blocking_modals_only
+except ImportError:
+    try:
+        from modal_bypass_engine import bypass_blocking_modals_only
+    except ImportError:
+        # Define a dummy function if modal bypass is not available
+        def bypass_blocking_modals_only(page, url):
+            return {"modals_detected": 0, "modals_bypassed": 0, "success": True}
 
 
-def extract_products_from_page(page_url: str, patterns: List[Dict[str, str]], brand_name: str = None, allow_pattern_discovery: bool = True) -> Dict[str, Any]:
+def extract_products_from_page(page_url: str, patterns: List[Dict[str, str]], brand_name: str = None, allow_pattern_discovery: bool = True, brand_instance=None) -> Dict[str, Any]:
     """
     Extract all products from a single page using multiple patterns with fallback.
     
@@ -74,7 +84,9 @@ def extract_products_from_page(page_url: str, patterns: List[Dict[str, str]], br
         pattern = patterns[0]
         result["metrics"]["patterns_tried"] = 1
         
-        products = _extract_with_scrolling(page_url, pattern, brand_name, category_name)
+        extraction_result = _extract_with_scrolling(page_url, pattern, brand_name, category_name, brand_instance)
+        products = extraction_result["products"]
+        pagination_triggers_found = extraction_result.get("pagination_triggers_found", [])
         
         # Apply lineage filtering if we have multiple products
         lineage_filtering_start = time.time()
@@ -87,6 +99,7 @@ def extract_products_from_page(page_url: str, patterns: List[Dict[str, str]], br
         
         result["products"] = products
         result["success"] = len(products) > 0
+        result["pagination_triggers_found"] = pagination_triggers_found
         result["pattern_used"] = 0
         result["metrics"]["products_extracted"] = len(products)
         result["metrics"]["products_before_filtering"] = products_before_filtering
@@ -102,12 +115,13 @@ def extract_products_from_page(page_url: str, patterns: List[Dict[str, str]], br
     return result
 
 
-def _extract_with_scrolling(page_url: str, pattern: Dict[str, str], brand_name: str, category_name: str) -> List[Dict[str, Any]]:
+def _extract_with_scrolling(page_url: str, pattern: Dict[str, str], brand_name: str, category_name: str, brand_instance=None) -> Dict[str, Any]:
     """
     Internal function to handle the actual scrolling and extraction logic.
     """
     products = []
     seen_urls = set()  # Page-local deduplication only
+    pagination_triggers_found = []  # Track what pagination triggers were found
     
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -141,37 +155,108 @@ def _extract_with_scrolling(page_url: str, pattern: Dict[str, str], brand_name: 
                     raise Exception(f"No containers found with selector: {container_selector}")
                 # If containers exist but wait_for_selector failed, continue anyway
             
+            # Detect pagination elements once at the beginning
+            pagination_element_detected = _detect_pagination_element(page)
+            if pagination_element_detected:
+                print(f"   🎯 Pagination element detected: {pagination_element_detected}")
+                print(f"   📍 Will scroll to pagination element first, then to bottom")
+                pagination_triggers_found.append(pagination_element_detected)
+            else:
+                print(f"   📄 No pagination elements detected - using standard bottom scroll")
+            
             # Scroll to bottom first, then extract all products
             last_height = 0
             scroll_count = 0
             no_change_count = 0
-            max_no_change_attempts = 3  # Try 1 time when height doesn't change
             
-            print(f"   🔄 Scrolling to load all content for: {page_url}")
+            # Optimize attempts based on loading mechanism knowledge
+            if brand_instance and brand_instance.load_more_loading_mechanism:
+                max_no_change_attempts = 1  # Only 1 attempt if we know site uses load more
+                print(f"   🔄 Scrolling to load content (optimized for load more): {page_url}")
+            else:
+                max_no_change_attempts = 2  # Standard attempts for unknown loading mechanism
+                print(f"   🔄 Scrolling to load all content for: {page_url}")
             
+            # Step 1: If pagination detected, chase it first
+            if pagination_element_detected:
+                # Pagination-based scrolling: keep chasing the pagination element
+                _scroll_using_pagination_element(page, pagination_element_detected, pagination_triggers_found)
+                
+                # After pagination chasing, do normal bottom scrolling
+                print(f"   📄 Pagination chasing complete, now scrolling to bottom...")
+            
+            # Step 2: Always do traditional height-based scrolling to bottom (either standalone or after pagination)
             while True:
+                # Get current height before scrolling
                 current_height = page.evaluate("document.body.scrollHeight")
                 scroll_count += 1
                 
-                print(f"   📏 Scroll #{scroll_count}: height {last_height} → {current_height}")
+                # Scroll to bottom first
+                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                page.wait_for_timeout(2000)  # Wait for scroll and potential loading
                 
-                if current_height == last_height:
+                # Get new height after scrolling and waiting
+                new_height = page.evaluate("document.body.scrollHeight")
+                
+                print(f"   📏 Scroll #{scroll_count}: height {current_height} → {new_height}")
+                
+                # Check if height changed after scroll
+                if new_height == current_height:
                     no_change_count += 1
-                    print(f"   ⏳ No height change (attempt {no_change_count}/{max_no_change_attempts}), waiting longer...")
+                    print(f"   ⏳ No height change (attempt {no_change_count}/{max_no_change_attempts})")
                     
                     if no_change_count >= max_no_change_attempts:
-                        print(f"   ✅ Reached bottom after {scroll_count} scrolls and {no_change_count} confirmation attempts, extracting products...")
-                        break
-                    
-                    # Wait longer when no change detected to allow lazy loading
-                    page.wait_for_timeout(4000)  # Wait 4 seconds instead of 2
+                        break  # Exit traditional scrolling loop
+                    else:
+                        # Wait longer when no change detected to allow lazy loading (3 second wait)
+                        print(f"   ⏳ Waiting for potential lazy loading...")
+                        page.wait_for_timeout(3000)  # 3 second wait as specified
                 else:
                     # Height changed, reset the no-change counter
                     no_change_count = 0
-                    page.wait_for_timeout(2000)  # Normal wait time
                 
-                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                last_height = current_height
+                # Update last height for next iteration
+                last_height = new_height
+            
+            # Always check for load more after scrolling is complete (regardless of scrolling method)
+            print(f"   🔍 Scrolling complete, checking for load more buttons...")
+            load_more_clicked = _handle_load_more_button(page, page_url, brand_instance)
+            
+            # If load more was found and clicked, keep chasing it like pagination elements
+            if load_more_clicked:
+                print(f"   🎯 Load more button found and clicked, chasing load more until exhausted...")
+                
+                load_more_click_count = 1
+                no_load_more_attempts = 0
+                max_load_more_attempts = 2  # Similar to scrolling attempts
+                
+                while load_more_click_count < 20:  # Reasonable limit to prevent infinite loops
+                    # Scroll to bottom first to see if more content loaded
+                    current_height = page.evaluate("document.body.scrollHeight")
+                    page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                    page.wait_for_timeout(3000)  # Wait for content to load
+                    
+                    new_height = page.evaluate("document.body.scrollHeight")
+                    print(f"   📏 After load more #{load_more_click_count}: height {current_height} → {new_height}")
+                    
+                    # Try to click load more again
+                    additional_click = _handle_load_more_button(page, page_url, brand_instance)
+                    
+                    if additional_click:
+                        load_more_click_count += 1
+                        no_load_more_attempts = 0  # Reset attempts counter
+                        print(f"   🎯 Load more button clicked again (click #{load_more_click_count})")
+                    else:
+                        no_load_more_attempts += 1
+                        print(f"   ⏳ No load more button found (attempt {no_load_more_attempts}/{max_load_more_attempts})")
+                        
+                        if no_load_more_attempts >= max_load_more_attempts:
+                            print(f"   ✅ No more load more buttons found after {load_more_click_count} clicks")
+                            break
+                        else:
+                            # Wait longer and try again (like traditional scrolling)
+                            print(f"   ⏳ Waiting longer for potential load more button...")
+                            page.wait_for_timeout(3000)  # Extra wait before retry
             
             # Extract all products once after scrolling complete
             products = _extract_products_from_current_state(
@@ -181,7 +266,10 @@ def _extract_with_scrolling(page_url: str, pattern: Dict[str, str], brand_name: 
         finally:
             browser.close()
     
-    return products
+    return {
+        "products": products,
+        "pagination_triggers_found": list(set(pagination_triggers_found))  # Remove duplicates
+    }
 
 
 def _extract_products_from_current_state(page, page_url: str, pattern: Dict[str, str], 
@@ -535,7 +623,11 @@ def apply_lineage_filtering(products: List[Dict[str, Any]], page_url: str, categ
         # Print lineage analysis if verbose
         print(f"\n🔍 LINEAGE ANALYSIS:")
         print(f"   📊 Found {len(lineage_counter)} unique lineage patterns from {len(products)} products")
-        for i, (lineage, count) in enumerate(sorted(lineage_counter.items(), key=lambda x: x[1], reverse=True), 1):
+        
+        # Create sorted list for easy indexing by number
+        sorted_lineages = sorted(lineage_counter.items(), key=lambda x: x[1], reverse=True)
+        
+        for i, (lineage, count) in enumerate(sorted_lineages, 1):
             print(f"   {i}. \"{lineage}\" ({count} products)")
         
         # Need at least 2 different lineages to make filtering worthwhile
@@ -562,11 +654,19 @@ def apply_lineage_filtering(products: List[Dict[str, Any]], page_url: str, categ
         
         # Extract the actual data from the LLM response
         result = llm_result.get('data')
-        if not result or 'valid_lineages' not in result:
-            print(f"   ❌ LLM response missing valid_lineages - keeping all products")
+        if not result or 'valid_lineage_numbers' not in result:
+            print(f"   ❌ LLM response missing valid_lineage_numbers - keeping all products")
             return []
         
-        valid_lineages = result['valid_lineages']
+        valid_lineage_numbers = result['valid_lineage_numbers']
+        
+        # Convert numbers back to lineage strings using our sorted list
+        valid_lineages = []
+        for num in valid_lineage_numbers:
+            if 1 <= num <= len(sorted_lineages):  # Check bounds
+                lineage, count = sorted_lineages[num - 1]  # Convert 1-indexed to 0-indexed
+                valid_lineages.append(lineage)
+        
         print(f"   ✅ LLM selected {len(valid_lineages)} valid lineages:")
         for i, lineage in enumerate(valid_lineages, 1):
             print(f"      {i}. \"{lineage}\"")
@@ -870,3 +970,351 @@ def extract_collection_hierarchy(navigation_tree: List[Dict]) -> List[Dict]:
         return collections
     
     return extract_with_path(navigation_tree)
+
+
+def _handle_load_more_button(page, page_url: str, brand_instance) -> bool:
+    """
+    Handle load more button detection and clicking with smart caching.
+    
+    Args:
+        page: Playwright page object
+        page_url: Current page URL
+        brand_instance: Brand instance to store load more info
+        
+    Returns:
+        bool: True if load more button was clicked, False otherwise
+    """
+    if not brand_instance:
+        return False
+    
+    # Check brand instance state
+    if brand_instance.load_more_detected is None:
+        # First time - run detection
+        return _detect_and_click_load_more(page, page_url, brand_instance)
+    elif brand_instance.load_more_detected == True:
+        # Use stored info to click button
+        return _click_stored_load_more(page, page_url, brand_instance)
+    else:
+        # load_more_detected == False - no button found, skip
+        return False
+
+
+def _detect_and_click_load_more(page, page_url: str, brand_instance) -> bool:
+    """
+    Detect load more button for the first time and store info.
+    """
+    try:
+        print(f"   🔍 First-time load more detection...")
+        
+        # Common load more button selectors
+        load_more_selectors = [
+            'button:has-text("Load More")',
+            'button:has-text("Show More")',
+            'button:has-text("View More")',
+            'a:has-text("Load More")',
+            'a:has-text("Show More")',
+            '[data-action*="load"]',
+            '[class*="load-more"]',
+            '[class*="show-more"]',
+            '[id*="load-more"]',
+            '.load-more-button',
+            '.show-more-button',
+            'button[onclick*="load"]'
+        ]
+        
+        detected_selector = None
+        
+        # Try each selector
+        for selector in load_more_selectors:
+            try:
+                elements = page.locator(selector)
+                if elements.count() > 0 and elements.first.is_visible():
+                    detected_selector = selector
+                    print(f"   ✅ Load more button found: {selector}")
+                    break
+            except:
+                continue
+        
+        if detected_selector:
+            # Detect any modals that might interfere
+            modal_results = bypass_blocking_modals_only(page, page_url)
+            
+            # Try to click the button first to verify it works
+            click_successful = _click_load_more_button(page, detected_selector)
+            
+            # Only save if click was successful AND this is first time detection
+            if click_successful and brand_instance.load_more_detected is None:
+                brand_instance.save_load_more_info(detected_selector, modal_results)
+                
+                # Mark modals as applied since we just applied them
+                if modal_results.get('modals_detected', 0) > 0:
+                    brand_instance.load_more_modals_applied = True
+                
+                return True
+            elif click_successful:
+                # Click worked but we already have load more info - don't overwrite
+                print(f"   ✅ Load more button clicked but info already stored - not overwriting")
+                return True
+            else:
+                # Click failed - don't save anything if this is first detection
+                if brand_instance.load_more_detected is None:
+                    print(f"   ⚠️  Load more button detection failed - selector matches but not clickable")
+                    brand_instance.mark_no_load_more()
+                return False
+        else:
+            # No button found - mark as checked
+            brand_instance.mark_no_load_more()
+            return False
+            
+    except Exception as e:
+        print(f"   ❌ Error during load more detection: {e}")
+        brand_instance.mark_no_load_more()
+        return False
+
+
+def _click_stored_load_more(page, page_url: str, brand_instance) -> bool:
+    """
+    Click load more button using stored information.
+    """
+    try:
+        print(f"   🎯 Using stored load more info...")
+        
+        # Apply stored modal bypasses only once per session
+        if (brand_instance.load_more_modal_bypasses.get('modals_detected', 0) > 0 and 
+            not brand_instance.load_more_modals_applied):
+            print(f"   🚫 Applying {brand_instance.load_more_modal_bypasses['modals_detected']} stored modal bypasses (first time)...")
+            bypass_blocking_modals_only(page, page_url)
+            brand_instance.load_more_modals_applied = True
+        elif brand_instance.load_more_modals_applied:
+            print(f"   ✅ Modal bypasses already applied this session")
+        
+        # Click the stored button selector
+        return _click_load_more_button(page, brand_instance.load_more_button_selector)
+        
+    except Exception as e:
+        print(f"   ❌ Error clicking stored load more button: {e}")
+        return False
+
+
+def _click_load_more_button(page, selector: str) -> bool:
+    """
+    Actually click the load more button.
+    """
+    try:
+        button = page.locator(selector)
+        
+        # Verify button still exists and is visible
+        if not button.count() or not button.is_visible():
+            print(f"   ⚠️  Load more button no longer visible: {selector}")
+            return False
+            
+        if button.is_disabled():
+            print(f"   ⚠️  Load more button is disabled: {selector}")
+            return False
+        
+        # Click the button
+        button.click(timeout=5000)
+        print(f"   ✅ Load more button clicked successfully")
+        return True
+        
+    except Exception as e:
+        print(f"   ❌ Failed to click load more button: {e}")
+        return False
+
+
+def _smart_scroll_to_pagination_or_bottom(page):
+    """
+    Smart scrolling that finds ONE pagination trigger, scrolls to it, then to page bottom.
+    This handles sites that have lazy loading pagination triggers in the middle with footer content below.
+    Has nothing to do with load more buttons - this is purely for lazy loading triggers.
+    
+    Returns:
+        str or None: The selector of the pagination trigger found, or None if none found
+    """
+    try:
+        # Define common lazy loading pagination trigger selectors
+        pagination_trigger_selectors = [
+            # Common pagination containers (triggers lazy loading when visible)
+            '.pagination',
+            '.pager', 
+            '.page-navigation',
+            '[class*="pagination"]',
+            '[class*="pager"]',
+            
+            # Infinite scroll triggers
+            '.infinite-scroll',
+            '.scroll-trigger', 
+            '[class*="infinite"]',
+            '[class*="scroll-trigger"]',
+            '[data-infinite]',
+            
+            # Generic navigation containers
+            'nav[role="navigation"]',
+            '[role="navigation"]',
+            '.nav-pagination',
+            '.pagination-wrapper'
+        ]
+        
+        # Find the FIRST pagination trigger
+        for selector in pagination_trigger_selectors:
+            try:
+                elements = page.locator(selector)
+                if elements.count() > 0:
+                    # Get the last element (usually closest to more content)
+                    trigger_element = elements.last
+                    if trigger_element.is_visible():
+                        # Step 1: Scroll to trigger to activate lazy loading
+                        trigger_element.scroll_into_view()
+                        page.wait_for_timeout(1000)  # Wait for lazy loading activation
+                        
+                        # Step 2: Then scroll to the very bottom
+                        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                        
+                        return selector  # Return the found trigger
+            except:
+                continue
+        
+        # No pagination triggers found - just scroll to bottom
+        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+        return None
+            
+    except Exception:
+        # Fallback to normal scroll on any error
+        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+        return None
+
+
+def _detect_pagination_element(page):
+    """
+    Detect if pagination elements exist on the page (one-time detection).
+    
+    Returns:
+        str or None: The selector of the first pagination element found, or None
+    """
+    try:
+        pagination_trigger_selectors = [
+            '.pagination',
+            '.pager', 
+            '.page-navigation',
+            '[class*="pagination"]',
+            '[class*="pager"]',
+            '.infinite-scroll',
+            '.scroll-trigger', 
+            '[class*="infinite"]',
+            '[class*="scroll-trigger"]',
+            '[data-infinite]',
+            'nav[role="navigation"]',
+            '[role="navigation"]',
+            '.nav-pagination',
+            '.pagination-wrapper'
+        ]
+        
+        # Find the FIRST pagination element
+        for selector in pagination_trigger_selectors:
+            try:
+                elements = page.locator(selector)
+                if elements.count() > 0 and elements.last.is_visible():
+                    return selector  # Return the first found selector
+            except:
+                continue
+        
+        return None
+    except Exception:
+        return None
+
+
+def _scroll_using_pagination_element(page, pagination_selector, pagination_triggers_found):
+    """
+    Pagination-based scrolling: Keep scrolling to pagination element until it stops moving.
+    """
+    try:
+        scroll_count = 0
+        last_pagination_position = None
+        stable_count = 0
+        max_stable_attempts = 3
+        
+        print(f"   🎯 Using pagination element as scroll target: {pagination_selector}")
+        
+        while True:
+            scroll_count += 1
+            
+            # Get pagination element position before scrolling
+            pagination_element = page.locator(pagination_selector).last
+            if not pagination_element.is_visible():
+                print(f"   ❌ Pagination element no longer visible after {scroll_count} scrolls")
+                break
+                
+            pagination_position = pagination_element.bounding_box()
+            if not pagination_position:
+                print(f"   ❌ Cannot get pagination element position after {scroll_count} scrolls")
+                break
+                
+            current_pagination_y = pagination_position['y'] + pagination_position['height']
+            page_bottom = page.evaluate("document.body.scrollHeight")
+            
+            print(f"   📏 Scroll #{scroll_count}: Pagination at {current_pagination_y:.0f}px, page bottom {page_bottom}px")
+            
+            # Check if pagination element has stopped moving
+            if last_pagination_position is not None:
+                position_diff = abs(current_pagination_y - last_pagination_position)
+                if position_diff < 10:  # Element hasn't moved significantly
+                    stable_count += 1
+                    print(f"   ⏸️  Pagination element stable (attempt {stable_count}/{max_stable_attempts})")
+                    if stable_count >= max_stable_attempts:
+                        print(f"   ✅ Pagination element stopped moving after {scroll_count} scrolls")
+                        break
+                else:
+                    stable_count = 0  # Reset if element moved
+            
+            # Scroll to pagination element
+            pagination_element.scroll_into_view_if_needed()
+            page.wait_for_timeout(2000)  # Wait for content to load
+            
+            last_pagination_position = current_pagination_y
+            
+            # Safety check to prevent infinite loops
+            if scroll_count > 50:
+                print(f"   ⚠️  Reached maximum scroll attempts ({scroll_count})")
+                break
+                
+    except Exception as e:
+        print(f"   ❌ Error in pagination scrolling: {e}")
+
+
+def _scroll_to_pagination_element(page, pagination_selector):
+    """
+    Scroll to pagination element and STOP there. 
+    The pagination element becomes our scrolling target instead of page bottom.
+    """
+    try:
+        # Scroll to pagination element
+        pagination_element = page.locator(pagination_selector).last
+        if pagination_element.is_visible():
+            # Get pagination element position
+            pagination_position = pagination_element.bounding_box()
+            if pagination_position:
+                page_bottom = page.evaluate("document.body.scrollHeight")
+                pagination_y = pagination_position['y'] + pagination_position['height']
+                distance_to_bottom = page_bottom - pagination_y
+                print(f"   📍 Pagination element at {pagination_y:.0f}px, page bottom at {page_bottom}px")
+                print(f"   📏 Distance from pagination to bottom: {distance_to_bottom:.0f}px")
+                
+                # ONLY scroll to pagination element - DO NOT scroll to bottom  
+                pagination_element.scroll_into_view_if_needed()
+                page.wait_for_timeout(1000)  # Wait for lazy loading activation
+                
+                # Check if scrolling to pagination triggered new content
+                new_page_bottom = page.evaluate("document.body.scrollHeight")
+                if new_page_bottom != page_bottom:
+                    print(f"   🎯 Scrolling to pagination triggered content: {page_bottom} → {new_page_bottom}")
+                else:
+                    print(f"   📄 Scrolling to pagination - no new content triggered")
+            else:
+                # If we can't get position, just scroll to the element
+                pagination_element.scroll_into_view()
+        else:
+            # Fallback to bottom if pagination element not visible
+            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+    except Exception:
+        # Fallback to normal scroll
+        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")

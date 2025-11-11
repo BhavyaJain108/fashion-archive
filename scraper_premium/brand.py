@@ -8,7 +8,7 @@ Represents a fashion brand.
 import sys
 import os
 import json
-from typing import List
+from typing import List, Optional
 from queue import Queue
 import time
 import threading
@@ -46,6 +46,13 @@ class Brand:
         self.starting_pages_queue: List[str] = []
         self.product_extraction_pattern: dict = {}
         self.llm_handler = llm_handler or LLMHandler()
+        
+        # Load more functionality
+        self.load_more_detected: Optional[bool] = None  # None=not checked, True=found, False=none found
+        self.load_more_button_selector: Optional[str] = None
+        self.load_more_modal_bypasses: dict = {}
+        self.load_more_modals_applied: bool = False  # Track if modals were already applied this session
+        self.load_more_loading_mechanism: bool = False  # Track if we know this site uses load more (across all pages)
         
         # Product queue for discovered products
         self.product_queue = Queue()
@@ -239,6 +246,26 @@ If no pagination:
                 "success": False,
                 "error": str(e)
             }
+    
+    def save_load_more_info(self, selector: str, modal_bypasses: dict):
+        """
+        Save load more button information to the brand instance.
+        
+        Args:
+            selector: CSS selector for the load more button
+            modal_bypasses: Dictionary containing modal bypass information
+        """
+        self.load_more_detected = True
+        self.load_more_button_selector = selector
+        self.load_more_modal_bypasses = modal_bypasses
+        self.load_more_loading_mechanism = True  # Mark that we know this brand uses load more
+        print(f"📝 Stored load more info - Selector: {selector}, Modals: {modal_bypasses.get('modals_detected', 0)}")
+        print(f"⚡ Optimized loading mechanism detected - future pages will skip lazy loading waits")
+    
+    def mark_no_load_more(self):
+        """Mark that no load more button was found (to avoid re-checking)."""
+        self.load_more_detected = False
+        print("📝 No load more button found - marked as checked")
     
     def _extract_sample_product(self, html_content: str, pattern: dict, product_link: str, base_url: str) -> dict:
         """
