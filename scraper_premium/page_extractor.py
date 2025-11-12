@@ -92,8 +92,14 @@ def extract_products_from_page(page_url: str, patterns: List[Dict[str, str]], br
         lineage_filtering_start = time.time()
         products_before_filtering = len(products)
         if len(products) > 1:
-            filtered_products = apply_lineage_filtering(products, page_url, category_name)
+            filtered_products = apply_lineage_filtering(products, page_url, category_name, brand_instance)
             if filtered_products:  # Only use filtered results if filtering succeeded
+                # Store approved lineages in brand instance for cross-page filtering
+                if brand_instance:
+                    approved_lineages = {product.get("full_lineage") for product in filtered_products if product.get("full_lineage")}
+                    brand_instance.store_lineage_memory(page_url, set(), approved_lineages)
+                    print(f"   💾 Stored {len(approved_lineages)} approved lineage patterns for cross-page filtering")
+                
                 products = filtered_products
         lineage_filtering_time = time.time() - lineage_filtering_start
         
@@ -337,59 +343,86 @@ def extract_multi_page_products(page_url: str, pattern: Dict[str, str], brand_na
     
     start_time = time.time()
     
-    # Use ThreadPoolExecutor for parallel extraction
-    max_workers = min(len(page_urls), 8)  # Limit to 8 concurrent browsers
+    # Concurrent extraction: Parallel (known pages) + Sequential (beyond max)
+    max_workers = min(len(page_urls) + 3, 8)  # Allow extra workers for sequential fallback
     
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # Submit all page extraction tasks
-        future_to_url = {}
+        # Submit all known page extraction tasks (parallel)
+        future_to_info = {}
         for i, url in enumerate(page_urls):
             future = executor.submit(
                 _extract_single_additional_page,
                 url, pattern, brand_name, category_name, brand_instance, 
                 lineage_memory, i + 2  # Page numbers start from 2
             )
-            future_to_url[future] = (url, i + 2)
+            future_to_info[future] = {"url": url, "page_num": i + 2, "source": "parallel"}
+        
+        # Submit sequential fallback task (concurrent with parallel)
+        fallback_future = None
+        if pagination_result.get("max_page_detected"):
+            max_page_detected = pagination_result["max_page_detected"]
+            fallback_future = executor.submit(
+                _concurrent_sequential_fallback,
+                page_url, pattern, brand_name, category_name, brand_instance,
+                lineage_memory, pagination_result, max_page_detected
+            )
+            future_to_info[fallback_future] = {"source": "sequential_fallback"}
         
         # Collect results as they complete
         pages_with_products = 0
-        for future in as_completed(future_to_url):
-            url, page_num = future_to_url[future]
+        parallel_complete = False
+        
+        for future in as_completed(future_to_info):
+            info = future_to_info[future]
+            source = info.get("source")
+            
             try:
-                page_result = future.result()
-                products_found = len(page_result["products"])
-                
-                if products_found > 0:
-                    all_products.extend(page_result["products"])
-                    pages_with_products += 1
-                    print(f"   ✅ Page {page_num}: {products_found} products extracted")
-                else:
-                    print(f"   📄 Page {page_num}: 0 products - stopping extraction")
-                    # Cancel remaining futures when we hit 0 products
-                    for remaining_future in future_to_url:
-                        if remaining_future != future and not remaining_future.done():
-                            remaining_future.cancel()
-                    break
-                
-                per_page_stats.append({
-                    "page_num": page_num,
-                    "url": url,
-                    "products_found": products_found,
-                    "extraction_time": page_result.get("extraction_time", 0)
-                })
-                
-                # Update lineage memory with new rejections
-                if "lineage_rejections" in page_result:
-                    lineage_memory["rejected_lineages"].update(page_result["lineage_rejections"])
-                
+                if source == "parallel":
+                    # Handle parallel extraction result
+                    page_result = future.result()
+                    products_found = len(page_result["products"])
+                    page_num = info["page_num"]
+                    url = info["url"]
+                    
+                    if products_found > 0:
+                        all_products.extend(page_result["products"])
+                        pages_with_products += 1
+                        print(f"   ✅ Page {page_num}: {products_found} products extracted")
+                    else:
+                        print(f"   📄 Page {page_num}: 0 products detected")
+                    
+                    per_page_stats.append({
+                        "page_num": page_num,
+                        "url": url,
+                        "products_found": products_found,
+                        "extraction_time": page_result.get("extraction_time", 0),
+                        "source": "parallel"
+                    })
+                    
+                elif source == "sequential_fallback":
+                    # Handle sequential fallback results
+                    fallback_results = future.result()
+                    if fallback_results:
+                        print(f"   🔄 Sequential fallback completed: {len(fallback_results)} additional pages processed")
+                        for result in fallback_results:
+                            if result.get("products"):
+                                all_products.extend(result["products"])
+                        per_page_stats.extend(fallback_results)
+                    
             except Exception as e:
-                print(f"   ❌ Page {page_num} extraction failed: {e}")
-                per_page_stats.append({
-                    "page_num": page_num,
-                    "url": url,
-                    "products_found": 0,
-                    "error": str(e)
-                })
+                if source == "parallel":
+                    page_num = info["page_num"]
+                    url = info["url"]
+                    print(f"   ❌ Page {page_num} extraction failed: {e}")
+                    per_page_stats.append({
+                        "page_num": page_num,
+                        "url": url,
+                        "products_found": 0,
+                        "error": str(e),
+                        "source": "parallel"
+                    })
+                else:
+                    print(f"   ❌ Sequential fallback failed: {e}")
     
     total_time = time.time() - start_time
     
@@ -419,6 +452,253 @@ def extract_multi_page_products(page_url: str, pattern: Dict[str, str], brand_na
         "total_extraction_time": total_time,
         "duplicates_removed": duplicates_removed
     }
+
+
+def _sequential_fallback_extraction(base_url: str, pattern: Dict[str, str], brand_name: str, 
+                                   category_name: str, brand_instance, lineage_memory: Dict,
+                                   pagination_result: Dict, highest_page_processed: int) -> List[Dict]:
+    """
+    Sequential fallback extraction: continue beyond detected max until 0 products or 404
+    
+    Args:
+        base_url: Base category URL (page 1)
+        pattern: Product extraction pattern
+        brand_name: Brand name for extraction
+        category_name: Category name for extraction
+        brand_instance: Brand instance with learned patterns
+        lineage_memory: Shared lineage memory from parallel extraction
+        pagination_result: More Links detection result with url_pattern
+        highest_page_processed: Highest page number from parallel phase
+        
+    Returns:
+        List of page stats from sequential extraction
+    """
+    url_pattern = pagination_result.get("url_pattern")
+    max_page_detected = pagination_result.get("max_page_detected")
+    
+    if not url_pattern or not max_page_detected:
+        return []
+    
+    print(f"\n🔄 Sequential Fallback: Checking pages beyond detected max ({max_page_detected})...")
+    
+    fallback_stats = []
+    current_page_num = highest_page_processed + 1
+    consecutive_failures = 0
+    max_consecutive_failures = 3
+    
+    while consecutive_failures < max_consecutive_failures:
+        try:
+            # Generate next page URL using same logic as _generate_page_urls
+            if "?page=X" in url_pattern:
+                next_page_url = base_url.split("?")[0] + f"?page={current_page_num}"
+            elif "/page/X/" in url_pattern:
+                next_page_url = base_url.rstrip("/") + f"/page/{current_page_num}/"
+            elif "/page/X" in url_pattern:
+                next_page_url = base_url.rstrip("/") + f"/page/{current_page_num}"
+            elif "?p=X" in url_pattern:
+                next_page_url = base_url.split("?")[0] + f"?p={current_page_num}"
+            else:
+                # Custom pattern - replace X with page number
+                next_page_url = base_url + url_pattern.replace("X", str(current_page_num))
+            
+            print(f"   🔍 Testing page {current_page_num}: {next_page_url}")
+            
+            # Extract from this page using existing function
+            page_result = _extract_single_additional_page(
+                next_page_url, pattern, brand_name, category_name, 
+                brand_instance, lineage_memory, current_page_num
+            )
+            
+            products_found = len(page_result.get("products", []))
+            
+            if products_found > 0:
+                print(f"   ✅ Page {current_page_num}: {products_found} products found - continuing")
+                fallback_stats.append({
+                    "page_num": current_page_num,
+                    "url": next_page_url,
+                    "products_found": products_found,
+                    "extraction_time": page_result.get("extraction_time", 0),
+                    "source": "sequential_fallback",
+                    "products": page_result.get("products", [])  # Include products for aggregation
+                })
+                consecutive_failures = 0  # Reset failure counter
+            else:
+                print(f"   📄 Page {current_page_num}: 0 products - fallback complete")
+                fallback_stats.append({
+                    "page_num": current_page_num,
+                    "url": next_page_url,
+                    "products_found": 0,
+                    "extraction_time": page_result.get("extraction_time", 0),
+                    "source": "sequential_fallback"
+                })
+                break  # Stop when we hit a page with 0 products
+                
+        except Exception as e:
+            print(f"   ❌ Page {current_page_num}: Failed ({str(e)[:50]}...) - counting as failure")
+            consecutive_failures += 1
+            fallback_stats.append({
+                "page_num": current_page_num,
+                "url": next_page_url if 'next_page_url' in locals() else f"page_{current_page_num}",
+                "products_found": 0,
+                "error": str(e),
+                "source": "sequential_fallback"
+            })
+            
+            # If it's a 404-like error, stop immediately
+            if "404" in str(e) or "not found" in str(e).lower():
+                print(f"   🚫 Page {current_page_num}: 404 detected - fallback complete")
+                break
+        
+        current_page_num += 1
+        
+        # Safety limit: don't go beyond 50 pages beyond detected max
+        if current_page_num > max_page_detected + 50:
+            print(f"   🛑 Reached safety limit (page {current_page_num}) - stopping fallback")
+            break
+    
+    if consecutive_failures >= max_consecutive_failures:
+        print(f"   🛑 Sequential fallback stopped after {max_consecutive_failures} consecutive failures")
+    
+    return fallback_stats
+
+
+def _concurrent_sequential_fallback(base_url: str, pattern: Dict[str, str], brand_name: str, 
+                                   category_name: str, brand_instance, lineage_memory: Dict,
+                                   pagination_result: Dict, max_page_detected: int) -> List[Dict]:
+    """
+    Concurrent sequential fallback: extract pages beyond detected max (thread-safe)
+    
+    This runs concurrently with parallel extraction of known pages.
+    Starts from max_page_detected + 1 and continues until 0 products or 404.
+    """
+    url_pattern = pagination_result.get("url_pattern")
+    
+    if not url_pattern:
+        return []
+    
+    print(f"   🔄 Starting concurrent sequential fallback from page {max_page_detected + 1}...")
+    
+    fallback_results = []
+    current_page_num = max_page_detected + 1
+    consecutive_failures = 0
+    max_consecutive_failures = 3
+    
+    while consecutive_failures < max_consecutive_failures:
+        try:
+            # Generate next page URL
+            if "?page=X" in url_pattern:
+                next_page_url = base_url.split("?")[0] + f"?page={current_page_num}"
+            elif "/page/X/" in url_pattern:
+                next_page_url = base_url.rstrip("/") + f"/page/{current_page_num}/"
+            elif "/page/X" in url_pattern:
+                next_page_url = base_url.rstrip("/") + f"/page/{current_page_num}"
+            elif "?p=X" in url_pattern:
+                next_page_url = base_url.split("?")[0] + f"?p={current_page_num}"
+            else:
+                # Custom pattern - replace X with page number
+                next_page_url = base_url + url_pattern.replace("X", str(current_page_num))
+            
+            print(f"   🔍 Fallback testing page {current_page_num}: {next_page_url}")
+            
+            # Extract from this page
+            page_result = _extract_single_additional_page(
+                next_page_url, pattern, brand_name, category_name, 
+                brand_instance, lineage_memory, current_page_num
+            )
+            
+            raw_products = page_result.get("products", [])
+            products_before_filtering = len(raw_products)
+            
+            # Apply lineage filtering to validate these are real products (not recommendations)
+            if raw_products:
+                print(f"   🔍 Fallback page {current_page_num}: {products_before_filtering} raw products, applying lineage filtering...")
+                
+                # Extract category name for lineage filtering
+                from urllib.parse import urlparse
+                category_for_filtering = extract_category_name(next_page_url)
+                
+                # Filter using approved lineages from page 1
+                if brand_instance and brand_instance.has_lineage_memory(base_url):
+                    lineage_memory = brand_instance.get_lineage_memory(base_url)
+                    approved_lineages = lineage_memory.get("approved_lineages", set())
+                    
+                    if approved_lineages:
+                        # Only keep products with approved lineages
+                        filtered_products = [
+                            product for product in raw_products 
+                            if product.get("full_lineage") in approved_lineages
+                        ]
+                        print(f"   🎯 Fallback page {current_page_num}: {len(filtered_products)}/{products_before_filtering} products match approved lineages")
+                    else:
+                        # No approved lineages stored, keep all products
+                        filtered_products = raw_products
+                        print(f"   ⚠️  Fallback page {current_page_num}: No approved lineages stored, keeping all products")
+                else:
+                    # No lineage memory, keep all products  
+                    filtered_products = raw_products
+                    print(f"   ⚠️  Fallback page {current_page_num}: No lineage memory, keeping all products")
+                
+                products_found = len(filtered_products)
+                
+                if products_found > 0:
+                    print(f"   ✅ Fallback page {current_page_num}: {products_found}/{products_before_filtering} valid products after filtering - continuing")
+                    fallback_results.append({
+                        "page_num": current_page_num,
+                        "url": next_page_url,
+                        "products_found": products_found,
+                        "products_before_filtering": products_before_filtering,
+                        "extraction_time": page_result.get("extraction_time", 0),
+                        "source": "concurrent_sequential",
+                        "products": filtered_products
+                    })
+                    consecutive_failures = 0
+                else:
+                    print(f"   📄 Fallback page {current_page_num}: 0 valid products after lineage filtering - fallback complete")
+                    fallback_results.append({
+                        "page_num": current_page_num,
+                        "url": next_page_url,
+                        "products_found": 0,
+                        "products_before_filtering": products_before_filtering,
+                        "extraction_time": page_result.get("extraction_time", 0),
+                        "source": "concurrent_sequential"
+                    })
+                    break
+            else:
+                print(f"   📄 Fallback page {current_page_num}: 0 products - fallback complete")
+                fallback_results.append({
+                    "page_num": current_page_num,
+                    "url": next_page_url,
+                    "products_found": 0,
+                    "products_before_filtering": 0,
+                    "extraction_time": page_result.get("extraction_time", 0),
+                    "source": "concurrent_sequential"
+                })
+                break
+                
+        except Exception as e:
+            print(f"   ❌ Fallback page {current_page_num}: Failed ({str(e)[:50]}...)")
+            consecutive_failures += 1
+            fallback_results.append({
+                "page_num": current_page_num,
+                "url": next_page_url if 'next_page_url' in locals() else f"page_{current_page_num}",
+                "products_found": 0,
+                "error": str(e),
+                "source": "concurrent_sequential"
+            })
+            
+            # If it's a 404-like error, stop immediately
+            if "404" in str(e) or "not found" in str(e).lower():
+                print(f"   🚫 Fallback page {current_page_num}: 404 detected - fallback complete")
+                break
+        
+        current_page_num += 1
+        
+        # Safety limit: don't go beyond 50 pages beyond detected max
+        if current_page_num > max_page_detected + 50:
+            print(f"   🛑 Fallback reached safety limit (page {current_page_num}) - stopping")
+            break
+    
+    return fallback_results
 
 
 def _generate_page_urls(base_url: str, pagination_result: Dict) -> List[str]:
@@ -827,7 +1107,7 @@ def _extract_products_from_current_state(page, page_url: str, pattern: Dict[str,
     return products
 
 
-def apply_lineage_filtering(products: List[Dict[str, Any]], page_url: str, category_name: str) -> List[Dict[str, Any]]:
+def apply_lineage_filtering(products: List[Dict[str, Any]], page_url: str, category_name: str, brand_instance=None) -> List[Dict[str, Any]]:
     """
     Apply lineage-based filtering using LLM to select best ancestry path.
     
@@ -840,7 +1120,24 @@ def apply_lineage_filtering(products: List[Dict[str, Any]], page_url: str, categ
         Filtered list of products, or empty list if filtering fails
     """
     try:
-        # Count lineage frequencies
+        # First, filter out any globally rejected lineages from brand memory
+        if brand_instance:
+            all_rejected_lineages = set()
+            # Collect rejected lineages from all categories 
+            for category_memory in brand_instance.lineage_memory.values():
+                all_rejected_lineages.update(category_memory.get("rejected_lineages", set()))
+            
+            if all_rejected_lineages:
+                initial_count = len(products)
+                products = [
+                    product for product in products 
+                    if product.get('full_lineage') not in all_rejected_lineages
+                ]
+                filtered_count = len(products)
+                if filtered_count < initial_count:
+                    print(f"   🚫 Pre-filtered {initial_count - filtered_count} products with globally rejected lineages")
+        
+        # Count lineage frequencies from remaining products
         lineage_counter = Counter()
         for product in products:
             lineage = product.get('full_lineage', 'Unknown')
@@ -908,6 +1205,14 @@ def apply_lineage_filtering(products: List[Dict[str, Any]], page_url: str, categ
         ]
         
         print(f"   📦 Filtered from {len(products)} to {len(filtered_products)} products")
+        
+        # Store rejected lineages globally in brand instance for future categories
+        if brand_instance:
+            all_lineages = set(lineage_counter.keys())
+            rejected_lineages = all_lineages - valid_lineages_set
+            if rejected_lineages:
+                brand_instance.store_lineage_memory(page_url, rejected_lineages, valid_lineages_set)
+                print(f"   💾 Stored {len(rejected_lineages)} rejected lineages globally for future categories")
         
         return filtered_products
         
