@@ -39,8 +39,20 @@ class LatencyTracker:
     
     def add_result(self, brand_name: str, scroll_extraction_ms: float, 
                    lineage_filtering_ms: float, total_ms: float, success: bool, 
-                   products_found: int = 0, products_after_filtering: int = 0, load_more_detected: bool = False):
+                   products_found: int = 0, products_after_filtering: int = 0, 
+                   load_more_detected: bool = False, pagination_detected: dict = None):
         """Add timing results for a brand"""
+        
+        # Format pagination detection info
+        pagination_info = "➖"  # Default: no pagination
+        if pagination_detected and pagination_detected.get("pagination_found", False):
+            pattern = pagination_detected.get("url_pattern", "?")
+            max_page = pagination_detected.get("max_page_detected")
+            if max_page:
+                pagination_info = f"📊{pattern}(1-{max_page})"
+            else:
+                pagination_info = f"🔗{pattern}(seq)"
+        
         self.results.append({
             'brand': brand_name,
             'scroll_extraction': self._format_time(scroll_extraction_ms),
@@ -49,6 +61,7 @@ class LatencyTracker:
             'products_found': products_found,
             'products_after_filtering': products_after_filtering,
             'load_more_detected': load_more_detected,
+            'pagination_detected': pagination_info,
             'success': success
         })
     
@@ -66,12 +79,14 @@ class LatencyTracker:
         table.add_column("Products Found", justify="center")
         table.add_column("After Filtering", justify="center")
         table.add_column("Load More", justify="center")
+        table.add_column("More Links", justify="center")
         table.add_column("Total", justify="right")
         table.add_column("Status", justify="center")
         
         for result in self.results:
             status = "✅" if result['success'] else "❌"
             load_more_status = "🔘" if result.get('load_more_detected', False) else "➖"
+            pagination_status = result.get('pagination_detected', "➖")
             table.add_row(
                 result['brand'],
                 result['scroll_extraction'],
@@ -79,6 +94,7 @@ class LatencyTracker:
                 str(result['products_found']),
                 str(result['products_after_filtering']),
                 load_more_status,
+                pagination_status,
                 result['total'],
                 status
             )
@@ -233,6 +249,7 @@ def test_scroll_extraction_url(brand_key: str, category_url: str, expected_produ
         
         products = extraction_result.get("products", [])
         pagination_triggers = extraction_result.get("pagination_triggers_found", [])
+        pagination_detected = extraction_result.get("pagination_detected", {})
         
         # Extract lineage filtering metrics
         metrics = extraction_result.get("metrics", {})
@@ -294,6 +311,24 @@ def test_scroll_extraction_url(brand_key: str, category_url: str, expected_produ
         else:
             print(f"📄 No pagination triggers found - used standard bottom scroll")
         
+        # Display More Links pagination detection results
+        if pagination_detected.get("pagination_found", False):
+            pattern = pagination_detected.get("url_pattern", "N/A")
+            max_page = pagination_detected.get("max_page_detected")
+            next_url = pagination_detected.get("next_page_url")
+            reasoning = pagination_detected.get("reasoning", "")
+            
+            if max_page:
+                print(f"📊 More Links: Multi-page pagination detected - Pattern: {pattern}, Max: {max_page}")
+            elif next_url:
+                print(f"📊 More Links: Sequential pagination detected - Pattern: {pattern}, Next: {next_url}")
+            else:
+                print(f"📊 More Links: Pagination detected - Pattern: {pattern}")
+            print(f"   💡 Reasoning: {reasoning}")
+        else:
+            reasoning = pagination_detected.get("reasoning", "No pagination detected")
+            print(f"📄 More Links: Single-page category - {reasoning}")
+        
         # Display load more statistics
         if brand_instance.load_more_detected is not None:
             if brand_instance.load_more_detected == True:
@@ -310,7 +345,8 @@ def test_scroll_extraction_url(brand_key: str, category_url: str, expected_produ
             load_more_detected = brand_instance.load_more_detected == True
             latency_tracker.add_result(brand_data["name"], scroll_extraction_ms, 
                                      lineage_filtering_ms, total_ms, success, 
-                                     products_before_filtering, products_found, load_more_detected)
+                                     products_before_filtering, products_found, 
+                                     load_more_detected, pagination_detected)
         
         return {'products_found': products_found}
         
@@ -319,7 +355,7 @@ def test_scroll_extraction_url(brand_key: str, category_url: str, expected_produ
         total_ms = (time.time() - total_start) * 1000
         if latency_tracker:
             latency_tracker.add_result(brand_data.get("name", brand_key), 0.0, 0.0, 
-                                     total_ms, False, 0, 0, False)
+                                     total_ms, False, 0, 0, False, {})
         
         return {'products_found': 0}
 

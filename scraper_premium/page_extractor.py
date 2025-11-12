@@ -14,9 +14,10 @@ from playwright.sync_api import sync_playwright
 from collections import Counter
 from llm_handler import LLMHandler
 from prompts import lineage_selection
+from prompts import pagination_detection
 # Import modal bypass for load more functionality
 try:
-    from tests.modal_bypass_engine import bypass_blocking_modals_only
+    from scraper_premium.modal_bypass_engine import bypass_blocking_modals_only
 except ImportError:
     try:
         from modal_bypass_engine import bypass_blocking_modals_only
@@ -248,6 +249,9 @@ def _extract_with_scrolling(page_url: str, pattern: Dict[str, str], brand_name: 
                             print(f"   ⏳ Waiting longer for potential load more button...")
                             page.wait_for_timeout(3000)  # Extra wait before retry
             
+            # More Links: Detect pagination after all scrolling is complete
+            pagination_detection_result = _detect_post_scroll_pagination(page, page_url)
+            
             # Extract all products once after scrolling complete
             products = _extract_products_from_current_state(
                 page, page_url, pattern, brand_name, category_name
@@ -258,7 +262,8 @@ def _extract_with_scrolling(page_url: str, pattern: Dict[str, str], brand_name: 
     
     return {
         "products": products,
-        "pagination_triggers_found": list(set(pagination_triggers_found))  # Remove duplicates
+        "pagination_triggers_found": list(set(pagination_triggers_found)),  # Remove duplicates
+        "pagination_detected": pagination_detection_result  # NEW: More Links output
     }
 
 
@@ -1148,6 +1153,245 @@ def _detect_pagination_element(page):
                 continue
         
         return None
+    except Exception:
+        return None
+
+
+def _detect_post_scroll_pagination(page, page_url: str) -> Dict[str, Any]:
+    """
+    More Links: Detect pagination after all scrolling is complete (detection only)
+    
+    Args:
+        page: Playwright page object (after all scrolling complete)
+        page_url: Current category URL
+        
+    Returns:
+        Dict containing:
+        - pagination_found: bool
+        - url_pattern: "?page=X" | "/page/X/" | None  
+        - max_page_detected: int | None
+        - next_page_url: str | None (if no max detected)
+        - reasoning: str
+    """
+    result = {
+        "pagination_found": False,
+        "url_pattern": None,
+        "max_page_detected": None, 
+        "next_page_url": None,
+        "reasoning": "No analysis performed"
+    }
+    
+    try:
+        print(f"   🔍 More Links: Detecting post-scroll pagination patterns...")
+        
+        # Extract bottom section links (last 30% of page)
+        bottom_links = _extract_bottom_page_links(page, page_url)
+        
+        if not bottom_links:
+            result["reasoning"] = "No links found in bottom section of page"
+            print(f"   📄 No bottom links found - single page category")
+            return result
+            
+        print(f"   📊 Analyzing {len(bottom_links)} bottom section links for pagination")
+        
+        # Debug: Print ALL bottom links for inspection
+        print(f"   🔗 Complete bottom 30% links ({len(bottom_links)} total):")
+        for i, link in enumerate(bottom_links):
+            print(f"      {i+1}. {link}")
+        
+        # Filter links to only include those related to current category
+        category_filtered_links = _filter_links_by_category(bottom_links, page_url)
+        print(f"   🎯 Category-filtered links ({len(category_filtered_links)} remain after filtering):")
+        for i, link in enumerate(category_filtered_links):
+            print(f"      {i+1}. {link}")
+        
+        # Debug: Identify potential pagination candidates from filtered links
+        pagination_candidates = []
+        for link in category_filtered_links:
+            if any(pattern in link.lower() for pattern in ['page=', '/page/', '?p=', 'next', 'prev']):
+                pagination_candidates.append(link)
+        
+        if pagination_candidates:
+            print(f"   🎯 Pagination candidates in category links ({len(pagination_candidates)} total):")
+            for i, candidate in enumerate(pagination_candidates):
+                print(f"      • {candidate}")
+        else:
+            print(f"   📄 No obvious pagination candidates found in category-filtered links")
+        
+        # Use LLM to analyze pagination pattern (using filtered links)
+        from prompts.pagination_detection import get_prompt, get_response_model
+        
+        llm_handler = LLMHandler()
+        prompt = get_prompt(page_url, category_filtered_links)
+        llm_response = llm_handler.call(prompt, expected_format="json", response_model=get_response_model())
+        
+        if llm_response.get("success", False):
+            data = llm_response.get("data", {})
+            
+            result.update({
+                "pagination_found": data.get("pagination_found", False),
+                "url_pattern": data.get("url_template"),
+                "max_page_detected": data.get("max_page_detected"),
+                "next_page_url": None,  # Will be set below if needed
+                "reasoning": data.get("reasoning", "LLM analysis completed")
+            })
+            
+            # If pagination found but no max detected, extract next page URL from filtered links
+            if result["pagination_found"] and result["max_page_detected"] is None:
+                next_url = _extract_next_page_url(category_filtered_links, page_url, result["url_pattern"])
+                result["next_page_url"] = next_url
+                
+            # Print LLM reasoning for debugging
+            reasoning = result.get("reasoning", "No reasoning provided")
+            print(f"   🧠 LLM Analysis: {reasoning}")
+            
+            # Logging based on detection results
+            if result["pagination_found"]:
+                if result["max_page_detected"]:
+                    print(f"   ✅ Pagination detected: {result['url_pattern']} (max page: {result['max_page_detected']})")
+                else:
+                    print(f"   ✅ Pagination detected: {result['url_pattern']} (next: {result['next_page_url']})")
+            else:
+                print(f"   📄 No pagination detected - single page category")
+                
+        else:
+            result["reasoning"] = f"LLM analysis failed: {llm_response.get('error', 'Unknown error')}"
+            print(f"   ❌ LLM pagination analysis failed: {llm_response.get('error', 'Unknown error')}")
+            
+    except Exception as e:
+        result["reasoning"] = f"Exception during pagination detection: {str(e)}"
+        print(f"   ❌ More Links pagination detection failed: {e}")
+        
+    return result
+
+
+def _extract_bottom_page_links(page, base_url: str) -> List[str]:
+    """Extract links from bottom 30% section of page"""
+    try:
+        # Get page dimensions and extract bottom section links
+        bottom_links = page.evaluate(f"""
+            () => {{
+                const pageHeight = document.body.scrollHeight;
+                const bottomThreshold = pageHeight * 0.7; // Bottom 30%
+                
+                // Get all links in DOM order (querySelectorAll preserves document order)
+                const allLinks = Array.from(document.querySelectorAll('a[href]'));
+                
+                // Filter for bottom 30% links while preserving DOM order
+                const bottomLinksInOrder = [];
+                allLinks.forEach(link => {{
+                    const rect = link.getBoundingClientRect();
+                    const absoluteTop = rect.top + window.scrollY;
+                    
+                    if (absoluteTop >= bottomThreshold) {{
+                        const href = link.href;
+                        if (href && !href.startsWith('javascript:') && !href.startsWith('#')) {{
+                            bottomLinksInOrder.push(href);
+                        }}
+                    }}
+                }});
+                
+                return bottomLinksInOrder;
+            }}
+        """)
+        
+        # Filter to same domain only
+        from urllib.parse import urlparse
+        base_domain = f"{urlparse(base_url).scheme}://{urlparse(base_url).netloc}"
+        
+        filtered_links = []
+        for link in bottom_links:
+            if link.startswith(base_domain) or link.startswith('/'):
+                if link.startswith('/'):
+                    link = urljoin(base_url, link)
+                filtered_links.append(link)
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        ordered_unique_links = []
+        for link in filtered_links:
+            if link not in seen:
+                seen.add(link)
+                ordered_unique_links.append(link)
+        
+        return ordered_unique_links
+        
+    except Exception as e:
+        print(f"   ⚠️  Error extracting bottom links: {e}")
+        return []
+
+
+def _filter_links_by_category(bottom_links: List[str], current_page_url: str) -> List[str]:
+    """Filter bottom links to only include those related to the current category"""
+    try:
+        from urllib.parse import urlparse, parse_qs
+        
+        # Parse current page URL to extract category path and parameters
+        parsed_current = urlparse(current_page_url)
+        current_path = parsed_current.path
+        current_params = parse_qs(parsed_current.query)
+        
+        # Extract category base (remove page parameters)
+        category_base_path = current_path
+        
+        # Build category base URL without page parameters
+        category_params = {}
+        for key, value in current_params.items():
+            # Keep all parameters except pagination ones
+            if key.lower() not in ['page', 'p', 'offset', 'start']:
+                category_params[key] = value
+        
+        category_filtered = []
+        
+        for link in bottom_links:
+            parsed_link = urlparse(link)
+            
+            # Must be same domain and same base path
+            if (parsed_link.netloc == parsed_current.netloc and 
+                parsed_link.path == category_base_path):
+                
+                # Check if it's the same category (has same non-pagination parameters)
+                link_params = parse_qs(parsed_link.query)
+                
+                # Remove pagination parameters for comparison
+                link_category_params = {}
+                for key, value in link_params.items():
+                    if key.lower() not in ['page', 'p', 'offset', 'start']:
+                        link_category_params[key] = value
+                
+                # If category parameters match, it's the same category
+                if link_category_params == category_params:
+                    category_filtered.append(link)
+        
+        return category_filtered
+        
+    except Exception as e:
+        print(f"   ⚠️  Error filtering category links: {e}")
+        # Fallback: return original links
+        return bottom_links
+
+
+def _extract_next_page_url(bottom_links: List[str], current_url: str, url_pattern: str) -> Optional[str]:
+    """Extract the actual next page URL when max page is unknown"""
+    try:
+        # Look for links that match the detected pattern and represent "page 2"
+        for link in bottom_links:
+            # Check if link matches the pattern for page 2
+            if url_pattern == "?page=X" and "?page=2" in link:
+                return link
+            elif url_pattern == "/page/X/" and "/page/2/" in link:
+                return link
+            elif url_pattern == "/page/X" and "/page/2" in link and not "/page/2/" in link:
+                return link
+                
+        # Fallback: look for any link with "page=2", "p=2", etc.
+        page_2_indicators = ["page=2", "p=2", "/2/", "/2?", "/page/2"]
+        for link in bottom_links:
+            if any(indicator in link for indicator in page_2_indicators):
+                return link
+                
+        return None
+        
     except Exception:
         return None
 
