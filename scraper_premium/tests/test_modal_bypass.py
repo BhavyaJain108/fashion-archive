@@ -14,7 +14,7 @@ from playwright.sync_api import sync_playwright
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, current_dir)
 
-from modal_bypass_engine import ModalBypassEngine
+from scraper_premium.modal_bypass_engine import ModalBypassEngine
 from brand import Brand
 
 

@@ -59,6 +59,9 @@ class Brand:
         self.seen_product_urls = set()  # Track discovered products to avoid duplicates
         self.all_products = set()  # Set of all unique products (by URL)
         
+        # Lineage memory for multi-page extraction optimization
+        self.lineage_memory = {}  # Dict[category_url: {"rejected_lineages": set(), "approved_lineages": set()}]
+        
         # HTML processing pipeline
         self.html_queue = Queue()  # Queue of (html, source_url) tuples
         self.pattern_ready = threading.Event()  # Signal when pattern is detected
@@ -1175,6 +1178,29 @@ Return JSON:
         """Add product to image download queue"""
         if product.image:
             self.image_download_queue.put(product)
+
+    def store_lineage_memory(self, category_url: str, rejected_lineages: set, approved_lineages: set = None):
+        """Store lineage memory for a category to optimize subsequent pages"""
+        if category_url not in self.lineage_memory:
+            self.lineage_memory[category_url] = {
+                "rejected_lineages": set(),
+                "approved_lineages": set()
+            }
+        
+        self.lineage_memory[category_url]["rejected_lineages"].update(rejected_lineages)
+        if approved_lineages:
+            self.lineage_memory[category_url]["approved_lineages"].update(approved_lineages)
+    
+    def get_lineage_memory(self, category_url: str) -> dict:
+        """Get lineage memory for a category"""
+        return self.lineage_memory.get(category_url, {
+            "rejected_lineages": set(),
+            "approved_lineages": set()
+        })
+    
+    def has_lineage_memory(self, category_url: str) -> bool:
+        """Check if we have lineage memory for a category"""
+        return category_url in self.lineage_memory and len(self.lineage_memory[category_url]["rejected_lineages"]) > 0
 
     def __repr__(self) -> str:
         return f"Brand(url='{self.url}', pages={len(self.product_pages)}, queue={len(self.starting_pages_queue)})"

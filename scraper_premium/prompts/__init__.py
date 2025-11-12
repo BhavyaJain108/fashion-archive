@@ -7,7 +7,6 @@ Provides easy access to all prompts and their response models.
 
 from . import product_pattern_analysis
 from . import navigation_analysis
-from . import pagination_analysis
 from . import product_link_finder
 
 
@@ -30,13 +29,6 @@ class PromptManager:
             'model': navigation_analysis.get_response_model()
         }
     
-    @staticmethod
-    def get_pagination_analysis_prompt(current_page_url: str, all_links: list):
-        """Get pagination analysis prompt and model"""
-        return {
-            'prompt': pagination_analysis.get_prompt(current_page_url, all_links),
-            'model': pagination_analysis.get_response_model()
-        }
     
     @staticmethod
     def get_product_link_finder_prompt(base_url: str, all_links: list):
@@ -50,5 +42,4 @@ class PromptManager:
 # Export models for direct import
 from .product_pattern_analysis import ProductPatternAnalysis
 from .navigation_analysis import NavigationAnalysis, CategoryLink
-from .pagination_analysis import PaginationAnalysis
 from .product_link_finder import ProductLinkResponse

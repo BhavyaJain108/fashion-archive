@@ -312,6 +312,7 @@ def test_scroll_extraction_url(brand_key: str, category_url: str, expected_produ
             print(f"📄 No pagination triggers found - used standard bottom scroll")
         
         # Display More Links pagination detection results
+        print(f"   🔍 TEST DEBUG: pagination_detected = {pagination_detected}")
         if pagination_detected.get("pagination_found", False):
             pattern = pagination_detected.get("url_pattern", "N/A")
             max_page = pagination_detected.get("max_page_detected")
@@ -338,6 +339,42 @@ def test_scroll_extraction_url(brand_key: str, category_url: str, expected_produ
                     print(f"🚫 Modal Bypasses Stored: {modals_count}")
             else:
                 print(f"📝 Load More: None detected")
+        
+        # Store lineage memory from page 1 for subsequent pages
+        if products:
+            # TODO: Extract and store rejected lineages from page 1 lineage filtering
+            # This will be used to optimize pages 2+
+            pass
+        
+        # Multi-page extraction if pagination was detected
+        additional_products = []
+        if pagination_detected.get("pagination_found", False):
+            try:
+                print(f"\n🔗 Multi-Page Extraction Triggered...")
+                from page_extractor import extract_multi_page_products
+                
+                multi_page_result = extract_multi_page_products(
+                    category_url, patterns[0], brand_data["name"], 
+                    category_name=None,
+                    brand_instance=brand_instance, pagination_result=pagination_detected
+                )
+                
+                additional_products = multi_page_result.get("products", [])
+                pages_extracted = multi_page_result.get("pages_extracted", 0)
+                total_multi_page_time = multi_page_result.get("total_extraction_time", 0)
+                
+                if additional_products:
+                    print(f"✅ Multi-page extraction: {len(additional_products)} products from {pages_extracted} additional pages")
+                    print(f"   ⏱️  Multi-page time: {total_multi_page_time:.2f}s")
+                    
+                    # Add to main product count
+                    products.extend(additional_products)
+                    products_found += len(additional_products)
+                else:
+                    print(f"📄 Multi-page extraction: No additional products found")
+                    
+            except Exception as e:
+                print(f"❌ Multi-page extraction failed: {e}")
         
         # Record timing results
         total_ms = (time.time() - total_start) * 1000

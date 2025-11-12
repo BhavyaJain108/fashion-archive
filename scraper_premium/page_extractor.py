@@ -86,6 +86,7 @@ def extract_products_from_page(page_url: str, patterns: List[Dict[str, str]], br
         extraction_result = _extract_with_scrolling(page_url, pattern, brand_name, category_name, brand_instance)
         products = extraction_result["products"]
         pagination_triggers_found = extraction_result.get("pagination_triggers_found", [])
+        pagination_detected = extraction_result.get("pagination_detected", {})
         
         # Apply lineage filtering if we have multiple products
         lineage_filtering_start = time.time()
@@ -99,6 +100,7 @@ def extract_products_from_page(page_url: str, patterns: List[Dict[str, str]], br
         result["products"] = products
         result["success"] = len(products) > 0
         result["pagination_triggers_found"] = pagination_triggers_found
+        result["pagination_detected"] = pagination_detected
         result["pattern_used"] = 0
         result["metrics"]["products_extracted"] = len(products)
         result["metrics"]["products_before_filtering"] = products_before_filtering
@@ -114,7 +116,7 @@ def extract_products_from_page(page_url: str, patterns: List[Dict[str, str]], br
     return result
 
 
-def _extract_with_scrolling(page_url: str, pattern: Dict[str, str], brand_name: str, category_name: str, brand_instance=None) -> Dict[str, Any]:
+def _extract_with_scrolling(page_url: str, pattern: Dict[str, str], brand_name: str, category_name: str, brand_instance=None, skip_more_links_detection: bool = False) -> Dict[str, Any]:
     """
     Internal function to handle the actual scrolling and extraction logic.
     """
@@ -249,8 +251,18 @@ def _extract_with_scrolling(page_url: str, pattern: Dict[str, str], brand_name: 
                             print(f"   ⏳ Waiting longer for potential load more button...")
                             page.wait_for_timeout(3000)  # Extra wait before retry
             
-            # More Links: Detect pagination after all scrolling is complete
-            pagination_detection_result = _detect_post_scroll_pagination(page, page_url)
+            # More Links: Detect pagination after all scrolling is complete (skip for pages 2+)
+            if not skip_more_links_detection:
+                pagination_detection_result = _detect_post_scroll_pagination(page, page_url)
+            else:
+                print(f"   ⏩ Skipping More Links detection for additional page")
+                pagination_detection_result = {
+                    "pagination_found": False,
+                    "url_pattern": None,
+                    "max_page_detected": None,
+                    "next_page_url": None,
+                    "reasoning": "Skipped for additional page"
+                }
             
             # Extract all products once after scrolling complete
             products = _extract_products_from_current_state(
@@ -265,6 +277,226 @@ def _extract_with_scrolling(page_url: str, pattern: Dict[str, str], brand_name: 
         "pagination_triggers_found": list(set(pagination_triggers_found)),  # Remove duplicates
         "pagination_detected": pagination_detection_result  # NEW: More Links output
     }
+
+
+def extract_multi_page_products(page_url: str, pattern: Dict[str, str], brand_name: str, 
+                               category_name: str = None, 
+                               brand_instance = None, pagination_result: Dict = None) -> Dict[str, Any]:
+    """
+    Extract products from multiple pages after More Links detection
+    
+    Args:
+        page_url: Base category URL (page 1)
+        pattern: Product extraction pattern from page 1
+        brand_name: Brand name for extraction
+        category_name: Category name for extraction
+        brand_instance: Brand instance with learned patterns from page 1
+        pagination_result: More Links detection result from page 1
+        
+    Returns:
+        Dict with aggregated products from all pages and extraction stats
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from urllib.parse import urlparse, parse_qs
+    import time
+    
+    if not pagination_result or not pagination_result.get("pagination_found"):
+        return {
+            "products": [],
+            "pages_extracted": 0,
+            "total_products_found": 0,
+            "per_page_stats": [],
+            "lineage_memory": {"rejected_lineages": set()}
+        }
+    
+    print(f"\n🔗 Multi-Page Extraction Starting...")
+    
+    # Generate page URLs
+    page_urls = _generate_page_urls(page_url, pagination_result)
+    if not page_urls:
+        print(f"   📄 No additional pages to extract")
+        return {
+            "products": [],
+            "pages_extracted": 0,
+            "total_products_found": 0,
+            "per_page_stats": [],
+            "lineage_memory": {"rejected_lineages": set()}
+        }
+    
+    print(f"   📊 Extracting from {len(page_urls)} additional pages: {page_urls}")
+    
+    # Initialize lineage memory (will be populated from page 1 results)
+    lineage_memory = {
+        "rejected_lineages": set(),
+        "pattern_used": pattern
+    }
+    
+    # Extract from all pages in parallel
+    all_products = []
+    per_page_stats = []
+    
+    start_time = time.time()
+    
+    # Use ThreadPoolExecutor for parallel extraction
+    max_workers = min(len(page_urls), 8)  # Limit to 8 concurrent browsers
+    
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all page extraction tasks
+        future_to_url = {}
+        for i, url in enumerate(page_urls):
+            future = executor.submit(
+                _extract_single_additional_page,
+                url, pattern, brand_name, category_name, brand_instance, 
+                lineage_memory, i + 2  # Page numbers start from 2
+            )
+            future_to_url[future] = (url, i + 2)
+        
+        # Collect results as they complete
+        pages_with_products = 0
+        for future in as_completed(future_to_url):
+            url, page_num = future_to_url[future]
+            try:
+                page_result = future.result()
+                products_found = len(page_result["products"])
+                
+                if products_found > 0:
+                    all_products.extend(page_result["products"])
+                    pages_with_products += 1
+                    print(f"   ✅ Page {page_num}: {products_found} products extracted")
+                else:
+                    print(f"   📄 Page {page_num}: 0 products - stopping extraction")
+                    # Cancel remaining futures when we hit 0 products
+                    for remaining_future in future_to_url:
+                        if remaining_future != future and not remaining_future.done():
+                            remaining_future.cancel()
+                    break
+                
+                per_page_stats.append({
+                    "page_num": page_num,
+                    "url": url,
+                    "products_found": products_found,
+                    "extraction_time": page_result.get("extraction_time", 0)
+                })
+                
+                # Update lineage memory with new rejections
+                if "lineage_rejections" in page_result:
+                    lineage_memory["rejected_lineages"].update(page_result["lineage_rejections"])
+                
+            except Exception as e:
+                print(f"   ❌ Page {page_num} extraction failed: {e}")
+                per_page_stats.append({
+                    "page_num": page_num,
+                    "url": url,
+                    "products_found": 0,
+                    "error": str(e)
+                })
+    
+    total_time = time.time() - start_time
+    
+    # Deduplicate products by URL (products might appear on multiple pages)
+    seen_urls = set()
+    unique_products = []
+    for product in all_products:
+        product_url = product.get("product_url", "")
+        if product_url and product_url not in seen_urls:
+            seen_urls.add(product_url)
+            unique_products.append(product)
+    
+    duplicates_removed = len(all_products) - len(unique_products)
+    
+    print(f"   📊 Multi-page extraction complete:")
+    print(f"      • Pages processed: {len(per_page_stats)}")
+    print(f"      • Total products: {len(all_products)} ({duplicates_removed} duplicates removed)")
+    print(f"      • Unique products: {len(unique_products)}")
+    print(f"      • Total time: {total_time:.2f}s")
+    
+    return {
+        "products": unique_products,
+        "pages_extracted": len(per_page_stats),
+        "total_products_found": len(unique_products),
+        "per_page_stats": per_page_stats,
+        "lineage_memory": lineage_memory,
+        "total_extraction_time": total_time,
+        "duplicates_removed": duplicates_removed
+    }
+
+
+def _generate_page_urls(base_url: str, pagination_result: Dict) -> List[str]:
+    """Generate URLs for additional pages based on More Links detection"""
+    page_urls = []
+    
+    url_pattern = pagination_result.get("url_pattern")
+    max_page = pagination_result.get("max_page_detected")
+    next_page_url = pagination_result.get("next_page_url")
+    
+    if max_page and url_pattern:
+        # Generate numbered pages 2 through max_page
+        for page_num in range(2, max_page + 1):
+            if "?page=X" in url_pattern:
+                page_url = base_url.split("?")[0] + f"?page={page_num}"
+            elif "/page/X/" in url_pattern:
+                page_url = base_url.rstrip("/") + f"/page/{page_num}/"
+            elif "/page/X" in url_pattern:
+                page_url = base_url.rstrip("/") + f"/page/{page_num}"
+            elif "?p=X" in url_pattern:
+                page_url = base_url.split("?")[0] + f"?p={page_num}"
+            else:
+                # Custom pattern - replace X with page number
+                page_url = base_url + url_pattern.replace("X", str(page_num))
+            
+            page_urls.append(page_url)
+    
+    elif next_page_url:
+        # For sequential pagination, we'll only return the immediate next page
+        # The extraction will continue sequentially until 0 products
+        page_urls.append(next_page_url)
+    
+    return page_urls
+
+
+def _extract_single_additional_page(page_url: str, pattern: Dict[str, str], brand_name: str, 
+                                   category_name: str, brand_instance, lineage_memory: Dict, 
+                                   page_num: int) -> Dict[str, Any]:
+    """
+    Extract products from a single additional page (reuses main extraction function)
+    
+    This function calls the main _extract_with_scrolling with optimizations for pages 2+
+    """
+    start_time = time.time()
+    
+    try:
+        print(f"   🌐 Page {page_num}: Extracting from {page_url}")
+        
+        # Call the main extraction function with optimizations
+        # This will include Phase 1 (pagination scrolling), Phase 2 (height), Phase 3 (load more)
+        # But skip More Links detection
+        result = _extract_with_scrolling(
+            page_url, pattern, brand_name, category_name, 
+            brand_instance=brand_instance,   # Use learned patterns
+            skip_more_links_detection=True  # Skip More Links detection
+        )
+        
+        products = result.get("products", [])
+        
+        # Apply lineage filtering if we have rejected lineages in memory
+        if lineage_memory.get("rejected_lineages") and products:
+            # TODO: Apply lineage filtering here using brand instance
+            pass
+        
+        extraction_time = time.time() - start_time
+        
+        return {
+            "products": products,
+            "extraction_time": extraction_time
+        }
+        
+    except Exception as e:
+        print(f"   ❌ Page {page_num}: Extraction failed - {e}")
+        return {
+            "products": [],
+            "extraction_time": time.time() - start_time,
+            "error": str(e)
+        }
 
 
 def _extract_products_from_current_state(page, page_url: str, pattern: Dict[str, str], 
@@ -704,96 +936,6 @@ def extract_category_name(url: str) -> str:
 
 
 
-
-def generate_pagination_url(base_url: str, pagination_pattern: Dict[str, Any], page_number: int) -> str:
-    """
-    Generate pagination URL based on discovered pattern
-    
-    Args:
-        base_url: Base category URL
-        pagination_pattern: Pagination pattern from brand analysis
-        page_number: Page number to generate
-        
-    Returns:
-        Generated page URL or None if pattern not supported
-    """
-    if not pagination_pattern or pagination_pattern.get("type") == "none":
-        return None
-    
-    # Clean base URL (remove existing page parameters)
-    if "?" in base_url:
-        base_url = base_url.split("?")[0]
-    if base_url.endswith("/"):
-        base_url = base_url.rstrip("/")
-    
-    pattern_type = pagination_pattern.get("type", "none")
-    template = pagination_pattern.get("template", "")
-    
-    if pattern_type == "numbered" or pattern_type == "mixed":
-        if "?page=X" in template:
-            return f"{base_url}?page={page_number}"
-        elif "/page/X/" in template:
-            return f"{base_url}/page/{page_number}/"
-        elif "/page/X" in template:
-            return f"{base_url}/page/{page_number}"
-        elif "?p=X" in template:
-            return f"{base_url}?p={page_number}"
-        else:
-            # Custom pattern - replace X with page number
-            return base_url + template.replace("X", str(page_number))
-    
-    elif pattern_type == "next_button":
-        # For next button pagination, URL needs to be extracted from current page
-        # This will be handled in the extraction logic
-        return None
-    
-    return None
-
-
-def extract_next_button_url(current_page_html: str, pagination_pattern: Dict[str, Any], current_page_url: str) -> str:
-    """
-    Extract next page URL from current page HTML for next-button pagination
-    
-    Args:
-        current_page_html: HTML content of current page
-        pagination_pattern: Pagination pattern with next_selector
-        current_page_url: Current page URL for relative URL resolution
-        
-    Returns:
-        Next page URL or None if no next button found
-    """
-    try:
-        from bs4 import BeautifulSoup
-        from urllib.parse import urljoin
-        
-        soup = BeautifulSoup(current_page_html, 'html.parser')
-        next_selector = pagination_pattern.get("next_selector", "")
-        
-        if not next_selector:
-            return None
-        
-        next_selectors = [next_selector]
-        
-        for selector in next_selectors:
-            try:
-                next_link = soup.select_one(selector)
-                if next_link and next_link.get('href'):
-                    href = next_link.get('href')
-                    # Convert relative URL to absolute
-                    if href.startswith('/'):
-                        return urljoin(current_page_url, href)
-                    elif href.startswith('http'):
-                        return href
-                    else:
-                        return urljoin(current_page_url, href)
-            except:
-                continue
-        
-        return None
-        
-    except Exception as e:
-        print(f"      ⚠️  Error extracting next button URL: {e}")
-        return None
 
 
 def extract_multiple_pages(page_urls: List[str], patterns: List[Dict[str, str]], brand_name: str = None) -> List[Dict[str, Any]]:
@@ -1244,6 +1386,9 @@ def _detect_post_scroll_pagination(page, page_url: str) -> Dict[str, Any]:
             # Print LLM reasoning for debugging
             reasoning = result.get("reasoning", "No reasoning provided")
             print(f"   🧠 LLM Analysis: {reasoning}")
+            
+            # Debug: Print the actual result structure
+            print(f"   🔍 DEBUG: pagination_found={result.get('pagination_found')}, max_page={result.get('max_page_detected')}, pattern={result.get('url_pattern')}")
             
             # Logging based on detection results
             if result["pagination_found"]:

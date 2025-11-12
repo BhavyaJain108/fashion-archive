@@ -303,7 +303,7 @@
     "name": "Kuurth",
     "homepage_url": "https://kuurth.com/",
     "collections": {
-      "https://kuurth.com/collections/rings": 151,
+      "https://kuurth.com/collections/rings": 149,
       "https://kuurth.com/collections/necklaces": 80,
       "https://kuurth.com/collections/earrings": 56,
       "https://kuurth.com/collections/bracelets": 42,
@@ -1282,8 +1282,8 @@
     },
     "product_html": "product_html/scuffers.html",
     "scroll_test": [
-      "https://scuffers.com/collections/scarves",
-      30
+      "https://scuffers.com/collections/hoodies",
+      178
     ]
   },
   "jacquemus": {

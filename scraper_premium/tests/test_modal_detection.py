@@ -36,7 +36,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 sys.path.insert(0, parent_dir)
 
-from modal_bypass_engine import ModalBypassEngine
+from scraper_premium.modal_bypass_engine import ModalBypassEngine
 from brand import Brand
 
 
