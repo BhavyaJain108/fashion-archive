@@ -57,6 +57,9 @@ class Brand:
         # Product queue for discovered products
         self.product_queue = Queue()
         self.seen_product_urls = set()  # Track discovered products to avoid duplicates
+        
+        # Global pattern storage for cross-category reuse
+        self.discovered_patterns: List[dict] = []  # Patterns that work across categories
         self.all_products = set()  # Set of all unique products (by URL)
         
         # Lineage memory for multi-page extraction optimization
@@ -1201,6 +1204,539 @@ Return JSON:
     def has_lineage_memory(self, category_url: str) -> bool:
         """Check if we have lineage memory for a category"""
         return category_url in self.lineage_memory and len(self.lineage_memory[category_url]["rejected_lineages"]) > 0
+
+    def run_full_extraction_pipeline(self) -> dict:
+        """
+        Complete extraction pipeline: Homepage → Navigation Tree → All Categories → All Products
+        
+        This is the main pipeline function that:
+        1. Extracts navigation tree from homepage
+        2. Gets all leaf category URLs
+        3. Discovers/reuses patterns for each category
+        4. Extracts all products with multi-page support
+        5. Downloads images for all products
+        6. Saves results to JSON
+        
+        Returns:
+            {
+                "success": bool,
+                "navigation_tree": {...},
+                "categories": {
+                    "category_url": {
+                        "name": str,
+                        "products": [...],
+                        "pattern_used": {...},
+                        "extraction_stats": {...}
+                    }
+                },
+                "summary": {
+                    "total_categories": int,
+                    "total_products": int, 
+                    "total_images": int,
+                    "extraction_time": float
+                }
+            }
+        """
+        import time
+        import json
+        import os
+        from page_extractor import extract_products_from_page, extract_all_urls_from_navigation_tree, extract_category_name
+        from prompts import PromptManager
+        
+        print(f"\n🚀 STARTING FULL EXTRACTION PIPELINE")
+        start_time = time.time()
+        
+        try:
+            # Phase 1: Extract Navigation Tree
+            print(f"📋 Phase 1: Extracting navigation tree from homepage...")
+            navigation_tree = self._extract_navigation_tree()
+            if not navigation_tree:
+                return {"success": False, "error": "Failed to extract navigation tree"}
+            
+            # Phase 2: Get All Leaf URLs  
+            print(f"🍃 Phase 2: Extracting leaf category URLs...")
+            leaf_urls = self._extract_all_leaf_urls(navigation_tree)
+            if not leaf_urls:
+                return {"success": False, "error": "No category URLs found"}
+            
+            print(f"   ✅ Found {len(leaf_urls)} category URLs")
+            
+            # Phase 3: Extract Products from Each Category
+            print(f"📦 Phase 3: Extracting products from all categories...")
+            categories_results = {}
+            total_products = 0
+            total_images = 0
+            
+            # Process categories: Sequential until first pattern found, then parallel
+            processed_categories = self._process_categories_with_parallel_optimization(leaf_urls)
+            
+            for category_url, category_result in processed_categories.items():
+                categories_results[category_url] = category_result
+                total_products += len(category_result.get("products", []))
+                total_images += category_result.get("extraction_stats", {}).get("images_downloaded", 0)
+            
+            # Phase 4: Save Results
+            print(f"\n💾 Phase 4: Saving results to JSON...")
+            total_time = time.time() - start_time
+            
+            pipeline_results = {
+                "success": True,
+                "navigation_tree": navigation_tree,
+                "categories": categories_results,
+                "summary": {
+                    "total_categories": len(categories_results),
+                    "categories_processed": len([c for c in categories_results.values() if c.get("products")]),
+                    "total_products": total_products,
+                    "total_images": total_images,
+                    "extraction_time": total_time
+                }
+            }
+            
+            # Save to JSON file
+            self._save_pipeline_results_to_json(pipeline_results)
+            
+            print(f"✅ PIPELINE COMPLETE - {total_products} products from {len(categories_results)} categories in {total_time:.1f}s")
+            return pipeline_results
+            
+        except Exception as e:
+            total_time = time.time() - start_time
+            print(f"❌ Pipeline failed after {total_time:.1f}s: {e}")
+            return {"success": False, "error": str(e), "extraction_time": total_time}
+    
+    def _extract_navigation_tree(self) -> dict:
+        """Extract and analyze navigation tree from homepage"""
+        from prompts import PromptManager
+        
+        # Extract homepage links
+        homepage_links = self.extract_page_links(self.url)
+        if not homepage_links:
+            print(f"      ❌ No links found on homepage")
+            return None
+        
+        print(f"      🔗 Found {len(homepage_links)} homepage links")
+        
+        # Analyze navigation with LLM
+        try:
+            prompt_data = PromptManager.get_navigation_analysis_prompt(self.url, homepage_links)
+            navigation_result = self.llm_handler.call(
+                prompt_data['prompt'], 
+                expected_format="json", 
+                response_model=prompt_data['model']
+            )
+            
+            if navigation_result.get("success"):
+                navigation_tree = navigation_result.get("data", {})
+                print(f"      ✅ Navigation analysis successful")
+                
+                # Print the navigation tree structure
+                self._print_navigation_tree(navigation_tree)
+                
+                return navigation_tree
+            else:
+                print(f"      ❌ Navigation analysis failed: {navigation_result.get('error', 'Unknown')}")
+                return None
+                
+        except Exception as e:
+            print(f"      ❌ Navigation analysis exception: {e}")
+            return None
+    
+    def _extract_all_leaf_urls(self, navigation_tree: dict) -> List[str]:
+        """Extract all leaf URLs from navigation tree"""
+        from page_extractor import extract_all_urls_from_navigation_tree
+        
+        try:
+            # Extract URLs using existing function
+            if 'category_tree' in navigation_tree:
+                # New hierarchical format
+                leaf_urls = navigation_tree.get_flat_urls() if hasattr(navigation_tree, 'get_flat_urls') else []
+                if not leaf_urls and navigation_tree.get('category_tree'):
+                    # Manual extraction for dict format
+                    leaf_urls = []
+                    for category in navigation_tree['category_tree']:
+                        if isinstance(category, dict):
+                            leaf_urls.extend(self._extract_urls_from_category(category))
+            else:
+                # Fallback to old format
+                leaf_urls = extract_all_urls_from_navigation_tree([navigation_tree])
+            
+            return leaf_urls
+            
+        except Exception as e:
+            print(f"      ❌ URL extraction failed: {e}")
+            return []
+    
+    def _extract_urls_from_category(self, category: dict) -> List[str]:
+        """Recursively extract URLs from category tree node"""
+        urls = []
+        
+        if category.get('children'):
+            # Has children - recurse
+            for child in category['children']:
+                urls.extend(self._extract_urls_from_category(child))
+        else:
+            # Leaf node - include URL if exists
+            if category.get('url'):
+                urls.append(category['url'])
+                
+        return urls
+    
+    def _print_navigation_tree(self, navigation_tree: dict):
+        """Print the navigation tree structure using Rich"""
+        try:
+            from rich.tree import Tree
+            from rich.console import Console
+            
+            if not navigation_tree or 'category_tree' not in navigation_tree:
+                return
+            
+            # Build Rich tree from category data
+            tree = self._build_rich_tree(navigation_tree['category_tree'])
+            
+            # Print the tree
+            console = Console()
+            print(f"\n📋 NAVIGATION TREE:")
+            console.print(tree)
+            print()  # Add spacing
+            
+        except Exception as e:
+            print(f"      ⚠️  Could not display navigation tree: {e}")
+    
+    def _build_rich_tree(self, category_nodes, parent_tree=None):
+        """Build a rich Tree from CategoryNode list (adapted from test_01)"""
+        from rich.tree import Tree
+        
+        if parent_tree is None:
+            tree = Tree("🏪 Navigation Structure")
+            root = tree
+        else:
+            root = parent_tree
+        
+        for node in category_nodes:
+            # Handle both Pydantic objects and dict format
+            if isinstance(node, dict):
+                name = node.get('name', 'Unknown')
+                url = node.get('url')
+                children = node.get('children', [])
+            else:
+                name = node.name
+                url = node.url  
+                children = node.children or []
+            
+            # Create node label with URL info
+            if url:
+                label = f"[bold blue]{name}[/bold blue] ([green]{url}[/green])"
+            else:
+                label = f"[bold]{name}[/bold] [dim](organization)[/dim]"
+            
+            branch = root.add(label)
+            
+            # Add children if they exist
+            if children:
+                self._build_rich_tree(children, branch)
+        
+        return tree if parent_tree is None else root
+    
+    def _process_categories_with_parallel_optimization(self, leaf_urls: List[str]) -> dict:
+        """
+        Process categories with optimization: sequential until first pattern found, then parallel
+        """
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from page_extractor import extract_category_name
+        import time
+        
+        categories_results = {}
+        
+        # Phase 3a: Sequential processing until first pattern is discovered
+        print(f"   🔍 Phase 3a: Sequential pattern discovery...")
+        first_pattern_found = False
+        sequential_count = 0
+        
+        for i, category_url in enumerate(leaf_urls, 1):
+            print(f"\n   📁 Sequential {i}/{len(leaf_urls)}: {category_url}")
+            
+            # Get working pattern for this category
+            pattern = self._get_working_pattern_for_category(category_url)
+            if not pattern:
+                print(f"      ❌ No working pattern found - skipping category")
+                categories_results[category_url] = {
+                    "name": extract_category_name(category_url),
+                    "products": [],
+                    "error": "No working pattern"
+                }
+                continue
+            
+            print(f"      🎯 Using pattern: {pattern.get('container_selector', 'Unknown')}")
+            
+            # Extract products from this category
+            category_result = self._extract_category_products(category_url, pattern, i, len(leaf_urls))
+            categories_results[category_url] = category_result
+            sequential_count += 1
+            
+            # If we have discovered patterns, switch to parallel mode
+            if len(self.discovered_patterns) > 0 and not first_pattern_found:
+                first_pattern_found = True
+                remaining_urls = leaf_urls[i:]  # Remaining categories to process
+                
+                if remaining_urls:
+                    print(f"\n   ⚡ Phase 3b: Parallel processing for remaining {len(remaining_urls)} categories...")
+                    parallel_results = self._process_categories_parallel(remaining_urls, i + 1, len(leaf_urls))
+                    categories_results.update(parallel_results)
+                break
+        
+        if not first_pattern_found:
+            print(f"   📊 Completed {sequential_count} categories sequentially (no pattern found)")
+        else:
+            print(f"   📊 Processed {sequential_count} sequential + {len(categories_results) - sequential_count} parallel")
+        
+        return categories_results
+    
+    def _process_categories_parallel(self, category_urls: List[str], start_index: int, total_categories: int) -> dict:
+        """Process multiple categories in parallel (4x concurrency)"""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from page_extractor import extract_category_name
+        
+        parallel_results = {}
+        max_workers = min(4, len(category_urls))  # 4x concurrency
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all category processing tasks
+            future_to_info = {}
+            for i, category_url in enumerate(category_urls):
+                future = executor.submit(
+                    self._process_single_category_parallel,
+                    category_url, start_index + i, total_categories
+                )
+                future_to_info[future] = {"url": category_url, "index": start_index + i}
+            
+            # Collect results as they complete
+            for future in as_completed(future_to_info):
+                info = future_to_info[future]
+                category_url = info["url"]
+                
+                try:
+                    category_result = future.result()
+                    parallel_results[category_url] = category_result
+                    
+                    products_found = len(category_result.get("products", []))
+                    print(f"      ✅ Parallel {info['index']}: {products_found} products")
+                    
+                except Exception as e:
+                    print(f"      ❌ Parallel {info['index']}: Failed - {e}")
+                    parallel_results[category_url] = {
+                        "name": extract_category_name(category_url),
+                        "products": [],
+                        "error": str(e)
+                    }
+        
+        return parallel_results
+    
+    def _process_single_category_parallel(self, category_url: str, category_index: int, total_categories: int) -> dict:
+        """Process a single category in parallel mode (thread-safe)"""
+        from page_extractor import extract_category_name
+        
+        # Get working pattern (should be fast since patterns are discovered)
+        pattern = self._get_working_pattern_for_category(category_url)
+        if not pattern:
+            return {
+                "name": extract_category_name(category_url),
+                "products": [],
+                "error": "No working pattern"
+            }
+        
+        # Extract products from this category
+        return self._extract_category_products(category_url, pattern, category_index, total_categories)
+    
+    def _get_working_pattern_for_category(self, category_url: str) -> dict:
+        """
+        Get a working pattern for the category - try existing patterns first,
+        only discover new pattern if all existing patterns fail
+        """
+        print(f"      🔍 Finding working pattern for category...")
+        
+        # Try all existing patterns first
+        for i, pattern in enumerate(self.discovered_patterns):
+            print(f"         Trying existing pattern {i+1}/{len(self.discovered_patterns)}")
+            if self._test_pattern_on_page(category_url, pattern):
+                print(f"         ✅ Existing pattern works!")
+                return pattern
+        
+        # Only if ALL existing patterns fail → discover new pattern
+        print(f"         🆕 No existing patterns work - discovering new pattern...")
+        try:
+            # Use existing pattern discovery logic
+            self.starting_pages_queue = [category_url]
+            self.product_pages = [category_url]
+            
+            pattern_result = self.analyze_product_pattern()
+            if pattern_result and pattern_result.get("extraction_pattern"):
+                new_pattern = pattern_result["extraction_pattern"]
+                
+                # Store in global patterns list
+                self.discovered_patterns.append(new_pattern)
+                print(f"         ✅ New pattern discovered and stored globally!")
+                print(f"         📊 Total discovered patterns: {len(self.discovered_patterns)}")
+                
+                return new_pattern
+            
+        except Exception as e:
+            print(f"         ❌ Pattern discovery failed: {e}")
+        
+        return None
+    
+    def _test_pattern_on_page(self, page_url: str, pattern: dict) -> bool:
+        """Test if a pattern works on a given page by trying to extract products"""
+        try:
+            from page_extractor import extract_products_from_page
+            
+            # Try to extract products with this pattern
+            test_result = extract_products_from_page(
+                page_url, [pattern], "test", allow_pattern_discovery=False, brand_instance=self
+            )
+            
+            products = test_result.get("products", [])
+            return len(products) > 0
+            
+        except Exception:
+            return False
+    
+    def _extract_category_products(self, category_url: str, pattern: dict, category_num: int, total_categories: int) -> dict:
+        """Extract all products from a single category with multi-page support and image downloads"""
+        from page_extractor import extract_products_from_page, extract_category_name
+        import time
+        
+        category_name = extract_category_name(category_url)
+        print(f"      📂 Extracting from: {category_name}")
+        
+        start_time = time.time()
+        
+        try:
+            # Extract products using our advanced multi-page system
+            extraction_result = extract_products_from_page(
+                category_url, [pattern], category_name, 
+                allow_pattern_discovery=False,  # Don't discover new patterns on secondary pages
+                brand_instance=self  # Pass brand instance for global learning
+            )
+            
+            products = extraction_result.get("products", [])
+            extraction_time = time.time() - start_time
+            
+            print(f"         📦 Found {len(products)} products")
+            
+            # Download images for all products
+            images_downloaded = 0
+            if products:
+                print(f"         🖼️  Downloading images...")
+                images_downloaded = self._download_category_images(products, category_name)
+                print(f"         ✅ Downloaded {images_downloaded}/{len(products)} images")
+            
+            return {
+                "name": category_name,
+                "url": category_url,
+                "products": products,
+                "pattern_used": pattern,
+                "extraction_stats": {
+                    "pages_processed": extraction_result.get("pages_extracted", 1),
+                    "products_found": len(products),
+                    "images_downloaded": images_downloaded,
+                    "extraction_time": extraction_time
+                }
+            }
+            
+        except Exception as e:
+            print(f"         ❌ Extraction failed: {e}")
+            return {
+                "name": category_name,
+                "url": category_url,
+                "products": [],
+                "error": str(e),
+                "extraction_stats": {
+                    "extraction_time": time.time() - start_time
+                }
+            }
+    
+    def _download_category_images(self, products: List[dict], category_name: str) -> int:
+        """Download images for all products in a category"""
+        import os
+        import requests
+        from urllib.parse import urlparse
+        
+        if not products:
+            return 0
+        
+        # Create category images directory
+        brand_name = urlparse(self.url).netloc.replace('www.', '').split('.')[0]
+        images_dir = f"{brand_name}_images/{category_name.replace(' ', '_').replace('/', '_')}"
+        os.makedirs(images_dir, exist_ok=True)
+        
+        downloaded_count = 0
+        
+        for product in products:
+            try:
+                images = product.get("images", [])
+                if not images:
+                    continue
+                    
+                # Download first image
+                first_image = images[0]
+                image_url = first_image.get("src") 
+                if not image_url:
+                    continue
+                
+                # Generate filename
+                product_name = product.get("product_name", "unknown").replace(" ", "_").replace("/", "_")[:50]
+                extension = os.path.splitext(urlparse(image_url).path)[1] or '.jpg'
+                filename = f"{product_name}{extension}"
+                filepath = os.path.join(images_dir, filename)
+                
+                # Skip if already downloaded
+                if os.path.exists(filepath):
+                    downloaded_count += 1
+                    continue
+                
+                # Download image
+                response = requests.get(image_url, timeout=10)
+                if response.status_code == 200:
+                    with open(filepath, 'wb') as f:
+                        f.write(response.content)
+                    downloaded_count += 1
+                    
+            except Exception:
+                continue  # Skip failed downloads
+        
+        return downloaded_count
+    
+    def _save_pipeline_results_to_json(self, results: dict):
+        """Save pipeline results to JSON file"""
+        import json
+        import os
+        from urllib.parse import urlparse
+        
+        # Generate filename from brand URL
+        brand_name = urlparse(self.url).netloc.replace('www.', '').split('.')[0]
+        filename = f"{brand_name}_extraction_results.json"
+        
+        # Create results directory if needed
+        os.makedirs("results", exist_ok=True)
+        filepath = os.path.join("results", filename)
+        
+        # Convert sets to lists for JSON serialization
+        json_results = self._make_json_serializable(results)
+        
+        with open(filepath, 'w') as f:
+            json.dump(json_results, f, indent=2)
+        
+        print(f"      💾 Results saved to: {filepath}")
+    
+    def _make_json_serializable(self, obj):
+        """Convert sets and other non-serializable objects to JSON-compatible format"""
+        if isinstance(obj, set):
+            return list(obj)
+        elif isinstance(obj, dict):
+            return {k: self._make_json_serializable(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [self._make_json_serializable(item) for item in obj]
+        else:
+            return obj
 
     def __repr__(self) -> str:
         return f"Brand(url='{self.url}', pages={len(self.product_pages)}, queue={len(self.starting_pages_queue)})"
