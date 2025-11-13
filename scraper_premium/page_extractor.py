@@ -842,13 +842,18 @@ def _extract_products_from_current_state(page, page_url: str, pattern: Dict[str,
             // Helper function to validate if URL is a real image
             function isValidImageUrl(url) {{
                 if (!url || url.length === 0) return false;
-                
-                // Remove query parameters and fragments to check the actual file extension
-                const cleanUrl = url.split('?')[0].split('#')[0];
-                
-                // Check if it ends with a valid image extension
+
                 const imageExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.svg', '.bmp', '.tiff'];
-                
+
+                // Check if the full URL contains image extensions anywhere
+                // This handles Next.js image proxy URLs like: /_next/image?url=...image.jpg
+                const lowerUrl = url.toLowerCase();
+                if (imageExtensions.some(ext => lowerUrl.includes(ext))) {{
+                    return true;
+                }}
+
+                // Fallback: Remove query parameters and check the base URL extension
+                const cleanUrl = url.split('?')[0].split('#')[0];
                 return imageExtensions.some(ext => cleanUrl.toLowerCase().endsWith(ext));
             }}
             

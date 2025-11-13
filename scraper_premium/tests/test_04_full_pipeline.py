@@ -91,32 +91,39 @@ def load_brand_from_json(brand_key: str):
         return None
 
 
-def test_full_pipeline_single(brand_key: str, tracker: PipelineTracker = None, verbose: bool = False):
+def test_full_pipeline_single(brand_key: str, tracker: PipelineTracker = None, verbose: bool = False, direct_url: str = None):
     """Test complete pipeline for a single brand"""
-    
+
     print(f"\n🚀 FULL PIPELINE EXTRACTION:")
-    print(f"   🌐 Brand: {brand_key}")
-    
-    # Load brand data
-    brand_data = load_brand_from_json(brand_key)
-    if not brand_data:
-        print(f"   ❌ Brand '{brand_key}' not found in brands.json")
-        return {'success': False, 'error': 'Brand not found'}
-    
-    brand_name = brand_data.get("name", brand_key)
-    homepage_url = brand_data.get("homepage_url")
-    
-    if not homepage_url:
-        print(f"   ❌ No homepage_url found for {brand_name}")
-        return {'success': False, 'error': 'No homepage URL'}
+
+    # Check if using direct URL
+    if direct_url:
+        print(f"   🌐 Direct URL Mode: {direct_url}")
+        homepage_url = direct_url
+        brand_name = direct_url.split('/')[2]  # Extract domain as brand name
+    else:
+        print(f"   🌐 Brand: {brand_key}")
+
+        # Load brand data
+        brand_data = load_brand_from_json(brand_key)
+        if not brand_data:
+            print(f"   ❌ Brand '{brand_key}' not found in brands.json")
+            return {'success': False, 'error': 'Brand not found'}
+
+        brand_name = brand_data.get("name", brand_key)
+        homepage_url = brand_data.get("homepage_url")
+
+        if not homepage_url:
+            print(f"   ❌ No homepage_url found for {brand_name}")
+            return {'success': False, 'error': 'No homepage URL'}
     
     print(f"   🏠 Homepage: {homepage_url}")
     
     try:
-        # Initialize brand instance
+        # Initialize brand instance with test_mode=True to save images in tests/results
         print(f"   🔧 Initializing brand instance...")
-        brand = Brand(homepage_url)
-        
+        brand = Brand(homepage_url, test_mode=True)
+
         # THE SINGLE FUNCTION CALL THAT DOES EVERYTHING
         start_time = time.time()
         pipeline_results = brand.run_full_extraction_pipeline()
@@ -191,35 +198,51 @@ def test_all_brands(tracker: PipelineTracker = None, verbose: bool = False):
 
 if __name__ == "__main__":
     from test_logger import capture_test_output
-    
+
     # Build command string for logging
     command = f"python {os.path.basename(__file__)} {' '.join(sys.argv[1:])}"
-    
+
     with capture_test_output("Full Pipeline Test", command):
         # Initialize tracker
         tracker = PipelineTracker()
-        
+
         # Check for verbose flag
         verbose = '-v' in sys.argv
         if verbose:
             sys.argv.remove('-v')
-        
+
+        # Check for direct URL flag
+        direct_url = None
+        if '--url' in sys.argv:
+            url_index = sys.argv.index('--url')
+            if url_index + 1 < len(sys.argv):
+                direct_url = sys.argv[url_index + 1]
+                sys.argv.pop(url_index)  # Remove --url
+                sys.argv.pop(url_index)  # Remove the URL value
+
         def run_single_test():
-            if len(sys.argv) > 1:
+            if direct_url:
+                # Test with direct URL
+                result = test_full_pipeline_single("direct_url", tracker, verbose, direct_url=direct_url)
+
+                # Print tracker summary
+                tracker.print_summary()
+                return result.get('success', False)
+            elif len(sys.argv) > 1:
                 # Test specific brand
                 brand_key = sys.argv[1]
                 result = test_full_pipeline_single(brand_key, tracker, verbose)
-                
+
                 # Print tracker summary
                 tracker.print_summary()
                 return result.get('success', False)
             else:
                 # Test all brands
                 result = test_all_brands(tracker, verbose)
-                
+
                 # Print tracker summary
                 tracker.print_summary()
                 return result
-        
+
         # Run test multiple times if -N flag is specified
         run_test_multiple_times(run_single_test)

@@ -121,30 +121,37 @@ def build_rich_tree(category_nodes, parent_tree=None, extra_urls=None):
 from page_extractor import flatten_dict_tree, flatten_dict_tree_all_urls
 
 
-def test_navigation_simple(brand_key: str, brands_data: dict, latency_tracker: LatencyTracker = None, update_navigation: bool = False):
+def test_navigation_simple(brand_key: str, brands_data: dict, latency_tracker: LatencyTracker = None, update_navigation: bool = False, verbose: bool = False):
     """Simple navigation test: LLM set must match brands.json set"""
-    
+
     total_start = time.time()
-    
+
     if brand_key not in brands_data:
         print(f"Brand '{brand_key}' not found in brands.json")
         return False
-    
+
     brand_info = brands_data[brand_key]
     collections = brand_info.get('collections')
-    
+
     # Handle brands with no collections to test against
     if collections is None or not collections:
         print(f"{brand_info['name']} - ⚠️  NO COLLECTIONS TO TEST")
-        
+
         # Still run the LLM analysis to see what it finds
         brand = Brand(brand_info['homepage_url'])
-        
-        # Time URL extraction
+
+        # Time URL extraction (with menu expansion for navigation analysis)
         url_start = time.time()
-        links_with_context = brand.extract_page_links_with_context(brand.url)
+        links_with_context = brand.extract_page_links_with_context(brand.url, expand_navigation_menus=True)
         url_extraction_ms = (time.time() - url_start) * 1000
-        
+
+        # Print all links if verbose
+        if verbose:
+            print(f"\n📋 All {len(links_with_context)} links found:")
+            for i, link_info in enumerate(links_with_context, 1):
+                print(f"   {i}. {link_info['url']}")
+            print()
+
         prompt_data = PromptManager.get_navigation_analysis_prompt(brand.url, links_with_context)
         
         # Time LLM call
@@ -186,11 +193,18 @@ def test_navigation_simple(brand_key: str, brands_data: dict, latency_tracker: L
     # Create brand and extract links with HTML context
     brand = Brand(brand_info['homepage_url'])
     
-    # Time URL extraction
+    # Time URL extraction (with menu expansion for navigation analysis)
     url_start = time.time()
-    links_with_context = brand.extract_page_links_with_context(brand.url)
+    links_with_context = brand.extract_page_links_with_context(brand.url, expand_navigation_menus=True)
     url_extraction_ms = (time.time() - url_start) * 1000
-    
+
+    # Print all links if verbose
+    if verbose:
+        print(f"\n📋 All {len(links_with_context)} links found:")
+        for i, link_info in enumerate(links_with_context, 1):
+            print(f"   {i}. {link_info['url']}")
+        print()
+
     # Extract just URLs for the set comparison
     all_links = [link_info['url'] for link_info in links_with_context]
     all_links_set = set(all_links)
@@ -374,53 +388,157 @@ def test_navigation_simple(brand_key: str, brands_data: dict, latency_tracker: L
     return False
 
 
+def test_direct_url(url: str, verbose: bool = False):
+    """Test navigation analysis on a direct URL without brands.json"""
+    total_start = time.time()
+
+    print(f"🔍 Testing URL: {url}")
+
+    # Create brand and extract links with HTML context
+    brand = Brand(url)
+
+    # Time URL extraction
+    url_start = time.time()
+    links_with_context = brand.extract_page_links_with_context(brand.url, expand_navigation_menus=True)
+    url_extraction_ms = (time.time() - url_start) * 1000
+
+    print(f"🔗 Found {len(links_with_context)} links on page")
+    print(f"⏱️  URL extraction took {url_extraction_ms:.1f}ms")
+
+    # Print all links if verbose
+    if verbose:
+        print(f"\n📋 All {len(links_with_context)} links found:")
+        for i, link_info in enumerate(links_with_context, 1):
+            print(f"   {i}. {link_info['url']}")
+        print()
+
+    # Get LLM analysis using HTML elements
+    prompt_data = PromptManager.get_navigation_analysis_prompt(brand.url, links_with_context)
+
+    # Time LLM call
+    llm_start = time.time()
+    llm_response = brand.llm_handler.call(
+        prompt_data['prompt'],
+        expected_format="json",
+        response_model=prompt_data['model'],
+        max_tokens=15000
+    )
+    llm_call_ms = (time.time() - llm_start) * 1000
+
+    print(f"⏱️  LLM call took {llm_call_ms:.1f}ms")
+
+    if not llm_response.get("success"):
+        print(f"❌ FAILURE")
+        print(f"REASON: LLM analysis failed - {llm_response.get('error', 'Unknown error')}")
+        total_ms = (time.time() - total_start) * 1000
+        print(f"⏱️  Total time: {total_ms:.1f}ms")
+        return False
+
+    # Extract LLM URLs (from hierarchical tree)
+    nav_analysis = llm_response.get("data", {})
+
+    # Display the tree structure
+    console = Console()
+    if isinstance(nav_analysis, dict) and 'category_tree' in nav_analysis:
+        if not nav_analysis['category_tree']:
+            print(f"❌ FAILURE")
+            print("REASON: LLM returned empty category tree")
+            return False
+
+        tree = build_rich_tree(nav_analysis['category_tree'])
+        console.print(tree)
+
+        # Extract and display all URLs found
+        flat_urls = flatten_dict_tree(nav_analysis['category_tree'])
+        print(f"\n📊 Found {len(flat_urls)} category URLs:")
+        for i, url_found in enumerate(flat_urls, 1):
+            print(f"   {i}. {url_found}")
+
+        print(f"\n✅ SUCCESS")
+    else:
+        print("❌ No category_tree found in LLM response")
+        return False
+
+    total_ms = (time.time() - total_start) * 1000
+    print(f"\n⏱️  Total time: {total_ms:.1f}ms")
+    print(f"   - URL extraction: {url_extraction_ms:.1f}ms")
+    print(f"   - LLM analysis: {llm_call_ms:.1f}ms")
+
+    return True
+
+
 if __name__ == "__main__":
+    # Check for --verbose flag
+    verbose = '--verbose' in sys.argv or '-v' in sys.argv
+    if '--verbose' in sys.argv:
+        sys.argv.remove('--verbose')
+    if '-v' in sys.argv:
+        sys.argv.remove('-v')
+
+    # Check for --url flag first
+    url_flag_index = None
+    direct_url = None
+
+    if '--url' in sys.argv:
+        url_flag_index = sys.argv.index('--url')
+        if url_flag_index + 1 < len(sys.argv):
+            direct_url = sys.argv[url_flag_index + 1]
+            # Remove both --url and the URL value
+            sys.argv.pop(url_flag_index)  # Remove --url
+            sys.argv.pop(url_flag_index)  # Remove URL (now at same index)
+
+    # If direct URL provided, test it and exit
+    if direct_url:
+        test_direct_url(direct_url, verbose=verbose)
+        sys.exit(0)
+
+    # Otherwise, continue with normal brands.json testing
     # Load brands.json
     brands_file = os.path.join(os.path.dirname(__file__), 'brands.json')
     with open(brands_file, 'r') as f:
         brands_data = json.load(f)
-    
+
     # Initialize latency tracker
     latency_tracker = LatencyTracker()
-    
+
     # Check for flags
     null_only = '--null-only' in sys.argv
     if null_only:
         sys.argv.remove('--null-only')  # Remove flag from args
-    
+
     update_navigation = '--update-navigation' in sys.argv
     if update_navigation:
         sys.argv.remove('--update-navigation')  # Remove flag from args
-    
+
     # Track if any navigation data was updated
     navigation_updated = False
-    
+
     if len(sys.argv) > 1:
         # Test specific brand (ignore flags when specific brand is provided)
         brand_key = sys.argv[1]
-        test_navigation_simple(brand_key, brands_data, latency_tracker, update_navigation)
-        
+        test_navigation_simple(brand_key, brands_data, latency_tracker, update_navigation, verbose=verbose)
+
         # Print latency summary
         latency_tracker.print_summary()
     else:
         # Test brands based on filter (only when no specific brand provided)
         if null_only:
             # Only test brands with null collections
-            test_brands = [key for key, data in brands_data.items() 
+            test_brands = [key for key, data in brands_data.items()
                           if data.get('collections') is None]
             print(f"Testing {len(test_brands)} brands with null collections...")
         else:
             # Test all brands
             test_brands = list(brands_data.keys())
-        
+
         for brand_key in test_brands:
-            test_navigation_simple(brand_key, brands_data, latency_tracker, update_navigation)
+            test_navigation_simple(brand_key, brands_data, latency_tracker, update_navigation, verbose=verbose)
             print()  # Line break between brands
-        
+
         # Print latency summary
         latency_tracker.print_summary()
-    
-    # Save updated brands.json 
+
+    # Save updated brands.json
     with open(brands_file, 'w') as f:
         json.dump(brands_data, f, indent=2)
     print(f"💾 Saved brands.json")

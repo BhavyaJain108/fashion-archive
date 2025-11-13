@@ -33,50 +33,52 @@ class Brand:
     Represents a fashion brand for scraping.
     """
     
-    def __init__(self, url: str, llm_handler: LLMHandler = None):
+    def __init__(self, url: str, llm_handler: LLMHandler = None, test_mode: bool = False):
         """
         Initialize a Brand
-        
+
         Args:
             url: The main URL of the brand website
             llm_handler: LLM handler instance (optional)
+            test_mode: If True, save images to tests/results directory
         """
         self.url = url
         self.product_pages: List[str] = []
         self.starting_pages_queue: List[str] = []
         self.product_extraction_pattern: dict = {}
         self.llm_handler = llm_handler or LLMHandler()
-        
+        self.test_mode = test_mode
+
         # Load more functionality
         self.load_more_detected: Optional[bool] = None  # None=not checked, True=found, False=none found
         self.load_more_button_selector: Optional[str] = None
         self.load_more_modal_bypasses: dict = {}
         self.load_more_modals_applied: bool = False  # Track if modals were already applied this session
         self.load_more_loading_mechanism: bool = False  # Track if we know this site uses load more (across all pages)
-        
+
         # Product queue for discovered products
         self.product_queue = Queue()
         self.seen_product_urls = set()  # Track discovered products to avoid duplicates
-        
+
         # Global pattern storage for cross-category reuse
         self.discovered_patterns: List[dict] = []  # Patterns that work across categories
         self.all_products = set()  # Set of all unique products (by URL)
-        
+
         # Lineage memory for multi-page extraction optimization
         self.lineage_memory = {}  # Dict[category_url: {"rejected_lineages": set(), "approved_lineages": set()}]
-        
+
         # HTML processing pipeline
         self.html_queue = Queue()  # Queue of (html, source_url) tuples
         self.pattern_ready = threading.Event()  # Signal when pattern is detected
         self.workers_active = False
         self.worker_pool = None
-        
+
         # Image downloading pipeline
         self.image_downloader = ImageDownloader()
         self.image_download_queue = Queue()  # Queue of products needing image downloads
         self.image_workers_active = False
         self.image_worker_pool = None
-        
+
         # Streaming control
         self.scrolling_active = False
         self.scroll_thread = None
@@ -98,9 +100,10 @@ class Brand:
         try:
             
             # Step 1: Find one valid product link
-            all_links = self.extract_page_links(first_page_url)
+            links_with_context = self.extract_page_links_with_context(first_page_url)
+            all_links = [link_info['url'] for link_info in links_with_context]
             # Links extracted
-            
+
             product_links = self._find_product_links(all_links, first_page_url)
             
             if not product_links:
@@ -146,13 +149,14 @@ class Brand:
         
         try:
             print(f"🔍 Discovering pagination pattern from: {first_page_url}")
-            
+
             # Extract all links from first page
-            all_links = self.extract_page_links(first_page_url)
+            links_with_context = self.extract_page_links_with_context(first_page_url)
+            all_links = [link_info['url'] for link_info in links_with_context]
             if not all_links:
                 print(f"❌ No links found on page for pagination analysis")
                 return {}
-            
+
             print(f"📊 Analyzing {len(all_links)} links for pagination pattern")
             
             # Build pagination analysis prompt
@@ -387,61 +391,109 @@ If no pagination:
         except Exception as e:
             print(f"⚠️  Error fetching HTML: {e}")
             return ""
-    
-    def extract_page_links(self, url: str) -> List[str]:
+
+    def _get_page_html_with_dropdowns(self, url: str) -> str:
         """
-        Extract all links from a page.
-        
+        Get the full rendered HTML of a page, triggering any dropdown menus first.
+        Uses ARIA attributes (web standards) to detect and expand navigation menus.
+
+        Strategy:
+        1. ARIA-based detection: Look for aria-expanded="false" and aria-haspopup
+        2. Try hover first (for CSS-only menus), then click if needed
+        3. Fallback to common text patterns if ARIA doesn't reveal new links
+
         Args:
-            url: The URL to extract links from
-            
+            url: The URL to fetch
+
         Returns:
-            List of unique links found on the page
+            The complete rendered HTML content with dropdowns expanded
         """
-        html_content = self.get_page_html(url)
-        if not html_content:
-            return []
-        
-        # Extract all href attributes
-        href_pattern = r'href="([^"]+)"'
-        all_links = re.findall(href_pattern, html_content, re.IGNORECASE)
-        
-        # Filter and normalize links
-        filtered_links = []
-        for link in all_links:
-            # Skip empty, javascript, mailto, tel, and anchor links
-            if not link or link.startswith(('#', 'javascript:', 'mailto:', 'tel:')):
-                continue
-            
-            # Convert relative URLs to absolute
-            if link.startswith('/'):
-                link = urljoin(url, link)
-            elif not link.startswith('http'):
-                continue  # Skip relative paths without leading slash
-            
-            # Only include links from the same domain
-            from urllib.parse import urlparse
-            base_domain = f"{urlparse(url).scheme}://{urlparse(url).netloc}"
-            if link.startswith(base_domain) or link.startswith('/'):
-                filtered_links.append(link)
-        
-        # Remove duplicates and sort
-        unique_links = sorted(list(set(filtered_links)))
-        return unique_links
-    
-    def extract_page_links_with_context(self, url: str) -> List[dict]:
+        try:
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True)
+                context = browser.new_context(
+                    ignore_https_errors=True,
+                    user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                )
+                page = context.new_page()
+
+                # Load page
+                page.goto(url, wait_until="domcontentloaded", timeout=10000)
+                page.wait_for_timeout(2000)
+
+                # Count initial links for validation
+                initial_link_count = page.locator('a[href]').count()
+
+                # Strategy 1: ARIA-based detection (most reliable)
+                # Find collapsed menu triggers
+                aria_selectors = [
+                    '[aria-expanded="false"][aria-haspopup]',  # Collapsed menu with popup
+                    '[aria-expanded="false"]',  # Any collapsed element
+                    '[aria-haspopup="menu"]',  # Menu trigger
+                    '[aria-haspopup="true"]',  # Generic popup trigger
+                ]
+
+                menus_expanded = 0
+                for selector in aria_selectors:
+                    try:
+                        triggers = page.locator(selector).all()
+                        for trigger in triggers:
+                            try:
+                                # Try hover first (works for CSS-only dropdowns)
+                                trigger.hover(timeout=500)
+                                page.wait_for_timeout(300)
+
+                                # Check if menu expanded (aria-expanded changed to true)
+                                aria_expanded = trigger.get_attribute('aria-expanded')
+                                if aria_expanded == 'false':
+                                    # Still collapsed, try clicking
+                                    trigger.click(timeout=500)
+                                    page.wait_for_timeout(300)
+                                    menus_expanded += 1
+                                else:
+                                    menus_expanded += 1
+
+                            except Exception:
+                                continue
+                    except Exception:
+                        continue
+
+                # Final link count
+                final_link_count = page.locator('a[href]').count()
+                total_revealed = final_link_count - initial_link_count
+
+                if total_revealed > 0:
+                    print(f"   🎯 Revealed {total_revealed} additional links by expanding {menus_expanded} menus")
+
+                # Get final HTML with all dropdowns expanded
+                html_content = page.content()
+                browser.close()
+                return html_content
+
+        except Exception as e:
+            print(f"⚠️  Error fetching HTML with dropdowns: {e}")
+            return ""
+
+    def extract_page_links_with_context(self, url: str, expand_navigation_menus: bool = False) -> List[dict]:
         """
         Extract all links from a page with their HTML context.
-        
+
         Args:
             url: The URL to extract links from
-            
+            expand_navigation_menus: If True, detect and expand dropdown navigation menus
+                                    before extracting links (useful for homepage navigation)
+
         Returns:
-            List of dicts with keys: url, text, context, parent_tag, classes
+            List of dicts with keys: url, position_index, full_element
         """
         from bs4 import BeautifulSoup
-        
-        html_content = self.get_page_html(url)
+
+        # Use dropdown expansion if requested (typically for homepage navigation analysis)
+        if expand_navigation_menus:
+            html_content = self._get_page_html_with_dropdowns(url)
+        else:
+            html_content = self.get_page_html(url)
+
         if not html_content:
             return []
         
@@ -1266,10 +1318,15 @@ Return JSON:
             categories_results = {}
             total_products = 0
             total_images = 0
-            
+
             # Process categories: Sequential until first pattern found, then parallel
-            processed_categories = self._process_categories_with_parallel_optimization(leaf_urls)
-            
+            # Pass navigation tree and test_mode for proper hierarchy and image storage
+            processed_categories = self._process_categories_with_parallel_optimization(
+                leaf_urls,
+                navigation_tree=navigation_tree,
+                test_mode=self.test_mode
+            )
+
             for category_url, category_result in processed_categories.items():
                 categories_results[category_url] = category_result
                 total_products += len(category_result.get("products", []))
@@ -1306,15 +1363,15 @@ Return JSON:
     def _extract_navigation_tree(self) -> dict:
         """Extract and analyze navigation tree from homepage"""
         from prompts import PromptManager
-        
-        # Extract homepage links
-        homepage_links = self.extract_page_links(self.url)
+
+        # Extract homepage links with context and menu expansion
+        homepage_links = self.extract_page_links_with_context(self.url, expand_navigation_menus=True)
         if not homepage_links:
             print(f"      ❌ No links found on homepage")
             return None
-        
+
         print(f"      🔗 Found {len(homepage_links)} homepage links")
-        
+
         # Analyze navigation with LLM
         try:
             prompt_data = PromptManager.get_navigation_analysis_prompt(self.url, homepage_links)
@@ -1368,7 +1425,7 @@ Return JSON:
     def _extract_urls_from_category(self, category: dict) -> List[str]:
         """Recursively extract URLs from category tree node"""
         urls = []
-        
+
         if category.get('children'):
             # Has children - recurse
             for child in category['children']:
@@ -1377,8 +1434,66 @@ Return JSON:
             # Leaf node - include URL if exists
             if category.get('url'):
                 urls.append(category['url'])
-                
+
         return urls
+
+    def _find_category_path_in_tree(self, category_url: str, tree_node: dict, current_path: List[str] = None) -> List[str]:
+        """
+        Find the hierarchical path for a category URL in the navigation tree
+
+        Args:
+            category_url: The URL to find
+            tree_node: Current node in the navigation tree
+            current_path: Current path being built
+
+        Returns:
+            List of category names from root to leaf, or None if not found
+        """
+        if current_path is None:
+            current_path = []
+
+        # Check if this node has the URL we're looking for
+        node_url = tree_node.get('url')
+        node_name = tree_node.get('name', 'Unknown')
+
+        if node_url == category_url:
+            # Found it! Return the path including this node
+            return current_path + [node_name]
+
+        # If this node has children, search them
+        children = tree_node.get('children')
+        if children:
+            new_path = current_path + [node_name] if node_url is None else current_path
+            for child in children:
+                result = self._find_category_path_in_tree(category_url, child, new_path)
+                if result:
+                    return result
+
+        return None
+
+    def _get_category_hierarchy_path(self, category_url: str, navigation_tree: dict) -> List[str]:
+        """
+        Get the full hierarchical path for a category URL from the navigation tree
+
+        Args:
+            category_url: The URL to find the path for
+            navigation_tree: The full navigation tree dict
+
+        Returns:
+            List of category names forming the path, or [category_name] as fallback
+        """
+        if not navigation_tree or 'category_tree' not in navigation_tree:
+            return []
+
+        # Search through all top-level categories
+        for root_category in navigation_tree['category_tree']:
+            path = self._find_category_path_in_tree(category_url, root_category, [])
+            if path:
+                return path
+
+        # Fallback: extract category name from URL
+        from page_extractor import extract_category_name
+        return [extract_category_name(category_url)]
     
     def _print_navigation_tree(self, navigation_tree: dict):
         """Print the navigation tree structure using Rich"""
@@ -1436,24 +1551,29 @@ Return JSON:
         
         return tree if parent_tree is None else root
     
-    def _process_categories_with_parallel_optimization(self, leaf_urls: List[str]) -> dict:
+    def _process_categories_with_parallel_optimization(self, leaf_urls: List[str], navigation_tree: dict = None, test_mode: bool = False) -> dict:
         """
         Process categories with optimization: sequential until first pattern found, then parallel
+
+        Args:
+            leaf_urls: List of category URLs to process
+            navigation_tree: Navigation tree for determining hierarchy
+            test_mode: If True, save images to tests/results directory
         """
         from concurrent.futures import ThreadPoolExecutor, as_completed
         from page_extractor import extract_category_name
         import time
-        
+
         categories_results = {}
-        
+
         # Phase 3a: Sequential processing until first pattern is discovered
         print(f"   🔍 Phase 3a: Sequential pattern discovery...")
         first_pattern_found = False
         sequential_count = 0
-        
+
         for i, category_url in enumerate(leaf_urls, 1):
             print(f"\n   📁 Sequential {i}/{len(leaf_urls)}: {category_url}")
-            
+
             # Get working pattern for this category
             pattern = self._get_working_pattern_for_category(category_url)
             if not pattern:
@@ -1464,62 +1584,80 @@ Return JSON:
                     "error": "No working pattern"
                 }
                 continue
-            
+
             print(f"      🎯 Using pattern: {pattern.get('container_selector', 'Unknown')}")
-            
+
             # Extract products from this category
-            category_result = self._extract_category_products(category_url, pattern, i, len(leaf_urls))
+            category_result = self._extract_category_products(
+                category_url, pattern, i, len(leaf_urls),
+                navigation_tree=navigation_tree,
+                test_mode=test_mode
+            )
             categories_results[category_url] = category_result
             sequential_count += 1
-            
+
             # If we have discovered patterns, switch to parallel mode
             if len(self.discovered_patterns) > 0 and not first_pattern_found:
                 first_pattern_found = True
                 remaining_urls = leaf_urls[i:]  # Remaining categories to process
-                
+
                 if remaining_urls:
                     print(f"\n   ⚡ Phase 3b: Parallel processing for remaining {len(remaining_urls)} categories...")
-                    parallel_results = self._process_categories_parallel(remaining_urls, i + 1, len(leaf_urls))
+                    parallel_results = self._process_categories_parallel(
+                        remaining_urls, i + 1, len(leaf_urls),
+                        navigation_tree=navigation_tree,
+                        test_mode=test_mode
+                    )
                     categories_results.update(parallel_results)
                 break
-        
+
         if not first_pattern_found:
             print(f"   📊 Completed {sequential_count} categories sequentially (no pattern found)")
         else:
             print(f"   📊 Processed {sequential_count} sequential + {len(categories_results) - sequential_count} parallel")
-        
+
         return categories_results
     
-    def _process_categories_parallel(self, category_urls: List[str], start_index: int, total_categories: int) -> dict:
-        """Process multiple categories in parallel (4x concurrency)"""
+    def _process_categories_parallel(self, category_urls: List[str], start_index: int, total_categories: int, navigation_tree: dict = None, test_mode: bool = False) -> dict:
+        """
+        Process multiple categories in parallel (4x concurrency)
+
+        Args:
+            category_urls: List of category URLs to process
+            start_index: Starting index for display
+            total_categories: Total number of categories
+            navigation_tree: Navigation tree for determining hierarchy
+            test_mode: If True, save images to tests/results directory
+        """
         from concurrent.futures import ThreadPoolExecutor, as_completed
         from page_extractor import extract_category_name
-        
+
         parallel_results = {}
         max_workers = min(4, len(category_urls))  # 4x concurrency
-        
+
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             # Submit all category processing tasks
             future_to_info = {}
             for i, category_url in enumerate(category_urls):
                 future = executor.submit(
                     self._process_single_category_parallel,
-                    category_url, start_index + i, total_categories
+                    category_url, start_index + i, total_categories,
+                    navigation_tree, test_mode
                 )
                 future_to_info[future] = {"url": category_url, "index": start_index + i}
-            
+
             # Collect results as they complete
             for future in as_completed(future_to_info):
                 info = future_to_info[future]
                 category_url = info["url"]
-                
+
                 try:
                     category_result = future.result()
                     parallel_results[category_url] = category_result
-                    
+
                     products_found = len(category_result.get("products", []))
                     print(f"      ✅ Parallel {info['index']}: {products_found} products")
-                    
+
                 except Exception as e:
                     print(f"      ❌ Parallel {info['index']}: Failed - {e}")
                     parallel_results[category_url] = {
@@ -1527,13 +1665,22 @@ Return JSON:
                         "products": [],
                         "error": str(e)
                     }
-        
+
         return parallel_results
-    
-    def _process_single_category_parallel(self, category_url: str, category_index: int, total_categories: int) -> dict:
-        """Process a single category in parallel mode (thread-safe)"""
+
+    def _process_single_category_parallel(self, category_url: str, category_index: int, total_categories: int, navigation_tree: dict = None, test_mode: bool = False) -> dict:
+        """
+        Process a single category in parallel mode (thread-safe)
+
+        Args:
+            category_url: URL of the category to process
+            category_index: Current category index
+            total_categories: Total number of categories
+            navigation_tree: Navigation tree for determining hierarchy
+            test_mode: If True, save images to tests/results directory
+        """
         from page_extractor import extract_category_name
-        
+
         # Get working pattern (should be fast since patterns are discovered)
         pattern = self._get_working_pattern_for_category(category_url)
         if not pattern:
@@ -1542,9 +1689,13 @@ Return JSON:
                 "products": [],
                 "error": "No working pattern"
             }
-        
+
         # Extract products from this category
-        return self._extract_category_products(category_url, pattern, category_index, total_categories)
+        return self._extract_category_products(
+            category_url, pattern, category_index, total_categories,
+            navigation_tree=navigation_tree,
+            test_mode=test_mode
+        )
     
     def _get_working_pattern_for_category(self, category_url: str) -> dict:
         """
@@ -1599,36 +1750,53 @@ Return JSON:
         except Exception:
             return False
     
-    def _extract_category_products(self, category_url: str, pattern: dict, category_num: int, total_categories: int) -> dict:
-        """Extract all products from a single category with multi-page support and image downloads"""
+    def _extract_category_products(self, category_url: str, pattern: dict, category_num: int, total_categories: int, navigation_tree: dict = None, test_mode: bool = False) -> dict:
+        """
+        Extract all products from a single category with multi-page support and image downloads
+
+        Args:
+            category_url: URL of the category to extract
+            pattern: Extraction pattern to use
+            category_num: Current category number
+            total_categories: Total number of categories
+            navigation_tree: Navigation tree to determine hierarchy path
+            test_mode: If True, save images to tests/results directory
+        """
         from page_extractor import extract_products_from_page, extract_category_name
         import time
-        
+
         category_name = extract_category_name(category_url)
-        print(f"      📂 Extracting from: {category_name}")
-        
+
+        # Get the hierarchical path for this category
+        if navigation_tree:
+            category_path = self._get_category_hierarchy_path(category_url, navigation_tree)
+        else:
+            category_path = [category_name]
+
+        print(f"      📂 Extracting from: {' > '.join(category_path)}")
+
         start_time = time.time()
-        
+
         try:
             # Extract products using our advanced multi-page system
             extraction_result = extract_products_from_page(
-                category_url, [pattern], category_name, 
+                category_url, [pattern], category_name,
                 allow_pattern_discovery=False,  # Don't discover new patterns on secondary pages
                 brand_instance=self  # Pass brand instance for global learning
             )
-            
+
             products = extraction_result.get("products", [])
             extraction_time = time.time() - start_time
-            
+
             print(f"         📦 Found {len(products)} products")
-            
+
             # Download images for all products
             images_downloaded = 0
             if products:
                 print(f"         🖼️  Downloading images...")
-                images_downloaded = self._download_category_images(products, category_name)
+                images_downloaded = self._download_category_images(products, category_path, test_mode=test_mode)
                 print(f"         ✅ Downloaded {images_downloaded}/{len(products)} images")
-            
+
             return {
                 "name": category_name,
                 "url": category_url,
@@ -1641,7 +1809,7 @@ Return JSON:
                     "extraction_time": extraction_time
                 }
             }
-            
+
         except Exception as e:
             print(f"         ❌ Extraction failed: {e}")
             return {
@@ -1654,55 +1822,86 @@ Return JSON:
                 }
             }
     
-    def _download_category_images(self, products: List[dict], category_name: str) -> int:
-        """Download images for all products in a category"""
+    def _download_category_images(self, products: List[dict], category_path: List[str], test_mode: bool = False) -> int:
+        """
+        Download images for all products in a category
+
+        Args:
+            products: List of product dicts with image information
+            category_path: Hierarchical path as list (e.g., ['Clothing', 'Tops', 'T-Shirts'])
+            test_mode: If True, save to tests/results directory
+
+        Returns:
+            Number of images successfully downloaded
+        """
         import os
         import requests
         from urllib.parse import urlparse
-        
+
         if not products:
             return 0
-        
-        # Create category images directory
+
+        # Build directory path based on hierarchy
         brand_name = urlparse(self.url).netloc.replace('www.', '').split('.')[0]
-        images_dir = f"{brand_name}_images/{category_name.replace(' ', '_').replace('/', '_')}"
+
+        # Create hierarchical directory structure
+        if test_mode:
+            # Save to tests/results/{brand_name}/{hierarchy}/
+            base_dir = os.path.join(
+                os.path.dirname(os.path.abspath(__file__)),
+                'tests', 'results', brand_name
+            )
+        else:
+            # Save to {brand_name}/{hierarchy}/ (for production)
+            base_dir = brand_name
+
+        # Build the full path using the hierarchy
+        path_components = [comp.replace(' ', '_').replace('/', '_') for comp in category_path]
+        images_dir = os.path.join(base_dir, *path_components)
         os.makedirs(images_dir, exist_ok=True)
-        
+
         downloaded_count = 0
-        
+
         for product in products:
             try:
                 images = product.get("images", [])
                 if not images:
                     continue
-                    
-                # Download first image
-                first_image = images[0]
-                image_url = first_image.get("src") 
-                if not image_url:
-                    continue
-                
-                # Generate filename
+
+                # Download ALL images for this product
                 product_name = product.get("product_name", "unknown").replace(" ", "_").replace("/", "_")[:50]
-                extension = os.path.splitext(urlparse(image_url).path)[1] or '.jpg'
-                filename = f"{product_name}{extension}"
-                filepath = os.path.join(images_dir, filename)
-                
-                # Skip if already downloaded
-                if os.path.exists(filepath):
-                    downloaded_count += 1
-                    continue
-                
-                # Download image
-                response = requests.get(image_url, timeout=10)
-                if response.status_code == 200:
-                    with open(filepath, 'wb') as f:
-                        f.write(response.content)
-                    downloaded_count += 1
-                    
+
+                for img_index, image in enumerate(images, 1):
+                    image_url = image.get("src")
+                    if not image_url:
+                        continue
+
+                    # Generate filename with index for multiple images
+                    extension = os.path.splitext(urlparse(image_url).path)[1] or '.jpg'
+                    if len(images) > 1:
+                        # Multiple images: Product_Name_1.jpg, Product_Name_2.jpg, etc.
+                        filename = f"{product_name}_{img_index}{extension}"
+                    else:
+                        # Single image: Product_Name.jpg
+                        filename = f"{product_name}{extension}"
+
+                    filepath = os.path.join(images_dir, filename)
+
+                    # Skip if already downloaded
+                    if os.path.exists(filepath):
+                        downloaded_count += 1
+                        continue
+
+                    # Download image
+                    response = requests.get(image_url, timeout=10)
+                    if response.status_code == 200:
+                        with open(filepath, 'wb') as f:
+                            f.write(response.content)
+                        downloaded_count += 1
+
             except Exception:
                 continue  # Skip failed downloads
-        
+
         return downloaded_count
     
     def _save_pipeline_results_to_json(self, results: dict):
@@ -1710,21 +1909,32 @@ Return JSON:
         import json
         import os
         from urllib.parse import urlparse
-        
+
         # Generate filename from brand URL
         brand_name = urlparse(self.url).netloc.replace('www.', '').split('.')[0]
         filename = f"{brand_name}_extraction_results.json"
-        
+
+        # Determine results directory based on test_mode
+        if self.test_mode:
+            # Save to tests/results directory
+            results_dir = os.path.join(
+                os.path.dirname(os.path.abspath(__file__)),
+                'tests', 'results'
+            )
+        else:
+            # Save to results directory in current working directory
+            results_dir = "results"
+
         # Create results directory if needed
-        os.makedirs("results", exist_ok=True)
-        filepath = os.path.join("results", filename)
-        
+        os.makedirs(results_dir, exist_ok=True)
+        filepath = os.path.join(results_dir, filename)
+
         # Convert sets to lists for JSON serialization
         json_results = self._make_json_serializable(results)
-        
+
         with open(filepath, 'w') as f:
             json.dump(json_results, f, indent=2)
-        
+
         print(f"      💾 Results saved to: {filepath}")
     
     def _make_json_serializable(self, obj):

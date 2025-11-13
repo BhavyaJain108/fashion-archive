@@ -363,9 +363,9 @@ class PremiumScraperAPI:
             
             # Create a Brand instance to analyze
             brand = Brand(brand_url)
-            
-            # Extract links from homepage
-            links = brand.extract_page_links(brand_url)
+
+            # Extract links from homepage with menu expansion
+            links = brand.extract_page_links_with_context(brand_url, expand_navigation_menus=True)
             
             if not links:
                 return {
