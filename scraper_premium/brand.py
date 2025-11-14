@@ -1929,7 +1929,7 @@ Return JSON:
     
     def _process_categories_parallel(self, category_urls: List[str], start_index: int, total_categories: int, navigation_tree: dict = None, test_mode: bool = False) -> dict:
         """
-        Process multiple categories in parallel (4x concurrency)
+        Process multiple categories in parallel (8x concurrency)
 
         Args:
             category_urls: List of category URLs to process
@@ -1942,7 +1942,7 @@ Return JSON:
         from page_extractor import extract_category_name
 
         parallel_results = {}
-        max_workers = min(4, len(category_urls))  # 4x concurrency
+        max_workers = min(8, len(category_urls))  # 8x concurrency
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             # Submit all category processing tasks
