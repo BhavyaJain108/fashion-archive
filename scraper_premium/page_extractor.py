@@ -1648,7 +1648,13 @@ def _detect_post_scroll_pagination(page, page_url: str) -> Dict[str, Any]:
         print(f"   🎯 Category-filtered links ({len(category_filtered_links)} remain after filtering):")
         for i, link in enumerate(category_filtered_links):
             print(f"      {i+1}. {link}")
-        
+
+        # Early return if no links remain after filtering - no need to call LLM
+        if not category_filtered_links:
+            result["reasoning"] = "No category-relevant links found after filtering"
+            print(f"   📄 No category links found - single page category")
+            return result
+
         # Debug: Identify potential pagination candidates from filtered links
         pagination_candidates = []
         for link in category_filtered_links:
@@ -1805,9 +1811,10 @@ def _filter_links_by_category(bottom_links: List[str], current_page_url: str) ->
                 for key, value in link_params.items():
                     if key.lower() not in ['page', 'p', 'offset', 'start']:
                         link_category_params[key] = value
-                
+
                 # If category parameters match, it's the same category
-                if link_category_params == category_params:
+                # But exclude the current page URL itself (not a "next" page)
+                if link_category_params == category_params and link != current_page_url:
                     category_filtered.append(link)
         
         return category_filtered

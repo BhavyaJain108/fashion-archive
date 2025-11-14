@@ -647,7 +647,7 @@ If no pagination:
         
         return element.get_text(strip=True)[:max_length]
     
-    def _find_product_links(self, links_with_context: List[dict], page_url: str) -> List[str]:
+    def _find_product_links(self, links_with_context: List[dict], page_url: str) -> List[dict]:
         """
         Step 1: Use LLM to identify up to 3 valid product links from all page links
 
@@ -656,14 +656,12 @@ If no pagination:
             page_url: Current page URL
 
         Returns:
-            List of selected product URLs
+            List of dicts with 'url' and 'parent_container' keys
         """
         from prompts.product_link_finder import get_prompt, get_response_model
 
-        all_links = [link_info['url'] for link_info in links_with_context]
-
-        # Use structured prompt from prompts module
-        prompt = get_prompt(page_url, all_links)
+        # Pass full context (URLs + parent containers) to prompt
+        prompt = get_prompt(page_url, links_with_context)
 
         # Try structured output first
         llm_response = self.llm_handler.call(prompt, expected_format="json", response_model=get_response_model())
@@ -674,71 +672,161 @@ If no pagination:
 
         if llm_response.get("success", False):
             data = llm_response.get("data", {})
-            product_urls = data.get("product_urls", [])
+            selected_links = data.get("selected_links", [])
 
-            # Validate URLs exist in the original links
-            all_urls = [link['url'] for link in links_with_context]
-            valid_urls = []
-            for url in product_urls:
+            # Validate URLs exist in the original links and extract URL + parent
+            all_urls = {link['url']: link['parent_container'] for link in links_with_context}
+            valid_links = []
+
+            for link_obj in selected_links:
+                # Handle both dict and Pydantic object
+                url = link_obj.get('url') if isinstance(link_obj, dict) else link_obj.url
+                parent = link_obj.get('parent_container') if isinstance(link_obj, dict) else link_obj.parent_container
+
                 if url in all_urls:
-                    valid_urls.append(url)
+                    valid_links.append({
+                        'url': url,
+                        'parent_container': parent
+                    })
 
-            if valid_urls:
-                print(f"\n✅ LLM selected {len(valid_urls)} product links:")
-                for url in valid_urls:
-                    print(f"   • {url}")
+            if valid_links:
+                print(f"\n✅ LLM selected {len(valid_links)} product links:")
+                for link in valid_links:
+                    print(f"   • {link['url']}")
+                    print(f"     Parent: {link['parent_container']}")
 
-                return valid_urls
+                return valid_links
 
         # Simple heuristic fallback when LLM fails
         print("🔧 Using heuristic fallback to find product links")
-        heuristic_urls = []
+        heuristic_links = []
         for link_info in links_with_context:
             link = link_info['url']
+            parent = link_info['parent_container']
+
             # Look for common product URL patterns
             if any(pattern in link.lower() for pattern in ['/product/', '/products/', '/item/', '/items/']):
                 # Exclude homepage and category pages
                 if not link.endswith('/') and '?' not in link and '#' not in link:
-                    heuristic_urls.append(link)
-                    if len(heuristic_urls) >= 3:  # Limit to 3
+                    heuristic_links.append({
+                        'url': link,
+                        'parent_container': parent
+                    })
+                    if len(heuristic_links) >= 3:  # Limit to 3
                         break
 
-        if heuristic_urls:
-            print(f"🔗 Heuristic found {len(heuristic_urls)} product links")
-            return heuristic_urls
+        if heuristic_links:
+            print(f"🔗 Heuristic found {len(heuristic_links)} product links")
+            return heuristic_links
 
         print(f"❌ No product links found")
         return []
-    
-    def _analyze_link_pattern(self, html_content: str, product_links: List[str], base_url: str) -> dict:
+
+    def _extract_container_selector(self, parent_path: str) -> str:
+        """
+        Extract the most specific parent container selector from a path
+
+        Args:
+            parent_path: CSS path like "ul.product-grid.product-grid--template > li.product-item > a"
+
+        Returns:
+            Most specific selector, e.g., "ul.product-grid"
+        """
+        if not parent_path:
+            return ""
+
+        # Split by ' > ' to get individual selectors
+        parts = parent_path.split(' > ')
+
+        # Look for the first part that has meaningful class names (product-grid, product-list, catalog, etc.)
+        for part in parts:
+            part = part.strip()
+            # Skip generic tags without classes
+            if '.' not in part and '#' not in part:
+                continue
+
+            # Return first meaningful container
+            # This should be something like "ul.product-grid" or "div.product-list"
+            return part
+
+        # Fallback: return first part if no classes found
+        return parts[0].strip() if parts else ""
+
+    def _analyze_link_pattern(self, html_content: str, product_links: List[dict], base_url: str) -> dict:
         """
         Step 2: Analyze HTML around multiple product links to find container pattern
-        Searches for the full URL (with variant params) to find the correct occurrence
+        Uses parent container info to find the correct occurrence when URLs appear multiple times
+
+        Args:
+            html_content: Full page HTML
+            product_links: List of dicts with 'url' and 'parent_container' keys
+            base_url: Base URL for the page
         """
         import re
         from urllib.parse import urlparse
+        from bs4 import BeautifulSoup
 
         product_contexts = []
 
-        for product_link in product_links:
+        for product_link_info in product_links:
+            product_url = product_link_info['url']
+            parent_container = product_link_info['parent_container']
+
             # Extract path with query params from the URL
-            parsed = urlparse(product_link)
-            # Try to find href with the full path including query params
+            parsed = urlparse(product_url)
             search_href = parsed.path
             if parsed.query:
                 search_href = f"{parsed.path}?{parsed.query}"
 
-            # Search for <a> tag with this specific href (including variant)
-            # This should find the product-grid occurrence, not menu drawer
-            pattern = rf'<a[^>]*href="[^"]*{re.escape(search_href)}"[^>]*>.*?</a>'
-            match = re.search(pattern, html_content, re.DOTALL | re.IGNORECASE)
+            # Strategy: Use BeautifulSoup to find the link within the specific parent container
+            soup = BeautifulSoup(html_content, 'html.parser')
 
-            if match:
-                # Extract context around this match
-                context_start = max(0, match.start() - 3750)
-                context_end = min(len(html_content), match.end() + 3000)
-                context_html = html_content[context_start:context_end]
-                product_contexts.append((product_link, context_html))
+            # Extract the most specific parent container selector from path
+            # E.g., "ul.product-grid.product-grid--template > li > a" -> "ul.product-grid"
+            container_selector = self._extract_container_selector(parent_container)
+
+            context_html = None
+
+            if container_selector:
+                # Try to find the parent container first
+                try:
+                    parent_elements = soup.select(container_selector)
+
+                    # Search within each matching parent for our specific link
+                    for parent_el in parent_elements:
+                        # Find link within this container
+                        links = parent_el.find_all('a', href=True)
+                        for link in links:
+                            href = link.get('href', '')
+                            # Match either full URL or path (with/without query params)
+                            if search_href in href or href in product_url:
+                                # Found the right occurrence! Extract context around it
+                                link_str = str(link)
+                                link_pos = html_content.find(link_str)
+                                if link_pos != -1:
+                                    context_start = max(0, link_pos - 3750)
+                                    context_end = min(len(html_content), link_pos + len(link_str) + 3000)
+                                    context_html = html_content[context_start:context_end]
+                                    break
+
+                        if context_html:
+                            break
+
+                except Exception as e:
+                    print(f"⚠️  Container-based search failed for {container_selector}: {e}")
+
+            # Fallback: Use original regex approach if container-based search failed
+            if not context_html:
+                pattern = rf'<a[^>]*href="[^"]*{re.escape(search_href)}"[^>]*>.*?</a>'
+                match = re.search(pattern, html_content, re.DOTALL | re.IGNORECASE)
+
+                if match:
+                    context_start = max(0, match.start() - 3750)
+                    context_end = min(len(html_content), match.end() + 3000)
+                    context_html = html_content[context_start:context_end]
+
+            if context_html:
+                product_contexts.append((product_url, context_html))
             else:
                 print(f"⚠️  Could not find link in HTML: {search_href}")
 
@@ -770,7 +858,7 @@ If no pagination:
                     print(f"🔍 Alternatives Considered: {', '.join(data.get('alternative_selectors', []))}")
 
                 # Pattern extracted successfully - now extract actual sample data using first product
-                first_product_link = product_links[0]
+                first_product_link = product_links[0]['url']
                 sample_product = self._extract_sample_product(html_content, data, first_product_link, base_url)
                 
                 return {
