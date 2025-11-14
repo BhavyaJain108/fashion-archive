@@ -79,30 +79,23 @@ def extract_products_from_page(page_url: str, patterns: List[Dict[str, str]], br
         if not patterns:
             result["error"] = "No patterns provided"
             return result
-            
+
         pattern = patterns[0]
         result["metrics"]["patterns_tried"] = 1
-        
+
+        # Extract page 1 with scrolling and pagination detection
         extraction_result = _extract_with_scrolling(page_url, pattern, brand_name, category_name, brand_instance)
         products = extraction_result["products"]
         pagination_triggers_found = extraction_result.get("pagination_triggers_found", [])
         pagination_detected = extraction_result.get("pagination_detected", {})
-        
-        # Apply lineage filtering if we have multiple products
+
+        # Apply lineage filtering to page 1 products
         lineage_filtering_start = time.time()
         products_before_filtering = len(products)
         if len(products) > 1:
-            filtered_products = apply_lineage_filtering(products, page_url, category_name, brand_instance)
-            if filtered_products:  # Only use filtered results if filtering succeeded
-                # Store approved lineages in brand instance for cross-page filtering
-                if brand_instance:
-                    approved_lineages = {product.get("full_lineage") for product in filtered_products if product.get("full_lineage")}
-                    brand_instance.store_lineage_memory(page_url, set(), approved_lineages)
-                    print(f"   💾 Stored {len(approved_lineages)} approved lineage patterns for cross-page filtering")
-                
-                products = filtered_products
+            products = apply_lineage_filtering(products, page_url, category_name, brand_instance)
         lineage_filtering_time = time.time() - lineage_filtering_start
-        
+
         result["products"] = products
         result["success"] = len(products) > 0
         result["pagination_triggers_found"] = pagination_triggers_found
@@ -111,14 +104,14 @@ def extract_products_from_page(page_url: str, patterns: List[Dict[str, str]], br
         result["metrics"]["products_extracted"] = len(products)
         result["metrics"]["products_before_filtering"] = products_before_filtering
         result["metrics"]["lineage_filtering_time"] = lineage_filtering_time
-        
+
     except Exception as e:
         result["error"] = str(e)
         result["success"] = False
-    
+
     # Update final metrics
     result["metrics"]["extraction_time"] = time.time() - start_time
-    
+
     return result
 
 
@@ -608,68 +601,35 @@ def _concurrent_sequential_fallback(base_url: str, pattern: Dict[str, str], bran
             
             raw_products = page_result.get("products", [])
             products_before_filtering = len(raw_products)
-            
-            # Apply lineage filtering to validate these are real products (not recommendations)
-            if raw_products:
-                print(f"   🔍 Fallback page {current_page_num}: {products_before_filtering} raw products, applying lineage filtering...")
-                
-                # Extract category name for lineage filtering
-                from urllib.parse import urlparse
+
+            # Apply incremental lineage filtering (uses approved lineages from page 1)
+            if raw_products and len(raw_products) > 1:
                 category_for_filtering = extract_category_name(next_page_url)
-                
-                # Filter using approved lineages from page 1
-                if brand_instance and brand_instance.has_lineage_memory(base_url):
-                    lineage_memory = brand_instance.get_lineage_memory(base_url)
-                    approved_lineages = lineage_memory.get("approved_lineages", set())
-                    
-                    if approved_lineages:
-                        # Only keep products with approved lineages
-                        filtered_products = [
-                            product for product in raw_products 
-                            if product.get("full_lineage") in approved_lineages
-                        ]
-                        print(f"   🎯 Fallback page {current_page_num}: {len(filtered_products)}/{products_before_filtering} products match approved lineages")
-                    else:
-                        # No approved lineages stored, keep all products
-                        filtered_products = raw_products
-                        print(f"   ⚠️  Fallback page {current_page_num}: No approved lineages stored, keeping all products")
-                else:
-                    # No lineage memory, keep all products  
-                    filtered_products = raw_products
-                    print(f"   ⚠️  Fallback page {current_page_num}: No lineage memory, keeping all products")
-                
-                products_found = len(filtered_products)
-                
-                if products_found > 0:
-                    print(f"   ✅ Fallback page {current_page_num}: {products_found}/{products_before_filtering} valid products after filtering - continuing")
-                    fallback_results.append({
-                        "page_num": current_page_num,
-                        "url": next_page_url,
-                        "products_found": products_found,
-                        "products_before_filtering": products_before_filtering,
-                        "extraction_time": page_result.get("extraction_time", 0),
-                        "source": "concurrent_sequential",
-                        "products": filtered_products
-                    })
-                    consecutive_failures = 0
-                else:
-                    print(f"   📄 Fallback page {current_page_num}: 0 valid products after lineage filtering - fallback complete")
-                    fallback_results.append({
-                        "page_num": current_page_num,
-                        "url": next_page_url,
-                        "products_found": 0,
-                        "products_before_filtering": products_before_filtering,
-                        "extraction_time": page_result.get("extraction_time", 0),
-                        "source": "concurrent_sequential"
-                    })
-                    break
+                filtered_products = apply_lineage_filtering(raw_products, base_url, category_for_filtering, brand_instance)
             else:
-                print(f"   📄 Fallback page {current_page_num}: 0 products - fallback complete")
+                filtered_products = raw_products
+
+            products_found = len(filtered_products)
+
+            if products_found > 0:
+                print(f"   ✅ Fallback page {current_page_num}: {products_found}/{products_before_filtering} valid products after filtering - continuing")
+                fallback_results.append({
+                    "page_num": current_page_num,
+                    "url": next_page_url,
+                    "products_found": products_found,
+                    "products_before_filtering": products_before_filtering,
+                    "extraction_time": page_result.get("extraction_time", 0),
+                    "source": "concurrent_sequential",
+                    "products": filtered_products
+                })
+                consecutive_failures = 0
+            else:
+                print(f"   📄 Fallback page {current_page_num}: 0 valid products after lineage filtering - fallback complete")
                 fallback_results.append({
                     "page_num": current_page_num,
                     "url": next_page_url,
                     "products_found": 0,
-                    "products_before_filtering": 0,
+                    "products_before_filtering": products_before_filtering,
                     "extraction_time": page_result.get("extraction_time", 0),
                     "source": "concurrent_sequential"
                 })
@@ -757,12 +717,11 @@ def _extract_single_additional_page(page_url: str, pattern: Dict[str, str], bran
         )
         
         products = result.get("products", [])
-        
-        # Apply lineage filtering if we have rejected lineages in memory
-        if lineage_memory.get("rejected_lineages") and products:
-            # TODO: Apply lineage filtering here using brand instance
-            pass
-        
+
+        # Apply incremental lineage filtering (uses approved lineages from page 1)
+        if products and len(products) > 1:
+            products = apply_lineage_filtering(products, page_url, category_name, brand_instance)
+
         extraction_time = time.time() - start_time
         
         return {
@@ -1114,116 +1073,149 @@ def _extract_products_from_current_state(page, page_url: str, pattern: Dict[str,
 
 def apply_lineage_filtering(products: List[Dict[str, Any]], page_url: str, category_name: str, brand_instance=None) -> List[Dict[str, Any]]:
     """
-    Apply lineage-based filtering using LLM to select best ancestry path.
-    
+    Apply incremental lineage-based filtering using memory + LLM for unknowns.
+
+    Strategy:
+    1. Pre-filter globally rejected lineages (fast)
+    2. Auto-approve category-known approved lineages (fast)
+    3. LLM call ONLY for NEW lineages (not yet approved/rejected for this category)
+    4. Update brand memory with new decisions
+
     Args:
         products: List of extracted products with full_lineage
         page_url: Source page URL for context
         category_name: Category name for context
-        
+        brand_instance: Brand instance with lineage memory
+
     Returns:
-        Filtered list of products, or empty list if filtering fails
+        Filtered list of products with approved lineages
     """
     try:
-        # First, filter out any globally rejected lineages from brand memory
-        if brand_instance:
-            all_rejected_lineages = set()
-            # Collect rejected lineages from all categories 
-            for category_memory in brand_instance.lineage_memory.values():
-                all_rejected_lineages.update(category_memory.get("rejected_lineages", set()))
-            
-            if all_rejected_lineages:
-                initial_count = len(products)
-                products = [
-                    product for product in products 
-                    if product.get('full_lineage') not in all_rejected_lineages
-                ]
-                filtered_count = len(products)
-                if filtered_count < initial_count:
-                    print(f"   🚫 Pre-filtered {initial_count - filtered_count} products with globally rejected lineages")
-        
-        # Count lineage frequencies from remaining products
-        lineage_counter = Counter()
+        if not products:
+            return []
+
+        initial_count = len(products)
+
+        # Step 1: Pre-filter globally rejected lineages
+        if brand_instance and brand_instance.rejected_lineages:
+            products = [
+                product for product in products
+                if product.get('full_lineage') not in brand_instance.rejected_lineages
+            ]
+            if len(products) < initial_count:
+                print(f"   🚫 Pre-filtered {initial_count - len(products)} products with globally rejected lineages")
+
+        # Step 2: Get globally approved lineages
+        global_approved = brand_instance.approved_lineages if brand_instance else set()
+
+        # Step 3: Separate products into approved vs unknown lineages
+        approved_products = []
+        unknown_lineage_products = []
+        unknown_lineages = set()
+
         for product in products:
             lineage = product.get('full_lineage', 'Unknown')
+            if lineage == 'Unknown':
+                continue  # Skip products without lineage
+
+            if lineage in global_approved:
+                approved_products.append(product)
+            else:
+                unknown_lineage_products.append(product)
+                unknown_lineages.add(lineage)
+
+        if global_approved and approved_products:
+            print(f"   ✅ Auto-approved {len(approved_products)} products with globally known lineages")
+
+        # Step 4: If no unknown lineages, return approved products
+        if not unknown_lineages:
+            print(f"   ⏭️  No new lineages to analyze")
+            return approved_products
+
+        # Step 5: Count frequencies of unknown lineages for LLM analysis
+        unknown_lineage_counter = Counter()
+        for product in unknown_lineage_products:
+            lineage = product.get('full_lineage', 'Unknown')
             if lineage != 'Unknown':
-                lineage_counter[lineage] += 1
-        
-        # Print lineage analysis if verbose
-        print(f"\n🔍 LINEAGE ANALYSIS:")
-        print(f"   📊 Found {len(lineage_counter)} unique lineage patterns from {len(products)} products")
-        
+                unknown_lineage_counter[lineage] += 1
+
+        print(f"\n🔍 LINEAGE ANALYSIS (New Lineages Only):")
+        print(f"   📊 Found {len(unknown_lineage_counter)} new lineage patterns from {len(unknown_lineage_products)} products")
+
         # Create sorted list for easy indexing by number
-        sorted_lineages = sorted(lineage_counter.items(), key=lambda x: x[1], reverse=True)
-        
+        sorted_lineages = sorted(unknown_lineage_counter.items(), key=lambda x: x[1], reverse=True)
+
         for i, (lineage, count) in enumerate(sorted_lineages, 1):
             print(f"   {i}. \"{lineage}\" ({count} products)")
-        
-        # Need at least 2 different lineages to make filtering worthwhile
-        if len(lineage_counter) < 2:
-            print(f"   ⏭️  Only 1 lineage pattern found - skipping filtering")
-            return products
-        
-        # Convert counter to dict for prompt
-        lineage_frequencies = dict(lineage_counter)
-        
-        # Get LLM selection
+
+        # If only 1 unknown lineage, auto-approve it (no point asking LLM)
+        if len(unknown_lineage_counter) < 2:
+            print(f"   ⏭️  Only 1 new lineage pattern - auto-approving")
+            # Store as approved
+            if brand_instance:
+                brand_instance.store_lineage_memory(page_url, set(), unknown_lineages)
+                print(f"   💾 Stored 1 approved lineage for this category")
+            return products  # All products approved
+
+        # Step 6: Call LLM for unknown lineages only
+        lineage_frequencies = dict(unknown_lineage_counter)
+
         llm_handler = LLMHandler()
         prompt = lineage_selection.get_prompt(page_url, category_name, lineage_frequencies)
         response_model = lineage_selection.get_response_model()
-        
-        print(f"   🤖 Asking LLM to select best lineage for '{category_name}'...")
+
+        print(f"   🤖 Asking LLM to classify {len(unknown_lineages)} new lineages...")
         llm_result = llm_handler.call(prompt, response_model=response_model)
-        print(f"   📝 LLM Response: {llm_result}")
-        
+
         if not llm_result or not llm_result.get('success'):
             error_msg = llm_result.get('error', 'Unknown error') if llm_result else 'No response'
-            print(f"   ❌ LLM failed to select lineage - {error_msg}")
-            return []
-        
-        # Extract the actual data from the LLM response
+            print(f"   ❌ LLM failed to classify lineages - {error_msg}")
+            return approved_products  # Return only pre-approved products
+
+        # Extract LLM decision
         result = llm_result.get('data')
         if not result or 'valid_lineage_numbers' not in result:
-            print(f"   ❌ LLM response missing valid_lineage_numbers - keeping all products")
-            return []
-        
+            print(f"   ❌ LLM response missing valid_lineage_numbers")
+            return approved_products
+
         valid_lineage_numbers = result['valid_lineage_numbers']
-        
-        # Convert numbers back to lineage strings using our sorted list
-        valid_lineages = []
+
+        # Convert numbers to lineage strings
+        newly_approved_lineages = set()
         for num in valid_lineage_numbers:
-            if 1 <= num <= len(sorted_lineages):  # Check bounds
-                lineage, count = sorted_lineages[num - 1]  # Convert 1-indexed to 0-indexed
-                valid_lineages.append(lineage)
-        
-        print(f"   ✅ LLM selected {len(valid_lineages)} valid lineages:")
-        for i, lineage in enumerate(valid_lineages, 1):
-            print(f"      {i}. \"{lineage}\"")
-        print(f"   💭 LLM reasoning: {result.get('analysis', 'No reasoning provided')}")
-        print(f"   🎯 LLM confidence: {result.get('confidence', 'Not specified')}")
-        
-        # Filter products to only include those with valid lineages
-        valid_lineages_set = set(valid_lineages)
-        filtered_products = [
-            product for product in products 
-            if product.get('full_lineage') in valid_lineages_set
-        ]
-        
-        print(f"   📦 Filtered from {len(products)} to {len(filtered_products)} products")
-        
-        # Store rejected lineages globally in brand instance for future categories
+            if 1 <= num <= len(sorted_lineages):
+                lineage, count = sorted_lineages[num - 1]
+                newly_approved_lineages.add(lineage)
+
+        newly_rejected_lineages = unknown_lineages - newly_approved_lineages
+
+        print(f"   ✅ LLM approved {len(newly_approved_lineages)} new lineages:")
+        for lineage in newly_approved_lineages:
+            print(f"      • \"{lineage}\"")
+        if newly_rejected_lineages:
+            print(f"   🚫 LLM rejected {len(newly_rejected_lineages)} new lineages")
+        print(f"   💭 Reasoning: {result.get('analysis', 'No reasoning')}")
+
+        # Step 7: Update global brand memory with new decisions
         if brand_instance:
-            all_lineages = set(lineage_counter.keys())
-            rejected_lineages = all_lineages - valid_lineages_set
-            if rejected_lineages:
-                brand_instance.store_lineage_memory(page_url, rejected_lineages, valid_lineages_set)
-                print(f"   💾 Stored {len(rejected_lineages)} rejected lineages globally for future categories")
-        
-        return filtered_products
-        
+            brand_instance.store_lineage_memory(page_url, newly_rejected_lineages, newly_approved_lineages)
+            print(f"   💾 Updated global lineage memory")
+
+        # Step 8: Filter products - keep approved (old + new)
+        all_approved_lineages = global_approved | newly_approved_lineages
+        final_products = [
+            product for product in products
+            if product.get('full_lineage') in all_approved_lineages
+        ]
+
+        print(f"   📦 Final: {len(final_products)}/{initial_count} products ({len(approved_products)} pre-approved + {len(final_products) - len(approved_products)} newly approved)")
+
+        return final_products
+
     except Exception as e:
-        # If lineage filtering fails, return original products
-        print(f"Lineage filtering failed: {e}")
+        print(f"   ❌ Incremental lineage filtering failed: {e}")
+        import traceback
+        traceback.print_exc()
         return []
 
 

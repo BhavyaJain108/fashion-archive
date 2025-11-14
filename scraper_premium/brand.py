@@ -28,11 +28,44 @@ from image_downloader import ImageDownloader
 
 
 
+class LogBuffer:
+    """Context manager to buffer print statements during parallel execution"""
+    def __init__(self):
+        self.logs = []
+        self.original_print = None
+
+    def __enter__(self):
+        import builtins
+        self.original_print = builtins.print
+        builtins.print = self._buffered_print
+        return self
+
+    def _buffered_print(self, *args, **kwargs):
+        # Capture the print output
+        import io
+        buffer = io.StringIO()
+        # Remove 'file' from kwargs if present to avoid conflict
+        kwargs_copy = kwargs.copy()
+        kwargs_copy['file'] = buffer
+        self.original_print(*args, **kwargs_copy)
+        self.logs.append(buffer.getvalue().rstrip('\n'))
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        import builtins
+        builtins.print = self.original_print
+        return False
+
+    def dump(self):
+        """Print all buffered logs at once"""
+        for log in self.logs:
+            self.original_print(log)
+
+
 class Brand:
     """
     Represents a fashion brand for scraping.
     """
-    
+
     def __init__(self, url: str, llm_handler: LLMHandler = None, test_mode: bool = False):
         """
         Initialize a Brand
@@ -64,8 +97,9 @@ class Brand:
         self.discovered_patterns: List[dict] = []  # Patterns that work across categories
         self.all_products = set()  # Set of all unique products (by URL)
 
-        # Lineage memory for multi-page extraction optimization
-        self.lineage_memory = {}  # Dict[category_url: {"rejected_lineages": set(), "approved_lineages": set()}]
+        # Lineage memory for multi-page extraction optimization (global sets)
+        self.approved_lineages = set()  # Global approved lineages across all categories
+        self.rejected_lineages = set()  # Global rejected lineages across all categories
 
         # HTML processing pipeline
         self.html_queue = Queue()  # Queue of (html, source_url) tuples
@@ -75,9 +109,18 @@ class Brand:
 
         # Image downloading pipeline
         self.image_downloader = ImageDownloader()
-        self.image_download_queue = Queue()  # Queue of products needing image downloads
+        self.image_download_queue = Queue()  # Queue of image download tasks
         self.image_workers_active = False
         self.image_worker_pool = None
+
+        # Thread-safe stats tracking for async image downloads
+        self.image_stats_lock = threading.Lock()
+        self.image_stats = {
+            "total_queued": 0,
+            "total_downloaded": 0,
+            "total_failed": 0,
+            "by_category": {}  # category_url -> {"queued": int, "downloaded": int, "failed": int, "failed_urls": []}
+        }
 
         # Streaming control
         self.scrolling_active = False
@@ -101,22 +144,21 @@ class Brand:
             
             # Step 1: Find one valid product link
             links_with_context = self.extract_page_links_with_context(first_page_url)
-            all_links = [link_info['url'] for link_info in links_with_context]
             # Links extracted
 
-            product_links = self._find_product_links(all_links, first_page_url)
-            
+            product_links = self._find_product_links(links_with_context, first_page_url)
+
             if not product_links:
-                print(f"❌ LLM failed to identify product links from {len(all_links)} links")
-                raise Exception(f"No valid product links found {all_links}")
-            
+                print(f"❌ LLM failed to identify product links from {len(links_with_context)} links")
+                raise Exception(f"No valid product links found")
+
             # Product link found
-            
+
             # Get HTML content and extract all links
             html_content = self.get_page_html(first_page_url)
             if not html_content:
                 raise Exception("Failed to fetch HTML content")
-            
+
             # Step 2: Analyze pattern around multiple product links
             pattern_analysis = self._analyze_link_pattern(html_content, product_links, first_page_url)
             
@@ -131,7 +173,10 @@ class Brand:
             return pattern_analysis
             
         except Exception as e:
+            import traceback
             print(f"❌ Product pattern analysis failed: {e}")
+            print(f"📋 Full traceback:")
+            traceback.print_exc()
             return {}
     
     def analyze_pagination_pattern(self) -> dict:
@@ -484,7 +529,7 @@ If no pagination:
                                     before extracting links (useful for homepage navigation)
 
         Returns:
-            List of dicts with keys: url, position_index, full_element
+            List of dicts with keys: url, position_index, full_element, parent_container
         """
         from bs4 import BeautifulSoup
 
@@ -522,17 +567,21 @@ If no pagination:
             # Update the href in the tag to be absolute for the full_element
             original_href = a_tag.get('href')
             a_tag['href'] = href  # Set to absolute URL
-            
+
+            # Extract parent container path for semantic analysis
+            parent_path = self._get_parent_container_path(a_tag)
+
             # Extract essential information
             link_info = {
                 'url': href,
                 'position_index': position_index,
-                'full_element': str(a_tag)[:200] + '...' if len(str(a_tag)) > 200 else str(a_tag)
+                'full_element': str(a_tag)[:200] + '...' if len(str(a_tag)) > 200 else str(a_tag),
+                'parent_container': parent_path
             }
-            
+
             # Restore original href to not modify the soup
             a_tag['href'] = original_href
-            
+
             links_with_context.append(link_info)
         
         # Remove duplicates by URL while keeping the first occurrence
@@ -544,7 +593,40 @@ If no pagination:
                 unique_links.append(link_info)
         
         return unique_links
-    
+
+    def _get_parent_container_path(self, element, max_depth=3):
+        """
+        Get CSS selector path for parent containers to identify link location.
+
+        Args:
+            element: BeautifulSoup element
+            max_depth: How many levels up to traverse
+
+        Returns:
+            CSS selector path like "div.product-grid > div.product-card > a"
+        """
+        path_parts = []
+        current = element
+
+        for _ in range(max_depth):
+            if current.parent and current.parent.name != '[document]':
+                parent = current.parent
+
+                # Build selector for this parent
+                selector = parent.name
+                if parent.get('class'):
+                    classes = '.'.join(parent.get('class'))
+                    selector = f"{selector}.{classes}"
+                elif parent.get('id'):
+                    selector = f"{selector}#{parent.get('id')}"
+
+                path_parts.insert(0, selector)
+                current = parent
+            else:
+                break
+
+        return ' > '.join(path_parts) if path_parts else 'body'
+
     def _get_context_snippet(self, element, max_length=100):
         """Get a snippet of text context around an element"""
         # Get text from parent or surrounding elements
@@ -565,40 +647,54 @@ If no pagination:
         
         return element.get_text(strip=True)[:max_length]
     
-    def _find_product_links(self, all_links: List[str], page_url: str) -> List[str]:
+    def _find_product_links(self, links_with_context: List[dict], page_url: str) -> List[str]:
         """
         Step 1: Use LLM to identify up to 3 valid product links from all page links
+
+        Args:
+            links_with_context: List of dicts with 'url', 'parent_container', 'position_index'
+            page_url: Current page URL
+
+        Returns:
+            List of selected product URLs
         """
         from prompts.product_link_finder import get_prompt, get_response_model
-        
+
+        all_links = [link_info['url'] for link_info in links_with_context]
+
         # Use structured prompt from prompts module
         prompt = get_prompt(page_url, all_links)
-        
+
         # Try structured output first
         llm_response = self.llm_handler.call(prompt, expected_format="json", response_model=get_response_model())
-        
+
         # Debug: print LLM response
         if not llm_response.get("success", False):
             print(f"🐛 LLM call failed: {llm_response.get('error', 'Unknown error')}")
-        
+
         if llm_response.get("success", False):
             data = llm_response.get("data", {})
             product_urls = data.get("product_urls", [])
-            
+
             # Validate URLs exist in the original links
+            all_urls = [link['url'] for link in links_with_context]
             valid_urls = []
             for url in product_urls:
-                if url in all_links:
+                if url in all_urls:
                     valid_urls.append(url)
-            
+
             if valid_urls:
-                print(f"🔗 Found {len(valid_urls)} product links for pattern analysis")
+                print(f"\n✅ LLM selected {len(valid_urls)} product links:")
+                for url in valid_urls:
+                    print(f"   • {url}")
+
                 return valid_urls
-        
+
         # Simple heuristic fallback when LLM fails
         print("🔧 Using heuristic fallback to find product links")
         heuristic_urls = []
-        for link in all_links:
+        for link_info in links_with_context:
+            link = link_info['url']
             # Look for common product URL patterns
             if any(pattern in link.lower() for pattern in ['/product/', '/products/', '/item/', '/items/']):
                 # Exclude homepage and category pages
@@ -606,48 +702,48 @@ If no pagination:
                     heuristic_urls.append(link)
                     if len(heuristic_urls) >= 3:  # Limit to 3
                         break
-        
+
         if heuristic_urls:
             print(f"🔗 Heuristic found {len(heuristic_urls)} product links")
             return heuristic_urls
-        
+
         print(f"❌ No product links found")
         return []
     
     def _analyze_link_pattern(self, html_content: str, product_links: List[str], base_url: str) -> dict:
         """
         Step 2: Analyze HTML around multiple product links to find container pattern
+        Searches for the full URL (with variant params) to find the correct occurrence
         """
-        # Extract HTML contexts for all product links
         import re
         from urllib.parse import urlparse
-        
+
         product_contexts = []
-        
+
         for product_link in product_links:
-            # Extract the product path from the full URL
-            parsed_link = urlparse(product_link)
-            link_path = parsed_link.path
-            
-            # Find surrounding HTML context (search for the href in HTML)
-            # Look for the actual <a> tag with this href
-            href_pattern = rf'<a[^>]*href="{re.escape(link_path)}"[^>]*>.*?</a>'
-            match = re.search(href_pattern, html_content, re.DOTALL | re.IGNORECASE)
-            
-            if not match:
-                # Try with relative href
-                href_pattern = rf'<a[^>]*href="{re.escape(product_link)}"[^>]*>.*?</a>'
-                match = re.search(href_pattern, html_content, re.DOTALL | re.IGNORECASE)
-            
+            # Extract path with query params from the URL
+            parsed = urlparse(product_link)
+            # Try to find href with the full path including query params
+            search_href = parsed.path
+            if parsed.query:
+                search_href = f"{parsed.path}?{parsed.query}"
+
+            # Search for <a> tag with this specific href (including variant)
+            # This should find the product-grid occurrence, not menu drawer
+            pattern = rf'<a[^>]*href="[^"]*{re.escape(search_href)}"[^>]*>.*?</a>'
+            match = re.search(pattern, html_content, re.DOTALL | re.IGNORECASE)
+
             if match:
-                # Extract context around the match (3000 chars before and after)
-                match_start = match.start()
-                context_start = max(0, match_start - 3750)
+                # Extract context around this match
+                context_start = max(0, match.start() - 3750)
                 context_end = min(len(html_content), match.end() + 3000)
                 context_html = html_content[context_start:context_end]
                 product_contexts.append((product_link, context_html))
-        
+            else:
+                print(f"⚠️  Could not find link in HTML: {search_href}")
+
         if not product_contexts:
+            print(f"❌ No product contexts extracted - cannot analyze pattern")
             return {}
         
         # Use updated prompt that handles multiple product contexts
@@ -672,7 +768,7 @@ If no pagination:
                 print(f"🎯 Chosen Selector: {data.get('container_selector')}")
                 if data.get('alternative_selectors'):
                     print(f"🔍 Alternatives Considered: {', '.join(data.get('alternative_selectors', []))}")
-                
+
                 # Pattern extracted successfully - now extract actual sample data using first product
                 first_product_link = product_links[0]
                 sample_product = self._extract_sample_product(html_content, data, first_product_link, base_url)
@@ -1197,65 +1293,159 @@ Return JSON:
             return urljoin(source_url, img_url)    
 
     def _image_worker(self, worker_id: int):
-        """Image downloading worker thread"""
-        print(f"🖼️  Image worker {worker_id} started")
-        
-        while self.image_workers_active:
+        """
+        Image downloading worker thread
+        Processes image download tasks from the queue with retry logic
+        Exits when queue is empty and no more tasks will be added
+        """
+        import os
+        import requests
+        from urllib.parse import urlparse
+
+        while True:
             try:
-                # Get product from queue
-                product = self.image_download_queue.get(timeout=1)
-                
-                if product is None:  # Poison pill
+                # Get task from queue (non-blocking with timeout)
+                task = self.image_download_queue.get(timeout=1)
+
+                if task is None:  # Poison pill for graceful shutdown
                     break
-                
-                # Download image
-                if product.image:
-                    success, local_path, error = self.image_downloader.download_image(
-                        product.image, 
-                        product.name or f"product_{worker_id}_{int(time.time())}", 
-                        self.brand_name
+
+                # Extract task data
+                product_name = task["product_name"]
+                image_url = task["image_url"]
+                category_path = task["category_path"]
+                brand_name = task["brand_name"]
+                test_mode = task["test_mode"]
+                image_index = task["image_index"]
+                total_images = task["total_images"]
+                category_url = task["category_url"]
+
+                # Build directory path
+                if test_mode:
+                    base_dir = os.path.join(
+                        os.path.dirname(os.path.abspath(__file__)),
+                        'tests', 'results', brand_name
                     )
-                    
+                else:
+                    base_dir = brand_name
+
+                path_components = [comp.replace(' ', '_').replace('/', '_') for comp in category_path]
+                images_dir = os.path.join(base_dir, *path_components)
+                os.makedirs(images_dir, exist_ok=True)
+
+                # Generate filename
+                extension = os.path.splitext(urlparse(image_url).path)[1] or '.jpg'
+                if total_images > 1:
+                    filename = f"{product_name}_{image_index}{extension}"
+                else:
+                    filename = f"{product_name}{extension}"
+
+                filepath = os.path.join(images_dir, filename)
+
+                # Skip if already downloaded
+                if os.path.exists(filepath):
+                    with self.image_stats_lock:
+                        self.image_stats["total_downloaded"] += 1
+                        self.image_stats["by_category"][category_url]["downloaded"] += 1
+                    continue
+
+                # Download with retry (1 retry on failure)
+                success = False
+                for attempt in range(2):  # 2 attempts total (original + 1 retry)
+                    try:
+                        response = requests.get(image_url, timeout=10)
+                        if response.status_code == 200:
+                            with open(filepath, 'wb') as f:
+                                f.write(response.content)
+                            success = True
+                            break
+                    except Exception as e:
+                        if attempt == 0:  # First attempt failed, will retry
+                            continue
+                        else:  # Second attempt failed, log error
+                            print(f"   ⚠️  Worker {worker_id}: Failed to download {filename}: {str(e)[:50]}")
+
+                # Update stats
+                with self.image_stats_lock:
                     if success:
-                        product.metadata['local_image_path'] = local_path
-                        print(f"   🖼️  Worker {worker_id}: Downloaded {product.name[:30]}...")
+                        self.image_stats["total_downloaded"] += 1
+                        self.image_stats["by_category"][category_url]["downloaded"] += 1
                     else:
-                        print(f"   ❌ Worker {worker_id}: Failed to download {product.name[:30]}...: {error}")
-                
-            except:
-                # Queue timeout or other exception - just continue waiting
-                # Don't break the loop unless workers should stop
+                        self.image_stats["total_failed"] += 1
+                        self.image_stats["by_category"][category_url]["failed"] += 1
+                        self.image_stats["by_category"][category_url]["failed_urls"].append(image_url)
+
+                # Mark task as done
+                self.image_download_queue.task_done()
+
+            except Exception:
+                # Queue timeout - check if we should exit
+                if not self.image_workers_active and self.image_download_queue.empty():
+                    # Pipeline done and queue empty - exit worker
+                    break
+                # Otherwise continue waiting for more tasks
                 continue
-        
-        print(f"🛑 Image worker {worker_id} stopped")
     
+    def start_image_workers(self, num_workers: int = 8):
+        """
+        Start background threads for async image downloading
+
+        Workers run as NON-daemon threads to prevent forced termination mid-download.
+        Process stays alive until all queued images are downloaded.
+
+        Args:
+            num_workers: Number of concurrent download workers (default: 8)
+        """
+        if self.image_workers_active:
+            return  # Already running
+
+        self.image_workers_active = True
+        self.image_worker_pool = []
+
+        for worker_id in range(num_workers):
+            thread = threading.Thread(
+                target=self._image_worker,
+                args=(worker_id,),
+                daemon=False,  # Non-daemon - keeps process alive until downloads finish
+                name=f"ImageWorker-{worker_id}"
+            )
+            thread.start()
+            self.image_worker_pool.append(thread)
+
+        print(f"🚀 Started {num_workers} image download workers (process stays alive until queue empty)")
+
+    def stop_image_workers(self):
+        """
+        Signal image workers to stop gracefully
+        Workers will finish processing remaining queue items before exiting
+        """
+        if not self.image_workers_active:
+            return
+
+        self.image_workers_active = False
+        print(f"🛑 Signaled image workers to stop (will finish remaining downloads)")
+
     def queue_product_for_image_download(self, product):
-        """Add product to image download queue"""
+        """Add product to image download queue (legacy method, kept for compatibility)"""
         if product.image:
             self.image_download_queue.put(product)
 
     def store_lineage_memory(self, category_url: str, rejected_lineages: set, approved_lineages: set = None):
-        """Store lineage memory for a category to optimize subsequent pages"""
-        if category_url not in self.lineage_memory:
-            self.lineage_memory[category_url] = {
-                "rejected_lineages": set(),
-                "approved_lineages": set()
-            }
-        
-        self.lineage_memory[category_url]["rejected_lineages"].update(rejected_lineages)
+        """Store lineage memory globally (across all categories and pages)"""
+        self.rejected_lineages.update(rejected_lineages)
         if approved_lineages:
-            self.lineage_memory[category_url]["approved_lineages"].update(approved_lineages)
-    
+            self.approved_lineages.update(approved_lineages)
+
     def get_lineage_memory(self, category_url: str) -> dict:
-        """Get lineage memory for a category"""
-        return self.lineage_memory.get(category_url, {
-            "rejected_lineages": set(),
-            "approved_lineages": set()
-        })
-    
+        """Get global lineage memory"""
+        return {
+            "rejected_lineages": self.rejected_lineages,
+            "approved_lineages": self.approved_lineages
+        }
+
     def has_lineage_memory(self, category_url: str) -> bool:
-        """Check if we have lineage memory for a category"""
-        return category_url in self.lineage_memory and len(self.lineage_memory[category_url]["rejected_lineages"]) > 0
+        """Check if we have any lineage memory"""
+        return len(self.approved_lineages) > 0 or len(self.rejected_lineages) > 0
 
     def run_full_extraction_pipeline(self) -> dict:
         """
@@ -1297,7 +1487,10 @@ Return JSON:
         
         print(f"\n🚀 STARTING FULL EXTRACTION PIPELINE")
         start_time = time.time()
-        
+
+        # Start background image download workers (daemon threads)
+        self.start_image_workers(num_workers=8)
+
         try:
             # Phase 1: Extract Navigation Tree
             print(f"📋 Phase 1: Extracting navigation tree from homepage...")
@@ -1328,14 +1521,26 @@ Return JSON:
             )
 
             for category_url, category_result in processed_categories.items():
+                # Add failed_images from stats to category result
+                with self.image_stats_lock:
+                    category_stats = self.image_stats["by_category"].get(category_url, {})
+                    if category_stats.get("failed_urls"):
+                        category_result["failed_images"] = category_stats["failed_urls"]
+
                 categories_results[category_url] = category_result
                 total_products += len(category_result.get("products", []))
-                total_images += category_result.get("extraction_stats", {}).get("images_downloaded", 0)
-            
+                total_images += category_result.get("extraction_stats", {}).get("images_queued", 0)
+
             # Phase 4: Save Results
             print(f"\n💾 Phase 4: Saving results to JSON...")
             total_time = time.time() - start_time
-            
+
+            # Get current download stats (in progress)
+            with self.image_stats_lock:
+                images_queued = self.image_stats["total_queued"]
+                images_downloaded = self.image_stats["total_downloaded"]
+                images_failed = self.image_stats["total_failed"]
+
             pipeline_results = {
                 "success": True,
                 "navigation_tree": navigation_tree,
@@ -1344,20 +1549,36 @@ Return JSON:
                     "total_categories": len(categories_results),
                     "categories_processed": len([c for c in categories_results.values() if c.get("products")]),
                     "total_products": total_products,
-                    "total_images": total_images,
-                    "extraction_time": total_time
+                    "total_images_queued": images_queued,
+                    "images_downloaded_at_completion": images_downloaded,
+                    "images_failed_at_completion": images_failed,
+                    "extraction_time": total_time,
+                    "note": "Image downloads continue in background (process stays alive until all downloads complete)"
                 }
             }
-            
+
             # Save to JSON file
             self._save_pipeline_results_to_json(pipeline_results)
-            
+
             print(f"✅ PIPELINE COMPLETE - {total_products} products from {len(categories_results)} categories in {total_time:.1f}s")
+            print(f"📊 Images: {images_queued} queued, {images_downloaded} downloaded so far, {images_failed} failed")
+
+            remaining = images_queued - images_downloaded - images_failed
+            if remaining > 0:
+                print(f"⏳ {remaining} images still downloading in background (process will stay alive until complete)")
+            else:
+                print(f"✅ All images processed!")
+
+            # Signal workers to stop after queue is empty
+            self.stop_image_workers()
+
             return pipeline_results
             
         except Exception as e:
             total_time = time.time() - start_time
             print(f"❌ Pipeline failed after {total_time:.1f}s: {e}")
+            # Stop workers even on failure
+            self.stop_image_workers()
             return {"success": False, "error": str(e), "extraction_time": total_time}
     
     def _extract_navigation_tree(self) -> dict:
@@ -1653,10 +1874,17 @@ Return JSON:
 
                 try:
                     category_result = future.result()
-                    parallel_results[category_url] = category_result
 
+                    # Dump buffered logs for this category
+                    buffered_logs = category_result.pop("_logs", [])
+                    for log in buffered_logs:
+                        print(log)
+
+                    # Print completion summary
                     products_found = len(category_result.get("products", []))
                     print(f"      ✅ Parallel {info['index']}: {products_found} products")
+
+                    parallel_results[category_url] = category_result
 
                 except Exception as e:
                     print(f"      ❌ Parallel {info['index']}: Failed - {e}")
@@ -1678,25 +1906,97 @@ Return JSON:
             total_categories: Total number of categories
             navigation_tree: Navigation tree for determining hierarchy
             test_mode: If True, save images to tests/results directory
+
+        Returns:
+            Dict with category results and buffered logs
         """
         from page_extractor import extract_category_name
 
-        # Get working pattern (should be fast since patterns are discovered)
-        pattern = self._get_working_pattern_for_category(category_url)
-        if not pattern:
-            return {
-                "name": extract_category_name(category_url),
-                "products": [],
-                "error": "No working pattern"
-            }
+        # Buffer all logs during parallel execution
+        log_buffer = LogBuffer()
+        with log_buffer:
+            # Try extraction with each pattern until one works
+            result = self._extract_category_products_with_fallback(
+                category_url, category_index, total_categories,
+                navigation_tree=navigation_tree,
+                test_mode=test_mode
+            )
 
-        # Extract products from this category
-        return self._extract_category_products(
-            category_url, pattern, category_index, total_categories,
-            navigation_tree=navigation_tree,
-            test_mode=test_mode
-        )
+        # Attach buffered logs to result
+        result["_logs"] = log_buffer.logs
+        return result
     
+    def _extract_category_products_with_fallback(self, category_url: str, category_num: int, total_categories: int, navigation_tree: dict = None, test_mode: bool = False) -> dict:
+        """
+        Try each pattern by actually extracting. Keep results from first that works.
+
+        Args:
+            category_url: URL of the category to extract
+            category_num: Current category number
+            total_categories: Total number of categories
+            navigation_tree: Navigation tree to determine hierarchy path
+            test_mode: If True, save images to tests/results directory
+
+        Returns:
+            Extraction results from first working pattern, or error if none work
+        """
+        from page_extractor import extract_category_name
+
+        category_name = extract_category_name(category_url)
+
+        # Try all existing patterns first
+        for i, pattern in enumerate(self.discovered_patterns):
+            print(f"      🔍 Trying pattern {i+1}/{len(self.discovered_patterns)}...")
+
+            result = self._extract_category_products(
+                category_url, pattern, category_num, total_categories,
+                navigation_tree=navigation_tree,
+                test_mode=test_mode
+            )
+
+            # If we got products, this pattern works - use it!
+            if result.get("products"):
+                print(f"      ✅ Pattern {i+1} worked - got {len(result['products'])} products")
+                return result
+            else:
+                print(f"      ❌ Pattern {i+1} failed - no products")
+
+        # All patterns failed - try discovering new pattern
+        print(f"      🆕 All patterns failed - discovering new pattern...")
+
+        try:
+            # Use existing pattern discovery logic
+            self.starting_pages_queue = [category_url]
+            self.product_pages = [category_url]
+
+            pattern_result = self.analyze_product_pattern()
+            if pattern_result and pattern_result.get("extraction_pattern"):
+                new_pattern = pattern_result["extraction_pattern"]
+
+                # Store in global patterns list
+                self.discovered_patterns.append(new_pattern)
+                print(f"      ✅ New pattern discovered!")
+                print(f"      📊 Total discovered patterns: {len(self.discovered_patterns)}")
+
+                # Extract with new pattern
+                result = self._extract_category_products(
+                    category_url, new_pattern, category_num, total_categories,
+                    navigation_tree=navigation_tree,
+                    test_mode=test_mode
+                )
+                return result
+
+        except Exception as e:
+            print(f"      ❌ Pattern discovery failed: {e}")
+
+        # Everything failed
+        return {
+            "name": category_name,
+            "url": category_url,
+            "products": [],
+            "error": "No working pattern found"
+        }
+
     def _get_working_pattern_for_category(self, category_url: str) -> dict:
         """
         Get a working pattern for the category - try existing patterns first,
@@ -1730,8 +2030,11 @@ Return JSON:
                 return new_pattern
             
         except Exception as e:
+            import traceback
             print(f"         ❌ Pattern discovery failed: {e}")
-        
+            print(f"         📋 Traceback:")
+            traceback.print_exc()
+
         return None
     
     def _test_pattern_on_page(self, page_url: str, pattern: dict) -> bool:
@@ -1778,7 +2081,7 @@ Return JSON:
         start_time = time.time()
 
         try:
-            # Extract products using our advanced multi-page system
+            # Extract products from page 1
             extraction_result = extract_products_from_page(
                 category_url, [pattern], category_name,
                 allow_pattern_discovery=False,  # Don't discover new patterns on secondary pages
@@ -1786,27 +2089,66 @@ Return JSON:
             )
 
             products = extraction_result.get("products", [])
+            pagination_detected = extraction_result.get("pagination_detected", {})
+            pages_extracted = 1
+
+            print(f"         📦 Found {len(products)} products on page 1")
+
+            # Multi-page extraction if pagination was detected
+            if pagination_detected.get("pagination_found", False):
+                from page_extractor import extract_multi_page_products
+                from urllib.parse import urlparse
+
+                print(f"         🔗 Multi-page pagination detected...")
+
+                brand_name = urlparse(self.url).netloc.replace('www.', '').split('.')[0]
+                multi_page_result = extract_multi_page_products(
+                    category_url, pattern, brand_name, category_name,
+                    brand_instance=self,
+                    pagination_result=pagination_detected
+                )
+
+                additional_products = multi_page_result.get("products", [])
+                pages_extracted += multi_page_result.get("pages_extracted", 0)
+
+                if additional_products:
+                    print(f"         ✅ Multi-page: {len(additional_products)} products from {pages_extracted - 1} additional pages")
+                    products.extend(additional_products)
+                else:
+                    print(f"         📄 Multi-page: No additional products found")
+
+            # Deduplicate products by URL across all pages
+            seen_urls = set()
+            unique_products = []
+            for product in products:
+                product_url_field = product.get("product_url", "")
+                if product_url_field and product_url_field not in seen_urls:
+                    seen_urls.add(product_url_field)
+                    unique_products.append(product)
+
+            duplicates_removed = len(products) - len(unique_products)
+            if duplicates_removed > 0:
+                print(f"         🔄 Removed {duplicates_removed} duplicate products")
+
             extraction_time = time.time() - start_time
+            print(f"         📦 Total: {len(unique_products)} unique products from {pages_extracted} pages")
 
-            print(f"         📦 Found {len(products)} products")
-
-            # Download images for all products
-            images_downloaded = 0
-            if products:
-                print(f"         🖼️  Downloading images...")
-                images_downloaded = self._download_category_images(products, category_path, test_mode=test_mode)
-                print(f"         ✅ Downloaded {images_downloaded}/{len(products)} images")
+            # Queue images for async download (non-blocking) - after deduplication
+            images_queued = 0
+            if unique_products:
+                images_queued = self._queue_category_images_for_download(unique_products, category_path, category_url)
 
             return {
                 "name": category_name,
                 "url": category_url,
-                "products": products,
+                "products": unique_products,
                 "pattern_used": pattern,
                 "extraction_stats": {
-                    "pages_processed": extraction_result.get("pages_extracted", 1),
-                    "products_found": len(products),
-                    "images_downloaded": images_downloaded,
-                    "extraction_time": extraction_time
+                    "pages_processed": pages_extracted,
+                    "products_found": len(unique_products),
+                    "images_queued": images_queued,
+                    "extraction_time": extraction_time,
+                    "duplicates_removed": duplicates_removed
                 }
             }
 
@@ -1903,7 +2245,83 @@ Return JSON:
                 continue  # Skip failed downloads
 
         return downloaded_count
-    
+
+    def _queue_category_images_for_download(self, products: List[dict], category_path: List[str], category_url: str) -> int:
+        """
+        Queue all images from products for asynchronous download by background workers
+
+        Args:
+            products: List of product dicts with image information
+            category_path: Hierarchical path as list (e.g., ['Clothing', 'Tops', 'T-Shirts'])
+            category_url: Category URL for stats attribution
+
+        Returns:
+            Number of images queued
+        """
+        import os
+        from urllib.parse import urlparse
+
+        if not products:
+            return 0
+
+        # Get brand name for task
+        brand_name = urlparse(self.url).netloc.replace('www.', '').split('.')[0]
+
+        images_queued = 0
+
+        for product in products:
+            try:
+                images = product.get("images", [])
+                if not images:
+                    continue
+
+                product_name = product.get("product_name", "unknown").replace(" ", "_").replace("/", "_")[:50]
+
+                # Queue each image as a separate task
+                for img_index, image in enumerate(images, 1):
+                    image_url = image.get("src")
+                    if not image_url:
+                        continue
+
+                    # Create download task
+                    task = {
+                        "product_name": product_name,
+                        "image_url": image_url,
+                        "category_path": category_path,
+                        "brand_name": brand_name,
+                        "test_mode": self.test_mode,
+                        "image_index": img_index,
+                        "total_images": len(images),
+                        "category_url": category_url
+                    }
+
+                    # Add to queue
+                    self.image_download_queue.put(task)
+                    images_queued += 1
+
+            except Exception:
+                continue  # Skip problematic products
+
+        # Update stats
+        if images_queued > 0:
+            with self.image_stats_lock:
+                self.image_stats["total_queued"] += images_queued
+
+                # Initialize category stats if needed
+                if category_url not in self.image_stats["by_category"]:
+                    self.image_stats["by_category"][category_url] = {
+                        "queued": 0,
+                        "downloaded": 0,
+                        "failed": 0,
+                        "failed_urls": []
+                    }
+
+                self.image_stats["by_category"][category_url]["queued"] += images_queued
+
+            print(f"         📤 {images_queued} images added to download queue")
+
+        return images_queued
+
     def _save_pipeline_results_to_json(self, results: dict):
         """Save pipeline results to JSON file"""
         import json

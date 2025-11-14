@@ -38,7 +38,7 @@ Your goal is to find the MOST PRECISE AND DISCRIMINATING selector that identifie
 CRITICAL REQUIREMENT: ALL PRESENT INTERSECTION AND NOT UNION
 - You are ONLY analyzing the provided product examples - ignore any other potential content on the page
 - Use the SPECIFIC classes/attributes available on ALL provided products
-- Combining multiple identifiers is POSSIBLE, that is ALWAYS better than using single generic ones
+- If combining multiple identifiers is POSSIBLE, that is ALWAYS better than using single generic ones
 - High specificity of this sort protects against false matches and is the PRIMARY goal
 
 **ALL PRESENT INTERSECTION AND NOT UNION**: Use only classes that exist on ALL products, not classes from just one product
