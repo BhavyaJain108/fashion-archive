@@ -341,7 +341,8 @@ def stream_video():
         return jsonify({'error': str(e), 'success': False}), 500
 
 @app.route('/api/image')
-def serve_image():
+def serve_image_legacy():
+    """Legacy image endpoint - use /api/images/{brand}/{category}/{filename} instead"""
     try:
         image_path = request.args.get('path', '')
         if not image_path or not os.path.exists(image_path):
@@ -642,24 +643,20 @@ def cleanup_favourites():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-# Register My Brands API endpoints
-try:
-    from my_brands.brands_api import register_brands_endpoints
-    register_brands_endpoints(app)
-    print("✅ My Brands API endpoints registered")
-except ImportError as e:
-    print(f"⚠️  My Brands endpoints not available: {e}")
+# Register My Brands API endpoints (DISABLED - using unified API instead)
+# try:
+#     from my_brands.brands_api import register_brands_endpoints
+#     register_brands_endpoints(app)
+#     print("✅ My Brands API endpoints registered")
+# except ImportError as e:
+#     print(f"⚠️  My Brands endpoints not available: {e}")
 
-# Register Premium Scraper API endpoints
+# Register Premium Scraper API endpoints (legacy - deprecated)
 try:
     import sys
     import os
-    # Add scraper_premium to path but at the END to avoid conflicts
-    scraper_path = os.path.join(os.path.dirname(__file__), 'scraper_premium')
-    if scraper_path not in sys.path:
-        sys.path.append(scraper_path)
-    
-    from scraper_premium.api import PremiumScraperAPI
+
+    from backend.scraper.api import PremiumScraperAPI
     
     # Create API instance
     premium_api = PremiumScraperAPI()
@@ -886,10 +883,23 @@ def auth_validate():
             'error': f'Validation failed: {str(e)}'
         }), 500
 
+# =============================================================================
+# UNIFIED PREMIUM SCRAPER API
+# =============================================================================
+
+try:
+    print("🔧 Registering Unified Premium Scraper API...")
+    from backend.api import register_routes
+    register_routes(app)
+except ImportError as e:
+    print(f"⚠️  Unified API not available: {e}")
+except Exception as e:
+    print(f"❌ Error registering Unified API: {e}")
+
 if __name__ == '__main__':
     print("🎭 Clean API Backend - NO tkinter dependencies")
     print("🔗 Pure scraping functions only")
     print("📚 Preserving fashion history")
     print("=" * 50)
-    
+
     app.run(host=config.HOST, port=config.PORT, debug=config.DEBUG, threaded=True)

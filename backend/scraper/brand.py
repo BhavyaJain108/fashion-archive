@@ -2422,26 +2422,66 @@ Return JSON:
 
         # Determine results directory based on test_mode
         if self.test_mode:
-            # Save to tests/results directory
+            # TEST MODE: Save to tests/results directory (original behavior)
             results_dir = os.path.join(
                 os.path.dirname(os.path.abspath(__file__)),
                 'tests', 'results'
             )
+            # Create results directory if needed
+            os.makedirs(results_dir, exist_ok=True)
+            filepath = os.path.join(results_dir, filename)
+
+            # Convert sets to lists for JSON serialization
+            json_results = self._make_json_serializable(results)
+
+            with open(filepath, 'w') as f:
+                json.dump(json_results, f, indent=2)
+
+            print(f"      💾 Results saved to: {filepath}")
+
         else:
-            # Save to results directory in current working directory
-            results_dir = "results"
+            # PRODUCTION MODE: Use new storage system
+            try:
+                # Import here to avoid circular dependencies
+                import sys
+                parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                if parent_dir not in sys.path:
+                    sys.path.insert(0, parent_dir)
 
-        # Create results directory if needed
-        os.makedirs(results_dir, exist_ok=True)
-        filepath = os.path.join(results_dir, filename)
+                from backend.storage import get_storage
+                from backend.services import ScrapeResultsWriter
 
-        # Convert sets to lists for JSON serialization
-        json_results = self._make_json_serializable(results)
+                # Get storage instance
+                storage = get_storage(mode="files")  # Can be configured to use "database" or "both"
 
-        with open(filepath, 'w') as f:
-            json.dump(json_results, f, indent=2)
+                # Write results using new system
+                writer = ScrapeResultsWriter(storage)
+                write_result = writer.write_scrape_results(
+                    brand_url=self.url,
+                    scrape_output=results,
+                    brand_name=brand_name.title()
+                )
 
-        print(f"      💾 Results saved to: {filepath}")
+                print(f"      💾 Results saved to new storage system:")
+                print(f"         Brand ID: {write_result['brand_id']}")
+                print(f"         Run ID: {write_result['run_id']}")
+                print(f"         Products: {write_result['total_products']}")
+                print(f"         Categories: {write_result['total_categories']}")
+
+            except Exception as e:
+                print(f"      ⚠️  Failed to save to new storage system: {e}")
+                print(f"      Falling back to file-based storage...")
+
+                # Fallback: Save to results directory
+                results_dir = "results"
+                os.makedirs(results_dir, exist_ok=True)
+                filepath = os.path.join(results_dir, filename)
+
+                json_results = self._make_json_serializable(results)
+                with open(filepath, 'w') as f:
+                    json.dump(json_results, f, indent=2)
+
+                print(f"      💾 Results saved to: {filepath}")
     
     def _make_json_serializable(self, obj):
         """Convert sets and other non-serializable objects to JSON-compatible format"""

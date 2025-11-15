@@ -17,10 +17,10 @@ from prompts import lineage_selection
 from prompts import pagination_detection
 # Import modal bypass for load more functionality
 try:
-    from scraper_premium.modal_bypass_engine import bypass_blocking_modals_only
+    from backend.scraper.modal_bypass_engine import bypass_blocking_modals_only
 except ImportError:
     try:
-        from modal_bypass_engine import bypass_blocking_modals_only
+        from .modal_bypass_engine import bypass_blocking_modals_only
     except ImportError:
         # Define a dummy function if modal bypass is not available
         def bypass_blocking_modals_only(page, url):

@@ -73,4 +73,8 @@ RESEARCH_FEATURE_*.md
 
 # Database files
 *.db
-*.sqlite3
+*.sqlite3# Data directory for brand scraping results
+data/brands/*
+!data/brands/.gitkeep
+data/indexes/*
+!data/indexes/.gitkeep
