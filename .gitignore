@@ -62,6 +62,7 @@ tmp/
 brand_collections/
 favourites/
 high_fashion_cache/
+backend/high_fashion/cache/
 
 # Planning and development documentation (except README.md)
 *_TODO.md
@@ -74,3 +75,17 @@ RESEARCH_FEATURE_*.md
 # Database files
 *.db
 *.sqlite3
+
+# Data directory - user data and scraping results
+data/brands/*
+!data/brands/.gitkeep
+data/indexes/*
+!data/indexes/.gitkeep
+data/favourites/
+data/user_data/
+
+# Logs
+logs/
+
+# Node modules cache
+web_ui/node_modules/.cache/
