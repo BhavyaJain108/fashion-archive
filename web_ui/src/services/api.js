@@ -7,18 +7,28 @@ class FashionArchiveAPI {
   // Helper to call Python backend
   static async callPython(endpoint, data = {}) {
     try {
+      // Get session token from localStorage
+      const token = localStorage.getItem('fashionArchiveToken');
+
+      // Build headers with optional Authorization
+      const headers = {
+        'Content-Type': 'application/json',
+      };
+
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
       const response = await fetch(`${this.BASE_URL}${endpoint}`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: headers,
         body: JSON.stringify(data),
       });
-      
+
       if (!response.ok) {
         throw new Error(`API call failed: ${response.statusText}`);
       }
-      
+
       return await response.json();
     } catch (error) {
       console.error('Python API Error:', error);
@@ -40,10 +50,16 @@ class FashionArchiveAPI {
 
   // Download images for a collection (matches tkinter download_and_display_images)
   static async downloadImages(collection) {
-    const response = await this.callPython('/api/download-images', { collection });
+    const response = await this.callPython('/api/download-images', {
+      collectionUrl: collection.url,
+      designerName: collection.designer
+    });
     return {
-      imagePaths: response.imagePaths || [],
-      designerName: response.designerName || collection.designer,
+      imagePaths: response.images?.map(img => img.path) || [],
+      images: response.images || [],
+      designerName: collection.designer,
+      cacheDir: response.cache_dir,
+      count: response.count,
       error: response.error
     };
   }
@@ -75,10 +91,10 @@ class FashionArchiveAPI {
     return response.success;
   }
 
-  // Stream collections as they load (matches tkinter stream_collections_update)
+  // Get collections for a season (uses non-streaming endpoint)
   static async streamCollections(seasonUrl, onUpdate) {
     try {
-      const response = await fetch(`${this.BASE_URL}/api/collections-stream`, {
+      const response = await fetch(`${this.BASE_URL}/api/collections`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -86,30 +102,23 @@ class FashionArchiveAPI {
         body: JSON.stringify({ seasonUrl }),
       });
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n');
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              onUpdate(data);
-              if (data.complete) return data.collections || [];
-            } catch (e) {
-              console.error('Error parsing stream data:', e);
-            }
-          }
-        }
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
+
+      const data = await response.json();
+
+      // Call onUpdate with the final data
+      if (onUpdate && data.collections) {
+        onUpdate({
+          collections: data.collections,
+          complete: true
+        });
+      }
+
+      return data.collections || [];
     } catch (error) {
-      console.error('Stream error:', error);
+      console.error('Error loading collections:', error);
       throw error;
     }
   }
@@ -135,14 +144,21 @@ class FashionArchiveAPI {
   static async getFavourites() {
     console.log('API: Fetching favourites from', `${this.BASE_URL}/api/favourites`);
     try {
+      const token = localStorage.getItem('fashionArchiveToken');
+      const headers = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
       const response = await fetch(`${this.BASE_URL}/api/favourites`, {
-        method: 'GET'
+        method: 'GET',
+        headers: headers
       });
-      
+
       if (!response.ok) {
         throw new Error(`API call failed: ${response.statusText}`);
       }
-      
+
       const data = await response.json();
       console.log('API: Raw favourites response:', data);
       const favourites = data.favourites || [];
@@ -167,22 +183,28 @@ class FashionArchiveAPI {
 
   static async removeFavourite(seasonUrl, collectionUrl, lookNumber) {
     try {
+      const token = localStorage.getItem('fashionArchiveToken');
+      const headers = {
+        'Content-Type': 'application/json',
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
       const response = await fetch(`${this.BASE_URL}/api/favourites`, {
         method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: headers,
         body: JSON.stringify({
           season_url: seasonUrl,
           collection_url: collectionUrl,
           look_number: lookNumber
         }),
       });
-      
+
       if (!response.ok) {
         throw new Error(`API call failed: ${response.statusText}`);
       }
-      
+
       return await response.json();
     } catch (error) {
       console.error('Remove favourite API Error:', error);
@@ -191,24 +213,39 @@ class FashionArchiveAPI {
   }
 
   static async checkFavourite(seasonUrl, collectionUrl, lookNumber) {
-    const response = await this.callPython('/api/favourites/check', {
-      season_url: seasonUrl,
-      collection_url: collectionUrl,
-      look_number: lookNumber
-    });
-    return response.is_favourite || false;
+    try {
+      const response = await this.callPython('/api/favourites/check', {
+        season_url: seasonUrl,
+        collection_url: collectionUrl,
+        look_number: lookNumber
+      });
+      return response.is_favourite || false;
+    } catch (error) {
+      // If unauthorized (not logged in), just return false
+      if (error.message && error.message.includes('UNAUTHORIZED')) {
+        return false;
+      }
+      throw error;
+    }
   }
 
   static async getFavouriteStats() {
     try {
+      const token = localStorage.getItem('fashionArchiveToken');
+      const headers = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
       const response = await fetch(`${this.BASE_URL}/api/favourites/stats`, {
-        method: 'GET'
+        method: 'GET',
+        headers: headers
       });
-      
+
       if (!response.ok) {
         throw new Error(`API call failed: ${response.statusText}`);
       }
-      
+
       const data = await response.json();
       return data.stats || {};
     } catch (error) {
@@ -219,8 +256,15 @@ class FashionArchiveAPI {
 
   static async cleanupFavourites() {
     try {
+      const token = localStorage.getItem('fashionArchiveToken');
+      const headers = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
       const response = await fetch(`${this.BASE_URL}/api/favourites/cleanup`, {
-        method: 'POST'
+        method: 'POST',
+        headers: headers
       });
       const data = await response.json();
       return data;

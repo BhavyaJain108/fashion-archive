@@ -62,6 +62,7 @@ tmp/
 brand_collections/
 favourites/
 high_fashion_cache/
+backend/high_fashion/cache/
 
 # Planning and development documentation (except README.md)
 *_TODO.md
