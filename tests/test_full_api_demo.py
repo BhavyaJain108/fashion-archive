@@ -151,13 +151,15 @@ def test_api():
     print(f"\nFirst 3 products:")
     print_json(data, max_items=3)
 
-    if data['products']:
+    has_products = bool(data['products'])
+    first_product_url = None
+    if has_products:
         first_product_url = data['products'][0]['product_url']
 
     # -------------------------------------------------------------------------
 
     print_section("7. GET SINGLE PRODUCT")
-    if data['products']:
+    if has_products:
         from urllib.parse import quote
         encoded_url = quote(first_product_url, safe='')
         print(f"GET /api/products/{encoded_url}\n")
@@ -193,17 +195,21 @@ def test_api():
     response = requests.get(f"{BASE_URL}/brands/{brand_id}/classifications")
     data = response.json()
 
-    print(f"Total classifications: {data['total_classifications']}")
-    print("\nClassifications by type:")
-    for class_type, items in data['classifications'].items():
-        print(f"\n  {class_type.upper()}:")
-        for item in items[:5]:
-            print(f"    - {item['name']} ({item['product_count']} products)")
+    if 'error' in data:
+        print(f"⚠️  {data['error']}")
+        category_url = None
+    else:
+        print(f"Total classifications: {data['total_classifications']}")
+        print("\nClassifications by type:")
+        for class_type, items in data['classifications'].items():
+            print(f"\n  {class_type.upper()}:")
+            for item in items[:5]:
+                print(f"    - {item['name']} ({item['product_count']} products)")
 
-    # Get first category URL for filtering
-    category_url = None
-    if 'category' in data['classifications'] and data['classifications']['category']:
-        category_url = data['classifications']['category'][0]['url']
+        # Get first category URL for filtering
+        category_url = None
+        if 'category' in data['classifications'] and data['classifications']['category']:
+            category_url = data['classifications']['category'][0]['url']
 
     # -------------------------------------------------------------------------
 
@@ -211,7 +217,11 @@ def test_api():
     print(f"GET /api/brands/{brand_id}/categories/hierarchy\n")
 
     response = requests.get(f"{BASE_URL}/brands/{brand_id}/categories/hierarchy")
-    print_json(response.json())
+    hierarchy_data = response.json()
+    if 'error' in hierarchy_data:
+        print(f"⚠️  {hierarchy_data['error']}")
+    else:
+        print_json(hierarchy_data)
 
     # -------------------------------------------------------------------------
 
@@ -241,18 +251,22 @@ def test_api():
     response = requests.get(f"{BASE_URL}/brands/{brand_id}/attributes")
     data = response.json()
 
-    print(f"Total attributes: {data['total_attributes']}")
-    print("\nAttributes discovered:")
-    for attr_key, attr_data in data['attributes'].items():
-        print(f"\n  {attr_key}:")
-        print(f"    Type: {attr_data['type']}")
-        print(f"    Products with this attribute: {attr_data['products_with_attribute']}")
-        print(f"    Unique values: {attr_data['unique_values_count']}")
-        if attr_data.get('unique_values'):
-            print(f"    Sample values: {attr_data['unique_values'][:5]}")
+    if 'error' in data:
+        print(f"⚠️  {data['error']}")
+        first_attr_key = None
+    else:
+        print(f"Total attributes: {data['total_attributes']}")
+        print("\nAttributes discovered:")
+        for attr_key, attr_data in data['attributes'].items():
+            print(f"\n  {attr_key}:")
+            print(f"    Type: {attr_data['type']}")
+            print(f"    Products with this attribute: {attr_data['products_with_attribute']}")
+            print(f"    Unique values: {attr_data['unique_values_count']}")
+            if attr_data.get('unique_values'):
+                print(f"    Sample values: {attr_data['unique_values'][:5]}")
 
-    # Get first attribute key for filtering
-    first_attr_key = list(data['attributes'].keys())[0] if data['attributes'] else None
+        # Get first attribute key for filtering
+        first_attr_key = list(data['attributes'].keys())[0] if data['attributes'] else None
 
     # -------------------------------------------------------------------------
 
@@ -299,9 +313,12 @@ def test_api():
     })
     data = response.json()
 
-    print(f"Product distribution by category:")
-    for group in data['groups']:
-        print(f"  - {group['key']}: {group['count']} products")
+    if 'error' in data:
+        print(f"⚠️  {data['error']}")
+    else:
+        print(f"Product distribution by category:")
+        for group in data['groups']:
+            print(f"  - {group['key']}: {group['count']} products")
 
     # =========================================================================
     # 16. SCRAPING INTELLIGENCE API
@@ -313,16 +330,19 @@ def test_api():
     response = requests.get(f"{BASE_URL}/brands/{brand_id}/scraping-intelligence")
     data = response.json()
 
-    print("Scraping patterns learned:")
-    if 'patterns' in data and 'product_listing' in data['patterns']:
-        pattern = data['patterns']['product_listing'].get('primary', {})
-        print(f"\n  Primary Pattern:")
-        print(f"    Container: {pattern.get('container_selector')}")
-        print(f"    Success rate: {pattern.get('success_metrics', {}).get('success_rate', 0)}")
-        print(f"    Total products found: {pattern.get('success_metrics', {}).get('total_products_found', 0)}")
-        print(f"    Worked on {len(pattern.get('worked_on_categories', []))} categories")
+    if 'error' in data:
+        print(f"⚠️  {data['error']}")
+    else:
+        print("Scraping patterns learned:")
+        if 'patterns' in data and 'product_listing' in data['patterns']:
+            pattern = data['patterns']['product_listing'].get('primary', {})
+            print(f"\n  Primary Pattern:")
+            print(f"    Container: {pattern.get('container_selector')}")
+            print(f"    Success rate: {pattern.get('success_metrics', {}).get('success_rate', 0)}")
+            print(f"    Total products found: {pattern.get('success_metrics', {}).get('total_products_found', 0)}")
+            print(f"    Worked on {len(pattern.get('worked_on_categories', []))} categories")
 
-    print(f"\n  Lineages discovered: {data.get('lineages', {}).get('unique_lineages_count', 0)}")
+        print(f"\n  Lineages discovered: {data.get('lineages', {}).get('unique_lineages_count', 0)}")
 
     # -------------------------------------------------------------------------
 
@@ -346,7 +366,7 @@ def test_api():
     # =========================================================================
 
     print_section("18. GET PRODUCT IMAGES")
-    if data['products']:
+    if has_products:
         from urllib.parse import quote
         encoded_url = quote(first_product_url, safe='')
         print(f"GET /api/products/{encoded_url}/images\n")

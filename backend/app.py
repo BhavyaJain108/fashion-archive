@@ -22,11 +22,15 @@ if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
 # Import configuration
-from config import config
+from config.config import config
 
 # Create Flask app
 app = Flask(__name__)
-CORS(app, methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'])
+CORS(app,
+     resources={r"/api/*": {"origins": "*"}},
+     methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+     allow_headers=['Content-Type', 'Authorization'],
+     supports_credentials=True)
 
 # =============================================================================
 # HEALTH CHECK
@@ -45,54 +49,85 @@ def health_check():
 # REGISTER API MODULES
 # =============================================================================
 
-# 1. Premium Scraper API (new unified system)
+# 1. Premium Scraper API (unified brand management system)
 try:
     print("🔧 Registering Premium Scraper API...")
     from backend.api import register_routes
     register_routes(app)
-    print("✅ Premium Scraper API registered")
+    print("✅ Premium Scraper API registered (22 endpoints)")
 except Exception as e:
     print(f"❌ Error registering Premium Scraper API: {e}")
     import traceback
     traceback.print_exc()
 
-# 2. Fashion Show/Season API (legacy - from clean_api.py)
+# 2. High Fashion API (seasons, collections, images, videos)
 try:
-    print("🔧 Registering Fashion Show API...")
-    # Import the old clean_api endpoints
-    # (We'll keep these separate for now since they work)
-    import clean_api
-    # The endpoints are already registered on clean_api.app
-    # We need to copy them to our app
-    # For now, we'll skip this and focus on the new premium API
-    print("⚠️  Fashion Show API kept in clean_api.py for now")
+    print("🔧 Registering High Fashion API...")
+    from backend.api.high_fashion_routes import register_high_fashion_routes
+    register_high_fashion_routes(app)
 except Exception as e:
-    print(f"⚠️  Fashion Show API import warning: {e}")
+    print(f"❌ Error registering High Fashion API: {e}")
+    import traceback
+    traceback.print_exc()
 
-# 3. Favourites API (from clean_api.py)
-# 4. User Auth API (from clean_api.py)
-# These are in clean_api.py - we can migrate later
+# 3. Favorites API (favorite looks management)
+try:
+    print("🔧 Registering Favorites API...")
+    from backend.api.favorites_routes import register_favorites_routes
+    register_favorites_routes(app)
+except Exception as e:
+    print(f"❌ Error registering Favorites API: {e}")
+    import traceback
+    traceback.print_exc()
+
+# 4. Authentication API (user login/session management)
+try:
+    print("🔧 Registering Authentication API...")
+    from backend.api.auth_routes import register_auth_routes
+    register_auth_routes(app)
+except Exception as e:
+    print(f"❌ Error registering Authentication API: {e}")
+    import traceback
+    traceback.print_exc()
+
+# 5. Brand Following API (user brand following management)
+try:
+    print("🔧 Registering Brand Following API...")
+    from backend.api.brand_following_routes import register_brand_following_routes
+    register_brand_following_routes(app)
+except Exception as e:
+    print(f"❌ Error registering Brand Following API: {e}")
+    import traceback
+    traceback.print_exc()
 
 # =============================================================================
 # RUN SERVER
 # =============================================================================
 
 if __name__ == '__main__':
-    print("=" * 60)
-    print("🎭 Fashion Archive Backend API")
-    print("=" * 60)
+    print("=" * 80)
+    print("🎭 Fashion Archive - Unified Backend API")
+    print("=" * 80)
     print(f"📍 Host: {config.HOST}")
     print(f"🔌 Port: {config.PORT}")
     print(f"🐛 Debug: {config.DEBUG}")
-    print("=" * 60)
+    print("=" * 80)
     print("")
-    print("Available endpoints:")
+    print("📦 Registered API Groups:")
+    print("  ✓ Premium Scraper API (22 endpoints) - Brand & product management")
+    print("  ✓ High Fashion API (7 endpoints) - Seasons, collections, images, videos")
+    print("  ✓ Favorites API (6 endpoints) - Favorite looks management (user-specific)")
+    print("  ✓ Authentication API (4 endpoints) - User login & sessions")
+    print("  ✓ Brand Following API (6 endpoints) - User brand following (user-specific)")
+    print("")
+    print(f"  Total: ~45 endpoints")
+    print("")
+    print("💡 Quick Start:")
     print("  GET  /api/health - Health check")
-    print("  GET  /api/brands - List brands")
-    print("  POST /api/brands - Create brand")
-    print("  GET  /api/products - Query products")
-    print("  ... and 19 more endpoints (see docs)")
+    print("  GET  /api/brands - List all brands")
+    print("  POST /api/seasons - Get fashion seasons")
+    print("  GET  /api/favourites - Get favorite looks")
     print("")
-    print("=" * 60)
+    print("=" * 80)
 
     app.run(host=config.HOST, port=config.PORT, debug=config.DEBUG, threaded=True)

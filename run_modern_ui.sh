@@ -8,7 +8,7 @@ echo "📚 Preserving fashion history with early Mac styling"
 echo "=" 
 
 # Check if we're in the right directory
-if [ ! -f "clean_api.py" ]; then
+if [ ! -d "backend" ]; then
     echo "❌ Please run this script from the fashion_archive directory"
     exit 1
 fi
@@ -54,14 +54,14 @@ pkill -f "headless_backend.py" 2>/dev/null || true
 pkill -f "api_backend.py" 2>/dev/null || true
 sleep 1
 
-# Start ONLY the clean API backend
-echo "Starting CLEAN API backend (no tkinter)..."
+# Start unified backend (all APIs)
+echo "Starting Unified Backend API..."
 cd ..
 source venv/bin/activate
-python clean_api.py &
+python backend/app.py &
 BACKEND_PID=$!
 
-echo "Waiting for clean backend to start..."
+echo "Waiting for backend to start..."
 sleep 3
 
 # Start React frontend (browser only)
