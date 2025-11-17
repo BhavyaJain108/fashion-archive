@@ -1,21 +1,25 @@
-/* Early Mac System 7 Styling */
+/* Modern macOS Styling (Big Sur/Monterey/Ventura) */
 @import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
 
 :root {
-  /* Classic Mac System Colors */
-  --mac-bg: #c0c0c0;
-  --mac-window-bg: #ffffff;
-  --mac-text: #000000;
-  --mac-border: #808080;
-  --mac-button-bg: #e0e0e0;
-  --mac-button-pressed: #a0a0a0;
-  --mac-selected-bg: #000080;
-  --mac-selected-text: #ffffff;
-  --mac-disabled: #808080;
-  
-  /* Mac-style borders */
-  --mac-inset: inset 1px 1px 0px #606060, inset -1px -1px 0px #dfdfdf;
-  --mac-outset: inset -1px -1px 0px #606060, inset 1px 1px 0px #dfdfdf;
+  /* Modern macOS Colors */
+  --macos-bg: #f5f5f7;
+  --macos-window-bg: rgba(255, 255, 255, 0.8);
+  --macos-text: #1d1d1f;
+  --macos-text-secondary: #6e6e73;
+  --macos-border: rgba(0, 0, 0, 0.1);
+  --macos-accent: #007aff;
+  --macos-accent-hover: #0051d5;
+  --macos-folder-blue: #4a90e2;
+  --macos-folder-loading: #a8c7e7;
+  --macos-selected-bg: rgba(0, 122, 255, 0.1);
+  --macos-disabled: #d1d1d6;
+  --macos-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  --macos-shadow-lg: 0 10px 40px rgba(0, 0, 0, 0.15);
+
+  /* Glassmorphism */
+  --glass-bg: rgba(255, 255, 255, 0.7);
+  --glass-border: rgba(255, 255, 255, 0.18);
 }
 
 * {
@@ -27,8 +31,8 @@
 body {
   font-family: 'VT323', monospace;
   font-size: 16px;
-  background-color: var(--mac-bg);
-  color: var(--mac-text);
+  background-color: var(--macos-bg);
+  color: var(--macos-text);
   overflow: hidden;
   user-select: none;
   -webkit-user-select: none;
@@ -466,4 +470,295 @@ body {
   text-align: center;
   color: #666;
   line-height: 1.4;
+}
+
+/* ===================================================================
+   MODERN MACOS FOLDER STYLES (My Brands)
+   ================================================================ */
+
+/* Folder grid container - macOS desktop style */
+.brands-desktop {
+  width: 100%;
+  height: 100%;
+  background: var(--macos-bg);
+  position: relative;
+  overflow: auto;
+  padding: 20px;
+}
+
+/* Individual brand folder */
+.brand-folder {
+  position: absolute;
+  width: 120px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+  transition: transform 0.2s ease;
+}
+
+.brand-folder:hover {
+  transform: scale(1.05);
+}
+
+.brand-folder.selected {
+  background: var(--macos-selected-bg);
+  border-radius: 8px;
+  padding: 4px;
+  margin: -4px;
+}
+
+/* Folder icon - modern macOS blue folder (rectangular) */
+.folder-icon {
+  width: 80px;
+  height: 64px;
+  background: linear-gradient(135deg, var(--macos-folder-blue) 0%, #3a7bc8 100%);
+  border-radius: 8px;
+  position: relative;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  margin-bottom: 8px;
+  transition: all 0.3s ease;
+}
+
+/* Custom favicon folder icon */
+.folder-icon-custom {
+  background: transparent !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: visible;
+  box-shadow: none !important;
+}
+
+.folder-icon-custom .favicon-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: 0;
+}
+
+/* Remove folder styling when using custom favicon */
+.folder-icon-custom::before,
+.folder-icon-custom::after {
+  display: none !important;
+}
+
+/* Folder tab (top flap) */
+.folder-icon::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  left: 6px;
+  width: 32px;
+  height: 8px;
+  background: linear-gradient(135deg, #5aa3e8 0%, #4a90e2 100%);
+  border-radius: 4px 4px 0 0;
+}
+
+/* Folder shine effect */
+.folder-icon::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(to bottom, rgba(255,255,255,0.3) 0%, rgba(255,255,255,0) 50%);
+  border-radius: 8px;
+  pointer-events: none;
+}
+
+/* Loading state folder */
+.brand-folder.loading .folder-icon {
+  background: linear-gradient(135deg, var(--macos-folder-loading) 0%, #95b8d9 100%);
+  opacity: 0.6;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.brand-folder.loading .folder-icon::before {
+  background: linear-gradient(135deg, #b8d4ed 0%, #a8c7e7 100%);
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 0.8; }
+}
+
+/* Folder label */
+.folder-label {
+  font-size: 12px;
+  color: var(--macos-text);
+  text-align: center;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 4px;
+  line-height: 1.3;
+  font-weight: 400;
+}
+
+.brand-folder.loading .folder-label {
+  color: var(--macos-text-secondary);
+  font-style: italic;
+}
+
+/* Loading dots animation */
+.loading-dots::after {
+  content: '';
+  animation: dots 1.5s steps(4, end) infinite;
+}
+
+@keyframes dots {
+  0%, 20% { content: ''; }
+  40% { content: '.'; }
+  60% { content: '..'; }
+  80%, 100% { content: '...'; }
+}
+
+/* Right-click context menu */
+.context-menu {
+  position: fixed;
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--macos-border);
+  border-radius: 8px;
+  box-shadow: var(--macos-shadow-lg);
+  padding: 4px;
+  min-width: 180px;
+  z-index: 1000;
+}
+
+.context-menu-item {
+  padding: 8px 12px;
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 13px;
+  color: var(--macos-text);
+  transition: background 0.15s ease;
+}
+
+.context-menu-item:hover {
+  background: var(--macos-accent);
+  color: white;
+}
+
+.context-menu-separator {
+  height: 1px;
+  background: var(--macos-border);
+  margin: 4px 8px;
+}
+
+/* Modern macOS dialog/modal */
+.modern-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+.modern-modal {
+  background: var(--glass-bg);
+  backdrop-filter: blur(40px);
+  -webkit-backdrop-filter: blur(40px);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  box-shadow: var(--macos-shadow-lg);
+  padding: 24px;
+  max-width: 480px;
+  width: 90%;
+}
+
+.modern-modal-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--macos-text);
+  margin-bottom: 16px;
+}
+
+.modern-modal-content {
+  font-size: 14px;
+  color: var(--macos-text-secondary);
+  margin-bottom: 20px;
+}
+
+.modern-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--macos-border);
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+  background: rgba(255, 255, 255, 0.9);
+  transition: all 0.2s ease;
+}
+
+.modern-input:focus {
+  outline: none;
+  border-color: var(--macos-accent);
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.1);
+}
+
+.modern-button {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+.modern-button-primary {
+  background: var(--macos-accent);
+  color: white;
+}
+
+.modern-button-primary:hover {
+  background: var(--macos-accent-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 122, 255, 0.3);
+}
+
+.modern-button-secondary {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--macos-text);
+}
+
+.modern-button-secondary:hover {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.modern-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.modern-modal-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+
+/* Error message styling */
+.modern-error {
+  background: rgba(255, 59, 48, 0.1);
+  border: 1px solid rgba(255, 59, 48, 0.3);
+  border-radius: 8px;
+  padding: 12px;
+  color: #d70015;
+  font-size: 13px;
+  margin-bottom: 16px;
 }

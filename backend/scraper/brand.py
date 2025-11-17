@@ -27,6 +27,44 @@ from product import Product
 from image_downloader import ImageDownloader
 
 
+def escape_css_selector(selector: str) -> str:
+    """
+    Escape special characters in CSS selectors for use with BeautifulSoup.
+    Primarily handles Tailwind CSS class names with colons (e.g., lg:grid-cols-12, hover:bg-blue-500).
+
+    Args:
+        selector: CSS selector string that may contain unescaped special characters
+
+    Returns:
+        Escaped CSS selector safe for use with BeautifulSoup's CSS selector engines
+    """
+    if not selector:
+        return selector
+
+    # Escape colons in class names (e.g., Tailwind's lg:grid-cols-12)
+    # Single backslash for BeautifulSoup
+    return selector.replace(':', '\\:')
+
+
+def escape_css_selector_for_js(selector: str) -> str:
+    """
+    Escape special characters in CSS selectors for use with JavaScript querySelector/querySelectorAll.
+    Primarily handles Tailwind CSS class names with colons (e.g., lg:grid-cols-12, hover:bg-blue-500).
+
+    Args:
+        selector: CSS selector string that may contain unescaped special characters
+
+    Returns:
+        Escaped CSS selector safe for use with JavaScript querySelector
+    """
+    if not selector:
+        return selector
+
+    # For JavaScript querySelector, we need to escape the colon with double backslash
+    # because it goes through JSON stringification
+    return selector.replace(':', '\\\\:')
+
+
 
 class LogBuffer:
     """Context manager to buffer print statements during parallel execution"""
@@ -66,7 +104,7 @@ class Brand:
     Represents a fashion brand for scraping.
     """
 
-    def __init__(self, url: str, llm_handler: LLMHandler = None, test_mode: bool = False):
+    def __init__(self, url: str, llm_handler: LLMHandler = None, test_mode: bool = False, brand_id: str = None):
         """
         Initialize a Brand
 
@@ -74,8 +112,10 @@ class Brand:
             url: The main URL of the brand website
             llm_handler: LLM handler instance (optional)
             test_mode: If True, save images to tests/results directory
+            brand_id: Optional brand ID for storage (if not provided, extracted from URL)
         """
         self.url = url
+        self.brand_id = brand_id  # Store brand_id for directory naming
         self.product_pages: List[str] = []
         self.starting_pages_queue: List[str] = []
         self.product_extraction_pattern: dict = {}
@@ -331,9 +371,10 @@ If no pagination:
             from urllib.parse import urljoin
             
             soup = BeautifulSoup(html_content, 'html.parser')
-            
-            # Find containers using the detected selector
-            containers = soup.select(pattern.get('container_selector', ''))
+
+            # Find containers using the detected selector (escape for BeautifulSoup)
+            container_selector = escape_css_selector(pattern.get('container_selector', ''))
+            containers = soup.select(container_selector)
             
             if not containers:
                 return {
@@ -747,10 +788,12 @@ If no pagination:
 
             # Return first meaningful container
             # This should be something like "ul.product-grid" or "div.product-list"
-            return part
+            # Escape colons in class names (e.g., Tailwind's lg:grid-cols-12)
+            return escape_css_selector(part)
 
         # Fallback: return first part if no classes found
-        return parts[0].strip() if parts else ""
+        selector = parts[0].strip() if parts else ""
+        return escape_css_selector(selector) if selector else ""
 
     def _analyze_link_pattern(self, html_content: str, product_links: List[dict], base_url: str) -> dict:
         """
@@ -860,7 +903,8 @@ If no pagination:
                 # Pattern extracted successfully - now extract actual sample data using first product
                 first_product_link = product_links[0]['url']
                 sample_product = self._extract_sample_product(html_content, data, first_product_link, base_url)
-                
+
+                # Store pattern as-is (escape only when using with BeautifulSoup, not Playwright)
                 return {
                     "extraction_pattern": data,
                     "example_products": [sample_product]
@@ -901,6 +945,7 @@ If no pagination:
                     containers = soup.select(pattern["container_selector"])
                     if containers:
                         print(f"   ✅ Fallback pattern #{i} found {len(containers)} containers")
+                        # Store pattern as-is (fallback patterns don't have Tailwind classes anyway)
                         return {
                             "extraction_pattern": pattern,
                             "fallback": True,
@@ -988,8 +1033,8 @@ Return JSON:
                 # Go to the starting page
                 print(f"📄 Processing: {page_url}")
                 page.goto(page_url, wait_until="load", timeout=15000)
-                
-                # Wait for initial products to load
+
+                # Wait for initial products to load (Playwright handles Tailwind selectors natively)
                 container_selector = self.product_extraction_pattern.get('container_selector')
                 try:
                     page.wait_for_selector(container_selector, timeout=5000)
@@ -1052,7 +1097,7 @@ Return JSON:
         new_products = 0
         
         try:
-            # Get selectors - fail if no container selector
+            # Get selectors (Playwright handles Tailwind selectors natively) - fail if no container selector
             container_selector = self.product_extraction_pattern.get('container_selector')
             if not container_selector:
                 print("❌ No container selector in pattern - cannot extract products")
@@ -1213,7 +1258,7 @@ Return JSON:
         new_products = 0
         
         try:
-            # Get container selector - fail if not found
+            # Get container selector (Playwright handles Tailwind selectors natively) - fail if not found
             container_selector = self.product_extraction_pattern.get('container_selector')
             if not container_selector:
                 print("❌ No container selector in pattern - cannot extract products")
@@ -1415,7 +1460,8 @@ Return JSON:
                         'tests', 'results', brand_name
                     )
                 else:
-                    base_dir = brand_name
+                    # Use proper data directory path with images subdirectory
+                    base_dir = os.path.join('data', 'brands', brand_name, 'images')
 
                 path_components = [comp.replace(' ', '_').replace('/', '_') for comp in category_path]
                 images_dir = os.path.join(base_dir, *path_components)
@@ -2272,7 +2318,8 @@ Return JSON:
             return 0
 
         # Build directory path based on hierarchy
-        brand_name = urlparse(self.url).netloc.replace('www.', '').split('.')[0]
+        # Use brand_id if available, otherwise extract from URL
+        brand_name = self.brand_id if self.brand_id else urlparse(self.url).netloc.replace('www.', '').split('.')[0]
 
         # Create hierarchical directory structure
         if test_mode:
@@ -2282,8 +2329,8 @@ Return JSON:
                 'tests', 'results', brand_name
             )
         else:
-            # Save to {brand_name}/{hierarchy}/ (for production)
-            base_dir = brand_name
+            # Save to data/brands/{brand_name}/images/{hierarchy}/ (for production)
+            base_dir = os.path.join('data', 'brands', brand_name, 'images')
 
         # Build the full path using the hierarchy
         path_components = [comp.replace(' ', '_').replace('/', '_') for comp in category_path]
@@ -2459,7 +2506,8 @@ Return JSON:
                 write_result = writer.write_scrape_results(
                     brand_url=self.url,
                     scrape_output=results,
-                    brand_name=brand_name.title()
+                    brand_name=brand_name.title(),
+                    brand_id=self.brand_id  # Pass the brand_id to avoid regeneration
                 )
 
                 print(f"      💾 Results saved to new storage system:")

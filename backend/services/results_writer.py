@@ -43,7 +43,7 @@ class ScrapeResultsWriter:
             domain = domain[4:]
         return domain
 
-    def write_scrape_results(self, brand_url: str, scrape_output: Dict, brand_name: Optional[str] = None) -> Dict:
+    def write_scrape_results(self, brand_url: str, scrape_output: Dict, brand_name: Optional[str] = None, brand_id: Optional[str] = None) -> Dict:
         """
         Write scrape results to storage
 
@@ -51,24 +51,40 @@ class ScrapeResultsWriter:
             brand_url: Brand homepage URL
             scrape_output: Raw output from Brand.run_full_extraction_pipeline()
             brand_name: Optional brand name (will extract from URL if not provided)
+            brand_id: Optional brand ID (will generate from URL if not provided)
 
         Returns:
             Dict with status and metadata
         """
         # Extract metadata
         domain = self._extract_domain(brand_url)
-        brand_id = self._slugify(domain)
+
+        # Use provided brand_id or generate one
+        if not brand_id:
+            brand_id = self._slugify(domain)
+
         if not brand_name:
             brand_name = domain.split('.')[0].title()
 
         run_id = f"run_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
         current_time = datetime.utcnow().isoformat() + "Z"
 
-        # 1. CREATE/UPDATE BRAND
+        # 1. UPDATE BRAND (brand should already exist from API)
         existing_brand = self.storage.get_brand(brand_id)
 
-        if not existing_brand:
-            # Create new brand
+        if existing_brand:
+            # Update existing brand status
+            self.storage.update_brand(brand_id, {
+                **existing_brand,
+                "status": {
+                    **existing_brand.get("status", {}),
+                    "last_scrape_run_id": run_id,
+                    "last_scrape_at": current_time,
+                    "last_scrape_status": "running"
+                }
+            })
+        else:
+            # Fallback: Create new brand if it doesn't exist (for legacy use cases)
             brand_data = {
                 "brand_id": brand_id,
                 "name": brand_name,
@@ -89,17 +105,6 @@ class ScrapeResultsWriter:
                 "data_path": f"data/brands/{brand_id}"
             }
             self.storage.create_brand(brand_id, brand_data)
-        else:
-            # Update brand status
-            self.storage.update_brand(brand_id, {
-                **existing_brand,
-                "status": {
-                    **existing_brand.get("status", {}),
-                    "last_scrape_run_id": run_id,
-                    "last_scrape_at": current_time,
-                    "last_scrape_status": "running"
-                }
-            })
 
         # 2. SAVE NAVIGATION TREE
         navigation_tree = scrape_output.get("navigation_tree", {})

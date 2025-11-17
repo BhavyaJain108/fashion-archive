@@ -66,28 +66,185 @@ def get_brand(brand_id):
         return jsonify({"error": str(e)}), 500
 
 
+def normalize_url(url: str) -> tuple[str, str]:
+    """
+    Normalize a URL and extract domain for brand identification.
+
+    Returns:
+        tuple: (normalized_url, domain)
+    """
+    from urllib.parse import urlparse, urlunparse
+
+    # Add https if no scheme
+    if not url.startswith(('http://', 'https://')):
+        url = 'https://' + url
+
+    parsed = urlparse(url)
+
+    # Remove www. prefix for consistency
+    domain = parsed.netloc.replace('www.', '')
+
+    # Reconstruct normalized URL
+    normalized = urlunparse((
+        'https',  # Always use https
+        domain,
+        parsed.path or '/',
+        parsed.params,
+        parsed.query,
+        parsed.fragment
+    ))
+
+    return normalized, domain
+
+
+def validate_brand():
+    """POST /api/brands/validate - Validate brand URL before creation"""
+    try:
+        data = request.get_json()
+        homepage_url = data.get('homepage_url', '').strip()
+
+        if not homepage_url:
+            return jsonify({"error": "homepage_url is required"}), 400
+
+        # Normalize the URL
+        normalized_url, domain = normalize_url(homepage_url)
+
+        # Check if brand already exists by domain
+        brand_id = domain.split('.')[0].lower().replace('-', '_')
+        existing_brand = storage.get_brand(brand_id)
+
+        if existing_brand:
+            return jsonify({
+                "success": True,
+                "exists": True,
+                "brand_id": brand_id,
+                "brand": existing_brand,
+                "message": f"Brand already exists: {existing_brand.get('name', brand_id)}"
+            })
+
+        # Perform LLM validation
+        try:
+            from backend.scraper.brand import Brand
+            from backend.scraper.prompts.brand_validation import get_brand_validation_prompt
+
+            # Create brand instance to access LLM handler
+            temp_brand = Brand(normalized_url)
+
+            # Get page title and sample content for better validation
+            # (In a real implementation, you might want to fetch the page)
+            validation_data = get_brand_validation_prompt(
+                url=normalized_url,
+                page_title="",
+                page_content_sample=""
+            )
+
+            # Call LLM for validation
+            llm_response = temp_brand.llm_handler.call(
+                validation_data['prompt'],
+                expected_format="json",
+                response_model=validation_data['model']
+            )
+
+            if not llm_response.get("success"):
+                return jsonify({
+                    "success": False,
+                    "error": "Brand validation failed",
+                    "message": "Could not validate the brand URL"
+                }), 400
+
+            validation_result = llm_response.get("data", {})
+
+            if not validation_result.get("valid"):
+                return jsonify({
+                    "success": False,
+                    "valid": False,
+                    "reasoning": validation_result.get("reasoning", "Brand validation failed"),
+                    "message": validation_result.get("reasoning", "This does not appear to be a legitimate clothing/apparel brand")
+                }), 400
+
+            # Validation successful
+            return jsonify({
+                "success": True,
+                "valid": True,
+                "exists": False,
+                "brand_name": validation_result.get("brand_name", ""),
+                "domain": domain,
+                "normalized_url": normalized_url,
+                "confidence": validation_result.get("confidence", "medium"),
+                "message": "Brand validated successfully"
+            })
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return jsonify({
+                "success": False,
+                "error": f"Validation error: {str(e)}"
+            }), 500
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 def create_brand():
-    """POST /api/brands - Add new brand"""
+    """POST /api/brands - Add new brand (with optional validation)"""
     try:
         data = request.get_json()
 
         name = data.get('name', '').strip()
         homepage_url = data.get('homepage_url', '').strip()
+        skip_validation = data.get('skip_validation', False)
 
-        if not name or not homepage_url:
-            return jsonify({"error": "name and homepage_url are required"}), 400
+        if not homepage_url:
+            return jsonify({"error": "homepage_url is required"}), 400
 
-        # Generate brand_id
-        from urllib.parse import urlparse
-        domain = urlparse(homepage_url).netloc.replace('www.', '')
+        # Normalize URL and extract domain
+        normalized_url, domain = normalize_url(homepage_url)
+
+        # Generate brand_id from domain
         brand_id = domain.split('.')[0].lower().replace('-', '_')
 
-        # Create brand data
+        # Check if brand already exists
+        existing_brand = storage.get_brand(brand_id)
+        if existing_brand:
+            return jsonify({
+                "success": False,
+                "error": "Brand already exists",
+                "brand_id": brand_id,
+                "brand": existing_brand
+            }), 409
+
+        # Use provided name or extract from validation
+        brand_name = name
+        if not brand_name and not skip_validation:
+            # Run validation to get brand name
+            try:
+                from backend.scraper.brand import Brand
+                from backend.scraper.prompts.brand_validation import get_brand_validation_prompt
+
+                temp_brand = Brand(normalized_url)
+                validation_data = get_brand_validation_prompt(url=normalized_url)
+                llm_response = temp_brand.llm_handler.call(
+                    validation_data['prompt'],
+                    expected_format="json",
+                    response_model=validation_data['model']
+                )
+
+                if llm_response.get("success"):
+                    validation_result = llm_response.get("data", {})
+                    brand_name = validation_result.get("brand_name", brand_id.replace('_', ' ').title())
+            except:
+                brand_name = brand_id.replace('_', ' ').title()
+        elif not brand_name:
+            brand_name = brand_id.replace('_', ' ').title()
+
+        # Create brand data (without favicon initially)
         brand_data = {
             "brand_id": brand_id,
-            "name": name,
-            "homepage_url": homepage_url,
+            "name": brand_name,
+            "homepage_url": normalized_url,
             "domain": domain,
+            "favicon_path": None,  # Will be updated after brand creation
             "status": {
                 "last_scrape_run_id": None,
                 "last_scrape_at": None,
@@ -103,18 +260,35 @@ def create_brand():
             "data_path": f"data/brands/{brand_id}"
         }
 
+        # Create brand first (this creates the directory structure)
         success = storage.create_brand(brand_id, brand_data)
 
         if not success:
-            return jsonify({"error": "Brand already exists"}), 409
+            return jsonify({"error": "Failed to create brand"}), 500
+
+        # Now download favicon (directory already exists from create_brand)
+        try:
+            from backend.scraper.favicon_downloader import FaviconDownloader
+            print(f"📥 Downloading favicon for {brand_name}...")
+            favicon_path = FaviconDownloader.download_favicon(normalized_url, brand_id)
+
+            if favicon_path:
+                # Update brand data with favicon path
+                brand_data["favicon_path"] = favicon_path
+                storage.update_brand(brand_id, brand_data)
+        except Exception as e:
+            print(f"⚠️  Favicon download failed: {e}")
 
         return jsonify({
             "success": True,
             "brand_id": brand_id,
+            "brand": brand_data,
             "message": "Brand created successfully"
         }), 201
 
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 
@@ -419,8 +593,8 @@ def start_scrape(brand_id):
                 # Import scraper
                 from backend.scraper.brand import Brand
 
-                # Run scrape
-                brand_instance = Brand(brand['homepage_url'], test_mode=False)
+                # Run scrape with brand_id
+                brand_instance = Brand(brand['homepage_url'], test_mode=False, brand_id=brand_id)
                 results = brand_instance.run_full_extraction_pipeline()
 
                 # Update job status
@@ -608,6 +782,7 @@ def register_routes(app):
     # Brands
     app.add_url_rule('/api/brands', 'get_brands', get_brands, methods=['GET'])
     app.add_url_rule('/api/brands/<brand_id>', 'get_brand', get_brand, methods=['GET'])
+    app.add_url_rule('/api/brands/validate', 'validate_brand', validate_brand, methods=['POST'])
     app.add_url_rule('/api/brands', 'create_brand', create_brand, methods=['POST'])
     app.add_url_rule('/api/brands/<brand_id>', 'update_brand', update_brand, methods=['PUT'])
     app.add_url_rule('/api/brands/<brand_id>', 'delete_brand', delete_brand, methods=['DELETE'])
