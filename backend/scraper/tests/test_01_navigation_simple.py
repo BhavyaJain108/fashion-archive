@@ -388,7 +388,7 @@ def test_navigation_simple(brand_key: str, brands_data: dict, latency_tracker: L
     return False
 
 
-def test_direct_url(url: str, verbose: bool = False):
+def test_direct_url(url: str, verbose: bool = True):
     """Test navigation analysis on a direct URL without brands.json"""
     total_start = time.time()
 
@@ -468,11 +468,16 @@ def test_direct_url(url: str, verbose: bool = False):
 
 
 if __name__ == "__main__":
-    # Check for --verbose flag
-    verbose = '--verbose' in sys.argv or '-v' in sys.argv
-    if '--verbose' in sys.argv:
+    # Check for --verbose flag (default is True, can disable with --no-verbose)
+    verbose = True
+    if '--no-verbose' in sys.argv:
+        verbose = False
+        sys.argv.remove('--no-verbose')
+    elif '--verbose' in sys.argv:
+        verbose = True
         sys.argv.remove('--verbose')
-    if '-v' in sys.argv:
+    elif '-v' in sys.argv:
+        verbose = True
         sys.argv.remove('-v')
 
     # Check for --url flag first

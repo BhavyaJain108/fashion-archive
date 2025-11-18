@@ -423,6 +423,26 @@ def aggregate_products():
         return jsonify({"error": str(e)}), 500
 
 
+def get_product_counts():
+    """GET /api/products/counts - Get product counts by classification URL for a brand"""
+    try:
+        brand_id = request.args.get('brand_id')
+
+        if not brand_id:
+            return jsonify({"error": "brand_id is required"}), 400
+
+        counts = storage.get_product_counts_by_url(brand_id)
+
+        return jsonify({
+            "brand_id": brand_id,
+            "counts": counts,
+            "total_categories": len(counts)
+        })
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 def search_products():
     """GET /api/products/search - Full-text search"""
     try:

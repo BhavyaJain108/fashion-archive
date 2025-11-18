@@ -518,28 +518,39 @@ If no pagination:
                 initial_link_count = page.locator('a[href]').count()
                 print(f"   ⏱️  Counted {initial_link_count} initial links in {(time.time() - count_start)*1000:.0f}ms")
 
-                # Expand all navigation menus using CSS and DOM manipulation (avoid clicks)
+                # Expand all navigation menus by triggering hover/click events
                 print(f"   ⏱️  Expanding navigation menus...")
                 expand_start = time.time()
-                menus_expanded = page.evaluate("""
+                expansion_result = page.evaluate("""
                     () => {
+                        const details = [];
                         let expanded = 0;
 
-                        // Strategy: Use CSS/attributes to force dropdowns open without clicking
-                        // This avoids triggering navigation
+                        // Helper to get element description
+                        const getElementDesc = (el) => {
+                            const tag = el.tagName.toLowerCase();
+                            const id = el.id ? `#${el.id}` : '';
+                            const classes = el.className ? `.${el.className.split(' ').join('.')}` : '';
+                            const text = el.textContent ? el.textContent.trim().substring(0, 50) : '';
+                            return `${tag}${id}${classes} "${text}"`;
+                        };
 
-                        // 1. Find collapsed menu triggers
+                        // Strategy: Trigger hover and click events on interactive nav elements
+                        // Let the page's JavaScript naturally expand menus
+
+                        // Find interactive navigation elements (buttons, links with aria attributes)
                         const selectors = [
+                            'nav button:not([aria-label*="close"]):not([aria-label*="search"])',
+                            'header button:not([aria-label*="close"]):not([aria-label*="search"])',
+                            'nav a[aria-haspopup]',
+                            'header a[aria-haspopup]',
                             'nav [aria-expanded="false"]',
                             'header [aria-expanded="false"]',
-                            '[role="navigation"] [aria-expanded="false"]',
-                            'nav button',
-                            'header button',
-                            '.dropdown-toggle',
-                            '[data-toggle="dropdown"]'
+                            '[role="navigation"] button',
+                            'details summary'
                         ];
 
-                        const processed = new Set(); // Avoid processing same element twice
+                        const processed = new Set();
 
                         selectors.forEach(selector => {
                             document.querySelectorAll(selector).forEach(el => {
@@ -547,50 +558,44 @@ If no pagination:
                                 processed.add(el);
 
                                 try {
-                                    // Change aria-expanded attribute
-                                    if (el.hasAttribute('aria-expanded')) {
-                                        el.setAttribute('aria-expanded', 'true');
+                                    // Dispatch hover event (mouseenter)
+                                    el.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true, cancelable: true }));
+                                    el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, cancelable: true }));
+
+                                    // For elements with aria-expanded, also try focus
+                                    if (el.hasAttribute('aria-expanded') && el.getAttribute('aria-expanded') === 'false') {
+                                        el.focus();
                                     }
 
-                                    // Add open/show classes (common patterns)
-                                    el.classList.add('open', 'show', 'expanded', 'active');
-                                    el.classList.remove('collapsed', 'closed');
-
-                                    // Find and show associated dropdown content
-                                    const ariaControls = el.getAttribute('aria-controls');
-                                    if (ariaControls) {
-                                        const controlled = document.getElementById(ariaControls);
-                                        if (controlled) {
-                                            controlled.classList.add('show', 'open', 'expanded');
-                                            controlled.classList.remove('collapse', 'collapsed', 'hidden');
-                                            controlled.style.display = 'block';
-                                            controlled.style.visibility = 'visible';
-                                        }
-                                    }
-
-                                    // Check for next sibling dropdowns
-                                    const nextEl = el.nextElementSibling;
-                                    if (nextEl && (nextEl.classList.contains('dropdown') ||
-                                                   nextEl.classList.contains('submenu') ||
-                                                   nextEl.classList.contains('menu'))) {
-                                        nextEl.classList.add('show', 'open');
-                                        nextEl.style.display = 'block';
-                                    }
-
+                                    details.push({
+                                        type: 'hovered',
+                                        selector: selector,
+                                        element: getElementDesc(el)
+                                    });
                                     expanded++;
                                 } catch (e) {
-                                    // Ignore errors for individual elements
+                                    // Ignore errors
                                 }
                             });
                         });
 
-                        return expanded;
+                        return { expanded, details };
                     }
                 """)
 
                 # Wait briefly for any animations/JS to complete
                 page.wait_for_timeout(1000)
+
+                # Print detailed expansion information
+                menus_expanded = expansion_result['expanded']
                 print(f"   ⏱️  Expanded {menus_expanded} menus in {(time.time() - expand_start)*1000:.0f}ms")
+
+                if expansion_result['details']:
+                    print(f"\n   📋 Expanded menu details:")
+                    for i, detail in enumerate(expansion_result['details'], 1):
+                        print(f"      {i}. [{detail['type']}] {detail['selector']}")
+                        print(f"         → {detail['element']}")
+                    print()
 
                 # Final link count (with error handling for destroyed context)
                 try:

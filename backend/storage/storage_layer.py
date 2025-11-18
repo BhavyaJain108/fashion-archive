@@ -264,6 +264,38 @@ class Storage:
 
         return []
 
+    def get_product_counts_by_url(self, brand_id: str) -> Dict[str, int]:
+        """
+        Get product counts grouped by classification URL
+
+        Args:
+            brand_id: Brand to get counts for
+
+        Returns:
+            Dict mapping classification URL to product count
+        """
+        if self.db_manager:
+            return self.db_manager.get_product_counts_by_url(brand_id)
+
+        elif self.data_manager:
+            # File-based count aggregation
+            products_data = self.data_manager.read_products(brand_id)
+            if not products_data:
+                return {}
+
+            products = products_data.get("products", [])
+            url_counts = {}
+
+            for product in products:
+                for classification in product.get("classifications", []):
+                    url = classification.get("url")
+                    if url:
+                        url_counts[url] = url_counts.get(url, 0) + 1
+
+            return url_counts
+
+        return {}
+
     # =========================================================================
     # NAVIGATION OPERATIONS
     # =========================================================================

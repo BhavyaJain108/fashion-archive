@@ -769,7 +769,8 @@ body {
 
 .my-brands-container {
   display: flex;
-  height: 100vh;
+  height: calc(100vh - 40px);
+  margin-top: 40px;
   background: var(--macos-bg);
   overflow: hidden;
 }
@@ -794,18 +795,18 @@ body {
 }
 
 .brand-section {
-  margin-bottom: 8px;
+  margin-bottom: 4px;
 }
 
 .brand-name {
   display: flex;
   align-items: center;
-  padding: 8px 12px;
-  font-size: 16px;
+  padding: 6px 8px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
-  border-radius: 6px;
-  transition: background-color 0.2s;
+  border-radius: 4px;
+  transition: background-color 0.15s;
   user-select: none;
 }
 
@@ -817,11 +818,13 @@ body {
   color: var(--macos-text-secondary);
 }
 
+.brand-name.brand-long-pressing {
+  cursor: progress;
+}
+
 .brand-expand-icon {
-  margin-right: 8px;
-  font-size: 12px;
-  width: 16px;
-  display: inline-block;
+  /* Removed - no longer displaying */
+  display: none;
 }
 
 .brand-name-text {
@@ -829,39 +832,38 @@ body {
 }
 
 .brand-loading-text {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: normal;
   font-style: italic;
   color: var(--macos-text-secondary);
 }
 
 .brand-categories {
-  margin-left: 24px;
-  margin-top: 4px;
+  margin-left: 12px;
+  margin-top: 2px;
 }
 
 /* Navigation Items */
 .nav-item {
   display: flex;
   align-items: center;
-  padding: 6px 12px;
-  font-size: 14px;
-  border-radius: 4px;
-  margin: 2px 0;
-  transition: all 0.2s;
+  padding: 4px 8px;
+  font-size: 13px;
+  margin: 0;
+  transition: background-color 0.15s;
   user-select: none;
-}
-
-.nav-leaf {
   cursor: pointer;
 }
 
-.nav-leaf:hover {
+.nav-item:hover {
   background: rgba(0, 122, 255, 0.05);
 }
 
+.nav-leaf {
+  /* All nav items are clickable now */
+}
+
 .nav-parent {
-  cursor: default;
   font-weight: 500;
 }
 
@@ -871,25 +873,32 @@ body {
 
 .nav-icon {
   margin-right: 6px;
-  font-size: 11px;
-  width: 14px;
+  font-size: 10px;
+  width: 12px;
   display: inline-block;
+  flex-shrink: 0;
 }
 
 .nav-bullet {
-  margin-right: 8px;
-  font-size: 16px;
-  width: 12px;
-  display: inline-block;
-  line-height: 1;
+  /* Removed - no longer displaying bullets */
+  display: none;
 }
 
 .nav-text {
   font-weight: normal;
+  flex: 1;
 }
 
 .nav-text-bold {
-  font-weight: 700;
+  font-weight: 600;
+}
+
+.nav-count {
+  margin-left: auto;
+  font-size: 11px;
+  color: #999;
+  font-weight: normal;
+  padding-left: 8px;
 }
 
 /* Add Brand Footer */
@@ -919,58 +928,62 @@ body {
 .product-gallery {
   flex: 1;
   overflow-y: auto;
-  padding: 24px;
+  padding: 16px;
   background: var(--macos-bg);
 }
 
 .product-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 24px;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
 }
 
 .product-card {
   background: white;
-  border-radius: 12px;
+  border-radius: 0;
   overflow: hidden;
-  box-shadow: var(--macos-shadow);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: opacity 0.3s ease;
   cursor: pointer;
 }
 
 .product-card:hover {
-  transform: translateY(-4px);
-  box-shadow: var(--macos-shadow-lg);
+  opacity: 0.8;
 }
 
 .product-image {
   width: 100%;
-  aspect-ratio: 1 / 1;
+  aspect-ratio: 3 / 4;
   overflow: hidden;
-  background: #f9f9f9;
+  background: #f5f5f5;
 }
 
 .product-image img {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transition: transform 0.3s;
-}
-
-.product-card:hover .product-image img {
-  transform: scale(1.05);
+  transition: none;
 }
 
 .product-info {
-  padding: 16px;
+  padding: 12px 8px;
+  text-align: center;
+}
+
+.product-brand {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  color: var(--macos-text);
+  margin-bottom: 4px;
+  text-transform: uppercase;
 }
 
 .product-name {
-  font-size: 15px;
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 400;
   color: var(--macos-text);
   margin-bottom: 6px;
-  line-height: 1.4;
+  line-height: 1.3;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -978,8 +991,8 @@ body {
 }
 
 .product-price {
-  font-size: 14px;
-  color: var(--macos-text-secondary);
+  font-size: 13px;
+  color: var(--macos-text);
   font-weight: 600;
 }
 

@@ -463,6 +463,36 @@ class DatabaseManager:
 
         return list(groups.values())
 
+    def get_product_counts_by_url(self, brand_id: str) -> Dict[str, int]:
+        """
+        Get product counts grouped by classification URL
+
+        Args:
+            brand_id: Brand to get counts for
+
+        Returns:
+            Dict mapping classification URL to product count
+        """
+        cursor = self.conn.cursor()
+
+        # Fetch all products for the brand
+        cursor.execute("""
+            SELECT * FROM products WHERE brand_id = ?
+        """, (brand_id,))
+
+        rows = cursor.fetchall()
+        products = [self._product_from_row(row) for row in rows]
+
+        # Count products by classification URL
+        url_counts = {}
+        for product in products:
+            for classification in product.get("classifications", []):
+                url = classification.get("url")
+                if url:
+                    url_counts[url] = url_counts.get(url, 0) + 1
+
+        return url_counts
+
     def close(self):
         """Close database connection"""
         if self.conn:
