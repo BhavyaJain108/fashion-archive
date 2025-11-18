@@ -92,21 +92,40 @@ class FavouritesDB:
     
     def _copy_image_to_favourites(self, original_path, season_data, collection_data, look_data):
         """
-        Don't actually copy images - just use original path from cache.
-        This allows all users to share the same cached images from high_fashion/cache.
+        Copy image from cache to permanent favourites storage.
+        This ensures favourites persist even when cache is cleared.
         """
-        # Just return the original path - don't copy
-        # Images remain in backend/high_fashion/cache/images/<designer>/
-        # and are served via /api/image endpoint
-        return str(original_path)
+        # Generate permanent filename
+        favourite_path = self._generate_favourite_filename(season_data, collection_data, look_data, original_path)
+
+        # Copy the image if it doesn't already exist
+        if not favourite_path.exists():
+            try:
+                # Ensure parent directory exists
+                favourite_path.parent.mkdir(parents=True, exist_ok=True)
+
+                # Copy the file from cache to favourites
+                shutil.copy2(original_path, favourite_path)
+                print(f"✅ Copied image to favourites: {favourite_path}")
+            except Exception as e:
+                print(f"❌ Error copying image to favourites: {e}")
+                # Fall back to original path if copy fails
+                return str(original_path)
+
+        return str(favourite_path)
     
     def _remove_image_from_favourites(self, favourite_path):
         """
-        Don't delete images when removing favourites - they're shared from cache.
-        Just remove the database entry (handled by caller).
+        Delete the copied image from favourites storage.
         """
-        # Don't delete shared cache images
-        return True
+        try:
+            if favourite_path and Path(favourite_path).exists():
+                Path(favourite_path).unlink()
+                print(f"✅ Deleted favourite image: {favourite_path}")
+            return True
+        except Exception as e:
+            print(f"❌ Error deleting favourite image: {e}")
+            return False
     
     def add_favourite(self, season_data, collection_data, look_data, image_path, notes=""):
         """

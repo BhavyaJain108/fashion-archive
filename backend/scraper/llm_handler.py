@@ -20,8 +20,9 @@ from pydantic import BaseModel, Field
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 try:
+    # Import ClaudeInterface from high_fashion.tools.llm_interface
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from llm_interface import ClaudeInterface
+    from high_fashion.tools.llm_interface import ClaudeInterface
 except ImportError:
     ClaudeInterface = None
 
@@ -44,18 +45,6 @@ class PaginationAnalysis(BaseModel):
     type: str = Field(description="Type of pagination: numbered, next_button, or none")
     template: Optional[str] = Field(description="URL template for pagination")
     next_selector: Optional[str] = Field(description="CSS selector for next button if applicable")
-
-
-class CategoryLink(BaseModel):
-    """Individual category URL with reasoning"""
-    url: str = Field(description="The category URL")
-    reasoning: str = Field(description="Why this URL was included")
-
-
-class NavigationAnalysis(BaseModel):
-    """Structured output for navigation/category analysis"""
-    included_urls: List[CategoryLink] = Field(description="Product category URLs that should be included")
-    excluded_urls: List[CategoryLink] = Field(description="URLs that were excluded and why")
 
 
 class LLMHandler:
@@ -82,7 +71,7 @@ class LLMHandler:
             self.client = None
             print("⚠️  ClaudeInterface not available - WebFetch calls will be used")
     
-    def call(self, prompt: str, expected_format: str = "json", response_model: BaseModel = None, max_tokens: int = 8192, max_retries: int = 4) -> Dict[str, Any]:
+    def call(self, prompt: str, expected_format: str = "json", response_model: BaseModel = None, max_tokens: int = 8192, max_retries: int = 4, debug: bool = False) -> Dict[str, Any]:
         """
         Generic LLM call with response parsing and intelligent retry logic
         
@@ -104,10 +93,31 @@ class LLMHandler:
                 if self.client:
                     if expected_format == "json" and response_model:
                         # Use structured output with native API
-                        response = self.client.generate(prompt, max_tokens=max_tokens, response_model=response_model)
-                        
+                        response = self.client.generate(prompt, max_tokens=max_tokens, response_model=response_model, debug=debug)
+
+                        # Check for empty response (common LLM failure mode)
+                        if not response or response == {}:
+                            empty_error = "LLM returned empty structured output ({})"
+                            print(f"⚠️  {empty_error}")
+
+                            # Treat empty response as a retriable error
+                            if attempt < max_retries:
+                                wait_seconds = 2
+                                print(f"🔄 Retry {attempt + 1}/{max_retries} after {wait_seconds}s due to empty response")
+                                time.sleep(wait_seconds)
+                                continue  # Retry
+                            else:
+                                # Last attempt failed, return error
+                                latency_ms = (time.time() - start_time) * 1000
+                                return {
+                                    "error": empty_error,
+                                    "latency_ms": latency_ms,
+                                    "success": False,
+                                    "attempts": attempt + 1
+                                }
+
                         latency_ms = (time.time() - start_time) * 1000
-                        
+
                         # response is already the structured data
                         if response_model:
                             try:
@@ -115,10 +125,26 @@ class LLMHandler:
                                 result = validated_result.model_dump()
                             except Exception as validation_error:
                                 print(f"⚠️  Pydantic validation failed: {validation_error}")
-                                result = response
+                                print(f"    Raw response: {response}")
+
+                                # If validation fails, treat as retriable error
+                                if attempt < max_retries:
+                                    wait_seconds = 2
+                                    print(f"🔄 Retry {attempt + 1}/{max_retries} after {wait_seconds}s due to validation failure")
+                                    time.sleep(wait_seconds)
+                                    continue  # Retry
+                                else:
+                                    # Last attempt, return the error
+                                    return {
+                                        "error": f"Validation failed: {validation_error}",
+                                        "latency_ms": latency_ms,
+                                        "success": False,
+                                        "attempts": attempt + 1,
+                                        "raw_response": response
+                                    }
                         else:
                             result = response
-                        
+
                         return {
                             "data": result,
                             "latency_ms": latency_ms,

@@ -494,6 +494,9 @@ If no pagination:
         Returns:
             The complete rendered HTML content with dropdowns expanded
         """
+        import time
+        step_start = time.time()
+
         try:
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=True)
@@ -504,61 +507,143 @@ If no pagination:
                 page = context.new_page()
 
                 # Load page
+                print(f"   ⏱️  Loading page...")
+                load_start = time.time()
                 page.goto(url, wait_until="domcontentloaded", timeout=10000)
                 page.wait_for_timeout(2000)
+                print(f"   ⏱️  Page loaded in {(time.time() - load_start)*1000:.0f}ms")
 
                 # Count initial links for validation
+                count_start = time.time()
                 initial_link_count = page.locator('a[href]').count()
+                print(f"   ⏱️  Counted {initial_link_count} initial links in {(time.time() - count_start)*1000:.0f}ms")
 
-                # Strategy 1: ARIA-based detection (most reliable)
-                # Find collapsed menu triggers
-                aria_selectors = [
-                    '[aria-expanded="false"][aria-haspopup]',  # Collapsed menu with popup
-                    '[aria-expanded="false"]',  # Any collapsed element
-                    '[aria-haspopup="menu"]',  # Menu trigger
-                    '[aria-haspopup="true"]',  # Generic popup trigger
-                ]
+                # Expand all navigation menus using CSS and DOM manipulation (avoid clicks)
+                print(f"   ⏱️  Expanding navigation menus...")
+                expand_start = time.time()
+                menus_expanded = page.evaluate("""
+                    () => {
+                        let expanded = 0;
 
-                menus_expanded = 0
-                for selector in aria_selectors:
-                    try:
-                        triggers = page.locator(selector).all()
-                        for trigger in triggers:
-                            try:
-                                # Try hover first (works for CSS-only dropdowns)
-                                trigger.hover(timeout=500)
-                                page.wait_for_timeout(300)
+                        // Strategy: Use CSS/attributes to force dropdowns open without clicking
+                        // This avoids triggering navigation
 
-                                # Check if menu expanded (aria-expanded changed to true)
-                                aria_expanded = trigger.get_attribute('aria-expanded')
-                                if aria_expanded == 'false':
-                                    # Still collapsed, try clicking
-                                    trigger.click(timeout=500)
-                                    page.wait_for_timeout(300)
-                                    menus_expanded += 1
-                                else:
-                                    menus_expanded += 1
+                        // 1. Find collapsed menu triggers
+                        const selectors = [
+                            'nav [aria-expanded="false"]',
+                            'header [aria-expanded="false"]',
+                            '[role="navigation"] [aria-expanded="false"]',
+                            'nav button',
+                            'header button',
+                            '.dropdown-toggle',
+                            '[data-toggle="dropdown"]'
+                        ];
 
-                            except Exception:
-                                continue
-                    except Exception:
-                        continue
+                        const processed = new Set(); // Avoid processing same element twice
 
-                # Final link count
-                final_link_count = page.locator('a[href]').count()
-                total_revealed = final_link_count - initial_link_count
+                        selectors.forEach(selector => {
+                            document.querySelectorAll(selector).forEach(el => {
+                                if (processed.has(el)) return;
+                                processed.add(el);
 
-                if total_revealed > 0:
-                    print(f"   🎯 Revealed {total_revealed} additional links by expanding {menus_expanded} menus")
+                                try {
+                                    // Change aria-expanded attribute
+                                    if (el.hasAttribute('aria-expanded')) {
+                                        el.setAttribute('aria-expanded', 'true');
+                                    }
+
+                                    // Add open/show classes (common patterns)
+                                    el.classList.add('open', 'show', 'expanded', 'active');
+                                    el.classList.remove('collapsed', 'closed');
+
+                                    // Find and show associated dropdown content
+                                    const ariaControls = el.getAttribute('aria-controls');
+                                    if (ariaControls) {
+                                        const controlled = document.getElementById(ariaControls);
+                                        if (controlled) {
+                                            controlled.classList.add('show', 'open', 'expanded');
+                                            controlled.classList.remove('collapse', 'collapsed', 'hidden');
+                                            controlled.style.display = 'block';
+                                            controlled.style.visibility = 'visible';
+                                        }
+                                    }
+
+                                    // Check for next sibling dropdowns
+                                    const nextEl = el.nextElementSibling;
+                                    if (nextEl && (nextEl.classList.contains('dropdown') ||
+                                                   nextEl.classList.contains('submenu') ||
+                                                   nextEl.classList.contains('menu'))) {
+                                        nextEl.classList.add('show', 'open');
+                                        nextEl.style.display = 'block';
+                                    }
+
+                                    expanded++;
+                                } catch (e) {
+                                    // Ignore errors for individual elements
+                                }
+                            });
+                        });
+
+                        return expanded;
+                    }
+                """)
+
+                # Wait briefly for any animations/JS to complete
+                page.wait_for_timeout(1000)
+                print(f"   ⏱️  Expanded {menus_expanded} menus in {(time.time() - expand_start)*1000:.0f}ms")
+
+                # Final link count (with error handling for destroyed context)
+                try:
+                    count_start = time.time()
+                    final_link_count = page.locator('a[href]').count()
+                    total_revealed = final_link_count - initial_link_count
+                    print(f"   ⏱️  Counted {final_link_count} final links in {(time.time() - count_start)*1000:.0f}ms")
+
+                    if total_revealed > 0:
+                        print(f"   🎯 Revealed {total_revealed} additional links")
+                except Exception as count_error:
+                    # If context is destroyed, we can still try to get content
+                    print(f"   ⚠️  Could not count final links (context may be destroyed): {count_error}")
 
                 # Get final HTML with all dropdowns expanded
-                html_content = page.content()
+                print(f"   ⏱️  Extracting page content...")
+                content_start = time.time()
+                try:
+                    html_content = page.content()
+                    print(f"   ⏱️  Content extracted in {(time.time() - content_start)*1000:.0f}ms")
+                except Exception as content_error:
+                    # If page navigated, reload and get content without dropdowns
+                    print(f"   ⚠️  Page context lost, fetching fresh content: {content_error}")
+                    page.goto(url, wait_until="domcontentloaded", timeout=10000)
+                    page.wait_for_timeout(1000)
+                    html_content = page.content()
+
                 browser.close()
+
+                print(f"   ⏱️  Total dropdown expansion: {(time.time() - step_start)*1000:.0f}ms")
                 return html_content
 
         except Exception as e:
             print(f"⚠️  Error fetching HTML with dropdowns: {e}")
-            return ""
+            # Try one more time without dropdown expansion as fallback
+            try:
+                print(f"   🔄 Attempting fallback: fetching page without dropdown expansion")
+                with sync_playwright() as p:
+                    browser = p.chromium.launch(headless=True)
+                    context = browser.new_context(
+                        ignore_https_errors=True,
+                        user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                    )
+                    page = context.new_page()
+                    page.goto(url, wait_until="domcontentloaded", timeout=10000)
+                    page.wait_for_timeout(2000)
+                    html_content = page.content()
+                    browser.close()
+                    print(f"   ✅ Fallback successful - got page without dropdowns")
+                    return html_content
+            except Exception as fallback_error:
+                print(f"   ❌ Fallback also failed: {fallback_error}")
+                return ""
 
     def extract_page_links_with_context(self, url: str, expand_navigation_menus: bool = False) -> List[dict]:
         """
@@ -1729,27 +1814,68 @@ Return JSON:
 
         # Analyze navigation with LLM
         try:
+            # Enable debug mode for navigation analysis to help troubleshoot empty responses
+            debug_mode = os.getenv('DEBUG_LLM', 'false').lower() == 'true'
+
             prompt_data = PromptManager.get_navigation_analysis_prompt(self.url, homepage_links)
+
+            # Navigation analysis needs higher token limit for large sites with many categories
+            # Estimate: prompt ~9k tokens + response up to 8k tokens = 17k total
             navigation_result = self.llm_handler.call(
-                prompt_data['prompt'], 
-                expected_format="json", 
-                response_model=prompt_data['model']
+                prompt_data['prompt'],
+                expected_format="json",
+                response_model=prompt_data['model'],
+                max_tokens=16384,  # Increased from default 8192 to handle complex hierarchies
+                debug=debug_mode
             )
-            
+
             if navigation_result.get("success"):
                 navigation_tree = navigation_result.get("data", {})
+
+                # Validate that we got a proper response
+                if not navigation_tree:
+                    print(f"      ❌ Navigation analysis returned empty data")
+                    return None
+
+                # Validate required fields are present
+                if "category_tree" not in navigation_tree:
+                    print(f"      ❌ Navigation analysis missing 'category_tree' field")
+                    print(f"         Received keys: {list(navigation_tree.keys())}")
+                    return None
+
+                if "excluded_count" not in navigation_tree:
+                    print(f"      ❌ Navigation analysis missing 'excluded_count' field")
+                    print(f"         Received keys: {list(navigation_tree.keys())}")
+                    return None
+
+                # Check that category_tree is not empty
+                if not navigation_tree.get("category_tree"):
+                    print(f"      ❌ Navigation analysis returned empty category_tree")
+                    return None
+
                 print(f"      ✅ Navigation analysis successful")
-                
+                print(f"         Found {len(navigation_tree.get('category_tree', []))} root categories")
+                print(f"         Excluded {navigation_tree.get('excluded_count', 0)} URLs")
+
                 # Print the navigation tree structure
                 self._print_navigation_tree(navigation_tree)
-                
+
                 return navigation_tree
             else:
-                print(f"      ❌ Navigation analysis failed: {navigation_result.get('error', 'Unknown')}")
+                error_msg = navigation_result.get('error', 'Unknown')
+                attempts = navigation_result.get('attempts', 1)
+                print(f"      ❌ Navigation analysis failed after {attempts} attempts: {error_msg}")
+
+                # If we have raw response, show it for debugging
+                if "raw_response" in navigation_result:
+                    print(f"         Raw response: {navigation_result['raw_response']}")
+
                 return None
-                
+
         except Exception as e:
             print(f"      ❌ Navigation analysis exception: {e}")
+            import traceback
+            traceback.print_exc()
             return None
     
     def _extract_all_leaf_urls(self, navigation_tree: dict) -> List[str]:

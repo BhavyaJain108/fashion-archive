@@ -15,6 +15,45 @@ from collections import Counter
 from llm_handler import LLMHandler
 from prompts import lineage_selection
 from prompts import pagination_detection
+
+
+def escape_css_selector_for_playwright(selector: str) -> str:
+    """
+    Escape special characters in CSS selectors for use with Playwright Python API.
+    Primarily handles Tailwind CSS class names with colons (e.g., lg:grid-cols-12, hover:bg-blue-500).
+
+    Args:
+        selector: CSS selector string that may contain unescaped special characters
+
+    Returns:
+        Escaped CSS selector safe for use with Playwright's page.locator() and page.wait_for_selector()
+    """
+    if not selector:
+        return selector
+
+    # For Playwright Python API, use single backslash escaping
+    return selector.replace(':', '\\:')
+
+
+def escape_css_selector_for_js(selector: str) -> str:
+    """
+    Escape special characters in CSS selectors for use with JavaScript querySelector/querySelectorAll.
+    Primarily handles Tailwind CSS class names with colons (e.g., lg:grid-cols-12, hover:bg-blue-500).
+
+    Args:
+        selector: CSS selector string that may contain unescaped special characters
+
+    Returns:
+        Escaped CSS selector safe for use with JavaScript querySelector
+    """
+    if not selector:
+        return selector
+
+    # For JavaScript querySelector, use single backslash
+    # json.dumps() will preserve it correctly for JavaScript
+    return selector.replace(':', '\\:')
+
+
 # Import modal bypass for load more functionality
 try:
     from backend.scraper.modal_bypass_engine import bypass_blocking_modals_only
@@ -135,12 +174,13 @@ def _extract_with_scrolling(page_url: str, pattern: Dict[str, str], brand_name: 
             page.goto(page_url, wait_until="domcontentloaded", timeout=15000)
             page.wait_for_timeout(2000)  # Initial wait
             
-            # Get selectors from pattern
-            container_selector = pattern.get('container_selector', '')
-            
-            if not container_selector:
+            # Get selectors from pattern and escape for Playwright API
+            container_selector_raw = pattern.get('container_selector', '')
+            if not container_selector_raw:
                 raise Exception("No container selector in pattern")
-            
+
+            container_selector = escape_css_selector_for_playwright(container_selector_raw)
+
             # Wait for containers to appear - longer timeout for dynamic loading
             try:
                 page.wait_for_selector(container_selector, timeout=15000)
@@ -217,23 +257,37 @@ def _extract_with_scrolling(page_url: str, pattern: Dict[str, str], brand_name: 
             # If load more was found and clicked, keep chasing it like pagination elements
             if load_more_clicked:
                 print(f"   🎯 Load more button found and clicked, chasing load more until exhausted...")
-                
+
                 load_more_click_count = 1
                 no_load_more_attempts = 0
+                no_height_change_count = 0
                 max_load_more_attempts = 2  # Similar to scrolling attempts
-                
+                max_no_height_change = 2  # Stop if height doesn't change after clicks
+
                 while load_more_click_count < 20:  # Reasonable limit to prevent infinite loops
                     # Scroll to bottom first to see if more content loaded
                     current_height = page.evaluate("document.body.scrollHeight")
                     page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                     page.wait_for_timeout(3000)  # Wait for content to load
-                    
+
                     new_height = page.evaluate("document.body.scrollHeight")
                     print(f"   📏 After load more #{load_more_click_count}: height {current_height} → {new_height}")
-                    
+
+                    # Check if height changed - if not, button clicks aren't loading content
+                    if new_height == current_height:
+                        no_height_change_count += 1
+                        print(f"   ⚠️  Page height unchanged after click (attempt {no_height_change_count}/{max_no_height_change})")
+
+                        if no_height_change_count >= max_no_height_change:
+                            print(f"   🛑 Abandoning load more - page height not increasing after {load_more_click_count} clicks")
+                            break
+                    else:
+                        # Height changed, reset counter
+                        no_height_change_count = 0
+
                     # Try to click load more again
                     additional_click = _handle_load_more_button(page, page_url, brand_instance)
-                    
+
                     if additional_click:
                         load_more_click_count += 1
                         no_load_more_attempts = 0  # Reset attempts counter
@@ -241,7 +295,7 @@ def _extract_with_scrolling(page_url: str, pattern: Dict[str, str], brand_name: 
                     else:
                         no_load_more_attempts += 1
                         print(f"   ⏳ No load more button found (attempt {no_load_more_attempts}/{max_load_more_attempts})")
-                        
+
                         if no_load_more_attempts >= max_load_more_attempts:
                             print(f"   ✅ No more load more buttons found after {load_more_click_count} clicks")
                             break
@@ -745,17 +799,23 @@ def _extract_products_from_current_state(page, page_url: str, pattern: Dict[str,
     """
     products = []
     products_by_url = {}  # Track products by URL to merge images from duplicates
-    
-    # Get selectors
-    container_selector = pattern.get('container_selector', '')
-    link_selector = pattern.get('link_selector', 'a')
-    name_selector = pattern.get('name_selector', '')
-    
-    # Use JavaScript to extract product data - safely escape selectors
+
+    # Get selectors and escape them for JavaScript querySelector usage
+    container_selector = escape_css_selector_for_js(pattern.get('container_selector', ''))
+    link_selector = escape_css_selector_for_js(pattern.get('link_selector', 'a'))
+    name_selector = escape_css_selector_for_js(pattern.get('name_selector', ''))
+
+    # Debug logging
+    print(f"         🔍 DEBUG: Raw container selector: {pattern.get('container_selector', '')}")
+    print(f"         🔍 DEBUG: Escaped container selector: {container_selector}")
+
+    # Use JavaScript to extract product data - safely JSON-escape selectors
     import json
     container_selector_escaped = json.dumps(container_selector)
     link_selector_escaped = json.dumps(link_selector)
     name_selector_escaped = json.dumps(name_selector)
+
+    print(f"         🔍 DEBUG: JSON-escaped container selector: {container_selector_escaped}")
     
     extraction_result = page.evaluate(f"""
         () => {{
@@ -880,7 +940,11 @@ def _extract_products_from_current_state(page, page_url: str, pattern: Dict[str,
                 return true;
             }}
             
+            // Debug: Log the selector being used
+            console.log('Container selector:', {container_selector_escaped});
+
             const containers = document.querySelectorAll({container_selector_escaped});
+            console.log('Containers found:', containers.length);
             const products = [];
             
             containers.forEach(container => {{

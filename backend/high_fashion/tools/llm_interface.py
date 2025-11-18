@@ -9,9 +9,10 @@ from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any
 from dotenv import load_dotenv
 
-# Load .env from project root
+# Load .env from config directory
 script_dir = os.path.dirname(os.path.abspath(__file__))
-env_path = os.path.join(script_dir, '.env')
+project_root = os.path.abspath(os.path.join(script_dir, '..', '..', '..'))
+env_path = os.path.join(project_root, 'config', '.env')
 load_dotenv(env_path)
 
 
@@ -38,9 +39,19 @@ class ClaudeInterface(LLMInterface):
         except ImportError:
             raise ImportError("anthropic package not installed. Run: pip install anthropic")
     
-    def generate(self, prompt: str, max_tokens: int = 1000, temperature: float = 0.0, response_model=None) -> str:
+    def generate(self, prompt: str, max_tokens: int = 1000, temperature: float = 0.0, response_model=None, debug: bool = False) -> str:
         if response_model:
             # Use structured output with tools
+            schema = response_model.model_json_schema()
+
+            if debug:
+                print(f"🔍 DEBUG: Calling Claude API with structured output")
+                print(f"   Model: {self.model}")
+                print(f"   Max tokens: {max_tokens}")
+                print(f"   Prompt length: {len(prompt)} chars (~{len(prompt)//4} tokens)")
+                print(f"   Schema fields: {list(schema.get('properties', {}).keys())}")
+                print(f"   Schema required: {schema.get('required', [])}")
+
             response = self.client.messages.create(
                 model=self.model,
                 max_tokens=max_tokens,
@@ -50,18 +61,46 @@ class ClaudeInterface(LLMInterface):
                 tools=[{
                     "name": "structured_output",
                     "description": "Return structured data matching the schema",
-                    "input_schema": response_model.model_json_schema()
+                    "input_schema": schema
                 }]
             )
-            
+
+            if debug:
+                print(f"🔍 DEBUG: Response received")
+                print(f"   Content blocks: {len(response.content) if response.content else 0}")
+                if response.content:
+                    for i, block in enumerate(response.content):
+                        print(f"   Block {i}: type={getattr(block, 'type', 'unknown')}")
+
             # Extract structured data from tool use
             if response.content and len(response.content) > 0:
                 for content_block in response.content:
-                    if hasattr(content_block, 'tool_use') and content_block.tool_use:
-                        return content_block.tool_use.input
-                    elif hasattr(content_block, 'input'):
-                        return content_block.input
-            
+                    # Check if this is a ToolUseBlock (has type='tool_use')
+                    if hasattr(content_block, 'type') and content_block.type == 'tool_use':
+                        if hasattr(content_block, 'input'):
+                            tool_input = content_block.input
+
+                            if debug:
+                                print(f"🔍 DEBUG: Tool input received")
+                                print(f"   Type: {type(tool_input)}")
+                                print(f"   Keys: {list(tool_input.keys()) if isinstance(tool_input, dict) else 'not a dict'}")
+                                print(f"   Empty: {not tool_input or tool_input == {}}")
+                                if tool_input:
+                                    import json
+                                    print(f"   Content preview: {json.dumps(tool_input, indent=2)[:500]}")
+
+                            return tool_input
+                    elif hasattr(content_block, 'type') and content_block.type == 'text':
+                        # Check if there's text content (might indicate refusal or explanation)
+                        if debug:
+                            print(f"🔍 DEBUG: Text block found: {content_block.text[:200]}")
+
+            if debug:
+                print(f"🔍 DEBUG: No tool use block found in response")
+                print(f"   Response object: {response}")
+                print(f"   Stop reason: {getattr(response, 'stop_reason', 'unknown')}")
+                print(f"   Usage: {getattr(response, 'usage', 'unknown')}")
+
             raise ValueError("No structured output received from API")
         else:
             # Regular text generation

@@ -70,6 +70,22 @@ CRITICAL: Your selector must target ONE SPECIFIC ELEMENT TYPE
 - Do NOT combine classes from parent + child elements like: div.parent.child-class
 - Each class in your selector must exist on the SAME HTML element
 
+IMPORTANT - Handling Stock/Availability Attributes:
+We want ALL products regardless of stock status (in stock, sold out, etc.). If you discover that products are differentiated by stock/availability attributes with boolean or status values, you MUST use attribute-only matching without value comparison.
+
+The syntax [attribute-name] without ="value" matches any element that has that attribute, regardless of its value (true, false, "available", "sold-out", etc.). This ensures we capture the complete product catalog.
+
+Examples:
+❌ WRONG: element[data-available="true"], element[stock-status="in-stock"]
+✅ CORRECT: element[data-available], element[stock-status]
+
+Apply this rule ONLY to stock/availability-related attributes. Common patterns include:
+- Attributes containing: stock, available, sold, inventory, in-stock, out-of-stock
+- Boolean attributes (="true"/"false") related to product availability
+- Status attributes with values like "available"/"unavailable", "in-stock"/"out-of-stock"
+
+For all other attributes, use specific values as needed. This rule is specifically for ensuring we don't filter out products based on their availability status.
+
 NAME EXTRACTION STRATEGY:
 Product names should primarily come from product URLs if possible. CSS text selectors are fallback when URL extraction isn't sufficient.
 

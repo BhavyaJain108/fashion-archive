@@ -41,5 +41,5 @@ class PromptManager:
 
 # Export models for direct import
 from .product_pattern_analysis import ProductPatternAnalysis
-from .navigation_analysis import NavigationAnalysis, CategoryLink
+from .navigation_analysis import NavigationAnalysis, CategoryNode
 from .product_link_finder import ProductLinkResponse

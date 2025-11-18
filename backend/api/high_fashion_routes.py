@@ -321,17 +321,28 @@ def serve_fashion_image():
     try:
         image_path = request.args.get('path', '')
         print(f"DEBUG serve_image: Requested path: {image_path}")
-        print(f"DEBUG serve_image: Path exists: {os.path.exists(image_path)}")
 
         if not image_path:
             return jsonify({'error': 'No path provided'}), 400
 
-        if not os.path.exists(image_path):
-            print(f"DEBUG serve_image: File not found at {image_path}")
-            return jsonify({'error': 'Image not found', 'path': image_path}), 404
+        # Convert to absolute path if relative
+        # The working directory when running backend/app.py is the project root
+        if not os.path.isabs(image_path):
+            # Get project root (parent of backend directory)
+            project_root = Path(__file__).parent.parent.parent
+            absolute_path = project_root / image_path
+        else:
+            absolute_path = Path(image_path)
 
-        print(f"DEBUG serve_image: Serving file: {image_path}")
-        return send_file(image_path)
+        print(f"DEBUG serve_image: Absolute path: {absolute_path}")
+        print(f"DEBUG serve_image: Path exists: {absolute_path.exists()}")
+
+        if not absolute_path.exists():
+            print(f"DEBUG serve_image: File not found at {absolute_path}")
+            return jsonify({'error': 'Image not found', 'path': str(absolute_path)}), 404
+
+        print(f"DEBUG serve_image: Serving file: {absolute_path}")
+        return send_file(str(absolute_path))
 
     except Exception as e:
         import traceback

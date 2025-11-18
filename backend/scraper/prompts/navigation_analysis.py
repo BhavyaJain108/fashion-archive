@@ -13,7 +13,7 @@ class CategoryNode(BaseModel):
     """Hierarchical category node"""
     name: str = Field(description="Display name of the category")
     url: Optional[str] = Field(default=None, description="The category URL (required for leaf nodes)")
-    reasoning: str = Field(description="Why this category was included")
+    reasoning: str = Field(description="Why this category was included and why this position was selected based on emperical data")
     children: Optional[List['CategoryNode']] = Field(default=None, description="Subcategories")
     
     def flatten_urls(self) -> List[str]:
@@ -30,16 +30,10 @@ class CategoryNode(BaseModel):
         return urls
 
 
-class CategoryLink(BaseModel):
-    """Individual category URL with reasoning (for excluded URLs)"""
-    url: str = Field(description="The category URL")
-    reasoning: str = Field(description="Why this URL was excluded")
-
-
 class NavigationAnalysis(BaseModel):
     """Structured output for navigation/category analysis"""
     category_tree: List[CategoryNode] = Field(description="Hierarchical product category structure")
-    excluded_urls: List[CategoryLink] = Field(description="URLs that were excluded and why")
+    excluded_count: int = Field(description="Number of URLs that were excluded (for informational purposes only)")
     
     def get_flat_urls(self) -> List[str]:
         """Flatten entire tree to list of URLs for backward compatibility"""
@@ -58,17 +52,17 @@ def get_prompt(website_url: str, links) -> str:
     # Handle both old format (list of strings) and new format (list of dicts)
     if links and isinstance(links[0], dict):
         # New format with HTML context
-        links_text = "\n".join(f"- {link_info['full_element']}" for link_info in links)
+        links_text = "\n".join(f"{i}. {link_info['full_element']}" for i, link_info in enumerate(links))
     else:
         # Old format - just URLs
-        links_text = "\n".join(f"- {link}" for link in links)
-    
+        links_text = "\n".join(f"{i}. {link}" for i, link in enumerate(links))
+
     return f"""
 Analyze this fashion brand website's navigation links and create a hierarchical product category tree:
 
 Website: {website_url}
 
-All link elements found on the page:
+All link elements found on the page (numbered for reference):
 {links_text}
 
 You are a clothing expert and understand all types of clothing styles and categories.
@@ -101,18 +95,22 @@ OR if no hierarchy exists:
 ```
 
 IMPORTANT RULES:
-1. If no clear hierarchy exists, try your best to organize. If there is a type of tshirt category - then that can probably go under tshits. 
+1. If no clear hierarchy exists, try your best to organize based on HTML DOM position and common sense. If there is a type of tshirt category - then that can probably go under tshits.
     Only the case that you if you can't, create top-level categories.
-    Further, a parent node will always have more than one child node. as if we are categorizing something by some type - then there must have been a separation from the rest of the products. 
+    Further, a parent node will always have more than one child node. as if we are categorizing something by some type - then there must have been a separation from the rest of the products.
     Be vigilant to catch all the children nodes.
-2. NEVER INCLUDE "Shop All" or "All products" or just simply "Collections" pages that have no indication of the type of product 
-3. Include specific product categories regardless of URL pattern: /collections/tees, /pages/sneakers, /shop/mens-shoes, /category/dresses, /products/accessories. 
-   IMPORTANT: Focus on the CONTENT/PURPOSE of the link, not the URL structure. If it leads to browsable products, include it. 
+2. NEVER INCLUDE "Shop All" or "All products" or just simply "Collections" pages that have no indication of the type of product
+3. Include specific product categories regardless of URL pattern: /collections/tees, /pages/sneakers, /shop/mens-shoes, /category/dresses, /products/accessories.
+   IMPORTANT: Focus on the CONTENT/PURPOSE of the link, not the URL structure. If it leads to browsable products, include it.
 4. If mens/shoes and womens/shoes exist separately, include both under their respective parents
 5. Each URL should lead to actual products customers can purchase
 6. When in doubt, INCLUDE the category rather than exclude it
 7. CRITICAL: Always return the COMPLETE URL exactly as provided in the input - do not truncate to relative paths
-8. EXCLUDE "shop all" or "all products" pages that do not indicate specific product types. 
+8. EXCLUDE "shop all" or "all products" pages that do not indicate specific product types.
+
+OUTPUT:
+- Return the category_tree with the hierarchical structure
+- For excluded_count, just return the NUMBER of URLs you excluded (e.g., 15) - no need to list them or explain why
 
 Build the most logical tree structure that represents how this brand organizes its products for customers.
 """.strip()
