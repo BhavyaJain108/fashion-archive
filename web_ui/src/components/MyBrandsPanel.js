@@ -1,56 +1,76 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { FashionArchiveAPI } from '../services/api';
-
-// Brand folder positions storage key
-const POSITIONS_KEY = 'myBrandsFolderPositions';
 
 function MyBrandsPanel() {
   const [brands, setBrands] = useState([]);
-  const [followedBrands, setFollowedBrands] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [contextMenu, setContextMenu] = useState(null);
+  const [expandedBrands, setExpandedBrands] = useState({});
+  const [selectedLeaves, setSelectedLeaves] = useState(new Set());
+  const [products, setProducts] = useState([]);
+  const [loadingProducts, setLoadingProducts] = useState(false);
+  const [scrapingBrands, setScrapingBrands] = useState(new Set());
+
+  // Add brand modal state
   const [showAddBrandModal, setShowAddBrandModal] = useState(false);
   const [brandUrlInput, setBrandUrlInput] = useState('');
   const [validating, setValidating] = useState(false);
   const [error, setError] = useState('');
-  const [folderPositions, setFolderPositions] = useState({});
-  const [dragging, setDragging] = useState(null);
-  const [scrapingBrands, setScrapingBrands] = useState(new Set());
-  const [lastRightClickPos, setLastRightClickPos] = useState(null);
-  const [contextMenuBrand, setContextMenuBrand] = useState(null);
 
-  const desktopRef = useRef(null);
-
-  // Load brands and positions on mount
+  // Load brands on mount
   useEffect(() => {
     loadBrands();
-    loadFolderPositions();
   }, []);
 
   const loadBrands = async () => {
     try {
       setLoading(true);
       const followed = await FashionArchiveAPI.getFollowedBrands();
-      console.log('Followed brands:', followed);
-      setFollowedBrands(followed);
 
-      // Load brand details for each followed brand
-      const brandDetails = await Promise.all(
+      // Load brand details and navigation for each followed brand
+      const brandsWithData = await Promise.all(
         followed.map(async (followedBrand) => {
           try {
             const details = await FashionArchiveAPI.getBrandDetails(followedBrand.brand_id);
+
+            // Load navigation tree
+            const navResponse = await fetch(
+              `http://localhost:8081/api/image?path=${encodeURIComponent(`data/brands/${followedBrand.brand_id}/navigation.json`)}`
+            );
+            let navigation = { category_tree: [] };
+            if (navResponse.ok) {
+              const navText = await navResponse.text();
+              try {
+                navigation = JSON.parse(navText);
+              } catch (e) {
+                console.warn('Could not parse navigation for', followedBrand.brand_id);
+              }
+            }
+
             return {
               ...followedBrand,
-              ...details
+              ...details,
+              navigation: navigation.category_tree || []
             };
           } catch (err) {
             console.error(`Error loading brand ${followedBrand.brand_id}:`, err);
-            return followedBrand;
+            return {
+              ...followedBrand,
+              navigation: []
+            };
           }
         })
       );
 
-      setBrands(brandDetails);
+      setBrands(brandsWithData);
+
+      // Check scraping status for each brand
+      brandsWithData.forEach(brand => {
+        if (brand.status?.last_scrape_status === 'running') {
+          setScrapingBrands(prev => new Set([...prev, brand.brand_id]));
+          pollScrapingStatus(brand.brand_id);
+        }
+      });
+
     } catch (error) {
       console.error('Error loading brands:', error);
     } finally {
@@ -58,134 +78,89 @@ function MyBrandsPanel() {
     }
   };
 
-  const loadFolderPositions = () => {
-    try {
-      const saved = localStorage.getItem(POSITIONS_KEY);
-      if (saved) {
-        setFolderPositions(JSON.parse(saved));
-      }
-    } catch (error) {
-      console.error('Error loading folder positions:', error);
-    }
-  };
+  // Poll for scraping status
+  const pollScrapingStatus = async (brandId) => {
+    const checkStatus = async () => {
+      try {
+        const status = await FashionArchiveAPI.getBrandScrapeStatus(brandId);
 
-  const saveFolderPositions = (positions) => {
-    try {
-      localStorage.setItem(POSITIONS_KEY, JSON.stringify(positions));
-    } catch (error) {
-      console.error('Error saving folder positions:', error);
-    }
-  };
-
-  // Get folder position for a brand
-  const getFolderPosition = (brandId, index) => {
-    if (folderPositions[brandId]) {
-      return folderPositions[brandId];
-    }
-
-    // Auto-arrange in grid if no position set
-    const gridSize = 120; // Folder width + spacing
-    const columns = Math.floor((window.innerWidth - 40) / gridSize);
-    const row = Math.floor(index / columns);
-    const col = index % columns;
-
-    return {
-      x: 20 + col * gridSize,
-      y: 20 + row * gridSize
-    };
-  };
-
-  // Handle right-click context menu on desktop
-  const handleContextMenu = (e) => {
-    e.preventDefault();
-
-    // Store the right-click position relative to the desktop
-    const rect = desktopRef.current.getBoundingClientRect();
-    setLastRightClickPos({
-      x: e.clientX - rect.left + desktopRef.current.scrollLeft,
-      y: e.clientY - rect.top + desktopRef.current.scrollTop
-    });
-
-    // Reset brand context menu (this is for desktop, not a specific brand)
-    setContextMenuBrand(null);
-
-    setContextMenu({
-      x: e.clientX,
-      y: e.clientY
-    });
-  };
-
-  // Handle right-click context menu on a folder
-  const handleFolderContextMenu = (e, brand) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    setContextMenuBrand(brand);
-
-    setContextMenu({
-      x: e.clientX,
-      y: e.clientY
-    });
-  };
-
-  const closeContextMenu = () => {
-    setContextMenu(null);
-    setContextMenuBrand(null);
-  };
-
-  // Handle Add New Brand
-  const handleAddBrand = () => {
-    setShowAddBrandModal(true);
-    closeContextMenu();
-  };
-
-  // Handle Rescrape Brand
-  const handleRescrape = async () => {
-    if (!contextMenuBrand) return;
-
-    closeContextMenu();
-
-    try {
-      // Add brand to scraping set
-      setScrapingBrands(prev => new Set([...prev, contextMenuBrand.brand_id]));
-
-      // Trigger scrape
-      await FashionArchiveAPI.scrapeBrandProducts(contextMenuBrand.brand_id);
-
-      // Poll for completion
-      const pollInterval = setInterval(async () => {
-        try {
-          const status = await FashionArchiveAPI.getBrandScrapeStatus(contextMenuBrand.brand_id);
-
-          if (status.status === 'completed' || status.status === 'failed') {
-            clearInterval(pollInterval);
-            setScrapingBrands(prev => {
-              const newSet = new Set(prev);
-              newSet.delete(contextMenuBrand.brand_id);
-              return newSet;
-            });
-
-            // Reload brands to get updated data
-            loadBrands();
-          }
-        } catch (error) {
-          console.error('Error polling scrape status:', error);
-          clearInterval(pollInterval);
+        if (status.error || status.status === 'completed' || status.status === 'failed') {
           setScrapingBrands(prev => {
             const newSet = new Set(prev);
-            newSet.delete(contextMenuBrand.brand_id);
+            newSet.delete(brandId);
             return newSet;
           });
+          loadBrands(); // Reload to get updated data
+        } else {
+          setTimeout(() => checkStatus(), 3000);
         }
-      }, 2000); // Poll every 2 seconds
+      } catch (error) {
+        setScrapingBrands(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(brandId);
+          return newSet;
+        });
+      }
+    };
+    checkStatus();
+  };
+
+  // Toggle brand expansion
+  const toggleBrand = (brandId) => {
+    setExpandedBrands(prev => ({
+      ...prev,
+      [brandId]: !prev[brandId]
+    }));
+  };
+
+  // Toggle leaf selection
+  const toggleLeaf = async (brandId, categoryUrl, categoryName) => {
+    const leafKey = `${brandId}::${categoryUrl}`;
+
+    const newSelected = new Set(selectedLeaves);
+    if (newSelected.has(leafKey)) {
+      newSelected.delete(leafKey);
+    } else {
+      newSelected.add(leafKey);
+    }
+
+    setSelectedLeaves(newSelected);
+
+    // Load products for all selected leaves
+    if (newSelected.size > 0) {
+      await loadProductsForSelection(newSelected);
+    } else {
+      setProducts([]);
+    }
+  };
+
+  // Load products for selected categories
+  const loadProductsForSelection = async (selectedSet) => {
+    try {
+      setLoadingProducts(true);
+
+      // Collect all products from selected categories
+      const allProducts = [];
+
+      for (const leafKey of selectedSet) {
+        const [brandId, categoryUrl] = leafKey.split('::');
+
+        // Fetch products filtered by category
+        const response = await fetch(
+          `http://localhost:8081/api/products?brand_id=${brandId}&classification_url=${encodeURIComponent(categoryUrl)}&limit=1000`
+        );
+
+        if (response.ok) {
+          const data = await response.json();
+          allProducts.push(...(data.products || []));
+        }
+      }
+
+      setProducts(allProducts);
     } catch (error) {
-      console.error('Error starting scrape:', error);
-      setScrapingBrands(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(contextMenuBrand.brand_id);
-        return newSet;
-      });
-      setError('Failed to start scraping: ' + error.message);
+      console.error('Error loading products:', error);
+    } finally {
+      setLoadingProducts(false);
     }
   };
 
@@ -200,7 +175,7 @@ function MyBrandsPanel() {
     setError('');
 
     try {
-      // Step 1: Validate the brand
+      // Validate the brand
       const validationResult = await FashionArchiveAPI.validateBrand(brandUrlInput);
 
       if (!validationResult.success) {
@@ -209,33 +184,17 @@ function MyBrandsPanel() {
         return;
       }
 
-      // Step 2: Check if brand already exists
+      // Check if brand already exists
       if (validationResult.exists) {
-        // Brand exists in database - follow it and add folder
         const brand = validationResult.brand;
         await FashionArchiveAPI.followBrand(brand.brand_id, brand.name);
-
-        // Set position for existing brand at right-click location
-        if (lastRightClickPos) {
-          const newPositions = {
-            ...folderPositions,
-            [brand.brand_id]: {
-              x: lastRightClickPos.x,
-              y: lastRightClickPos.y
-            }
-          };
-          setFolderPositions(newPositions);
-          saveFolderPositions(newPositions);
-        }
-
-        // Close modal and reload brands
         setShowAddBrandModal(false);
         setBrandUrlInput('');
         loadBrands();
         return;
       }
 
-      // Step 3: Brand is valid but doesn't exist - create it
+      // Create new brand
       const createResult = await FashionArchiveAPI.createBrandWithValidation(
         brandUrlInput,
         validationResult.brand_name
@@ -248,32 +207,14 @@ function MyBrandsPanel() {
       }
 
       const newBrand = createResult.brand;
-
-      // Step 4: Follow the new brand
       await FashionArchiveAPI.followBrand(newBrand.brand_id, newBrand.name);
 
-      // Step 5: Set position for new brand at right-click location
-      if (lastRightClickPos) {
-        const newPositions = {
-          ...folderPositions,
-          [newBrand.brand_id]: {
-            x: lastRightClickPos.x,
-            y: lastRightClickPos.y
-          }
-        };
-        setFolderPositions(newPositions);
-        saveFolderPositions(newPositions);
-      }
-
-      // Step 6: Start scraping
+      // Start scraping
       setScrapingBrands(prev => new Set(prev).add(newBrand.brand_id));
-      FashionArchiveAPI.startBrandScraping(newBrand.brand_id).then(scrapeResult => {
-        console.log('Scraping started:', scrapeResult);
-        // Poll for status updates
+      FashionArchiveAPI.startBrandScraping(newBrand.brand_id).then(() => {
         pollScrapingStatus(newBrand.brand_id);
       });
 
-      // Close modal and reload
       setShowAddBrandModal(false);
       setBrandUrlInput('');
       setValidating(false);
@@ -286,204 +227,124 @@ function MyBrandsPanel() {
     }
   };
 
-  // Poll for scraping status
-  const pollScrapingStatus = async (brandId) => {
-    const checkStatus = async () => {
-      const status = await FashionArchiveAPI.getBrandScrapeStatus(brandId);
+  // Render category tree recursively
+  const renderCategoryTree = (brand, categories, level = 0) => {
+    if (!categories || categories.length === 0) return null;
 
-      if (status.error) {
-        // No status found or error - stop polling
-        setScrapingBrands(prev => {
-          const newSet = new Set(prev);
-          newSet.delete(brandId);
-          return newSet;
-        });
-        return;
-      }
+    return categories.map((category, idx) => {
+      const hasChildren = category.children && category.children.length > 0;
+      const isLeaf = !hasChildren;
+      const leafKey = `${brand.brand_id}::${category.url}`;
+      const isSelected = selectedLeaves.has(leafKey);
 
-      if (status.status === 'completed' || status.status === 'failed') {
-        // Scraping finished
-        setScrapingBrands(prev => {
-          const newSet = new Set(prev);
-          newSet.delete(brandId);
-          return newSet;
-        });
-        loadBrands(); // Reload to get updated brand data
-      } else {
-        // Still running - check again in 3 seconds
-        setTimeout(() => checkStatus(), 3000);
-      }
-    };
+      // Determine display name based on whether it's a leaf
+      const displayName = isLeaf ? category.name.toLowerCase() : category.name.toUpperCase();
 
-    checkStatus();
-  };
+      return (
+        <div key={`${brand.brand_id}-${category.url}-${idx}`} style={{ marginLeft: level > 0 ? '16px' : '0' }}>
+          <div
+            className={`nav-item ${isLeaf ? 'nav-leaf' : 'nav-parent'} ${isSelected ? 'nav-selected' : ''}`}
+            onClick={() => {
+              if (isLeaf) {
+                toggleLeaf(brand.brand_id, category.url, category.name);
+              }
+            }}
+          >
+            {!isLeaf && <span className="nav-icon">▸</span>}
+            {isLeaf && <span className="nav-bullet">•</span>}
+            <span className={isSelected ? 'nav-text-bold' : 'nav-text'}>
+              {displayName}
+            </span>
+          </div>
 
-  // Handle folder drag
-  const handleFolderMouseDown = (e, brand) => {
-    if (e.button !== 0) return; // Only left click
-
-    e.preventDefault();
-    const startX = e.clientX;
-    const startY = e.clientY;
-    const startPos = getFolderPosition(brand.brand_id, brands.indexOf(brand));
-
-    setDragging({
-      brandId: brand.brand_id,
-      startX,
-      startY,
-      startPos
+          {hasChildren && renderCategoryTree(brand, category.children, level + 1)}
+        </div>
+      );
     });
-  };
-
-  const handleMouseMove = useCallback((e) => {
-    if (!dragging) return;
-
-    const deltaX = e.clientX - dragging.startX;
-    const deltaY = e.clientY - dragging.startY;
-
-    const newPositions = {
-      ...folderPositions,
-      [dragging.brandId]: {
-        x: dragging.startPos.x + deltaX,
-        y: dragging.startPos.y + deltaY
-      }
-    };
-
-    setFolderPositions(newPositions);
-  }, [dragging, folderPositions]);
-
-  const handleMouseUp = useCallback(() => {
-    if (dragging) {
-      saveFolderPositions(folderPositions);
-      setDragging(null);
-    }
-  }, [dragging, folderPositions]);
-
-  useEffect(() => {
-    if (dragging) {
-      window.addEventListener('mousemove', handleMouseMove);
-      window.addEventListener('mouseup', handleMouseUp);
-      return () => {
-        window.removeEventListener('mousemove', handleMouseMove);
-        window.removeEventListener('mouseup', handleMouseUp);
-      };
-    }
-  }, [dragging, handleMouseMove, handleMouseUp]);
-
-  // Handle folder double-click (to be implemented next)
-  const handleFolderDoubleClick = (brand) => {
-    console.log('Double clicked brand:', brand);
-    // TODO: Open brand detail view
   };
 
   if (loading) {
     return (
-      <div style={{
-        display: 'flex',
-        height: '100vh',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'var(--macos-bg)'
-      }}>
-        <div style={{
-          fontSize: '16px',
-          color: 'var(--macos-text-secondary)'
-        }}>
-          Loading brands...
-        </div>
+      <div className="my-brands-container">
+        <div className="loading-state">Loading brands...</div>
       </div>
     );
   }
 
   return (
-    <div
-      ref={desktopRef}
-      className="brands-desktop"
-      onContextMenu={handleContextMenu}
-      onClick={closeContextMenu}
-      style={{ height: '100vh', position: 'relative' }}
-    >
-      {/* Brand Folders */}
-      {brands.map((brand, index) => {
-        const pos = getFolderPosition(brand.brand_id, index);
-        const isLoading = scrapingBrands.has(brand.brand_id);
+    <div className="my-brands-container">
+      {/* Left Sidebar - Brand Navigation */}
+      <div className="brand-sidebar">
+        <div className="brand-sidebar-content">
+          {brands.map(brand => {
+            const isExpanded = expandedBrands[brand.brand_id];
+            const isScraping = scrapingBrands.has(brand.brand_id);
 
-        return (
-          <div
-            key={brand.brand_id}
-            className={`brand-folder ${isLoading ? 'loading' : ''}`}
-            style={{
-              left: `${pos.x}px`,
-              top: `${pos.y}px`
-            }}
-            onMouseDown={(e) => handleFolderMouseDown(e, brand)}
-            onDoubleClick={() => handleFolderDoubleClick(brand)}
-            onContextMenu={(e) => handleFolderContextMenu(e, brand)}
+            return (
+              <div key={brand.brand_id} className="brand-section">
+                <div
+                  className={`brand-name ${isScraping ? 'brand-loading' : ''}`}
+                  onClick={() => toggleBrand(brand.brand_id)}
+                >
+                  <span className="brand-expand-icon">{isExpanded ? '▾' : '▸'}</span>
+                  <span className="brand-name-text">{brand.name.toUpperCase()}</span>
+                  {isScraping && <span className="brand-loading-text"> loading...</span>}
+                </div>
+
+                {isExpanded && (
+                  <div className="brand-categories">
+                    {renderCategoryTree(brand, brand.navigation)}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Add Brand Button */}
+        <div className="add-brand-footer">
+          <button
+            className="add-brand-button"
+            onClick={() => setShowAddBrandModal(true)}
           >
-            {brand.favicon_path ? (
-              <div className="folder-icon folder-icon-custom">
-                <img
-                  src={`http://localhost:8081/api/image?path=${encodeURIComponent(brand.favicon_path)}`}
-                  alt={brand.name}
-                  className="favicon-img"
-                  onError={(e) => {
-                    // Fallback to blue folder if favicon fails to load
-                    e.target.style.display = 'none';
-                    e.target.parentElement.classList.remove('folder-icon-custom');
-                  }}
-                />
+            + Add New Brand
+          </button>
+        </div>
+      </div>
+
+      {/* Right Panel - Product Gallery */}
+      <div className="product-gallery">
+        {loadingProducts ? (
+          <div className="gallery-loading">Loading products...</div>
+        ) : products.length > 0 ? (
+          <div className="product-grid">
+            {products.map((product, idx) => (
+              <div key={`${product.product_url}-${idx}`} className="product-card">
+                {product.images && product.images.length > 0 && (
+                  <div className="product-image">
+                    <img
+                      src={product.images[0].src}
+                      alt={product.product_name}
+                      loading="lazy"
+                    />
+                  </div>
+                )}
+                <div className="product-info">
+                  <div className="product-name">{product.product_name}</div>
+                  {product.attributes?.price && (
+                    <div className="product-price">{product.attributes.price}</div>
+                  )}
+                </div>
               </div>
-            ) : (
-              <div className="folder-icon" />
-            )}
-            <div className={`folder-label ${isLoading ? 'loading-dots' : ''}`}>
-              {isLoading ? 'Loading' : brand.name}
-            </div>
+            ))}
           </div>
-        );
-      })}
-
-      {/* Empty State */}
-      {brands.length === 0 && (
-        <div style={{
-          position: 'absolute',
-          top: '50%',
-          left: '50%',
-          transform: 'translate(-50%, -50%)',
-          textAlign: 'center',
-          color: 'var(--macos-text-secondary)'
-        }}>
-          <div style={{ fontSize: '48px', marginBottom: '16px' }}>📁</div>
-          <div style={{ fontSize: '18px', marginBottom: '8px' }}>No brands yet</div>
-          <div style={{ fontSize: '14px' }}>Right-click to add your first brand</div>
-        </div>
-      )}
-
-      {/* Context Menu */}
-      {contextMenu && (
-        <div
-          className="context-menu"
-          style={{
-            left: `${contextMenu.x}px`,
-            top: `${contextMenu.y}px`
-          }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {contextMenuBrand ? (
-            // Brand context menu
-            <>
-              <div className="context-menu-item" onClick={handleRescrape}>
-                Rescrape Brand
-              </div>
-            </>
-          ) : (
-            // Desktop context menu
-            <div className="context-menu-item" onClick={handleAddBrand}>
-              New Brand...
-            </div>
-          )}
-        </div>
-      )}
+        ) : (
+          <div className="gallery-empty">
+            <div className="empty-icon">👕</div>
+            <div className="empty-text">Select categories to browse products</div>
+          </div>
+        )}
+      </div>
 
       {/* Add Brand Modal */}
       {showAddBrandModal && (

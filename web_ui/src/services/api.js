@@ -537,6 +537,135 @@ class FashionArchiveAPI {
     }
   }
 
+  static async validateBrand(homepageUrl) {
+    try {
+      const response = await fetch(`${this.BASE_URL}/api/brands/validate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ homepage_url: homepageUrl }),
+      });
+
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('Validate brand API Error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  static async createBrandWithValidation(homepageUrl, brandName = null) {
+    try {
+      const response = await fetch(`${this.BASE_URL}/api/brands`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          homepage_url: homepageUrl,
+          name: brandName
+        }),
+      });
+
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('Create brand API Error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  static async startBrandScraping(brandId) {
+    try {
+      const response = await fetch(`${this.BASE_URL}/api/brands/${brandId}/scrape`, {
+        method: 'POST'
+      });
+
+      if (!response.ok) {
+        throw new Error(`API call failed: ${response.statusText}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Start brand scraping API Error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  static async getBrandScrapeStatus(brandId) {
+    try {
+      const response = await fetch(`${this.BASE_URL}/api/brands/${brandId}/scrape/status`, {
+        method: 'GET'
+      });
+
+      if (!response.ok) {
+        throw new Error(`API call failed: ${response.statusText}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Get brand scrape status API Error:', error);
+      return { error: error.message };
+    }
+  }
+
+  static async followBrand(brandId, brandName, notes = '') {
+    try {
+      const token = localStorage.getItem('fashionArchiveToken');
+      const headers = {
+        'Content-Type': 'application/json',
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const response = await fetch(`${this.BASE_URL}/api/brands/follow`, {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({
+          brand_id: brandId,
+          brand_name: brandName,
+          notes: notes
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`API call failed: ${response.statusText}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Follow brand API Error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  static async getFollowedBrands() {
+    try {
+      const token = localStorage.getItem('fashionArchiveToken');
+      const headers = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const response = await fetch(`${this.BASE_URL}/api/brands/following`, {
+        method: 'GET',
+        headers: headers
+      });
+
+      if (!response.ok) {
+        throw new Error(`API call failed: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return data.brands || [];
+    } catch (error) {
+      console.error('Get followed brands API Error:', error);
+      return [];
+    }
+  }
+
   static async analyzeBrandUrl(url) {
     try {
       const response = await fetch(`${this.BASE_URL}/api/brands/analyze`, {
@@ -546,11 +675,11 @@ class FashionArchiveAPI {
         },
         body: JSON.stringify({ url }),
       });
-      
+
       if (!response.ok) {
         throw new Error(`API call failed: ${response.statusText}`);
       }
-      
+
       return await response.json();
     } catch (error) {
       console.error('Analyze brand URL API Error:', error);
