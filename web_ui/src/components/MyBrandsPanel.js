@@ -207,14 +207,22 @@ function MyBrandsPanel() {
   };
 
   // Toggle leaf selection
-  const toggleLeaf = async (brandId, categoryUrl, categoryName) => {
+  const toggleLeaf = async (brandId, categoryUrl, categoryName, shiftKey = false) => {
     const leafKey = `${brandId}::${categoryUrl}`;
 
-    const newSelected = new Set(selectedLeaves);
-    if (newSelected.has(leafKey)) {
-      newSelected.delete(leafKey);
+    let newSelected;
+
+    if (shiftKey) {
+      // Shift-click: exclusively select this category (deselect all others)
+      newSelected = new Set([leafKey]);
     } else {
-      newSelected.add(leafKey);
+      // Normal click: toggle this category
+      newSelected = new Set(selectedLeaves);
+      if (newSelected.has(leafKey)) {
+        newSelected.delete(leafKey);
+      } else {
+        newSelected.add(leafKey);
+      }
     }
 
     setSelectedLeaves(newSelected);
@@ -234,23 +242,41 @@ function MyBrandsPanel() {
     try {
       setLoadingProducts(true);
 
-      // Track seen products by URL to avoid duplicates
-      const seenProductUrls = new Set();
+      // Track seen products by slug to avoid duplicates
+      const seenProductSlugs = new Set();
       const deduplicatedProducts = [];
+
+      // Helper function to extract product slug by removing category URL
+      const getProductSlug = (productUrl, categoryUrl) => {
+        if (!productUrl || !categoryUrl) return productUrl;
+
+        // Remove trailing slashes for consistent comparison
+        const normalizedProductUrl = productUrl.replace(/\/$/, '');
+        const normalizedCategoryUrl = categoryUrl.replace(/\/$/, '');
+
+        // If product URL starts with category URL, remove it
+        if (normalizedProductUrl.startsWith(normalizedCategoryUrl)) {
+          return normalizedProductUrl.substring(normalizedCategoryUrl.length);
+        }
+
+        return productUrl;
+      };
 
       // If there's a newly selected key, load it first (prepend)
       let newProducts = [];
-      let existingProducts = [];
+      let newCategoryUrl = '';
+      let existingProductsWithCategory = [];
 
       if (newlySelectedKey && selectedSet.has(newlySelectedKey)) {
         // Load the newly selected category first
         const [brandId, categoryUrl] = newlySelectedKey.split('::');
+        newCategoryUrl = categoryUrl;
         const response = await fetch(
           `http://localhost:8081/api/products?brand_id=${brandId}&classification_url=${encodeURIComponent(categoryUrl)}&limit=1000`
         );
         if (response.ok) {
           const data = await response.json();
-          newProducts = data.products || [];
+          newProducts = (data.products || []).map(p => ({ ...p, _categoryUrl: categoryUrl }));
         }
       }
 
@@ -265,21 +291,24 @@ function MyBrandsPanel() {
 
         if (response.ok) {
           const data = await response.json();
-          existingProducts.push(...(data.products || []));
+          const productsWithCategory = (data.products || []).map(p => ({ ...p, _categoryUrl: categoryUrl }));
+          existingProductsWithCategory.push(...productsWithCategory);
         }
       }
 
       // Deduplicate: prioritize new products, then add existing ones if not already seen
       for (const product of newProducts) {
-        if (product.product_url && !seenProductUrls.has(product.product_url)) {
-          seenProductUrls.add(product.product_url);
+        const slug = getProductSlug(product.product_url, product._categoryUrl);
+        if (slug && !seenProductSlugs.has(slug)) {
+          seenProductSlugs.add(slug);
           deduplicatedProducts.push(product);
         }
       }
 
-      for (const product of existingProducts) {
-        if (product.product_url && !seenProductUrls.has(product.product_url)) {
-          seenProductUrls.add(product.product_url);
+      for (const product of existingProductsWithCategory) {
+        const slug = getProductSlug(product.product_url, product._categoryUrl);
+        if (slug && !seenProductSlugs.has(slug)) {
+          seenProductSlugs.add(slug);
           deduplicatedProducts.push(product);
         }
       }
@@ -387,9 +416,9 @@ function MyBrandsPanel() {
         <div key={categoryKey} style={{ marginLeft: level > 0 ? '16px' : '0' }}>
           <div
             className={`nav-item ${isLeaf ? 'nav-leaf' : 'nav-parent'} ${isSelected ? 'nav-selected' : ''}`}
-            onClick={() => {
+            onClick={(e) => {
               if (isLeaf) {
-                toggleLeaf(brand.brand_id, category.url, category.name);
+                toggleLeaf(brand.brand_id, category.url, category.name, e.shiftKey);
               } else {
                 toggleCategory(categoryKey);
               }
@@ -503,12 +532,7 @@ function MyBrandsPanel() {
               );
             })}
           </div>
-        ) : (
-          <div className="gallery-empty">
-            <div className="empty-icon">👕</div>
-            <div className="empty-text">Select categories to browse products</div>
-          </div>
-        )}
+        ) : null}
       </div>
 
       {/* Add Brand Modal */}

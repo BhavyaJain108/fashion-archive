@@ -397,60 +397,209 @@ def test_scroll_extraction_url(brand_key: str, category_url: str, expected_produ
         return {'products_found': 0}
 
 
+def test_url_with_discovery(url: str, brand_name: str = None, latency_tracker: LatencyTracker = None, verbose: bool = False):
+    """Test product extraction on an arbitrary URL with pattern discovery"""
+    import time
+    from urllib.parse import urlparse
+
+    total_start = time.time()
+
+    # Extract homepage and brand name from URL if not provided
+    parsed = urlparse(url)
+    homepage_url = f"{parsed.scheme}://{parsed.netloc}/"
+
+    if not brand_name:
+        brand_name = parsed.netloc.replace('www.', '').split('.')[0].title()
+
+    print(f"\n🔍 PATTERN DISCOVERY MODE:")
+    print(f"   🌐 URL: {url}")
+    print(f"   🏠 Homepage: {homepage_url}")
+    print(f"   🏷️  Brand: {brand_name}")
+
+    try:
+        # Step 1: Create Brand instance and discover pattern
+        print(f"\n📋 Step 1: Discovering product pattern...")
+        pattern_start = time.time()
+
+        brand = Brand(homepage_url)
+        brand.starting_pages_queue = [url]  # Set the URL for pattern discovery
+        brand.product_pages = [url]
+
+        pattern_result = brand.analyze_product_pattern()
+        pattern_discovery_ms = (time.time() - pattern_start) * 1000
+
+        if not pattern_result or not pattern_result.get("extraction_pattern"):
+            print(f"❌ Pattern discovery failed")
+            error_msg = pattern_result.get("error", "No consistent product containers detected") if pattern_result else "analyze_product_pattern returned None"
+            print(f"   Error: {error_msg}")
+
+            total_ms = (time.time() - total_start) * 1000
+            if latency_tracker:
+                latency_tracker.add_result(brand_name, 0.0, 0.0, total_ms, False, 0, 0, False, {})
+
+            return {'products_found': 0, 'pattern': None}
+
+        discovered_pattern = pattern_result["extraction_pattern"]
+        print(f"✅ Pattern discovered in {pattern_discovery_ms/1000:.2f}s")
+
+        # Step 2: Extract products using discovered pattern
+        print(f"\n📋 Step 2: Extracting products with scrolling...")
+        scroll_start = time.time()
+        extraction_result = extract_products_from_page(
+            url,
+            [discovered_pattern],  # Use discovered pattern
+            brand_name,
+            allow_pattern_discovery=False,
+            brand_instance=brand
+        )
+        scroll_extraction_ms = (time.time() - scroll_start) * 1000
+
+        products = extraction_result.get("products", [])
+        pattern_used = extraction_result.get("pattern_used")
+        new_pattern = extraction_result.get("new_pattern")
+
+        # Extract lineage filtering metrics
+        metrics = extraction_result.get("metrics", {})
+        lineage_filtering_ms = metrics.get("lineage_filtering_time", 0) * 1000
+        products_before_filtering = metrics.get("products_before_filtering", len(products))
+
+        # No deduplication - keep all product containers
+        products_found = len(products)
+
+        # Display discovered pattern
+        if discovered_pattern:
+            print(f"\n✨ DISCOVERED PATTERN:")
+            print(f"   📦 Container: {discovered_pattern.get('container_selector', 'N/A')}")
+            print(f"   📝 Name: {discovered_pattern.get('name_selector', 'N/A')}")
+            print(f"   🔗 Link: {discovered_pattern.get('link_selector', 'N/A')}")
+            print(f"   🎨 Image: {discovered_pattern.get('image_selector', 'N/A')}")
+            if discovered_pattern.get('alternative_selectors'):
+                print(f"   🔄 Alternatives: {', '.join(discovered_pattern.get('alternative_selectors', []))}")
+
+        # Print product table if verbose
+        if verbose and products:
+            console = Console()
+            table = Table(title=f"{brand_name} - Products Found", width=None)
+            table.add_column("No.", justify="center", width=6)
+            table.add_column("Product Name", width=30)
+            table.add_column("Product URL", no_wrap=False, overflow="fold")
+            table.add_column("Images", width=20)
+
+            for i, product in enumerate(products, 1):
+                images = product.get("images", [])
+                first_image = images[0].get("src", "N/A") if images else "N/A"
+                image_count = f"{len(images)} images" if len(images) > 1 else first_image
+
+                table.add_row(
+                    str(i),
+                    product.get("product_name", "N/A"),
+                    product.get("product_url", "N/A"),
+                    image_count
+                )
+
+            console.print(table, overflow="ignore", crop=False)
+
+        # Display results
+        success = products_found > 0
+        if success:
+            print(f"\n✅ Found {products_found} products")
+        else:
+            print(f"\n⚠️  No products found")
+
+        # Record timing results
+        total_ms = (time.time() - total_start) * 1000
+        if latency_tracker:
+            latency_tracker.add_result(brand_name, scroll_extraction_ms,
+                                     lineage_filtering_ms, total_ms, success,
+                                     products_before_filtering, products_found,
+                                     False, {})
+
+        return {'products_found': products_found, 'pattern': discovered_pattern}
+
+    except Exception as e:
+        print(f"\n❌ Error during extraction: {e}")
+        import traceback
+        traceback.print_exc()
+
+        total_ms = (time.time() - total_start) * 1000
+        if latency_tracker:
+            latency_tracker.add_result(brand_name, 0.0, 0.0, total_ms, False, 0, 0, False, {})
+
+        return {'products_found': 0, 'pattern': None}
+
+
 if __name__ == "__main__":
     import time
+    import argparse
     from test_logger import capture_test_output
-    
+
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Test product extraction with scrolling')
+    parser.add_argument('brand_key', nargs='?', help='Brand key from brands.json (optional)')
+    parser.add_argument('--url', type=str, help='Custom URL to test with pattern discovery')
+    parser.add_argument('--brand-name', type=str, help='Brand name for custom URL (optional)')
+    parser.add_argument('-v', '--verbose', action='store_true', help='Verbose output with product tables')
+
+    args = parser.parse_args()
+
     # Build command string for logging
     command = f"python {os.path.basename(__file__)} {' '.join(sys.argv[1:])}"
-    
+
     with capture_test_output("Scroll Extraction Test", command):
         # Initialize latency tracker
         latency_tracker = LatencyTracker()
-        
-        # Check for verbose flag
-        verbose = '-v' in sys.argv
-        if verbose:
-            sys.argv.remove('-v')
-        
+
         def run_single_test():
-            if len(sys.argv) > 1:
-                # Test specific brand
-                brand_key = sys.argv[1]
-                
+            # Check if --url flag is used
+            if args.url:
+                # Test custom URL with pattern discovery
+                result = test_url_with_discovery(
+                    args.url,
+                    args.brand_name,
+                    latency_tracker,
+                    args.verbose
+                )
+
+                # Print latency summary
+                latency_tracker.print_summary()
+                return result
+            elif args.brand_key:
+                # Test specific brand from brands.json
+                brand_key = args.brand_key
+
                 # Load brand data to get scroll_test
                 brands_data = load_brands_json()
                 if not brands_data or brand_key not in brands_data:
                     print(f"Brand '{brand_key}' not found in brands.json")
                     exit(1)
-                
+
                 brand_info = brands_data[brand_key]
-                
+
                 # Check if brand has pattern and scroll_test
                 if not brand_info.get("pattern"):
                     print(f"Brand '{brand_key}' has no pattern - skipping")
                     exit(1)
-                    
+
                 scroll_test = brand_info.get('scroll_test')
                 if not scroll_test:
                     print(f"Brand '{brand_key}' has no scroll_test - skipping")
                     exit(1)
-                
+
                 test_url = scroll_test[0]
                 expected_products = scroll_test[1]
-                
-                result = test_scroll_extraction_url(brand_key, test_url, expected_products, latency_tracker, verbose)
-                
+
+                result = test_scroll_extraction_url(brand_key, test_url, expected_products, latency_tracker, args.verbose)
+
                 # Print latency summary
                 latency_tracker.print_summary()
                 return result
             else:
                 # Test all brands from brands.json
-                result = test_all_brands(latency_tracker, verbose)
-                
+                result = test_all_brands(latency_tracker, args.verbose)
+
                 # Print latency summary
                 latency_tracker.print_summary()
                 return result
-        
+
         # Run test multiple times if -N flag is specified
         run_test_multiple_times(run_single_test)

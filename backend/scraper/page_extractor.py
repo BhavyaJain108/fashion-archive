@@ -168,7 +168,7 @@ def _extract_with_scrolling(page_url: str, pattern: Dict[str, str], brand_name: 
             user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
         )
         page = context.new_page()
-        
+
         try:
             # Navigate to page
             page.goto(page_url, wait_until="domcontentloaded", timeout=15000)
@@ -316,7 +316,7 @@ def _extract_with_scrolling(page_url: str, pattern: Dict[str, str], brand_name: 
                     "next_page_url": None,
                     "reasoning": "Skipped for additional page"
                 }
-            
+
             # Extract all products once after scrolling complete
             products = _extract_products_from_current_state(
                 page, page_url, pattern, brand_name, category_name
@@ -472,32 +472,20 @@ def extract_multi_page_products(page_url: str, pattern: Dict[str, str], brand_na
                     print(f"   ❌ Sequential fallback failed: {e}")
     
     total_time = time.time() - start_time
-    
-    # Deduplicate products by URL (products might appear on multiple pages)
-    seen_urls = set()
-    unique_products = []
-    for product in all_products:
-        product_url = product.get("product_url", "")
-        if product_url and product_url not in seen_urls:
-            seen_urls.add(product_url)
-            unique_products.append(product)
-    
-    duplicates_removed = len(all_products) - len(unique_products)
-    
+
+    # No deduplication - keep all product containers even if they have the same URL
     print(f"   📊 Multi-page extraction complete:")
     print(f"      • Pages processed: {len(per_page_stats)}")
-    print(f"      • Total products: {len(all_products)} ({duplicates_removed} duplicates removed)")
-    print(f"      • Unique products: {len(unique_products)}")
+    print(f"      • Total products: {len(all_products)}")
     print(f"      • Total time: {total_time:.2f}s")
-    
+
     return {
-        "products": unique_products,
+        "products": all_products,
         "pages_extracted": len(per_page_stats),
-        "total_products_found": len(unique_products),
+        "total_products_found": len(all_products),
         "per_page_stats": per_page_stats,
         "lineage_memory": lineage_memory,
-        "total_extraction_time": total_time,
-        "duplicates_removed": duplicates_removed
+        "total_extraction_time": total_time
     }
 
 
@@ -792,13 +780,12 @@ def _extract_single_additional_page(page_url: str, pattern: Dict[str, str], bran
         }
 
 
-def _extract_products_from_current_state(page, page_url: str, pattern: Dict[str, str], 
+def _extract_products_from_current_state(page, page_url: str, pattern: Dict[str, str],
                                        brand_name: str, category_name: str) -> List[Dict[str, Any]]:
     """
     Extract products from the current state of the page.
     """
     products = []
-    products_by_url = {}  # Track products by URL to merge images from duplicates
 
     # Get selectors and escape them for JavaScript querySelector usage
     container_selector = escape_css_selector_for_js(pattern.get('container_selector', ''))
@@ -816,7 +803,15 @@ def _extract_products_from_current_state(page, page_url: str, pattern: Dict[str,
     name_selector_escaped = json.dumps(name_selector)
 
     print(f"         🔍 DEBUG: JSON-escaped container selector: {container_selector_escaped}")
-    
+
+    # Force DOM reflow to ensure lazy-loaded elements are visible to subsequent queries
+    # Some sites (like Entire Studios) use lazy-loading that doesn't commit elements to the render tree
+    # until a DOM query is performed. This pre-query forces the browser to flush pending DOM updates.
+    container_count = page.evaluate(f"""
+        () => document.querySelectorAll({container_selector_escaped}).length
+    """)
+    print(f"         📦 Containers found after DOM reflow: {container_count}")
+
     extraction_result = page.evaluate(f"""
         () => {{
             // Helper function to extract product name from URL
@@ -877,16 +872,16 @@ def _extract_products_from_current_state(page, page_url: str, pattern: Dict[str,
             }}
             
             // Helper function to extract best image source from img element
-            function getBestImageSrc(imgElement) {{
+            function getBestImageSrc(imgElement, containerIndex, rejectionReasons) {{
                 const srcAttributes = [
                     'src',
-                    'data-src', 
+                    'data-src',
                     'data-lazy-src',
                     'data-original',
                     'data-lazy-original',
                     'data-srcset'
                 ];
-                
+
                 for (const attr of srcAttributes) {{
                     const value = imgElement.getAttribute(attr);
                     if (value) {{
@@ -894,73 +889,98 @@ def _extract_products_from_current_state(page, page_url: str, pattern: Dict[str,
                         if (attr === 'data-srcset') {{
                             const firstUrl = value.split(',')[0]?.split(' ')[0];
                             if (firstUrl && isValidImageUrl(firstUrl)) return firstUrl;
+                            else {{
+                                rejectionReasons.push(`no valid extension in ${{attr}}`);
+                            }}
                         }} else {{
                             if (isValidImageUrl(value)) return value;
+                            else {{
+                                rejectionReasons.push(`no valid extension in ${{attr}}`);
+                            }}
                         }}
                     }}
                 }}
+
                 return '';
             }}
             
             // Helper function to extract all valid images from container
-            function extractImagesFromContainer(container) {{
+            function extractImagesFromContainer(container, containerIndex) {{
                 const images = [];
                 const imgElements = container.querySelectorAll('img');
-                
-                imgElements.forEach(img => {{
-                    const src = getBestImageSrc(img);
-                    if (src && isValidProductImage(img, src)) {{
-                        images.push({{
-                            src: src,
-                            alt: img.alt || '',
-                            width: parseInt(img.width) || 0,
-                            height: parseInt(img.height) || 0
-                        }});
+                const rejectionReasons = [];
+
+                imgElements.forEach((img, imgIndex) => {{
+                    const src = getBestImageSrc(img, containerIndex, rejectionReasons);
+                    if (src) {{
+                        const validationResult = isValidProductImage(img, src);
+                        if (validationResult.valid) {{
+                            images.push({{
+                                src: src,
+                                alt: img.alt || '',
+                                width: parseInt(img.width) || 0,
+                                height: parseInt(img.height) || 0
+                            }});
+                        }} else {{
+                            rejectionReasons.push(validationResult.reason);
+                        }}
                     }}
                 }});
-                
+
                 return images;
             }}
-            
+
             // Helper function to validate if image is likely a product image
             function isValidProductImage(imgElement, src) {{
-                // Skip tiny images (likely icons)
-                const width = parseInt(imgElement.width) || 0;
-                const height = parseInt(imgElement.height) || 0;
-                if (width > 0 && width < 50) return false;
-                if (height > 0 && height < 50) return false;
-                
                 // Skip SVGs (usually icons)
-                if (src.toLowerCase().includes('.svg')) return false;
-                
+                if (src.toLowerCase().includes('.svg')) {{
+                    return {{ valid: false, reason: 'SVG' }};
+                }}
+
                 // Skip images with logo-related alt text
                 const alt = (imgElement.alt || '').toLowerCase();
-                if (alt.includes('logo') || alt.includes('icon')) return false;
-                
-                return true;
+                if (alt.includes('logo') || alt.includes('icon')) {{
+                    return {{ valid: false, reason: 'logo/icon alt' }};
+                }}
+
+                return {{ valid: true }};
             }}
-            
-            // Debug: Log the selector being used
-            console.log('Container selector:', {container_selector_escaped});
 
             const containers = document.querySelectorAll({container_selector_escaped});
-            console.log('Containers found:', containers.length);
             const products = [];
-            
+
+            let containerIndex = 0;
             containers.forEach(container => {{
+                containerIndex++;
+
                 // Extract product URL
                 let href = null;
+                let skipReason = null;
+
                 if ({link_selector_escaped} === {container_selector_escaped}) {{
                     // Container itself is the link
                     href = container.getAttribute('href');
+                    if (!href) skipReason = `Container #${{containerIndex}}: Container is link but has no href attribute`;
                 }} else if ({link_selector_escaped}) {{
                     const linkEl = container.querySelector({link_selector_escaped});
-                    href = linkEl ? linkEl.getAttribute('href') : null;
+                    if (!linkEl) {{
+                        skipReason = `Container #${{containerIndex}}: Link element '${{link_selector_escaped}}' not found inside container`;
+                    }} else {{
+                        href = linkEl.getAttribute('href');
+                        if (!href) {{
+                            skipReason = `Container #${{containerIndex}}: Link element found but has no href attribute`;
+                        }}
+                    }}
                 }} else {{
                     // If no link_selector provided, assume container itself is the link
                     href = container.getAttribute('href');
+                    if (!href) skipReason = `Container #${{containerIndex}}: No link selector provided and container has no href`;
                 }}
-                
+
+                if (skipReason) {{
+                    console.log(skipReason);
+                }}
+
                 // Extract lineage path (3 generations: container + 2 ancestors)
                 function getFullLineage(element) {{
                     const path = [];
@@ -992,9 +1012,9 @@ def _extract_products_from_current_state(page, page_url: str, pattern: Dict[str,
                 }}
                 
                 const fullLineage = getFullLineage(container);
-                
+
                 // Extract all images from container
-                const images = extractImagesFromContainer(container);
+                const images = extractImagesFromContainer(container, containerIndex);
                 
                 // Extract product name - PRIORITY: product URL > CSS selector > image alt text
                 let name = 'Unknown';
@@ -1044,11 +1064,14 @@ def _extract_products_from_current_state(page, page_url: str, pattern: Dict[str,
                     }});
                 }}
             }});
-            
+
             return products;
         }}
     """)
-    
+
+    # Debug: Print how many containers were found
+    print(f"         📦 DEBUG: Containers found by querySelector: {len(extraction_result)}")
+
     # Process extracted data
     for product_data in extraction_result:
         try:
@@ -1089,26 +1112,7 @@ def _extract_products_from_current_state(page, page_url: str, pattern: Dict[str,
                             "height": img.get('height', 0)
                         })
             
-            # Check if we've seen this product URL before
-            if product_url in products_by_url:
-                # Merge images from duplicate product cards
-                existing_product = products_by_url[product_url]
-                existing_image_srcs = {img['src'] for img in existing_product['images']}
-                
-                # Add new unique images
-                for img in normalized_images:
-                    if img['src'] not in existing_image_srcs:
-                        existing_product['images'].append(img)
-                        existing_image_srcs.add(img['src'])
-                
-                # Update the product name if the current one is better (not 'Unknown')
-                current_name = product_data.get('name', 'Unknown').strip()
-                if current_name != 'Unknown' and existing_product['product_name'] == 'Unknown':
-                    existing_product['product_name'] = current_name
-                    
-                continue  # Skip creating a new product entry
-            
-            # Create product record
+            # Create product record (no deduplication - keep all containers)
             product = {
                 "brand": brand_name,
                 "category_url": page_url,
@@ -1123,9 +1127,7 @@ def _extract_products_from_current_state(page, page_url: str, pattern: Dict[str,
                 "extraction_time": time.time(),
                 "full_lineage": product_data.get('full_lineage', 'Unknown')
             }
-            
-            # Track this product by URL and add to results
-            products_by_url[product_url] = product
+
             products.append(product)
             
         except Exception:
@@ -1702,10 +1704,6 @@ def _detect_post_scroll_pagination(page, page_url: str) -> Dict[str, Any]:
             
         print(f"   📊 Analyzing {len(bottom_links)} bottom section links for pagination")
         
-        # Debug: Print ALL bottom links for inspection
-        print(f"   🔗 Complete bottom 30% links ({len(bottom_links)} total):")
-        for i, link in enumerate(bottom_links):
-            print(f"      {i+1}. {link}")
         
         # Filter links to only include those related to current category
         category_filtered_links = _filter_links_by_category(bottom_links, page_url)

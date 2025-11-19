@@ -42,7 +42,7 @@ You are analyzing product extraction results from an e-commerce category page to
 
 **Analysis Instructions:**
 1. Classify each lineage as either:
-   - **Valid catalog product** - genuine "{page_category}" products from the main category listing
+   - **Valid catalog product** - genuine "{page_category}" products from the main category listing, duplicate products, or variants.
    - **Invalid** - recommendations, ads, navigation, search suggestions, headers, footers, etc.
    - they will have the smiilar product card structure
    What we want to understand is that even with the similar product strucutre what lineage represents the actual category products vs promotional and recommended content.

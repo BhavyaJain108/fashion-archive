@@ -179,6 +179,7 @@ class Brand:
             return {}
         
         first_page_url = self.starting_pages_queue[0]
+        print("First page:", first_page_url)
         
         try:
             
@@ -663,6 +664,8 @@ If no pagination:
             List of dicts with keys: url, position_index, full_element, parent_container
         """
         from bs4 import BeautifulSoup
+        
+        print(f"🔍 Extracting links from page: {url} (Expand menus: {expand_navigation_menus})")
 
         # Use dropdown expansion if requested (typically for homepage navigation analysis)
         if expand_navigation_menus:
@@ -692,7 +695,13 @@ If no pagination:
             
             # Only include links from the same domain
             base_domain = f"{urlparse(url).scheme}://{urlparse(url).netloc}"
-            if not (href.startswith(base_domain) or href.startswith('/')):
+            href_domain = f"{urlparse(href).scheme}://{urlparse(href).netloc}"
+
+            # Normalize domains by removing 'www.' for comparison
+            base_normalized = base_domain.replace('://www.', '://')
+            href_normalized = href_domain.replace('://www.', '://')
+
+            if base_normalized != href_normalized:
                 continue
             
             # Update the href in the tag to be absolute for the full_element
@@ -722,7 +731,7 @@ If no pagination:
             if link_info['url'] not in seen_urls:
                 seen_urls.add(link_info['url'])
                 unique_links.append(link_info)
-        
+                
         return unique_links
 
     def _get_parent_container_path(self, element, max_depth=3):
@@ -2382,38 +2391,26 @@ Return JSON:
                 else:
                     print(f"         📄 Multi-page: No additional products found")
 
-            # Deduplicate products by URL across all pages
-            seen_urls = set()
-            unique_products = []
-            for product in products:
-                product_url_field = product.get("product_url", "")
-                if product_url_field and product_url_field not in seen_urls:
-                    seen_urls.add(product_url_field)
-                    unique_products.append(product)
-
-            duplicates_removed = len(products) - len(unique_products)
-            if duplicates_removed > 0:
-                print(f"         🔄 Removed {duplicates_removed} duplicate products")
-
+            # No deduplication - keep all containers even if they reference the same product
+            # Different containers might have different images
             extraction_time = time.time() - start_time
-            print(f"         📦 Total: {len(unique_products)} unique products from {pages_extracted} pages")
+            print(f"         📦 Total: {len(products)} products from {pages_extracted} pages")
 
-            # Queue images for async download (non-blocking) - after deduplication
+            # Queue images for async download (non-blocking)
             images_queued = 0
-            if unique_products:
-                images_queued = self._queue_category_images_for_download(unique_products, category_path, category_url)
+            if products:
+                images_queued = self._queue_category_images_for_download(products, category_path, category_url)
 
             return {
                 "name": category_name,
                 "url": category_url,
-                "products": unique_products,
+                "products": products,
                 "pattern_used": pattern,
                 "extraction_stats": {
                     "pages_processed": pages_extracted,
-                    "products_found": len(unique_products),
+                    "products_found": len(products),
                     "images_queued": images_queued,
-                    "extraction_time": extraction_time,
-                    "duplicates_removed": duplicates_removed
+                    "extraction_time": extraction_time
                 }
             }
 
