@@ -773,6 +773,7 @@ body {
   margin-top: 40px;
   background: var(--macos-bg);
   overflow: hidden;
+  width: 100%;
 }
 
 /* Left Sidebar - Brand Navigation */
@@ -930,12 +931,14 @@ body {
   overflow-y: auto;
   padding: 16px;
   background: var(--macos-bg);
+  width: 100%;
 }
 
 .product-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 16px;
+  width: 100%;
 }
 
 .product-card {
@@ -952,7 +955,7 @@ body {
 
 .product-image {
   width: 100%;
-  height: 300px;
+  aspect-ratio: 3 / 4;
   overflow: hidden;
   background: var(--macos-bg);
   display: flex;
@@ -963,7 +966,7 @@ body {
 .product-image img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   transition: none;
 }
 

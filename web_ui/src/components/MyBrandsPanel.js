@@ -407,8 +407,8 @@ function MyBrandsPanel() {
       const isSelected = selectedLeaves.has(leafKey);
       const isExpanded = expandedCategories[categoryKey];
 
-      // Determine display name based on whether it's a leaf
-      const displayName = isLeaf ? category.name.toLowerCase() : category.name.toUpperCase();
+      // All categories display in lowercase
+      const displayName = category.name.toLowerCase();
 
       const productCount = isLeaf ? productCounts[leafKey] : null;
 
