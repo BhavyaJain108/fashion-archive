@@ -158,9 +158,17 @@ def _extract_with_scrolling(page_url: str, pattern: Dict[str, str], brand_name: 
     """
     Internal function to handle the actual scrolling and extraction logic.
     """
+    from instrumentation import emit_event
+
     products = []
     pagination_triggers_found = []  # Track what pagination triggers were found
-    
+
+    # Emit page extraction start
+    emit_event(brand_instance, "page_extraction_start", {
+        "url": page_url,
+        "category": category_name
+    })
+
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(
@@ -220,20 +228,34 @@ def _extract_with_scrolling(page_url: str, pattern: Dict[str, str], brand_name: 
                 # After pagination chasing, do normal bottom scrolling
                 print(f"   📄 Pagination chasing complete, now scrolling to bottom...")
             
+            # Emit scroll start
+            emit_event(brand_instance, "scroll_start", {
+                "url": page_url
+            })
+
             # Step 2: Always do traditional height-based scrolling to bottom (either standalone or after pagination)
             while True:
                 # Get current height before scrolling
                 current_height = page.evaluate("document.body.scrollHeight")
                 scroll_count += 1
-                
+
                 # Scroll to bottom first
                 page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                 page.wait_for_timeout(2000)  # Wait for scroll and potential loading
-                
+
                 # Get new height after scrolling and waiting
                 new_height = page.evaluate("document.body.scrollHeight")
-                
+
                 print(f"   📏 Scroll #{scroll_count}: height {current_height} → {new_height}")
+
+                # Emit scroll iteration
+                emit_event(brand_instance, "scroll_iteration", {
+                    "url": page_url,
+                    "iteration": scroll_count,
+                    "old_height": current_height,
+                    "new_height": new_height,
+                    "delta": new_height - current_height
+                })
                 
                 # Check if height changed after scroll
                 if new_height == current_height:
@@ -250,9 +272,21 @@ def _extract_with_scrolling(page_url: str, pattern: Dict[str, str], brand_name: 
                     # Height changed, reset the no-change counter
                     no_change_count = 0
             
+            # Emit scroll complete
+            emit_event(brand_instance, "scroll_complete", {
+                "url": page_url,
+                "total_iterations": scroll_count,
+                "final_height": new_height
+            })
+
             # Always check for load more after scrolling is complete (regardless of scrolling method)
             print(f"   🔍 Scrolling complete, checking for load more buttons...")
             load_more_clicked = _handle_load_more_button(page, page_url, brand_instance)
+
+            if load_more_clicked:
+                emit_event(brand_instance, "load_more_detected", {
+                    "url": page_url
+                })
             
             # If load more was found and clicked, keep chasing it like pagination elements
             if load_more_clicked:
@@ -292,6 +326,13 @@ def _extract_with_scrolling(page_url: str, pattern: Dict[str, str], brand_name: 
                         load_more_click_count += 1
                         no_load_more_attempts = 0  # Reset attempts counter
                         print(f"   🎯 Load more button clicked again (click #{load_more_click_count})")
+
+                        emit_event(brand_instance, "load_more_clicked", {
+                            "url": page_url,
+                            "click_number": load_more_click_count,
+                            "height_before": current_height,
+                            "height_after": new_height
+                        })
                     else:
                         no_load_more_attempts += 1
                         print(f"   ⏳ No load more button found (attempt {no_load_more_attempts}/{max_load_more_attempts})")
@@ -875,6 +916,7 @@ def _extract_products_from_current_state(page, page_url: str, pattern: Dict[str,
             function getBestImageSrc(imgElement, containerIndex, rejectionReasons) {{
                 const srcAttributes = [
                     'src',
+                    'srcset',  // Add srcset for lazy-loaded images
                     'data-src',
                     'data-lazy-src',
                     'data-original',
@@ -885,8 +927,8 @@ def _extract_products_from_current_state(page, page_url: str, pattern: Dict[str,
                 for (const attr of srcAttributes) {{
                     const value = imgElement.getAttribute(attr);
                     if (value) {{
-                        // Handle srcset format - take first URL
-                        if (attr === 'data-srcset') {{
+                        // Handle srcset format - take first URL (both srcset and data-srcset)
+                        if (attr === 'srcset' || attr === 'data-srcset') {{
                             const firstUrl = value.split(',')[0]?.split(' ')[0];
                             if (firstUrl && isValidImageUrl(firstUrl)) return firstUrl;
                             else {{
@@ -909,8 +951,25 @@ def _extract_products_from_current_state(page, page_url: str, pattern: Dict[str,
                 const images = [];
                 const imgElements = container.querySelectorAll('img');
                 const rejectionReasons = [];
+                const debugInfo = [];
+
+                // Debug: Log total img tags found
+                debugInfo.push(`Container #${{containerIndex}}: Found ${{imgElements.length}} <img> tags`);
 
                 imgElements.forEach((img, imgIndex) => {{
+                    // Debug: Log all attributes for each image
+                    const attrs = {{
+                        src: img.getAttribute('src') || 'none',
+                        srcset: img.getAttribute('srcset') || 'none',
+                        'data-src': img.getAttribute('data-src') || 'none',
+                        'data-srcset': img.getAttribute('data-srcset') || 'none',
+                        alt: img.alt || 'none',
+                        classes: img.className || 'none',
+                        display: window.getComputedStyle(img).display
+                    }};
+
+                    debugInfo.push(`Img #${{imgIndex}}: src=${{attrs.src}}, srcset=${{attrs.srcset}}, data-srcset=${{attrs['data-srcset']}}, display=${{attrs.display}}`);
+
                     const src = getBestImageSrc(img, containerIndex, rejectionReasons);
                     if (src) {{
                         const validationResult = isValidProductImage(img, src);
@@ -924,10 +983,12 @@ def _extract_products_from_current_state(page, page_url: str, pattern: Dict[str,
                         }} else {{
                             rejectionReasons.push(validationResult.reason);
                         }}
+                    }} else {{
+                        rejectionReasons.push(`Img #${{imgIndex}}: No valid src found`);
                     }}
                 }});
 
-                return images;
+                return {{ images, debugInfo, rejectionReasons }};
             }}
 
             // Helper function to validate if image is likely a product image
@@ -937,12 +998,7 @@ def _extract_products_from_current_state(page, page_url: str, pattern: Dict[str,
                     return {{ valid: false, reason: 'SVG' }};
                 }}
 
-                // Skip images with logo-related alt text
-                const alt = (imgElement.alt || '').toLowerCase();
-                if (alt.includes('logo') || alt.includes('icon')) {{
-                    return {{ valid: false, reason: 'logo/icon alt' }};
-                }}
-
+                // Accept all other images - don't filter based on alt text
                 return {{ valid: true }};
             }}
 
@@ -1014,11 +1070,14 @@ def _extract_products_from_current_state(page, page_url: str, pattern: Dict[str,
                 const fullLineage = getFullLineage(container);
 
                 // Extract all images from container
-                const images = extractImagesFromContainer(container, containerIndex);
-                
+                const imageExtractionResult = extractImagesFromContainer(container, containerIndex);
+                const images = imageExtractionResult.images;
+                const imageDebugInfo = imageExtractionResult.debugInfo;
+                const imageRejectionReasons = imageExtractionResult.rejectionReasons;
+
                 // Extract product name - PRIORITY: product URL > CSS selector > image alt text
                 let name = 'Unknown';
-                
+
                 // First try to extract from product URL (best source)
                 if (href) {{
                     const extractedName = extractNameFromUrl(href);
@@ -1026,13 +1085,13 @@ def _extract_products_from_current_state(page, page_url: str, pattern: Dict[str,
                         name = extractedName;
                     }}
                 }}
-                
+
                 // Fallback to CSS selector if URL extraction failed
                 if (name === 'Unknown' && {name_selector_escaped}) {{
                     const nameEl = container.querySelector({name_selector_escaped});
                     if (nameEl) {{
                         let selectorName = '';
-                        
+
                         // If name selector points to an img element, check alt attribute first
                         if (nameEl.tagName.toLowerCase() === 'img') {{
                             selectorName = nameEl.getAttribute('alt') || nameEl.getAttribute('title') || '';
@@ -1040,13 +1099,13 @@ def _extract_products_from_current_state(page, page_url: str, pattern: Dict[str,
                             // For non-img elements, use text content
                             selectorName = nameEl.innerText || nameEl.textContent || '';
                         }}
-                        
+
                         if (selectorName.trim()) {{
                             name = selectorName.trim();
                         }}
                     }}
                 }}
-                
+
                 // Final fallback: extract from first image alt text
                 if (name === 'Unknown' && images.length > 0) {{
                     const firstImageAlt = images[0].alt;
@@ -1060,7 +1119,9 @@ def _extract_products_from_current_state(page, page_url: str, pattern: Dict[str,
                         href: href,
                         name: name.trim(),
                         images: images,
-                        full_lineage: fullLineage
+                        full_lineage: fullLineage,
+                        debug_image_info: imageDebugInfo,
+                        debug_rejection_reasons: imageRejectionReasons
                     }});
                 }}
             }});
@@ -1071,6 +1132,17 @@ def _extract_products_from_current_state(page, page_url: str, pattern: Dict[str,
 
     # Debug: Print how many containers were found
     print(f"         📦 DEBUG: Containers found by querySelector: {len(extraction_result)}")
+
+    # Debug: Print detailed image extraction info for products with 0 or 1 images
+    for product_data in extraction_result:
+        image_count = len(product_data.get('images', []))
+        if image_count < 2:
+            product_name = product_data.get('name', 'Unknown')
+            print(f"\n         🔍 DEBUG: Product '{product_name}' has {image_count} images")
+            for debug_line in product_data.get('debug_image_info', []):
+                print(f"            {debug_line}")
+            if product_data.get('debug_rejection_reasons'):
+                print(f"            Rejections: {product_data.get('debug_rejection_reasons')}")
 
     # Process extracted data
     for product_data in extraction_result:
@@ -1231,7 +1303,21 @@ def apply_lineage_filtering(products: List[Dict[str, Any]], page_url: str, categ
         response_model = lineage_selection.get_response_model()
 
         print(f"   🤖 Asking LLM to classify {len(unknown_lineages)} new lineages...")
+
+        from instrumentation import emit_event
+        import time
+        llm_start = time.time()
         llm_result = llm_handler.call(prompt, response_model=response_model)
+        llm_duration = time.time() - llm_start
+
+        emit_event(brand_instance, "llm_call", {
+            "type": "lineage_filtering",
+            "url": page_url,
+            "category": category_name,
+            "lineage_count": len(unknown_lineages),
+            "duration": llm_duration,
+            "success": llm_result.get("success", False) if llm_result else False
+        })
 
         if not llm_result or not llm_result.get('success'):
             error_msg = llm_result.get('error', 'Unknown error') if llm_result else 'No response'
