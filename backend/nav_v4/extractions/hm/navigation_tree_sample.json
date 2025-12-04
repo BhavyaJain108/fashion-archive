@@ -1,0 +1,65 @@
+{
+  "brand": "hm",
+  "extracted_at": "2025-12-04T09:00:00.000Z",
+  "note": "Full tree has 1495 categories - this is a sample showing structure",
+  "top_level_categories": [
+    "Women",
+    "Men",
+    "Kids",
+    "Home",
+    "Beauty",
+    "Sale"
+  ],
+  "sample_tree": [
+    {
+      "name": "Women",
+      "url": "https://www2.hm.com/en_us/women.html",
+      "children": [
+        {"name": "New in", "url": "https://www2.hm.com/en_us/women/new-arrivals.html"},
+        {"name": "The Gift Guide", "url": "https://www2.hm.com/en_us/women/global-node-1.html"},
+        {"name": "Holiday 2025 | Drop 2", "url": "https://www2.hm.com/en_us/women/global-node-2.html"},
+        {"name": "Perfect Moment H&M", "url": "https://www2.hm.com/en_us/women/local-occasion.html"},
+        {"name": "Clothing", "url": "https://www2.hm.com/en_us/women/products.html"},
+        {"name": "Sweaters & Cardigans", "url": "https://www2.hm.com/en_us/women/sweaters-cardigans.html"},
+        {"name": "Coats & Jackets", "url": "https://www2.hm.com/en_us/women/coats-jackets.html"},
+        {"name": "Accessories", "url": "https://www2.hm.com/en_us/women/accessories.html"},
+        {"name": "Shoes", "url": "https://www2.hm.com/en_us/women/shoes.html"},
+        {"name": "Sport", "url": "https://www2.hm.com/en_us/women/sport.html"},
+        {"name": "Beauty", "url": "https://www2.hm.com/en_us/women/beauty.html"},
+        {"name": "Sale", "url": "https://www2.hm.com/en_us/women/sale.html"},
+        "... (17 total level-2 categories under Women)"
+      ]
+    },
+    {
+      "name": "Men",
+      "url": "https://www2.hm.com/en_us/men.html",
+      "children": ["... (12 subcategories)"]
+    },
+    {
+      "name": "Kids",
+      "url": "https://www2.hm.com/en_us/kids.html",
+      "children": ["... (extensive subcategories for Baby, Girls, Boys, etc.)"]
+    },
+    {
+      "name": "Home",
+      "url": "https://www2.hm.com/en_us/home.html",
+      "children": ["... (home decor subcategories)"]
+    },
+    {
+      "name": "Beauty",
+      "url": "https://www2.hm.com/en_us/beauty.html",
+      "children": ["... (beauty product subcategories)"]
+    },
+    {
+      "name": "Sale",
+      "url": "https://www2.hm.com/en_us/sale.html",
+      "children": ["... (sale subcategories)"]
+    }
+  ],
+  "extraction_info": {
+    "method": "next_data",
+    "data_path": "window.__NEXT_DATA__.props.pageProps.headerData.menuItems",
+    "total_categories": 1495,
+    "requires_browser": true
+  }
+}

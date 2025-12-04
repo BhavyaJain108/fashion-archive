@@ -1,0 +1,35 @@
+{
+  "brand": "eckhaus_latta",
+  "url": "https://www.eckhauslatta.com/?gad_source=1&gad_campaignid=22058160211&gbraid=0AAAAADAlo_D0AgURCRoZaf3pl6fR-gJUU&gclid=CjwKCAiA_dDIBhB6EiwAvzc1cDYQXwDQTK0ZaC_pPuRtUQCacAhSWpyVHlaFbrG8tNgBxY_-1QqTbxoCjSsQAvD_BwE",
+  "method": "dom",
+  "pre_extraction_actions": [
+    {
+      "action": "hover",
+      "selector": "button[haspopup='menu']"
+    }
+  ],
+  "extraction_script": "function extractNavigation() {\n  const results = [];\n  const seenUrls = new Set();\n  \n  // Find all navigation links that contain collections\n  const navLinks = document.querySelectorAll('nav a[href*=\"/collections\"]');\n  \n  navLinks.forEach(link => {\n    const name = link.textContent.trim();\n    const url = link.href;\n    \n    // Skip duplicates and empty names\n    if (name && url && !seenUrls.has(url)) {\n      seenUrls.add(url);\n      results.push({\n        name: name,\n        url: url,\n        children: []\n      });\n    }\n  });\n  \n  return results;\n}",
+  "top_level_categories": [
+    "Shop All",
+    "Bags",
+    "Tees and Loungewear",
+    "Jeans",
+    "Tops and Shirts",
+    "Pants",
+    "Skirts and Dresses",
+    "Sweaters and Knitwear",
+    "Outerwear",
+    "Accessories",
+    "Shoes",
+    "End of Season Sale",
+    "New Arrivals",
+    "Mike and Zoe's Edit",
+    "Classics",
+    "Gift Guide"
+  ],
+  "stats": {
+    "total_categories": 16,
+    "max_depth": 2
+  },
+  "notes": "Navigation menu is revealed by hovering over the 'Shop menu' button. The menu contains two main sections: 'SHOP' (product categories) and 'CATEGORIES' (special collections). All navigation links point to Shopify collection pages."
+}

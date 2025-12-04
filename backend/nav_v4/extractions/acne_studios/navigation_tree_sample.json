@@ -1,0 +1,65 @@
+[
+  {
+    "name": "Woman",
+    "url": null,
+    "children": [
+      {
+        "name": "New Arrivals",
+        "url": "https://www.acnestudios.com/us/en/woman/new-arrivals/",
+        "children": []
+      },
+      {
+        "name": "Gifts for Her",
+        "url": "https://www.acnestudios.com/us/en/woman/gift-guide-selection/",
+        "children": []
+      },
+      {
+        "name": "Jeans",
+        "url": "https://www.acnestudios.com/us/en/woman/jeans/",
+        "children": []
+      },
+      {
+        "name": "Outerwear",
+        "url": "https://www.acnestudios.com/us/en/woman/outerwear/",
+        "children": []
+      }
+    ]
+  },
+  {
+    "name": "Man",
+    "url": null,
+    "children": [
+      {
+        "name": "New Arrivals",
+        "url": "https://www.acnestudios.com/us/en/man/new-arrivals/",
+        "children": []
+      },
+      {
+        "name": "Gifts for Him",
+        "url": "https://www.acnestudios.com/us/en/man/gift-guide-selection/",
+        "children": []
+      },
+      {
+        "name": "Jeans",
+        "url": "https://www.acnestudios.com/us/en/man/jeans/",
+        "children": []
+      }
+    ]
+  },
+  {
+    "name": "Bags",
+    "url": null,
+    "children": [
+      {
+        "name": "New",
+        "url": "https://www.acnestudios.com/us/en/bags/new/",
+        "children": []
+      },
+      {
+        "name": "Musubi",
+        "url": "https://www.acnestudios.com/us/en/bags/musubi/",
+        "children": []
+      }
+    ]
+  }
+]
