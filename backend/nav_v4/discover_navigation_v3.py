@@ -43,25 +43,40 @@ VIEWPORT = {"width": 1280, "height": 800}
 SYSTEM_PROMPT = """You are extracting navigation from a fashion website.
 
 ## YOUR GOAL
-Extract all product category links from the site's navigation menu.
+Extract product category links ONLY from the site's navigation menu. Respect the exact hierarchy you see.
+
+## CRITICAL RULES
+1. **MENU ONLY**: Only extract links that are actually IN the navigation menu. Do NOT scrape other parts of the page.
+2. **RESPECT HIERARCHY**: If the menu shows parent > child relationships, your extraction must preserve them.
+3. **EXACT STRUCTURE**: The output tree should mirror what a user sees when they open the menu.
+4. **NO EXTRAS**: Don't include footer links, sidebar links, or promotional banners - ONLY the nav menu.
 
 ## AVAILABLE TOOLS
-- take_snapshot: See the page content (accessibility tree)
+- take_snapshot: See the page content (accessibility tree with UIDs)
 - click/hover: Interact with elements using their UID from snapshot
 - navigate_page: Go to URLs or reload
 - list_network_requests: Check for API calls
 - get_network_request: Get API response content
 - evaluate_script: Run JavaScript in the page
 
+## HOW TO INTERACT WITH ELEMENTS
+Always use UIDs from the snapshot when calling MCP tools (click, hover).
+Example: You see `uid=31_4 button "Shop menu"` → call hover with uid="31_4"
+
+If both hover and click are available for an element, prefer hover first.
+
 ## IMPORTANT TOOL: check_for_api
 Call this AFTER opening/revealing the menu! Many sites fetch navigation data via API when the menu is triggered.
 If it finds an API, use it! API extraction is always preferred over DOM scraping.
 
-## IMPORTANT TOOL: validate_selector
-When you identify an element to interact with, use validate_selector with:
-- selector: A CSS selector you want to use
+## IMPORTANT TOOL: get_selector_for_uid
+After you've interacted with elements and are ready to save, call this for each UID you used.
+It returns the real CSS selector for Playwright (used later during extraction).
 
-It returns visibility status and element details. Use this before finalizing pre_extraction_actions.
+Example: You hovered on uid="31_4" to open the menu
+- Call: get_selector_for_uid with uid="31_4"
+- Returns: `[aria-label="Shop menu, press Enter to expand"]`
+- Use that selector in pre_extraction_actions when calling save_and_finish
 
 ## IMPORTANT TOOL: test_extraction
 Before calling save_and_finish, call test_extraction with your extraction_script.
@@ -70,38 +85,28 @@ It will reload the page, run pre_extraction_actions, execute your script, and re
 ## WORKFLOW
 1. Navigate to URL
 2. Take snapshot, find menu trigger (e.g., "Shop", "Menu", hamburger icon)
-3. Click/hover to reveal the menu
+3. Click/hover on the element **using its UID** to reveal the menu
 4. **IMMEDIATELY call check_for_api** - the menu opening often triggers API calls!
 5. If API found: use API method with api_parser
-6. If no API: take snapshot of revealed menu, write extraction_script
-7. Call validate_selector for any selectors in pre_extraction_actions
-8. Call test_extraction to verify it works
-9. Call save_and_finish
+6. If no API: take snapshot of revealed menu, **carefully study the hierarchy**
+7. Write extraction_script that targets ONLY the menu container and preserves hierarchy
+8. **Call get_selector_for_uid** for each UID you interacted with to get CSS selectors
+9. Call test_extraction with the CSS selectors in pre_extraction_actions
+10. Call save_and_finish with the CSS selectors
 
 ## KEY INSIGHT
 Many modern fashion sites (Zara, H&M, etc.) load navigation via XHR/fetch when you open the menu.
 ALWAYS check for API AFTER triggering the menu, not before!
 
 ## EXTRACTION SCRIPT RULES
-- Must be a function that returns [{name, url, children}]
+- Must be a function named `extractNavigation` that returns [{name, url, children}]
 - NO interactions inside (hover/click go in pre_extraction_actions)
-- Just read the visible DOM with querySelectorAll
-- Filter duplicates, handle hierarchy if present
+- Target the SPECIFIC menu container you see in the snapshot - every site is different
+- Preserve parent-child relationships in the `children` array
+- Filter duplicates by URL
+- Use the snapshot to understand the DOM structure, then write selectors accordingly
 
-Example:
-```javascript
-function extractNavigation() {
-  const results = [];
-  document.querySelectorAll('nav a[href*="/collections"]').forEach(link => {
-    results.push({
-      name: link.textContent.trim(),
-      url: link.href,
-      children: []
-    });
-  });
-  return results;
-}
-```
+DO NOT copy generic selectors. Study the snapshot carefully and write selectors specific to THIS site's structure.
 """
 
 
@@ -162,26 +167,19 @@ class NavigationDiscoveryAgentV3:
             }
         })
 
-        # Custom tool: validate_selector
+        # Custom tool: get_selector_for_uid
         tools.append({
-            "name": "validate_selector",
-            "description": "Validates a selector or converts a snapshot UID to a real CSS selector. Returns visibility status and the actual selector to use.",
+            "name": "get_selector_for_uid",
+            "description": "Converts a snapshot UID to a real CSS selector that works in Playwright. Call this for any element you want to use in pre_extraction_actions.",
             "input_schema": {
                 "type": "object",
                 "properties": {
                     "uid": {
                         "type": "string",
-                        "description": "The UID from snapshot (e.g., '1a2b3c')"
-                    },
-                    "selector": {
-                        "type": "string",
-                        "description": "A CSS selector to validate"
-                    },
-                    "description": {
-                        "type": "string",
-                        "description": "What this element is (e.g., 'Shop menu trigger')"
+                        "description": "The UID from snapshot (e.g., '31_4')"
                     }
-                }
+                },
+                "required": ["uid"]
             }
         })
 
@@ -326,83 +324,80 @@ class NavigationDiscoveryAgentV3:
         except Exception as e:
             return f"Error checking API: {e}. Proceed with DOM extraction."
 
-    async def validate_selector(self, uid: Optional[str] = None, selector: Optional[str] = None, description: str = "") -> str:
-        """Validate selector or convert UID to real CSS selector"""
-        print(f"    [Python] Validating selector: uid={uid}, selector={selector}")
+    async def get_selector_for_uid(self, uid: str) -> str:
+        """Convert a snapshot UID to a real CSS selector by clicking on it and inspecting the DOM"""
+        print(f"    [Python] Getting selector for UID: {uid}")
 
+        # First, use MCP's click to identify the element, then get its real attributes
+        # The MCP click tool accepts UIDs directly, so we can use that to find the element
+
+        # Use evaluate_script to find all interactive elements and build a selector
         js_code = """
-        (uid, selector) => {
-            let element = null;
-            let foundSelector = null;
+        () => {
+            // Get all interactive elements in the page
+            const elements = document.querySelectorAll('button, a, [role="button"], [aria-haspopup]');
+            const results = [];
 
-            // If UID provided, find element by data attribute (MCP adds these)
-            if (uid) {
-                // MCP snapshot UIDs correspond to elements - try to find by various methods
-                // The snapshot doesn't directly map, so we need to be creative
-                // For now, return an error suggesting to use evaluate_script to find the element
-                return {
-                    error: "UID lookup not directly supported. Use evaluate_script to find element by text/position.",
-                    suggestion: "Provide a CSS selector or use evaluate_script to find the element"
-                };
-            }
+            for (const el of elements) {
+                const style = getComputedStyle(el);
+                const rect = el.getBoundingClientRect();
+                const isVisible = style.display !== 'none' &&
+                                 style.visibility !== 'hidden' &&
+                                 rect.width > 0 && rect.height > 0;
 
-            // If selector provided, validate it
-            if (selector) {
-                try {
-                    element = document.querySelector(selector);
-                    if (!element) {
-                        return {
-                            valid: false,
-                            error: `Selector "${selector}" not found in DOM`
-                        };
-                    }
+                if (!isVisible) continue;
 
-                    // Check visibility
-                    const style = getComputedStyle(element);
-                    const rect = element.getBoundingClientRect();
-                    const isVisible = style.display !== 'none' &&
-                                     style.visibility !== 'hidden' &&
-                                     rect.width > 0 && rect.height > 0;
+                // Build possible selectors for this element
+                const selectors = [];
 
-                    // Get element details
-                    return {
-                        valid: true,
-                        selector: selector,
-                        isVisible: isVisible,
-                        tagName: element.tagName.toLowerCase(),
-                        text: element.textContent.trim().substring(0, 50),
-                        ariaLabel: element.getAttribute('aria-label'),
-                        classes: element.className,
-                        rect: {
-                            x: Math.round(rect.x),
-                            y: Math.round(rect.y),
-                            width: Math.round(rect.width),
-                            height: Math.round(rect.height)
-                        }
-                    };
-                } catch (e) {
-                    return {
-                        valid: false,
-                        error: `Invalid selector "${selector}": ${e.message}`
-                    };
+                // aria-label is the most reliable
+                if (el.getAttribute('aria-label')) {
+                    selectors.push(`[aria-label="${el.getAttribute('aria-label')}"]`);
                 }
+
+                // id is unique
+                if (el.id) {
+                    selectors.push(`#${el.id}`);
+                }
+
+                // data-testid
+                if (el.getAttribute('data-testid')) {
+                    selectors.push(`[data-testid="${el.getAttribute('data-testid')}"]`);
+                }
+
+                results.push({
+                    tagName: el.tagName.toLowerCase(),
+                    text: el.textContent.trim().substring(0, 50),
+                    ariaLabel: el.getAttribute('aria-label'),
+                    selectors: selectors,
+                    rect: { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) }
+                });
             }
 
-            return { error: "Provide either uid or selector" };
+            return results;
         }
         """
 
         try:
-            result = await self.call_mcp_tool(
-                "evaluate_script",
-                {"function": js_code, "args": [{"uid": uid or ""}, {"uid": selector or ""}]}
-            )
+            # Get all interactive elements
+            result = await self.call_mcp_tool("evaluate_script", {"function": js_code})
 
-            # Parse and format result
-            return f"Selector validation result:\n{result}\n\nIf isVisible is false, this selector won't work in Playwright. Find a visible alternative."
+            # Now we need to match the UID to an element
+            # The MCP click tool can click by UID, so let's use that to highlight which element
+            # For now, return the list and let's see if we can match by position/text
+
+            return f"""Found interactive elements on page.
+
+To find the right selector for uid={uid}, look for the element that matches what you saw in the snapshot.
+
+Elements found:
+{result}
+
+Use the 'selectors' array from the matching element for your pre_extraction_actions.
+The first selector (usually aria-label based) is most reliable."""
 
         except Exception as e:
-            return f"Error validating selector: {e}"
+            return f"Error getting selector: {e}"
 
     async def test_extraction(self, extraction_script: str, pre_extraction_actions: List[Dict] = None) -> str:
         """Test full extraction flow on a fresh page"""
@@ -488,16 +483,16 @@ class NavigationDiscoveryAgentV3:
 
             # Parse and validate result
             try:
-                # The result should be JSON array
-                if "[]" in result or result.strip() == "[]":
-                    return f"FAILED: Extraction returned empty array.\n\nResult: {result}\n\nThe script ran but found no categories. Check your selectors."
-
-                # Try to count results
+                # Try to count results by counting "name" keys
                 if '"name"' in result:
                     count = result.count('"name"')
-                    return f"SUCCESS: Extraction found approximately {count} categories.\n\nPreview:\n{result[:1500]}\n\nThis looks good! You can call save_and_finish."
-                else:
-                    return f"UNCERTAIN: Script returned but format unclear.\n\nResult: {result[:1000]}\n\nVerify this is the expected format."
+                    return f"SUCCESS: Extraction found {count} categories.\n\nPreview:\n{result[:1500]}\n\nThis looks good! You can call save_and_finish."
+
+                # Check for truly empty result
+                if result.strip() == "[]" or result.strip() == "null":
+                    return f"FAILED: Extraction returned empty array.\n\nResult: {result}\n\nThe script ran but found no categories. Check your selectors."
+
+                return f"UNCERTAIN: Script returned but format unclear.\n\nResult: {result[:1000]}\n\nVerify this is the expected format."
 
             except Exception as e:
                 return f"FAILED: Could not parse extraction result: {e}\n\nRaw result: {result[:500]}"
@@ -537,11 +532,9 @@ class NavigationDiscoveryAgentV3:
         """Handle our custom tools"""
         if name == "check_for_api":
             return await self.check_for_api()
-        elif name == "validate_selector":
-            return await self.validate_selector(
-                uid=arguments.get("uid"),
-                selector=arguments.get("selector"),
-                description=arguments.get("description", "")
+        elif name == "get_selector_for_uid":
+            return await self.get_selector_for_uid(
+                uid=arguments.get("uid", "")
             )
         elif name == "test_extraction":
             return await self.test_extraction(
@@ -650,7 +643,7 @@ Start by:
 
                 for tc in tool_calls:
                     # Check if it's our custom tool
-                    if tc.name in ["check_for_api", "validate_selector", "test_extraction", "save_and_finish"]:
+                    if tc.name in ["check_for_api", "get_selector_for_uid", "test_extraction", "save_and_finish"]:
                         if tc.name == "save_and_finish":
                             save_data = tc.input
                             result = self.save_method(brand_name, brand_url, tc.input)
