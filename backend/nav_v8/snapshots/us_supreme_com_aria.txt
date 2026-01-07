@@ -1,0 +1,190 @@
+URL: https://us.supreme.com/pages/shop
+================================================================================
+
+- link "skip to content":
+  - /url: "#MainContent"
+- alert:
+  - paragraph:
+    - text: This site uses cookies to improve your experience. By continuing to browse, you agree to the use of cookies. Read the
+    - link "Privacy Policy":
+      - /url: /pages/privacy
+    - text: here.
+  - button "Dismiss alert":
+    - img "Close"
+- navigation:
+  - link "Supreme Home":
+    - /url: https://supreme.com/
+    - img "Siberia Logo"
+  - heading "01/07/2026 03:37pm NYC" [level=2]
+- main:
+  - list:
+    - listitem:
+      - link "Polartec® Reversible Track Jacket":
+        - /url: /products/uxvydxttlbvczcce
+        - text: new
+    - listitem:
+      - link "Small Box Waffle Sweater":
+        - /url: /products/oxvxkft5y-dh9haj
+        - text: new
+    - listitem:
+      - link "Faux Shearling Lined Zip Up Hooded Sweater":
+        - /url: /products/wik-e-_e2bk0-4xz
+    - listitem:
+      - link "Faux Suede Snap Shirt":
+        - /url: /products/ribxarnxqn6ys1np
+        - text: new
+    - listitem:
+      - link "Appliqué Denim Shirt":
+        - /url: /products/qr-vnv13_orvf-ub
+    - listitem:
+      - link "Wide Wale Corduroy Snap Shirt":
+        - /url: /products/gmfn6exs_avx64mt
+    - listitem:
+      - link "Repeat Script Zip Up Hooded Sweatshirt":
+        - /url: /products/rlv9f2uw-euimbjd
+    - listitem:
+      - link "Jesus S/S Top":
+        - /url: /products/g2dn7ghixcw27ujv
+        - text: new
+    - listitem:
+      - link "Warthog Warm Up Pullover":
+        - /url: /products/d29lygyjiifd04y
+        - text: new
+    - listitem:
+      - link "AOI Jester S/S Top":
+        - /url: /products/rtwfbh7jrgxq3yct
+        - text: new
+    - listitem:
+      - link "Polartec® Hooded Hockey Jersey":
+        - /url: /products/7dsu-iyql0qkuods
+    - listitem:
+      - link "Split L/S Football Top":
+        - /url: /products/eimtoasmmuy5aag3
+    - listitem:
+      - link "Leopard Faux Fur Loose Fit Jean":
+        - /url: /products/e2-trf9f-_k76rxf
+        - text: new
+    - listitem:
+      - link "Polartec® Reflective Piping Pant":
+        - /url: /products/zp0lyf-wd4m79exk
+        - text: new
+    - listitem:
+      - link "Repeat Script Sweatpant":
+        - /url: /products/fffmxegj3jkblumu
+    - listitem:
+      - link "Wide Wale Corduroy Painter Pant":
+        - /url: /products/rwlgfiujo2sm8ye3
+    - listitem:
+      - link "Box Logo New Era® + Balaclava":
+        - /url: /products/szqd-wiehu74mtsi
+        - text: new
+    - listitem:
+      - link "Polartec® Lined Packable Earflap Camp Cap":
+        - /url: /products/i7iciruh0x_vjyj0
+        - text: new
+    - listitem:
+      - link "Military Camp Cap":
+        - /url: /products/s4j07yoj-pih7lk
+    - listitem:
+      - link "Pledge Allegiance 6-Panel":
+        - /url: /products/3glsgwkfjz_flvgk
+    - listitem:
+      - link "WINDSTOPPER® Facemask":
+        - /url: /products/s1gj1gz95tqnirgt
+        - text: new
+    - listitem:
+      - link "WINDSTOPPER® Handlebar Mitts":
+        - /url: /products/hk1zyrpan28wcs7x
+        - text: new
+    - listitem:
+      - link "WINDSTOPPER® Zip Gloves":
+        - /url: /products/dysyr9acjvcdyd85
+        - text: new
+    - listitem:
+      - link "WINDSTOPPER® Neck Gaiter":
+        - /url: /products/kw-rq8_-_etmcf49
+        - text: new
+    - listitem:
+      - link "Supreme®/Hanes® Thermal Crew (1 Pack)":
+        - /url: /products/rdtzdwsc-1fz-zku
+    - listitem:
+      - link "Supreme®/Hanes® Thermal Pant (1 Pack)":
+        - /url: /products/se6eqs2w18vi_2g0
+    - listitem:
+      - link "Supreme®/Hanes® Tagless Tees (3 Pack)":
+        - /url: /products/3yved2ddxe19-jgj
+    - listitem:
+      - link "Supreme®/Hanes® Boxer Briefs (4 Pack)":
+        - /url: /products/whetddkr-4imkcui
+    - listitem:
+      - link "Supreme®/Hanes® Crew Socks (4 Pack)":
+        - /url: /products/cch9cq6aho5lbwj
+    - listitem:
+      - link "Supreme®/Nike® Air Force 1 Low":
+        - /url: /products/lzznq9bhjbdj1fyt
+    - listitem:
+      - link "Supreme/Dash Snow Skateboard":
+        - /url: /products/b_yxdqzzhw2gj8yy
+    - listitem:
+      - link "Supreme®/Spitfire® Shop Wheels (Set of 4)":
+        - /url: /products/1zny9ysslfq2viko
+    - listitem:
+      - link "Supreme®/Independent® Truck":
+        - /url: /products/y6ztwlp4zr-jhlnp
+- contentinfo:
+  - list:
+    - listitem:
+      - link "shop":
+        - /url: /pages/shop
+    - listitem:
+      - link "Shop all products":
+        - /url: /collections/all
+        - text: view all
+  - list:
+    - listitem:
+      - link "fall/winter 2025 preview":
+        - /url: https://supreme.com/previews/fallwinter2025
+      - list:
+        - listitem:
+          - link "spring/summer 2025 preview":
+            - /url: https://supreme.com/previews/springsummer2025/
+    - listitem:
+      - link "lookbook":
+        - /url: https://supreme.com/lookbook/44
+    - listitem:
+      - link "news":
+        - /url: https://supreme.com/news
+  - list:
+    - listitem:
+      - link "random":
+        - /url: https://supreme.com/random/antihero
+    - listitem:
+      - link "about":
+        - /url: https://supreme.com/about
+    - listitem:
+      - link "stores":
+        - /url: https://supreme.com/stores
+  - list:
+    - listitem:
+      - link "f.a.q.":
+        - /url: /pages/faq
+    - listitem:
+      - link "sizing":
+        - /url: /pages/sizing
+    - listitem:
+      - link "contact":
+        - /url: https://supreme.com/contact
+  - list:
+    - listitem:
+      - link "terms":
+        - /url: /pages/terms
+    - listitem:
+      - link "privacy":
+        - /url: /pages/privacy
+    - listitem:
+      - link "accessibility":
+        - /url: /pages/accessibility-espanol
+  - list:
+    - listitem:
+      - link "mailing list":
+        - /url: https://supreme.com/mailinglist

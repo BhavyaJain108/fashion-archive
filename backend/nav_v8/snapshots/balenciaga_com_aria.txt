@@ -1,0 +1,174 @@
+URL: https://www.balenciaga.com/en-us
+================================================================================
+
+- list:
+  - listitem:
+    - link "Skip to main content":
+      - /url: "#main-content"
+- banner:
+  - link "Balenciaga - Go to the Homepage":
+    - /url: /en-us
+    - img "Balenciaga - Go to the Homepage"
+  - navigation "Main menu":
+    - navigation:
+      - list:
+        - listitem:
+          - link "SPRING 26":
+            - /url: /en-us/spring-26
+        - listitem:
+          - button "GIFTS"
+        - listitem:
+          - button "BAGS"
+        - listitem:
+          - button "WOMEN"
+        - listitem:
+          - button "MEN"
+        - listitem:
+          - link "COUTURE":
+            - /url: /en-us/couture
+        - listitem:
+          - button "EXPLORE"
+  - link "Client Services":
+    - /url: https://www.balenciaga.com/en-us/client-service
+  - link "Login":
+    - /url: https://www.balenciaga.com/en-us/login
+  - button "Search"
+  - link "Saved items":
+    - /url: /en-us/wishlist/saved-items
+  - link "Cart":
+    - /url: https://www.balenciaga.com/en-us/cart
+    - text: 
+- main:
+  - button "close the banner"
+  - region "Video Player"
+  - button "Play/Pause video"
+  - heading "SKIWEAR" [level=4]:
+    - paragraph: SKIWEAR
+  - link "SHOP NOW":
+    - /url: https://www.balenciaga.com/en-us/all/skiwear
+  - button " Play video"
+  - button " Unmute video"
+  - link:
+    - /url: https://www.balenciaga.com/en-us/women/shoes-for-women/boots-and-ankle-boots
+  - heading "BOOTS" [level=4]:
+    - paragraph: BOOTS
+  - link "SHOP WOMEN":
+    - /url: https://www.balenciaga.com/en-us/women/shoes-for-women/boots-and-ankle-boots
+  - link "SHOP MEN":
+    - /url: https://www.balenciaga.com/en-us/men/shoes-for-men/boots-and-derbies%C2%A0for-men
+  - region "Video Player"
+  - button "Play/Pause video"
+  - heading "LE CITY BAGS" [level=4]:
+    - paragraph: LE CITY BAGS
+  - link "SHOP NOW":
+    - /url: https://www.balenciaga.com/en-us/women/bags-for-women/le-city-bags-for-women
+  - button " Play video"
+  - button " Unmute video"
+  - link:
+    - /url: https://www.balenciaga.com/en-us/men/ready-to-wear%C2%A0for-men
+  - heading "READY-TO-WEAR" [level=4]:
+    - paragraph: READY-TO-WEAR
+  - link "SHOP MEN":
+    - /url: https://www.balenciaga.com/en-us/men/ready-to-wear%C2%A0for-men
+- contentinfo:
+  - heading "Newsletter" [level=2]
+  - list:
+    - listitem:
+      - button "Subscribe to our newsletter"
+  - heading "Client Services" [level=2]
+  - list:
+    - listitem:
+      - link "FAQ":
+        - /url: https://www.balenciaga.com/en-us/faq
+    - listitem:
+      - link "Track Order":
+        - /url: https://www.balenciaga.com/en-us/guestorder?orderType=order
+    - listitem:
+      - link "Exchanges and returns":
+        - /url: https://www.balenciaga.com/en-us/guestorder?orderType=return
+    - listitem:
+      - link "Shipping":
+        - /url: https://www.balenciaga.com/en-us/faq?faqCategory=FAQDelivery
+    - listitem:
+      - link "Payment":
+        - /url: https://www.balenciaga.com/en-us/faq?faqCategory=FAQPayments
+    - listitem:
+      - link "Re-sell Program":
+        - /url: https://www.balenciaga.com/en-us/re-sell-program
+  - heading "The company" [level=2]
+  - list:
+    - listitem:
+      - link "Careers":
+        - /url: https://careers.kering.com/careers?filter_house=Balenciaga
+    - listitem:
+      - link "Careers - Design":
+        - /url: https://creativejobs.balenciaga.com/
+    - listitem:
+      - link "Legal":
+        - /url: https://www.balenciaga.com/en-us/legal/terms-and-conditions-of-use/terms-and-conditions-use.html
+    - listitem:
+      - link "Privacy Policy":
+        - /url: https://www.balenciaga.com/en-us/legal/privacy-policy/privacy-policy.html
+    - listitem:
+      - link "Cookie Policy":
+        - /url: https://www.balenciaga.com/en-us/legal/cookie-policy/cookie-policy.html
+    - listitem:
+      - link "Cookies Settings and Do Not Sell or Share":
+        - /url: "#"
+    - listitem:
+      - link "World Food Progamme":
+        - /url: https://www.balenciaga.com/en-us/world-food-programme
+  - heading "Follow Us" [level=2]
+  - list:
+    - listitem:
+      - link "Facebook":
+        - /url: https://www.facebook.com/Balenciaga
+    - listitem:
+      - link "Instagram":
+        - /url: https://www.instagram.com/Balenciaga/
+    - listitem:
+      - link "Tiktok":
+        - /url: https://www.tiktok.com/@balenciaga
+    - listitem:
+      - link "Pinterest":
+        - /url: https://www.pinterest.com/balenciaga?utm_source=website&utm_medium=footer&utm_term=followus
+    - listitem:
+      - link "Linkedin":
+        - /url: https://www.linkedin.com/company/balenciaga?utm_source=website&utm_medium=footer&utm_term=followus"
+  - heading "Boutiques" [level=2]
+  - list:
+    - listitem:
+      - link "Store appointment":
+        - /url: ""
+    - listitem:
+      - link "Find a store nearby":
+        - /url: https://www.balenciaga.com/en-us/storelocator?showMap=true&horizontalView=true&isForm=true
+  - list:
+    - listitem:
+      - list:
+        - listitem:
+          - button "Shipping to the US": "Country / Region: United States"
+        - listitem:
+          - button "Change language": "Language: English"
+  - heading [level=2]
+  - paragraph: CONTACT US
+  - list:
+    - listitem: Our Client Advisors are available Mon-Fri 9am - 9pm ET & Sat-Sun 10am - 7pm ET
+    - listitem: LIVECHAT Our Client Advisors are currently unavailable
+    - listitem:
+      - link "CALL US +1 646 889 1895":
+        - /url: tel:+16468891895
+    - listitem:
+      - link "EMAIL US":
+        - /url: https://www.balenciaga.com/en-us/contactus
+  - button "© 2025 Balenciaga"
+  - paragraph
+- region "Cookie banner":
+  - dialog "Privacy":
+    - text: In addition to the cookies that are strictly necessary for the operation of this website, Balenciaga uses cookies and other tracking tools to remember your preference and propose additional services, to measure our website performance, to improve our understanding of your interests, and to send you cart notifications. Our partners use trackers to deliver personalized advertising based on your browsing habits and your profile, including by using profiling. You can click on "Accept all cookies" to consent to the above mentioned uses, click on "Cookie Settings" to configure your choices, or click on the "Accept only technical cookies" button to accept only necessary technical cookies. You may change your preferences, and in particular withdraw your consent, on our website at any moment. For more information about these technologies and their use on this website, please consult our
+    - link "Cookie Policy":
+      - /url: https://www.balenciaga.com/page?cid=cookie-policy
+    - text: .
+    - button "Cookies Settings"
+    - button "Accept Only Technical Cookies"
+    - button "Accept All Cookies"

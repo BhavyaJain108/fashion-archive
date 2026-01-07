@@ -1,0 +1,176 @@
+URL: https://www.acnestudios.com
+================================================================================
+
+- navigation "Skip links":
+  - tablist:
+    - tab "Skip to navigation"
+    - tab "Skip to main content"
+    - tab "Skip to footer"
+- text: large
+- banner "Navigation":
+  - button "Woman"
+  - button "Man"
+  - button "Bags"
+  - button "Scarves"
+  - button "Gifts"
+  - button "Sale"
+  - button "Search":
+    - img
+    - text: Search
+  - button "Help":
+    - img
+    - text: Help
+  - link "Account":
+    - /url: /us/en/account
+    - img
+    - text: Account
+  - button "Bag":
+    - img
+    - text: "00"
+- main "Main content":
+  - heading "Acne Studios" [level=1]
+  - link "New arrivals":
+    - /url: https://www.acnestudios.com/us/en/woman/new-arrivals/
+  - img "A close-up of a female model with glasses is wearing Acne Studios SS26 new arrivals beige bomber jacket, blue brown checked shirt and a skirt with roses in front of a green checked background.."
+  - text: Shop Woman Shop Woman > New arrivals
+  - link "New arrivals":
+    - /url: https://www.acnestudios.com/us/en/man/new-arrivals/
+  - img "A male model with glasses wearing Acne Studios SS26 new arrivals matching striped jeans and denim jacket, wearing light blue cowboy boots and holding a big denim Camero bag."
+  - text: Shop Man Shop Man > New arrivals
+  - link "SS26 Hooded Overshirt":
+    - /url: https://www.acnestudios.com/us/en/hooded-overshirt-black-green/AC0736-AIG.html
+  - img "A showcase of the product of Acne Studios hooded overshirt with beige-black checked pattern."
+  - text: Shop now Shop now > Shop now
+  - link "SS26 Multipocket Bag":
+    - /url: https://www.acnestudios.com/us/en/multipocket-suede-s/C10258-295.html
+  - img "A showcase of the product of Acne Studios SS26 new arrivals brown faux leather multipocket bag."
+  - link "SS26 New Arrivals Jeans":
+    - /url: https://www.acnestudios.com/us/en/rw-mn-5pkt000001/B00479-900.html
+  - img "A showcase of the product of Acne Studios regular fit deep blue jeans with patchwork."
+  - link "SS26 Denim Jacket":
+    - /url: https://www.acnestudios.com/us/en/patchwork-denim-jacket-blue-black/C90208-AIL.html
+  - img "A showcase of the product of Acne Studios patchwork deep blue denim jacket."
+  - link "Shop Scarves":
+    - /url: https://www.acnestudios.com/us/en/scarves/
+  - img "A creative product image of the Acne Studios Vally mohair checked scarf in chestnut brown, jellow and green colors."
+  - text: Shop Scarves Shop Scarves > Shop Now
+  - link "New arrivals":
+    - /url: https://www.acnestudios.com/us/en/woman/new-arrivals/
+  - img "Female model showing Acne Studios new arrivals, wearing a brown leather jacket, beige checked skirt, brown leather cowboy boots and holding a big black leather Camero bag."
+  - text: Shop Woman Shop Woman > New arrivals
+  - link "New arrivals":
+    - /url: https://www.acnestudios.com/us/en/man/new-arrivals/
+  - img "Male model showing Acne Studios new arrivals, wearing a long grey tailored suit jacket, pink hoodie, black leather pants, loafers and holding a colorful bag."
+  - text: Shop Man Shop Man > New arrivals
+  - link "FW25 Sale":
+    - /url: https://www.acnestudios.com/us/en/sale/
+  - img "FW25 Sale"
+  - text: FW25 Sale FW25 Sale > Shop now
+  - link "Women’s jeans":
+    - /url: https://www.acnestudios.com/us/en/woman/jeans/
+  - img "Women’s jeans"
+  - text: Women’s jeans Women’s jeans > Shop now
+  - link "Bags":
+    - /url: https://www.acnestudios.com/us/en/bags/category-bag-lines.html
+  - img "Bags"
+  - text: Bags Bags > Shop now
+  - link "Scarves":
+    - /url: https://www.acnestudios.com/us/en/scarves/
+  - img "Scarves"
+  - text: Scarves Scarves > Shop now
+  - link "Men’s jeans":
+    - /url: https://www.acnestudios.com/us/en/man/jeans/
+  - img "Men’s jeans"
+  - text: Men’s jeans Men’s jeans > Shop now
+  - region "Services & Campaigns":
+    - heading "Services & Campaigns" [level=2]
+    - link "FREE SHIPPING & RETURNS Fast delivery and easy returns or exchanges on all orders.":
+      - /url: https://www.acnestudios.com/se/en/help/faq.html?utm_medium=accordion&utm_source=faq#accordion--de3ef344b2a74c2ab2455a2112
+    - img "Gift boxes and product packaging displayed with text promoting free shipping, fast delivery, and easy returns or exchanges on all orders."
+    - text: FREE SHIPPING & RETURNS Fast delivery and easy returns or exchanges on all orders.
+    - link "FREE SHIPPING & RETURNS Fast delivery and easy returns or exchanges on all orders.":
+      - /url: https://www.acnestudios.com/us/en/acne-paper/palais-royal-open.html
+    - img "Exterior window of the Acne Paper Palais Royal gallery space in Paris, presenting the permanent gallery that merges fashion, art, and publishing beneath the Palais Royal arcades."
+    - text: ACNE PAPER PALAIS ROYAL A permanent gallery by Acne Studios, merging fashion, art, and publishing beneath the arcades of Palais Royal.
+    - link "FREE SHIPPING & RETURNS Fast delivery and easy returns or exchanges on all orders.":
+      - /url: https://www.acnestudios.com/us/en/gift-card/GIFT-CARD.html
+    - img "Graphic of an Acne Studios digital gift card, referencing instant email delivery and online or in-store redemption."
+    - text: GIFT CARD Acne Studios digital gift cards are delivered instantly by email, redeemable online and in store.
+    - link "FREE SHIPPING & RETURNS Fast delivery and easy returns or exchanges on all orders.":
+      - /url: https://www.acnestudios.com/us/en/woman/ss26/
+    - img "Model walking the runway at the Acne Studios SS26 Paris Fashion Show, announcing the Women’s Spring/Summer 2026 collection launching in March."
+    - text: SS26 Runway Acne Studios presents Women’s Spring/Summer 2026. Launching online and in stores March 2026.
+    - link "FREE SHIPPING & RETURNS Fast delivery and easy returns or exchanges on all orders.":
+      - /url: https://www.acnestudios.com/us/en/stores/stores.html
+    - img "Exterior of an Acne Studios flagship store, illustrating the option to order online and collect in store."
+    - text: COLLECT IN STORE Order online and pick up at your preferred Acne Studios store.
+- contentinfo "Footer":
+  - heading "Newsletter" [level=2]
+  - paragraph: Receive news about Acne Studios collections, Acne Paper, events and sales.
+  - textbox "Email"
+  - text: Email
+  - navigation:
+    - heading "Contact Us" [level=2]
+    - button "Live chat"
+    - link "Call":
+      - /url: tel:+18552263289
+    - link "Email":
+      - /url: mailto:clientservices@acnestudios.com
+    - heading "Help" [level=2]
+    - link "Contact us":
+      - /url: https://www.acnestudios.com/us/en/help/contact-us.html
+    - link "Order status":
+      - /url: https://www.acnestudios.com/us/en/shopping-help/get-order-status
+    - link "Register a return":
+      - /url: https://www.acnestudios.com/us/en/shopping-help/register-return
+    - link "FAQs":
+      - /url: https://www.acnestudios.com/us/en/help/faq.html
+    - heading "Client services" [level=2]
+    - link "Acne Studios Services":
+      - /url: https://www.acnestudios.com/us/en/client-services/
+    - link "Account":
+      - /url: https://www.acnestudios.com/us/en/client-services/account.html
+    - link "Find a store":
+      - /url: https://www.acnestudios.com/us/en/stores/
+    - link "Product care":
+      - /url: https://www.acnestudios.com/us/en/client-services/productcare.html
+    - link "Gift Cards":
+      - /url: https://www.acnestudios.com/us/en/gift-card/GIFT-CARD.html
+    - heading "Company" [level=2]
+    - link "About":
+      - /url: https://www.acnestudios.com/us/en/about/about.html
+    - link "Press":
+      - /url: http://press.acnestudios.com
+    - link "Careers":
+      - /url: https://www.acnestudios.com/us/en/company/careers/careers.html
+    - link "Sustainability":
+      - /url: https://www.acnestudios.com/us/en/company/sustainability/sustainability.html
+    - link "Legal & Privacy":
+      - /url: https://www.acnestudios.com/us/en/companyfolder/company__terms-of-use.html
+  - button "Shipping to United States (English)"
+  - text: © 2026 Acne Studios
+  - link "Instagram":
+    - /url: http://www.instagram.com/acnestudios
+    - text: IG
+  - link "Facebook":
+    - /url: http://www.facebook.com/acnestudios
+    - text: FB
+  - link "Twitter":
+    - /url: http://www.twitter.com/acnestudios
+    - text: TW
+  - link "Youtube":
+    - /url: https://www.youtube.com/@AcneStudiosOfficial
+    - text: YT
+  - link "Pinterest":
+    - /url: http://www.pinterest.com/AcneStudios
+    - text: PT
+  - link "Weibo":
+    - /url: http://weibo.com/acnestudioscn
+    - text: WB
+- region "Cookie banner":
+  - alertdialog "Your cookie settings":
+    - heading "Your cookie settings" [level=2]
+    - text: By clicking “Accept All Cookies”, you agree to the storing of cookies on your device to enhance site navigation, analyze site usage, and assist in our marketing efforts. To adjust your preferences or withdraw consent of cookies at any time, click on “Cookie Settings” below or at the bottom of any page.
+    - button "Continue without accepting"
+    - button "Accept all cookies"
+    - button "Cookie settings"

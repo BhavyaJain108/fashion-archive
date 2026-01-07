@@ -1,0 +1,259 @@
+URL: https://www.ssense.com
+================================================================================
+
+- banner:
+  - navigation:
+    - list:
+      - listitem:
+        - link "Menswear":
+          - /url: /en-us/men
+      - listitem:
+        - link "Womenswear":
+          - /url: /en-us/women
+      - listitem:
+        - link "Everything else":
+          - /url: /en-us/everything-else
+      - listitem:
+        - link "sale":
+          - /url: /en-us/men/sale
+      - listitem:
+        - link "search":
+          - /url: "#"
+  - banner:
+    - link "SSENSE":
+      - /url: /en-us
+      - img "SSENSE"
+  - navigation:
+    - list:
+      - listitem:
+        - link "English":
+          - /url: https://www.ssense.com/en-us
+      - listitem:
+        - link "login":
+          - /url: /en-us/account/login
+      - listitem:
+        - link "wishlist":
+          - /url: /en-us/account/wishlist
+      - listitem:
+        - link "bag (0)":
+          - /url: /en-us/shopping-bag
+- main:
+  - link "Culture The Best SSENSE Stories of 2025 Twelve highlights for your reading pleasure.":
+    - /url: /en-us/editorial/culture/the-best-ssense-stories-of-2025
+    - figure
+    - heading "Culture The Best SSENSE Stories of 2025" [level=4]
+    - paragraph: Twelve highlights for your reading pleasure.
+  - link "Culture The Queen of Ween In the heart of New Hope, PA, is a mighty little punk rock store called God Save the Qweens, an unofficial shrine to the beloved hometown band that is fighting for its right to stay weird.":
+    - /url: /en-us/editorial/culture/new-hope-ween-god-save-the-queens
+    - figure
+    - heading "Culture The Queen of Ween" [level=4]
+    - paragraph: In the heart of New Hope, PA, is a mighty little punk rock store called God Save the Qweens, an unofficial shrine to the beloved hometown band that is fighting for its right to stay weird.
+  - link "Recent Culture Predictions for 2026 Culture | Dec 12":
+    - /url: /en-us/editorial/culture/trend-forecast-2026
+    - figure
+    - heading "Recent Culture Predictions for 2026" [level=4]
+    - text: Culture
+    - time: "| Dec 12"
+  - link "Recent Finding Beauty in the Noise Music | Dec 4":
+    - /url: /en-us/editorial/music/heartgaze-interview
+    - figure
+    - heading "Recent Finding Beauty in the Noise" [level=4]
+    - text: Music
+    - time: "| Dec 4"
+  - link "Recent Creating Space with Erika de Casier Music | Nov 28":
+    - /url: /en-us/editorial/music/erika-de-casier-lifetime-interview
+    - figure
+    - heading "Recent Creating Space with Erika de Casier" [level=4]
+    - text: Music
+    - time: "| Nov 28"
+  - link "Featured EMANUELE BICOCCHI Shop Menswear":
+    - /url: /en/men/designers/emanuele-bicocchi
+    - figure
+    - heading "Featured EMANUELE BICOCCHI" [level=4]
+    - link "Shop Menswear":
+      - /url: /en/men/designers/emanuele-bicocchi
+  - link "Featured Dries van Noten Shop Womenswear":
+    - /url: /en/women/designers/dries-van-noten
+    - figure
+    - heading "Featured Dries van Noten" [level=4]
+    - link "Shop Womenswear":
+      - /url: /en/women/designers/dries-van-noten
+  - link "Futurecasting View All Stories":
+    - /url: /en-us/editorial
+    - heading "Futurecasting" [level=4]
+    - text: View All Stories
+  - link "Normcore Was Always a Misunderstood Fantasy Fashion":
+    - /url: /en-us/editorial/fashion/normcore-k-hole-interview
+    - figure
+    - heading "Normcore Was Always a Misunderstood Fantasy" [level=4]
+    - text: Fashion
+  - link "The Rise of the Fashion Accounts Fashion":
+    - /url: /en-us/editorial/fashion/the-rise-of-the-fashion-accounts
+    - figure
+    - heading "The Rise of the Fashion Accounts" [level=4]
+    - text: Fashion
+  - link "The Pitfalls (and Possibilities) of AI Art Culture":
+    - /url: /en-us/editorial/culture/ai-art-chatgpt-liararoux-dall-e-2-stable-diffusion-ann
+    - figure
+    - heading "The Pitfalls (and Possibilities) of AI Art" [level=4]
+    - text: Culture
+  - link "The Derrick Gee Method for Finding Amazing Music Culture":
+    - /url: /en-us/editorial/culture/derrick-gee-music-interview
+    - figure
+    - heading "The Derrick Gee Method for Finding Amazing Music" [level=4]
+    - text: Culture
+  - link "THE BEAUTY OF BAD TASTE Design In conversation with Jonas Nyffenegger and Sébastien Mathys, the minds behind Ugly Design, Instagram’s most unhinged account.":
+    - /url: /en-us/editorial/design/ugly-design-interview
+    - figure
+    - heading "THE BEAUTY OF BAD TASTE" [level=4]
+    - text: Design
+    - paragraph: In conversation with Jonas Nyffenegger and Sébastien Mathys, the minds behind Ugly Design, Instagram’s most unhinged account.
+  - link "“I Don’t Think Subculture Is Gone. I Just Don’t Think It Serves the Same Purpose.” Music A conversation with Ghostly International founder Sam Valenti IV on the occasion of his new coffee table book.":
+    - /url: /en-us/editorial/music/ghostly-international-book-interview
+    - figure
+    - heading "“I Don’t Think Subculture Is Gone. I Just Don’t Think It Serves the Same Purpose.”" [level=4]
+    - text: Music
+    - paragraph: A conversation with Ghostly International founder Sam Valenti IV on the occasion of his new coffee table book.
+  - link "The Shape of Punk to Come Music | Nov 7":
+    - /url: /en-us/editorial/music/gang-called-speed-profile
+    - figure
+    - heading "The Shape of Punk to Come" [level=4]
+    - text: Music
+    - time: "| Nov 7"
+  - link "The A-Z Guide to Stone Island Fashion":
+    - /url: /en-us/editorial/fashion/stone-island-brand-history
+    - figure
+    - heading "The A-Z Guide to Stone Island" [level=4]
+    - text: Fashion
+  - link "The A-Z Guide to Yohji Yamamoto Fashion":
+    - /url: /en-us/editorial/fashion/yohji-yamamoto-brand-history-y-3
+    - figure
+    - heading "The A-Z Guide to Yohji Yamamoto" [level=4]
+    - text: Fashion
+  - link "The A–Z Guide to Balenciaga Fashion":
+    - /url: /en-us/editorial/fashion/balenciaga-brand-history-demna
+    - figure
+    - heading "The A–Z Guide to Balenciaga" [level=4]
+    - text: Fashion
+  - link "The A–Z Guide to Modern Perfume Culture Culture":
+    - /url: /en-us/editorial/culture/modern-perfume-guide
+    - figure
+    - heading "The A–Z Guide to Modern Perfume Culture" [level=4]
+    - text: Culture
+  - link "Featured PRADA Shop Menswear":
+    - /url: /en/men/designers/miharayasuhiro
+    - figure
+    - heading "Featured PRADA" [level=4]
+    - link "Shop Menswear":
+      - /url: /en/men/designers/miharayasuhiro
+  - link "Featured MIU MIU Shop Womenswear":
+    - /url: /en/women/sunglasses
+    - figure
+    - heading "Featured MIU MIU" [level=4]
+    - link "Shop Womenswear":
+      - /url: /en/women/sunglasses
+  - link "Dance Like Everyone’s Watching":
+    - /url: /en-us/editorial/culture/mauro-van-de-kerkhof-menswear-editorial
+    - heading "Dance Like Everyone’s Watching" [level=1]
+  - link "Dancer and choreographer Mauro van de Kerkhof models the latest SS26 menswear from Auralee, Dries van Noten, Comme des Garçons, and more.":
+    - /url: /en-us/editorial/culture/mauro-van-de-kerkhof-menswear-editorial
+    - heading "Dancer and choreographer Mauro van de Kerkhof models the latest SS26 menswear from Auralee, Dries van Noten, Comme des Garçons, and more." [level=2]
+  - link "View Editorial":
+    - /url: /en-us/editorial/culture/mauro-van-de-kerkhof-menswear-editorial
+  - link "Interiority View All Stories":
+    - /url: /en-us/editorial
+    - heading "Interiority" [level=4]
+    - text: View All Stories
+  - link "Is Anybody Home? Fashion":
+    - /url: /en-us/editorial/fashion/instagram-trends-home-decor-apartment-decorating-2
+    - figure
+    - heading "Is Anybody Home?" [level=4]
+    - text: Fashion
+  - link "Home Is Where the diptyque Candles Are Market":
+    - /url: /en-us/editorial/market/home-is-where-the-diptyque-candles-are
+    - figure
+    - heading "Home Is Where the diptyque Candles Are" [level=4]
+    - text: Market
+  - link "I Love Lamp Fashion":
+    - /url: /en-us/editorial/fashion/modern-lighting-lamp-guide
+    - figure
+    - heading "I Love Lamp" [level=4]
+    - text: Fashion
+  - link "The Beautiful Design Objects of MATTER and SHAPE Culture":
+    - /url: /en-us/editorial/culture/matter-shape-interior-design-fashion
+    - figure
+    - heading "The Beautiful Design Objects of MATTER and SHAPE" [level=4]
+    - text: Culture
+  - link "Recent How to Charm a Room Full of Billionaires Culture | Nov 4":
+    - /url: /en-us/editorial/culture/phyllis-kao-sothebys-interview
+    - figure
+    - heading "Recent How to Charm a Room Full of Billionaires" [level=4]
+    - text: Culture
+    - time: "| Nov 4"
+  - link "Recent Yasi Goes Deep Music | Oct 29":
+    - /url: /en-us/editorial/music/yasi-salek-bandsplain-profile
+    - figure
+    - heading "Recent Yasi Goes Deep" [level=4]
+    - text: Music
+    - time: "| Oct 29"
+  - link "Recent Kelly Reichardt Reimagines the Art of the Heist Culture | Oct 24":
+    - /url: /en-us/editorial/culture/kelly-reichardt-the-mastermind
+    - figure
+    - heading "Recent Kelly Reichardt Reimagines the Art of the Heist" [level=4]
+    - text: Culture
+    - time: "| Oct 24"
+- contentinfo:
+  - navigation:
+    - list:
+      - listitem:
+        - link "customer care":
+          - /url: "#"
+      - listitem:
+        - link "location":
+          - /url: "#"
+      - listitem:
+        - link "Editorial Archive":
+          - /url: /en-us/editorial
+      - listitem:
+        - link "careers":
+          - /url: https://people.ssense.com/en/job-openings
+      - listitem:
+        - 'link "COUNTRY/REGION: United States"':
+          - /url: "#"
+      - listitem:
+        - link "EMAIL SIGNUP":
+          - /url: "#"
+      - listitem:
+        - link "affiliates":
+          - /url: /en-us/affiliates
+      - listitem:
+        - link "sitemap":
+          - /url: /en-us/sitemap
+    - list:
+      - listitem:
+        - link "facebook":
+          - /url: //www.facebook.com/SSENSEofficial
+      - listitem:
+        - link "instagram":
+          - /url: //instagram.com/ssense
+      - listitem:
+        - link "x":
+          - /url: https://twitter.com/ssense
+      - listitem:
+        - link "tiktok":
+          - /url: https://www.tiktok.com/@ssense
+  - contentinfo:
+    - list:
+      - listitem: © 2026 ssense.com
+      - listitem:
+        - link "Terms & Conditions":
+          - /url: /en-us/terms-conditions
+      - listitem:
+        - link "Privacy Policy":
+          - /url: /en-us/privacy-policy
+      - listitem:
+        - link "Cookies":
+          - /url: /en-us/cookies
+      - listitem:
+        - link "Accessibility":
+          - /url: /en-us/customer-service/accessibility
