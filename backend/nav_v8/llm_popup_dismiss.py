@@ -93,10 +93,16 @@ async def try_direct_popup_selectors(page: Page) -> int:
     selectors = [
         'button:has-text("Accept All Cookies")',
         'button:has-text("Accept All")',
+        'button:has-text("ACCEPT ALL COOKIES")',
         'button:has-text("Allow All")',
         'button:has-text("Accept Cookies")',
         '[id*="cookie"] button:has-text("Accept")',
         '[id*="consent"] button:has-text("Accept")',
+        # Geolocation/country popups - click US or close
+        '#popin-ip',  # Jacquemus "United States" button
+        '.popin__geoloc a[data-locale="en_US"]',
+        '.js-close-panel[data-panel-id*="geoloc"]',
+        'button:has-text("United States")',
         # Newsletter/signup close buttons
         '#attentive_overlay button[aria-label*="close" i]',
         '#attentive_overlay button:has-text("Close")',

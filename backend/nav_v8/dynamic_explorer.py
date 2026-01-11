@@ -388,9 +388,8 @@ async def click_button(page: Page, name: str, container=None, prefer_tab: bool =
 
     for role in roles:
         try:
-            # Use exact=True for tabs to avoid 'men' matching 'women'
-            use_exact = (role == 'tab')
-            locator = search_context.get_by_role(role, name=name, exact=use_exact)
+            # Use exact=True to avoid partial matches (e.g., 'men' matching 'payments')
+            locator = search_context.get_by_role(role, name=name, exact=True)
             count = await locator.count()
             if count > 0:
                 # Find first VISIBLE element (some sites have duplicate hidden elements)
