@@ -96,63 +96,93 @@ RULES:
 """
 
 
-def prompt_subcategories(aria: str, top_level_name: str) -> str:
+def prompt_subcategories(aria: str, top_level_name: str, top_level_items: list = None) -> str:
     """Prompt to identify subcategories after clicking a top-level category."""
-    return f"""I just clicked on "{top_level_name}" in a navigation menu.
+    exclude_note = ""
+    if top_level_items:
+        exclude_note = f"""
+EXCLUDE these (main nav bar, not children of "{top_level_name}"): {', '.join(top_level_items)}"""
 
-Look at this ARIA snapshot and identify what SUBCATEGORY tabs are available to click.
+    return f"""I clicked "{top_level_name}" and a dropdown appeared.
 
 ARIA:
 {aria[:6000]}
 
-RESPOND EXACTLY LIKE THIS:
+TASK: List what's inside the "{top_level_name}" dropdown.
+{exclude_note}
 
-SUBCATEGORIES:
-- TAB: Handbags
-- TAB: Shoes
-- TAB: Ready-to-Wear
+WHERE TO LOOK:
+- Find: button "{top_level_name}" [expanded] or tab "{top_level_name}" [expanded]
+- Look INSIDE the menu/region/tablist that follows it
+
+FORMAT - just read what you see:
+
+CLICKABLE (menuitems, buttons, tabs - we'll click these):
+- MENUITEM: ExactName
+- BUTTON: ExactName
+- TAB: ExactName
+
+LINKS (have /url: in ARIA - we won't click these):
+- LINK: ExactName
 
 RULES:
-- ONLY list tabs that switch content panels (product categories like Handbags, Shoes, Clothing, Accessories, Jewellery)
-- These must be TABS in a tablist - they switch what's displayed without navigating away
-- Use TAB for tab elements, BUTTON only for expandable accordion-style buttons
-- EXCLUDE these completely:
-  * "New in" / "New Arrivals" - these navigate to a page
-  * "Collections" buttons that link to collection pages
-  * Any item with /url: in ARIA - those are links
-  * Sale, Featured, Editorial items
-  * Close, Search, Menu, Back buttons
-- If there are NO subcategory tabs (just links), respond with:
-  SUBCATEGORIES:
-  NONE
+- List EVERY menuitem/button/tab you see inside the dropdown
+- List EVERY link you see inside the dropdown
+- Use exact names from ARIA
+- Don't guess or interpret - just read what's there
+
+EXCLUDE:
+- Close, Search, Cart, Account buttons
+- Main nav items listed above
+
+If empty:
+CLICKABLE:
+NONE
+LINKS:
+NONE
 """
 
 
-def parse_subcategories(response: str) -> list:
-    """Parse LLM response for subcategories."""
-    subcats = []
-    in_section = False
+def parse_subcategories(response: str) -> tuple[list, list]:
+    """
+    Parse LLM response for subcategories.
+    Returns (clickable_items, links) - clickable items will be explored.
+    """
+    import re
+    clickable = []
+    links = []
+    current_section = None  # 'clickable' or 'links'
 
     for line in response.split('\n'):
         line = line.strip()
 
-        if 'SUBCATEGORIES:' in line.upper():
-            in_section = True
+        if 'CLICKABLE' in line.upper() or 'EXPANDABLE' in line.upper():
+            current_section = 'clickable'
+            continue
+        elif 'LINKS' in line.upper() and ':' in line:
+            current_section = 'links'
+            continue
+        # Backwards compatibility
+        elif 'SUBCATEGORIES:' in line.upper() or 'ITEMS:' in line.upper():
+            current_section = 'clickable'
             continue
 
-        if in_section:
+        if current_section:
             if line.upper() == 'NONE':
-                return []
-            if line.startswith('- TAB:'):
-                name = line[6:].strip()
+                continue
+            # Parse any type: "- TYPE: Name"
+            match = re.match(r'-\s*(\w+):\s*(.+)', line)
+            if match:
+                item_type = match.group(1).lower()
+                name = match.group(2).strip()
                 if name:
-                    subcats.append({'type': 'tab', 'name': name})
-            elif line.startswith('- BUTTON:'):
-                name = line[9:].strip()
-                if name:
-                    subcats.append({'type': 'button', 'name': name})
+                    item = {'type': item_type, 'name': name}
+                    if current_section == 'clickable':
+                        clickable.append(item)
+                    else:
+                        links.append(item)
 
-    return subcats
+    return clickable, links
 
 
 def parse_menu_structure(response: str) -> dict:
@@ -379,18 +409,59 @@ def filter_utility_buttons(buttons: set | dict) -> set | dict:
 # Navigation helpers
 # =============================================================================
 
-async def click_button(page: Page, name: str, container=None, prefer_tab: bool = False) -> bool:
-    """Click a button by name, optionally scoped to a container."""
+async def click_button(page: Page, name: str, container=None, prefer_tab: bool = False, prefer_role: str = None, parent_menu: str = None) -> bool:
+    """Click a button by name, optionally scoped to a container or parent menu."""
     search_context = container if container else page
 
-    # Order of roles to try - tabs first if prefer_tab
-    roles = ['tab', 'button', 'menuitem', 'link'] if prefer_tab else ['button', 'tab', 'menuitem', 'link']
+    # If parent_menu is specified, first try to find element inside that menu
+    # This handles cases like clicking "Men" inside "menu Sales" vs top-level "Men" button
+    if parent_menu:
+        for menu_role in ['menu', 'region', 'navigation', 'dialog']:
+            try:
+                menu_container = page.get_by_role(menu_role, name=parent_menu, exact=False)
+                if await menu_container.count() > 0:
+                    # Search for the target INSIDE this menu
+                    for role in ['menuitem', 'button', 'tab', 'link']:
+                        inner_locator = menu_container.get_by_role(role, name=name, exact=True)
+                        if await inner_locator.count() > 0:
+                            element = inner_locator.first
+                            if await element.is_visible():
+                                print(f"        [CLICK-DETAIL] Found '{name}' as {role} inside {menu_role} '{parent_menu}'")
+                                await element.click(timeout=3000)
+                                await page.wait_for_timeout(150)
+                                return True
+            except:
+                continue
+
+    # Order of roles to try
+    base_roles = ['button', 'tab', 'menuitem', 'link']
+    if prefer_tab:
+        base_roles = ['tab', 'button', 'menuitem', 'link']
+
+    # If a specific role is required (e.g., LLM said it's a menuitem), ONLY try that role
+    # This prevents clicking button "Men" when we want menuitem "Men"
+    if prefer_role:
+        roles = [prefer_role]
+        print(f"        [CLICK-DETAIL] Strict role search: only trying '{prefer_role}'")
+    else:
+        roles = base_roles
 
     for role in roles:
         try:
-            # Use exact=True to avoid partial matches (e.g., 'men' matching 'payments')
+            # First try exact match, then fuzzy match if exact fails
             locator = search_context.get_by_role(role, name=name, exact=True)
             count = await locator.count()
+
+            # If exact match fails, try fuzzy match (handles "MENU" vs "Menu" or "Open Menu")
+            if count == 0:
+                locator = search_context.get_by_role(role, name=name, exact=False)
+                count = await locator.count()
+                if count > 0:
+                    print(f"        [CLICK-DETAIL] Fuzzy match found '{name}' as {role} ({count} matches)")
+
+            if count > 1:
+                # Multiple elements with same name - potential ambiguity
+                print(f"        [CLICK-DEBUG] WARNING: Found {count} elements for '{name}' as {role}")
             if count > 0:
                 # Find first VISIBLE element (some sites have duplicate hidden elements)
                 for i in range(count):
@@ -437,6 +508,7 @@ async def click_button(page: Page, name: str, container=None, prefer_tab: bool =
     except Exception as e:
         print(f"        [CLICK-DETAIL] Error with summary: {e}")
 
+    print(f"      [CLICK] Could not find '{name}' - tried button/tab/menuitem/link/summary")
     return False
 
 
@@ -720,16 +792,17 @@ async def click_back_at_level(page: Page, level: int, back_buttons: dict) -> boo
     return False
 
 
-async def try_click_with_url_check(page: Page, name: str, container=None, prefer_tab: bool = False, skip_url_check: bool = False) -> tuple[bool, bool]:
+async def try_click_with_url_check(page: Page, name: str, container=None, prefer_tab: bool = False, skip_url_check: bool = False, prefer_role: str = None, parent_menu: str = None) -> tuple[bool, bool]:
     """
     Try to click an element and check if URL changed.
     Returns: (clicked: bool, navigated_away: bool)
 
     skip_url_check: For top-level tabs, URL may change but content updates in-place.
                     Set True to accept URL changes without going back.
+    parent_menu: If set, look for element inside this menu first (e.g., "Men" inside "Sales" dropdown)
     """
     url_before = page.url
-    clicked = await click_button(page, name, container, prefer_tab=prefer_tab)
+    clicked = await click_button(page, name, container, prefer_tab=prefer_tab, prefer_role=prefer_role, parent_menu=parent_menu)
     if clicked:
         print(f"      [CLICK] Successfully clicked '{name}'")
         # Extra wait for menu animations
@@ -758,7 +831,7 @@ STRATEGY_RESET = 'reset'             # Need full menu reset
 
 async def navigate_to_path(page: Page, path: list, current_path: list,
                            back_buttons: dict, level_strategies: dict,
-                           base_url: str) -> tuple[bool, bool]:
+                           base_url: str, target_type: str = None) -> tuple[bool, bool]:
     """
     Navigate from current_path to target path efficiently.
 
@@ -771,6 +844,9 @@ async def navigate_to_path(page: Page, path: list, current_path: list,
     2. If not found → use back button, retry
     3. If no back button → try clicking higher level element
     4. Last resort → reset menu with Escape
+
+    Args:
+        target_type: The ARIA role of the target (last element in path), e.g. 'menuitem', 'tab', 'button'
 
     Returns: (success: bool, navigated_away: bool)
     """
@@ -808,7 +884,9 @@ async def navigate_to_path(page: Page, path: list, current_path: list,
                 print(f"    [NAV] Back button failed: {e}")
 
         # Now click the target at level 1
-        clicked, navigated = await try_click_with_url_check(page, path[1], prefer_tab=False, skip_url_check=False)
+        # Use target_type when path[1] is the final target, and scope to parent menu
+        sibling_role = target_type if len(path) == 2 else None
+        clicked, navigated = await try_click_with_url_check(page, path[1], prefer_tab=False, skip_url_check=False, prefer_role=sibling_role, parent_menu=path[0])
         if navigated:
             return False, True
         if clicked:
@@ -831,13 +909,17 @@ async def navigate_to_path(page: Page, path: list, current_path: list,
         prefer_tab = (level == 0)
         # For top-level tabs, URL changes are expected (don't go back)
         skip_url_check = prefer_tab
+        # Use target_type hint for the last element (the actual target)
+        prefer_role = target_type if (i == len(path) - 1 and target_type) else None
+        # For non-root items, use parent name to scope the search (click inside parent's dropdown)
+        parent_menu = path[i-1] if i > 0 else None
 
         # Check if we already know the strategy for this level
         known_strategy = level_strategies.get(level)
 
         if known_strategy == STRATEGY_DIRECT:
             # We know direct click works at this level
-            clicked, navigated = await try_click_with_url_check(page, target, prefer_tab=prefer_tab, skip_url_check=skip_url_check)
+            clicked, navigated = await try_click_with_url_check(page, target, prefer_tab=prefer_tab, skip_url_check=skip_url_check, prefer_role=prefer_role, parent_menu=parent_menu)
             if navigated:
                 return False, True
             if clicked:
@@ -855,7 +937,7 @@ async def navigate_to_path(page: Page, path: list, current_path: list,
                 await page.wait_for_timeout(400)
             except:
                 pass
-            clicked, navigated = await try_click_with_url_check(page, target, prefer_tab=prefer_tab, skip_url_check=skip_url_check)
+            clicked, navigated = await try_click_with_url_check(page, target, prefer_tab=prefer_tab, skip_url_check=skip_url_check, prefer_role=prefer_role, parent_menu=parent_menu)
             if navigated:
                 return False, True
             if clicked:
@@ -872,7 +954,7 @@ async def navigate_to_path(page: Page, path: list, current_path: list,
             parent_prefer_tab = (i - 1 == 0)
             parent_skip_url_check = parent_prefer_tab
             await try_click_with_url_check(page, path[i-1], prefer_tab=parent_prefer_tab, skip_url_check=parent_skip_url_check)
-            clicked, navigated = await try_click_with_url_check(page, target, prefer_tab=prefer_tab, skip_url_check=skip_url_check)
+            clicked, navigated = await try_click_with_url_check(page, target, prefer_tab=prefer_tab, skip_url_check=skip_url_check, prefer_role=prefer_role, parent_menu=parent_menu)
             if navigated:
                 return False, True
             if clicked:
@@ -893,7 +975,9 @@ async def navigate_to_path(page: Page, path: list, current_path: list,
             for j in range(i + 1):
                 j_prefer_tab = (j == 0)
                 j_skip_url_check = j_prefer_tab
-                clicked, navigated = await try_click_with_url_check(page, path[j], prefer_tab=j_prefer_tab, skip_url_check=j_skip_url_check)
+                j_prefer_role = prefer_role if j == i else None
+                j_parent_menu = path[j-1] if j > 0 else None
+                clicked, navigated = await try_click_with_url_check(page, path[j], prefer_tab=j_prefer_tab, skip_url_check=j_skip_url_check, prefer_role=j_prefer_role, parent_menu=j_parent_menu)
                 if navigated:
                     return False, True
                 if not clicked:
@@ -903,7 +987,7 @@ async def navigate_to_path(page: Page, path: list, current_path: list,
         # No cached strategy or it failed - discover what works
         if known_strategy is None:
             # Strategy 1: Try direct click
-            clicked, navigated = await try_click_with_url_check(page, target, prefer_tab=prefer_tab, skip_url_check=skip_url_check)
+            clicked, navigated = await try_click_with_url_check(page, target, prefer_tab=prefer_tab, skip_url_check=skip_url_check, prefer_role=prefer_role, parent_menu=parent_menu)
             if navigated:
                 return False, True
             if clicked:
@@ -923,7 +1007,7 @@ async def navigate_to_path(page: Page, path: list, current_path: list,
                 except:
                     pass
 
-                clicked, navigated = await try_click_with_url_check(page, target, prefer_tab=prefer_tab, skip_url_check=skip_url_check)
+                clicked, navigated = await try_click_with_url_check(page, target, prefer_tab=prefer_tab, skip_url_check=skip_url_check, prefer_role=prefer_role, parent_menu=parent_menu)
                 if navigated:
                     return False, True
                 if clicked:
@@ -939,7 +1023,7 @@ async def navigate_to_path(page: Page, path: list, current_path: list,
                 parent_skip_url_check = parent_prefer_tab
                 clicked_parent, _ = await try_click_with_url_check(page, path[i-1], prefer_tab=parent_prefer_tab, skip_url_check=parent_skip_url_check)
                 if clicked_parent:
-                    clicked, navigated = await try_click_with_url_check(page, target, prefer_tab=prefer_tab, skip_url_check=skip_url_check)
+                    clicked, navigated = await try_click_with_url_check(page, target, prefer_tab=prefer_tab, skip_url_check=skip_url_check, prefer_role=prefer_role, parent_menu=parent_menu)
                     if navigated:
                         return False, True
                     if clicked:
@@ -958,7 +1042,10 @@ async def navigate_to_path(page: Page, path: list, current_path: list,
             for j in range(i + 1):
                 j_prefer_tab = (j == 0)
                 j_skip_url_check = j_prefer_tab
-                clicked, navigated = await try_click_with_url_check(page, path[j], prefer_tab=j_prefer_tab, skip_url_check=j_skip_url_check)
+                # Use prefer_role only for the target (last element)
+                j_prefer_role = prefer_role if j == i else None
+                j_parent_menu = path[j-1] if j > 0 else None
+                clicked, navigated = await try_click_with_url_check(page, path[j], prefer_tab=j_prefer_tab, skip_url_check=j_skip_url_check, prefer_role=j_prefer_role, parent_menu=j_parent_menu)
                 if navigated:
                     return False, True
                 if not clicked:
@@ -1083,20 +1170,25 @@ async def explore_toggle_menu(page: Page, menu_structure: dict, states: list, st
 
         # Ask LLM to identify subcategories for THIS category
         # This handles any site structure without hardcoding ARIA patterns
+        # Pass top-level names so LLM knows to exclude them (always visible nav)
+        top_level_names = [item['name'] for item in top_level]
         print(f"    Asking LLM for subcategories...")
         subcat_response = client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=1000,
             messages=[{
                 "role": "user",
-                "content": prompt_subcategories(aria, tl_name)
+                "content": prompt_subcategories(aria, tl_name, top_level_names)
             }]
         )
-        current_subcats = parse_subcategories(subcat_response.content[0].text)
-        print(f"    Subcategories for {tl_name}: {[s['name'] for s in current_subcats]}")
+        expandable_items, leaf_links = parse_subcategories(subcat_response.content[0].text)
+        if expandable_items:
+            print(f"    Expandable: {[s['name'] for s in expandable_items]}")
+        if leaf_links:
+            print(f"    Links (won't click): {[s['name'] for s in leaf_links]}")
 
-        # Now explore each subcategory under this top-level
-        for sub_item in current_subcats:
+        # Now explore each EXPANDABLE subcategory (skip leaf links - they navigate away)
+        for sub_item in expandable_items:
             sub_name = sub_item['name']
             sub_type = sub_item['type']
             print(f"\n  [{step}] {tl_name} > {sub_name}")
@@ -1386,7 +1478,8 @@ async def explore(url: str, max_depth: int = 3) -> list:
                 print(f"    [NAV] Menu reset complete")
 
             # Navigate to this path from current position
-            success, navigated_away = await navigate_to_path(page, path, current_path, back_buttons, level_strategies, base_url)
+            # Pass item_type as target_type so we click the right element (e.g., menuitem vs button)
+            success, navigated_away = await navigate_to_path(page, path, current_path, back_buttons, level_strategies, base_url, target_type=item_type)
 
             if navigated_away:
                 # Clicking this item caused URL navigation - it's a link, not expandable
@@ -1416,19 +1509,26 @@ async def explore(url: str, max_depth: int = 3) -> list:
             # Get ARIA for analysis
             aria = await page.locator('body').aria_snapshot()
 
-            # Find new buttons (compared to initial state) - preserve type info
-            current_buttons = extract_buttons_from_aria(aria, with_types=True)
-            current_buttons = filter_utility_buttons(current_buttons)
-            initial_buttons = extract_buttons_from_aria(states[0]['aria'], with_types=True)
-            initial_buttons = filter_utility_buttons(initial_buttons)
-            # New buttons = in current but not in initial (by name)
-            new_buttons = {name: typ for name, typ in current_buttons.items()
-                          if name not in initial_buttons}
-
-            # Exclude buttons in our path (parent categories)
-            path_buttons = set(p.lower() for p in path)
-            new_buttons = {name: typ for name, typ in new_buttons.items()
-                          if name.lower() not in path_buttons}
+            # Ask LLM what subcategories are available (unified approach like toggle menu)
+            # This handles context - e.g., "Women" under "Sales" vs top-level "Women"
+            # Pass top-level names so LLM knows to exclude them (always visible nav bar)
+            top_level_names = [item['name'] for item in top_level]
+            print(f"    Asking LLM for subcategories under '{path[-1]}'...")
+            subcat_response = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=1000,
+                messages=[{
+                    "role": "user",
+                    "content": prompt_subcategories(aria, path[-1], top_level_names)
+                }]
+            )
+            expandable_items, leaf_links = parse_subcategories(subcat_response.content[0].text)
+            # Convert to dict format {name: type} for compatibility - only expandable items go on stack
+            new_buttons = {s['name']: s['type'] for s in expandable_items}
+            llm_links = {s['name']: 'link' for s in leaf_links}
+            print(f"    LLM identified: {list(new_buttons.keys())}")
+            if llm_links:
+                print(f"    LLM links (won't explore): {list(llm_links.keys())}")
 
             # Find new links (compared to initial state)
             current_links = extract_links_from_aria(aria)
@@ -1442,8 +1542,7 @@ async def explore(url: str, max_depth: int = 3) -> list:
             state = await capture_state(page, path, action, step, new_buttons, new_links)
             states.append(state)
 
-            print(f"    Found {len(new_buttons)} new buttons/tabs, {len(new_links)} new links")
-            print(f"    [DEBUG] Total buttons in ARIA: {len(current_buttons)}, Initial: {len(initial_buttons)}")
+            print(f"    Found {len(new_buttons)} subcategories, {len(new_links)} new links")
             for name, typ in list(new_buttons.items())[:5]:
                 print(f"      [{typ.upper()}] {name}")
             if len(new_buttons) > 5:
