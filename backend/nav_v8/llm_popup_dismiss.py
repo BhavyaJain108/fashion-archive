@@ -23,50 +23,41 @@ client = Anthropic(api_key=os.getenv('CLAUDE_API_KEY'))
 async def ask_llm_for_popup(page: Page) -> dict | None:
     """
     Ask LLM if there's a popup and how to dismiss it.
+    Returns ONE popup at a time - the highest priority one.
 
     Returns:
         dict with 'role' and 'name' of element to click, or None if no popup
     """
-    # Get screenshot and ARIA
     screenshot = await page.screenshot()
     screenshot_b64 = base64.standard_b64encode(screenshot).decode('utf-8')
     aria = await page.locator('body').aria_snapshot()
 
     prompt = """Look at this webpage. Is there a popup, modal, cookie banner, or overlay blocking the main content?
 
-If YES, tell me what element to click to dismiss/close it.
-If NO, say "no popup".
+If NO popup, respond: NONE
 
-Respond in this EXACT format (no other text):
+If YES, tell me the SINGLE most important one to dismiss first:
+POPUP: <role> "<exact button text>"
 
-POPUP: yes/no
-ROLE: button/link (only if yes)
-NAME: exact text of the element to click (only if yes)
+Priority (what to dismiss first):
+1. Cookie consent → "Accept All Cookies", "Accept All", "Allow All"
+2. Newsletter modal → "Close", "X", "No thanks"
+3. Country selector → "Continue", "Confirm"
+4. Promo/welcome popup → "Close", "X"
 
-Examples of POPUPS (should dismiss):
-- Cookie banner with "Accept All" button
-- Newsletter signup modal
-- Location/country selector overlay
-- Welcome modal, age gate, promo popup
-- "Continue without accepting" for privacy
+Things that are NOT popups (never dismiss):
+- "Close menu" / navigation controls
+- Search/cart close buttons
+- Menu-related controls
 
-Examples of things that are NOT POPUPS (never dismiss):
-- "Close menu" / "Close Menu" - this is navigation, not a popup
-- "Open menu" / "Menu" / "Navigation" - navigation controls
-- "Close" button that's part of the main navigation header
-- Search close buttons
-- Cart/bag close buttons
-- Any menu-related controls (hamburger menu, nav menu, etc.)
-
-CRITICAL RULE: If you see "Close menu" or similar menu controls, that is NOT a popup.
-Navigation menus are NEVER popups even if they have close buttons.
+CRITICAL: "Close menu" is NEVER a popup.
 
 ARIA Snapshot:
 """ + aria[:8000]
 
     response = client.messages.create(
         model="claude-sonnet-4-20250514",
-        max_tokens=200,
+        max_tokens=100,
         messages=[{
             "role": "user",
             "content": [
@@ -77,70 +68,109 @@ ARIA Snapshot:
     )
 
     result = response.content[0].text.strip()
-    print(f"    LLM response:\n{result}")
+    print(f"    LLM: {result}")
 
-    # Parse response
-    if "popup: no" in result.lower():
+    if "none" in result.lower():
         return None
 
-    if "popup: yes" in result.lower():
-        lines = result.split('\n')
-        role = None
-        name = None
-        for line in lines:
-            line = line.strip()
-            if line.upper().startswith("ROLE:"):
-                role = line.split(":", 1)[1].strip().lower()
-            if line.upper().startswith("NAME:"):
-                name = line.split(":", 1)[1].strip()
-
-        print(f"    Parsed: role={role}, name={name}")
-
-        if role and name:
-            return {"role": role, "name": name}
+    import re
+    match = re.search(r'POPUP:\s*(button|link)\s*["\']([^"\']+)["\']', result, re.IGNORECASE)
+    if match:
+        role, name = match.groups()
+        return {"role": role.lower(), "name": name}
 
     return None
 
 
-async def dismiss_popups_with_llm(page: Page, max_attempts: int = 3) -> int:
+async def try_direct_popup_selectors(page: Page) -> int:
     """
-    Use LLM to identify and dismiss popups.
+    Try common popup selectors directly (faster than LLM, catches non-ARIA popups).
+    Returns number dismissed.
+    """
+    dismissed = 0
+
+    # Common cookie/popup buttons - ordered by priority
+    selectors = [
+        'button:has-text("Accept All Cookies")',
+        'button:has-text("Accept All")',
+        'button:has-text("Allow All")',
+        'button:has-text("Accept Cookies")',
+        '[id*="cookie"] button:has-text("Accept")',
+        '[id*="consent"] button:has-text("Accept")',
+        # Newsletter/signup close buttons
+        '#attentive_overlay button[aria-label*="close" i]',
+        '#attentive_overlay button:has-text("Close")',
+        'iframe[title*="Sign Up"]',  # Will try to remove
+    ]
+
+    for sel in selectors:
+        try:
+            # Special handling for iframes - hide them
+            if 'iframe' in sel:
+                iframe = page.locator(sel)
+                if await iframe.count() > 0 and await iframe.is_visible():
+                    await page.evaluate(f'document.querySelector(\'{sel}\')?.parentElement?.remove()')
+                    print(f"    [DIRECT] Removed iframe: {sel}")
+                    dismissed += 1
+                continue
+
+            btn = page.locator(sel).first
+            if await btn.count() > 0 and await btn.is_visible():
+                await btn.click(timeout=2000)
+                await page.wait_for_timeout(300)
+                print(f"    [DIRECT] Clicked: {sel}")
+                dismissed += 1
+        except:
+            continue
+
+    return dismissed
+
+
+async def dismiss_popups_with_llm(page: Page, max_attempts: int = 1) -> int:
+    """
+    Dismiss popups - first try direct selectors, then LLM fallback.
 
     Args:
         page: Playwright page
-        max_attempts: Maximum number of popups to try dismissing
+        max_attempts: Max LLM attempts (direct selectors don't count)
 
     Returns:
         Number of popups dismissed
     """
     dismissed = 0
 
+    # First: try direct selectors (fast, catches non-ARIA popups)
+    print("  [Direct popup check]")
+    direct_dismissed = await try_direct_popup_selectors(page)
+    dismissed += direct_dismissed
+    if direct_dismissed > 0:
+        await page.wait_for_timeout(500)
+
+    # Then: LLM fallback for anything we missed
     for attempt in range(max_attempts):
-        print(f"  [Popup check {attempt + 1}/{max_attempts}]")
+        print(f"  [LLM check {attempt + 1}/{max_attempts}]")
 
-        popup_info = await ask_llm_for_popup(page)
+        popup = await ask_llm_for_popup(page)
 
-        if popup_info is None:
-            print(f"    No popup detected")
+        if popup is None:
+            print(f"    No popup")
             break
 
-        role = popup_info["role"]
-        name = popup_info["name"]
-        print(f"    Found popup - clicking {role} \"{name}\"")
+        role, name = popup["role"], popup["name"]
+        print(f"    Dismissing: {role} \"{name}\"")
 
         try:
-            # Try to find and click the element
             locator = page.get_by_role(role, name=name, exact=False)
             if await locator.count() > 0:
-                await locator.first.click()
-                await page.wait_for_timeout(1000)
+                await locator.first.click(timeout=3000)
                 dismissed += 1
                 print(f"    ✓ Dismissed")
+                await page.wait_for_timeout(300)
             else:
-                print(f"    ✗ Element not found")
+                print(f"    ✗ Not found")
                 break
         except Exception as e:
-            print(f"    ✗ Error: {e}")
+            print(f"    ✗ Skip")
             break
 
     return dismissed

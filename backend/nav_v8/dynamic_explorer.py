@@ -44,11 +44,13 @@ RESPOND EXACTLY LIKE THIS:
 ITEMS:
 - BUTTON: Category Name
 - TAB: Category Name
+- GROUP: Category Name
 - LINK: Category Name | /url/path
 
 RULES:
 - BUTTON = expandable button (will reveal subcategories)
 - TAB = tab element (switches content panel)
+- GROUP = group element (often hoverable nav items)
 - LINK = direct page (has URL)
 - Include product categories (Women, Men, Kids, Shoes, Bags, Shop, etc.)
 - Include hamburger/toggle menu buttons (Menu, MENU, Navigation, ☰) - these reveal the nav
@@ -212,6 +214,10 @@ def parse_items(response: str) -> list:
                 name = line[6:].strip()
                 if name.lower() not in ['none', '']:
                     items.append({'type': 'tab', 'name': name})
+            elif line.startswith('- GROUP:'):
+                name = line[8:].strip()
+                if name.lower() not in ['none', '']:
+                    items.append({'type': 'group', 'name': name})
             elif line.startswith('- LINK:'):
                 parts = line[7:].strip().split('|')
                 name = parts[0].strip()
@@ -226,10 +232,24 @@ def parse_items(response: str) -> list:
 # Button extraction from ARIA
 # =============================================================================
 
-def extract_buttons_from_aria(aria: str) -> set:
-    """Extract all button and tab names from ARIA."""
+def extract_buttons_from_aria(aria: str, with_types: bool = False) -> set | dict:
+    """
+    Extract all button and tab names from ARIA.
+
+    Args:
+        aria: ARIA snapshot string
+        with_types: If True, return dict {name: type}, else return set of names
+
+    Returns:
+        set of names (default) or dict {name: 'button'|'tab'} if with_types=True
+    """
     import re
-    buttons = set()
+
+    if with_types:
+        items = {}  # {name: type}
+    else:
+        items = set()
+
     for line in aria.split('\n'):
         # Match buttons: - button "Name"
         btn_match = re.search(r'- button "([^"]+)"', line)
@@ -241,13 +261,21 @@ def extract_buttons_from_aria(aria: str) -> set:
                 half = len(words) // 2
                 if words[:half] == words[half:]:
                     name = ' '.join(words[:half])
-            buttons.add(name)
+            if with_types:
+                items[name] = 'button'
+            else:
+                items.add(name)
+
         # Match tabs: - tab "Name" (with optional [selected])
         tab_match = re.search(r'- tab "([^"]+)"', line)
         if tab_match:
             name = tab_match.group(1)
-            buttons.add(name)
-    return buttons
+            if with_types:
+                items[name] = 'tab'
+            else:
+                items.add(name)
+
+    return items
 
 
 def extract_links_from_aria(aria: str) -> dict:
@@ -315,8 +343,16 @@ def filter_utility_links(links: dict) -> dict:
     return filtered
 
 
-def filter_utility_buttons(buttons: set) -> set:
-    """Filter out utility/non-product buttons."""
+def filter_utility_buttons(buttons: set | dict) -> set | dict:
+    """
+    Filter out utility/non-product buttons.
+
+    Args:
+        buttons: Either a set of names or dict {name: type}
+
+    Returns:
+        Same type as input, with utility buttons removed
+    """
     skip_buttons = {
         'back', 'close', 'search', 'login', 'cart', 'menu',
         'shipping to the us', 'change language', 'subscribe',
@@ -325,15 +361,18 @@ def filter_utility_buttons(buttons: set) -> set:
         'cookies', 'settings', 'help', 'navigation'
     }
 
-    filtered = set()
-    for b in buttons:
-        b_lower = b.lower()
-        if b_lower in skip_buttons:
-            continue
-        if any(skip in b_lower for skip in skip_buttons):
-            continue
-        filtered.add(b)
-    return filtered
+    def should_skip(name: str) -> bool:
+        name_lower = name.lower()
+        if name_lower in skip_buttons:
+            return True
+        if any(skip in name_lower for skip in skip_buttons):
+            return True
+        return False
+
+    if isinstance(buttons, dict):
+        return {name: typ for name, typ in buttons.items() if not should_skip(name)}
+    else:
+        return {b for b in buttons if not should_skip(b)}
 
 
 # =============================================================================
@@ -359,14 +398,86 @@ async def click_button(page: Page, name: str, container=None, prefer_tab: bool =
                     element = locator.nth(i)
                     if await element.is_visible():
                         print(f"        [CLICK-DETAIL] Found '{name}' as {role} (#{i+1} of {count}, visible)")
-                        await element.click()
+                        # Short timeout - fail fast if blocked, try next option
+                        await element.click(timeout=3000)
                         await page.wait_for_timeout(150)
                         return True
                 print(f"        [CLICK-DETAIL] Found '{name}' as {role} but none visible")
         except Exception as e:
-            print(f"        [CLICK-DETAIL] Error with {role}: {e}")
+            print(f"        [CLICK-DETAIL] {role} failed, trying next...")
             continue
+
+    # Try <summary> elements (used by <details> pattern, appear as "group" in ARIA)
+    try:
+        # Prefer header summary elements to avoid footer/mobile nav duplicates
+        summary = search_context.locator(f'header summary[aria-label="{name}"], header summary:has-text("{name}")')
+        count = await summary.count()
+        if count == 0:
+            summary = search_context.locator(f'summary[aria-label="{name}"], summary:has-text("{name}")')
+            count = await summary.count()
+
+        if count > 0:
+            for i in range(count):
+                element = summary.nth(i)
+                if await element.is_visible():
+                    print(f"        [CLICK-DETAIL] Found '{name}' as summary (#{i+1} of {count}, visible)")
+                    try:
+                        # First try normal click
+                        await element.click(timeout=2000)
+                        await page.wait_for_timeout(150)
+                        return True
+                    except:
+                        # If blocked, close dropdowns and force click
+                        print(f"        [CLICK-DETAIL] Blocked, pressing Escape and retrying...")
+                        await page.keyboard.press('Escape')
+                        await page.wait_for_timeout(100)
+                        await element.click(timeout=2000, force=True)
+                        await page.wait_for_timeout(150)
+                        return True
+            print(f"        [CLICK-DETAIL] Found '{name}' as summary but none visible")
+    except Exception as e:
+        print(f"        [CLICK-DETAIL] Error with summary: {e}")
+
     return False
+
+
+def hover_revealed_content(aria_before: str, aria_after: str) -> tuple[bool, str]:
+    """
+    Check if hover revealed navigation structure (not just char count).
+
+    Looks for new navigation elements: menus, lists, tabs, links.
+
+    Returns (revealed: bool, reason: str)
+    """
+    import re
+
+    # Count navigation-related structures
+    nav_patterns = [
+        (r'- menu\b', 'menu'),
+        (r'- navigation\b', 'navigation'),
+        (r'- menuitem\b', 'menuitem'),
+        (r'- tablist\b', 'tablist'),
+        (r'- list:', 'list'),
+    ]
+
+    for pattern, name in nav_patterns:
+        before_count = len(re.findall(pattern, aria_before))
+        after_count = len(re.findall(pattern, aria_after))
+        if after_count > before_count:
+            return True, f"new {name} (+{after_count - before_count})"
+
+    # Check for new links (most common indicator)
+    before_links = len(re.findall(r'- link\b', aria_before))
+    after_links = len(re.findall(r'- link\b', aria_after))
+    if after_links > before_links + 3:  # At least 4 new links
+        return True, f"new links (+{after_links - before_links})"
+
+    # Fallback: significant char increase (but higher threshold)
+    char_diff = len(aria_after) - len(aria_before)
+    if char_diff > 500:
+        return True, f"content (+{char_diff} chars)"
+
+    return False, "no change"
 
 
 async def hover_and_check(page: Page, name: str, item_type: str = None, container=None) -> tuple[bool, str]:
@@ -377,7 +488,7 @@ async def hover_and_check(page: Page, name: str, item_type: str = None, containe
     Args:
         page: Playwright page
         name: Element name to find
-        item_type: Optional type hint ('button', 'tab', 'link') to try first
+        item_type: Optional type hint ('button', 'tab', 'link', 'group') to try first
         container: Optional container to search within
 
     Returns (revealed_content: bool, aria_after: str)
@@ -386,17 +497,12 @@ async def hover_and_check(page: Page, name: str, item_type: str = None, containe
 
     # Capture ARIA before hover
     aria_before = await page.locator('body').aria_snapshot()
-    len_before = len(aria_before)
 
     # Determine role order - try the hinted type first, then others
-    # Button first as fallback since menu triggers are usually buttons
     base_roles = ['button', 'tab', 'menuitem', 'link']
-    if item_type:
-        type_to_role = {'button': 'button', 'tab': 'tab', 'link': 'link'}
-        preferred_role = type_to_role.get(item_type.lower())
-        if preferred_role and preferred_role in base_roles:
-            base_roles.remove(preferred_role)
-            base_roles.insert(0, preferred_role)
+    if item_type and item_type.lower() in base_roles:
+        base_roles.remove(item_type.lower())
+        base_roles.insert(0, item_type.lower())
     roles = base_roles
 
     for role in roles:
@@ -414,18 +520,51 @@ async def hover_and_check(page: Page, name: str, item_type: str = None, containe
 
                         # Capture ARIA after hover
                         aria_after = await page.locator('body').aria_snapshot()
-                        len_after = len(aria_after)
 
-                        # Check if new content appeared (significant increase in ARIA length)
-                        new_content = len_after > len_before + 200
-                        if new_content:
-                            print(f"        [HOVER] Menu revealed! (+{len_after - len_before} chars)")
+                        # Check if hover revealed navigation structure
+                        revealed, reason = hover_revealed_content(aria_before, aria_after)
+                        if revealed:
+                            print(f"        [HOVER] Menu revealed! ({reason})")
                         else:
                             print(f"        [HOVER] No new content revealed")
-                        return new_content, aria_after
+                        return revealed, aria_after
         except Exception as e:
             print(f"        [HOVER] Error with {role}: {e}")
             continue
+
+    # Try <summary> elements as fallback (used by <details> pattern)
+    # First close any open dropdowns that might be blocking
+    try:
+        await page.keyboard.press('Escape')
+        await page.wait_for_timeout(100)
+    except:
+        pass
+
+    try:
+        # Prefer header summary elements to avoid footer/mobile nav duplicates
+        summary = search_context.locator(f'header summary[aria-label="{name}"], header summary:has-text("{name}")')
+        count = await summary.count()
+        if count == 0:
+            summary = search_context.locator(f'summary[aria-label="{name}"], summary:has-text("{name}")')
+            count = await summary.count()
+
+        if count > 0:
+            for i in range(count):
+                element = summary.nth(i)
+                if await element.is_visible():
+                    print(f"        [HOVER] Hovering '{name}' as summary")
+                    await element.hover(timeout=5000)
+                    await page.wait_for_timeout(500)
+
+                    aria_after = await page.locator('body').aria_snapshot()
+                    revealed, reason = hover_revealed_content(aria_before, aria_after)
+                    if revealed:
+                        print(f"        [HOVER] Menu revealed! ({reason})")
+                    else:
+                        print(f"        [HOVER] No new content revealed")
+                    return revealed, aria_after
+    except Exception as e:
+        print(f"        [HOVER] Error with summary: {e}")
 
     return False, aria_before
 
@@ -460,6 +599,21 @@ async def open_menu(page: Page) -> bool:
     Try to open the navigation menu (after it's been closed with Escape).
     Returns True if menu was opened.
     """
+    # Selectors to AVOID (shipping, location, language, etc.)
+    avoid_patterns = ['ship', 'location', 'country', 'region', 'language', 'currency']
+
+    async def is_distraction(el) -> bool:
+        """Check if element is a shipping/location/language selector."""
+        try:
+            text = (await el.text_content() or '').lower()
+            label = (await el.get_attribute('aria-label') or '').lower()
+            for pattern in avoid_patterns:
+                if pattern in text or pattern in label:
+                    return True
+        except:
+            pass
+        return False
+
     # Common patterns for menu opener buttons
     selectors = [
         # Hamburger menu patterns
@@ -467,7 +621,6 @@ async def open_menu(page: Page) -> bool:
         'button:has-text("Menu")',
         '[aria-label*="menu" i]',
         '[aria-label*="navigation" i]',
-        '[aria-label*="open" i]',
         '.hamburger',
         '.menu-toggle',
         '[class*="hamburger"]',
@@ -475,20 +628,19 @@ async def open_menu(page: Page) -> bool:
         '[class*="nav-toggle"]',
         # Category/Shop buttons
         'button:has-text("Category")',
-        'button:has-text("Shop")',
         'button:has-text("Categories")',
-        # Generic nav button
+        # Generic nav button (checked last, with filtering)
         'nav button',
         'header button:not([aria-label*="search" i]):not([aria-label*="cart" i])',
     ]
 
     for selector in selectors:
         try:
-            locator = page.locator(selector).first
-            if await locator.count() > 0:
-                if await locator.is_visible():
+            elements = await page.locator(selector).all()
+            for el in elements:
+                if await el.is_visible() and not await is_distraction(el):
                     print(f"    [NAV] Opening menu with: {selector}")
-                    await locator.click()
+                    await el.click()
                     await page.wait_for_timeout(500)
                     return True
         except:
@@ -829,7 +981,7 @@ async def navigate_to_path(page: Page, path: list, current_path: list,
 # =============================================================================
 
 async def capture_state(page: Page, path: list, action: str, step: int,
-                        new_buttons: set = None, new_links: dict = None,
+                        new_buttons: set | dict = None, new_links: dict = None,
                         capture_screenshot: bool = False) -> dict:
     """Capture current state after an action."""
     aria = await page.locator('body').aria_snapshot()
@@ -839,6 +991,15 @@ async def capture_state(page: Page, path: list, action: str, step: int,
         screenshot = await page.screenshot()
         screenshot_b64 = base64.b64encode(screenshot).decode('utf-8')
 
+    # Handle new_buttons as either set or dict {name: type}
+    if new_buttons:
+        if isinstance(new_buttons, dict):
+            buttons_list = list(new_buttons.keys())
+        else:
+            buttons_list = list(new_buttons)
+    else:
+        buttons_list = []
+
     return {
         'step': step,
         'timestamp': datetime.now().isoformat(),
@@ -847,7 +1008,7 @@ async def capture_state(page: Page, path: list, action: str, step: int,
         'aria': aria,
         'screenshot_b64': screenshot_b64,
         'url': page.url,
-        'new_buttons': list(new_buttons) if new_buttons else [],
+        'new_buttons': buttons_list,
         'new_links': new_links if new_links else {}
     }
 
@@ -1011,7 +1172,9 @@ async def explore(url: str, max_depth: int = 3) -> list:
 
     playwright = await async_playwright().start()
     browser = await playwright.chromium.launch(headless=False)
-    page = await browser.new_page()
+    # Use desktop viewport (1280px) to ensure desktop navigation is visible
+    # Many sites hide desktop nav below 992px (CSS media queries)
+    page = await browser.new_page(viewport={'width': 1280, 'height': 800})
 
     try:
         # Setup
@@ -1046,9 +1209,22 @@ async def explore(url: str, max_depth: int = 3) -> list:
         )
 
         top_level = parse_items(response.content[0].text)
+
+        # Filter to majority type - nav items should be consistent (all tabs, all buttons, etc.)
+        # This removes stray utility buttons when main nav is tabs
+        if len(top_level) > 1:
+            from collections import Counter
+            type_counts = Counter(item['type'] for item in top_level)
+            majority_type = type_counts.most_common(1)[0][0]
+            if type_counts[majority_type] > 1:  # Only filter if majority has >1 item
+                original_count = len(top_level)
+                top_level = [item for item in top_level if item['type'] == majority_type]
+                if len(top_level) < original_count:
+                    print(f"    Filtered to {majority_type} items (majority type)")
+
         print(f"    Found {len(top_level)} items:")
         for item in top_level:
-            type_label = {'button': 'BTN', 'tab': 'TAB', 'link': 'LNK'}.get(item['type'], '???')
+            type_label = {'button': 'BTN', 'tab': 'TAB', 'group': 'GRP', 'link': 'LNK'}.get(item['type'], '???')
             t = f"[{type_label}] {item['name']}"
             if item.get('url'):
                 t += f" → {item['url']}"
@@ -1119,14 +1295,15 @@ async def explore(url: str, max_depth: int = 3) -> list:
             return states
 
         # Not a toggle menu - use normal DFS exploration
-        # Initialize stack with button/tab/link paths to explore
+        # Initialize stack with button/tab/link/group paths to explore
         # Links are included because some sites use links that reveal menus on hover/click
+        # Groups are included for sites like Khaite that use group elements for nav
         # If a link navigates away, we handle that by going back
         # Stack items are tuples: (path_list, item_type) where item_type is for the last item
         stack = []
         top_level_types = {}  # Map name -> type for top-level items
         for item in top_level:
-            if item['type'] in ['button', 'tab', 'link']:
+            if item['type'] in ['button', 'tab', 'link', 'group']:
                 stack.append(([item['name']], item['type']))
                 top_level_types[item['name']] = item['type']
 
@@ -1163,7 +1340,8 @@ async def explore(url: str, max_depth: int = 3) -> list:
 
             # For top-level items, try hover first to reveal dropdown menus
             # Some sites (like Eckhaus Latta) use hover to reveal, click navigates away
-            if len(path) == 1 and not current_path:
+            # Skip hover for 'group' type (<details><summary>) - hover opens dropdown and blocks other items
+            if len(path) == 1 and not current_path and item_type != 'group':
                 revealed, aria_after_hover = await hover_and_check(page, path[0], item_type)
                 if revealed:
                     # Only skip click if it's a link/button (click would navigate away)
@@ -1202,15 +1380,11 @@ async def explore(url: str, max_depth: int = 3) -> list:
             if current_path and path and current_path[0].lower() != path[0].lower():
                 print(f"    [NAV] Top-level change: {current_path[0]} → {path[0]}, resetting menu")
                 await page.keyboard.press('Escape')
-                await page.wait_for_timeout(500)  # Wait for menu close animation
-                # Check for popups that may have appeared during tab switch
-                await dismiss_popups_with_llm(page)
-                # Don't call open_menu - tabs are usually always visible in header
+                await page.wait_for_timeout(300)  # Wait for dropdown close animation
                 # Clear cached navigation strategies since menu state changed
                 level_strategies.clear()
-                # Keep back_buttons - the back button selector should work across all tabs
                 current_path = []  # We're now at root
-                print(f"    [NAV] Menu reset complete, kept back button selectors")
+                print(f"    [NAV] Menu reset complete")
 
             # Navigate to this path from current position
             success, navigated_away = await navigate_to_path(page, path, current_path, back_buttons, level_strategies, base_url)
@@ -1237,24 +1411,25 @@ async def explore(url: str, max_depth: int = 3) -> list:
             # Wait for menu to fully expand/animate before capturing state
             await page.wait_for_timeout(1000)
 
-            # Check for popups that may have appeared (especially after navigating to new tab)
-            if len(path) == 1:  # Top-level navigation - popups often appear here
-                await dismiss_popups_with_llm(page)
-                await page.wait_for_timeout(300)
+            # Wait for any animations to complete
+            await page.wait_for_timeout(200)
 
             # Get ARIA for analysis
             aria = await page.locator('body').aria_snapshot()
 
-            # Find new buttons (compared to initial state)
-            current_buttons = extract_buttons_from_aria(aria)
+            # Find new buttons (compared to initial state) - preserve type info
+            current_buttons = extract_buttons_from_aria(aria, with_types=True)
             current_buttons = filter_utility_buttons(current_buttons)
-            initial_buttons = extract_buttons_from_aria(states[0]['aria'])
+            initial_buttons = extract_buttons_from_aria(states[0]['aria'], with_types=True)
             initial_buttons = filter_utility_buttons(initial_buttons)
-            new_buttons = current_buttons - initial_buttons
+            # New buttons = in current but not in initial (by name)
+            new_buttons = {name: typ for name, typ in current_buttons.items()
+                          if name not in initial_buttons}
 
             # Exclude buttons in our path (parent categories)
             path_buttons = set(p.lower() for p in path)
-            new_buttons = {b for b in new_buttons if b.lower() not in path_buttons}
+            new_buttons = {name: typ for name, typ in new_buttons.items()
+                          if name.lower() not in path_buttons}
 
             # Find new links (compared to initial state)
             current_links = extract_links_from_aria(aria)
@@ -1268,25 +1443,25 @@ async def explore(url: str, max_depth: int = 3) -> list:
             state = await capture_state(page, path, action, step, new_buttons, new_links)
             states.append(state)
 
-            print(f"    Found {len(new_buttons)} new buttons, {len(new_links)} new links")
+            print(f"    Found {len(new_buttons)} new buttons/tabs, {len(new_links)} new links")
             print(f"    [DEBUG] Total buttons in ARIA: {len(current_buttons)}, Initial: {len(initial_buttons)}")
-            for btn in list(new_buttons)[:5]:
-                print(f"      [BTN] {btn}")
+            for name, typ in list(new_buttons.items())[:5]:
+                print(f"      [{typ.upper()}] {name}")
             if len(new_buttons) > 5:
-                print(f"      ... and {len(new_buttons) - 5} more buttons")
+                print(f"      ... and {len(new_buttons) - 5} more buttons/tabs")
             for name, url in list(new_links.items())[:5]:
                 print(f"      [LNK] {name} → {url}")
             if len(new_links) > 5:
                 print(f"      ... and {len(new_links) - 5} more links")
 
-            # Add new buttons to stack for further exploration (reversed for DFS order)
+            # Add new buttons/tabs to stack for further exploration (reversed for DFS order)
             # Sort alphabetically for consistent order, reverse so first item is explored first
-            # Child buttons are assumed to be 'button' type (they were discovered as new buttons)
-            sorted_buttons = sorted(new_buttons)
+            # Use actual type (button or tab) from extraction
+            sorted_buttons = sorted(new_buttons.keys())
             for btn in reversed(sorted_buttons):
                 child_path = path + [btn]
                 if tuple(child_path) not in explored:
-                    stack.append((child_path, 'button'))
+                    stack.append((child_path, new_buttons[btn]))
 
             step += 1
 
