@@ -43,21 +43,23 @@ POPUP: yes/no
 ROLE: button/link (only if yes)
 NAME: exact text of the element to click (only if yes)
 
-Examples:
-- Cookie banner with "Accept All" button:
-  POPUP: yes
-  ROLE: button
-  NAME: Accept All
+Examples of POPUPS (should dismiss):
+- Cookie banner with "Accept All" button
+- Newsletter signup modal
+- Location/country selector overlay
+- Welcome modal, age gate, promo popup
+- "Continue without accepting" for privacy
 
-- Newsletter popup with X close button:
-  POPUP: yes
-  ROLE: button
-  NAME: Close
+Examples of things that are NOT POPUPS (never dismiss):
+- "Close menu" / "Close Menu" - this is navigation, not a popup
+- "Open menu" / "Menu" / "Navigation" - navigation controls
+- "Close" button that's part of the main navigation header
+- Search close buttons
+- Cart/bag close buttons
+- Any menu-related controls (hamburger menu, nav menu, etc.)
 
-- No popup visible:
-  POPUP: no
-
-Look for: cookie consents, newsletter signups, location selectors, welcome modals, age gates, promo popups.
+CRITICAL RULE: If you see "Close menu" or similar menu controls, that is NOT a popup.
+Navigation menus are NEVER popups even if they have close buttons.
 
 ARIA Snapshot:
 """ + aria[:8000]

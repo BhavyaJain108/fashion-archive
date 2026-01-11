@@ -9,6 +9,7 @@ import asyncio
 import base64
 import json
 import os
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -42,15 +43,152 @@ RESPOND EXACTLY LIKE THIS:
 
 ITEMS:
 - BUTTON: Category Name
+- TAB: Category Name
 - LINK: Category Name | /url/path
 
 RULES:
-- BUTTON = expandable (will reveal subcategories)
+- BUTTON = expandable button (will reveal subcategories)
+- TAB = tab element (switches content panel)
 - LINK = direct page (has URL)
-- Only product categories (Women, Men, Kids, Shoes, Bags, etc.)
+- Include product categories (Women, Men, Kids, Shoes, Bags, Shop, etc.)
+- Include hamburger/toggle menu buttons (Menu, MENU, Navigation, ☰) - these reveal the nav
 - IGNORE: Search, Cart, Login, Account, Language, Country
 - IGNORE: About, Contact, FAQ, Careers, Legal, Newsletter
+- IGNORE: Support, Help, Customer Service, Returns, Shipping - these are NOT product navigation
+- IGNORE: Archive, Blog, News, Journal, Stories - these are content, not shopping navigation
 """
+
+
+def prompt_menu_structure(aria: str) -> str:
+    """Prompt to analyze menu structure after opening a toggle/hamburger menu."""
+    return f"""Look at this ARIA snapshot of an OPEN navigation menu.
+
+Identify the menu structure - what are the TOP-LEVEL categories vs SUBCATEGORIES.
+
+ARIA:
+{aria[:8000]}
+
+RESPOND EXACTLY LIKE THIS:
+
+TOP_LEVEL:
+- TAB: Women
+- TAB: Men
+
+SUBCATEGORIES:
+- TAB: Handbags
+- TAB: Shoes
+- TAB: Ready-to-Wear
+
+LINKS:
+- LINK: New in | /url/path
+- LINK: Sale | /url/path
+
+RULES:
+- TOP_LEVEL = main category selectors (Women, Men, Kids, etc.) - usually in a "Categories" tablist
+- SUBCATEGORIES = product type selectors that SWITCH content (Handbags, Shoes, Clothing, etc.) - tabs that don't navigate
+- LINKS = items that have a /url: and will NAVIGATE to a new page - DO NOT put these in SUBCATEGORIES
+- IMPORTANT: If an item has "/url:" in the ARIA, it's a LINK not a TAB - put it in LINKS section
+- Use TAB if ARIA shows "tab" without URL, BUTTON if "button" without URL
+- IGNORE: Search, Cart, Login, Account, Country selectors, Close buttons
+- IGNORE: Social links, FAQ, About, Legal, Newsletter
+"""
+
+
+def prompt_subcategories(aria: str, top_level_name: str) -> str:
+    """Prompt to identify subcategories after clicking a top-level category."""
+    return f"""I just clicked on "{top_level_name}" in a navigation menu.
+
+Look at this ARIA snapshot and identify what SUBCATEGORY tabs are available to click.
+
+ARIA:
+{aria[:6000]}
+
+RESPOND EXACTLY LIKE THIS:
+
+SUBCATEGORIES:
+- TAB: Handbags
+- TAB: Shoes
+- TAB: Ready-to-Wear
+
+RULES:
+- ONLY list tabs that switch content panels (product categories like Handbags, Shoes, Clothing, Accessories, Jewellery)
+- These must be TABS in a tablist - they switch what's displayed without navigating away
+- Use TAB for tab elements, BUTTON only for expandable accordion-style buttons
+- EXCLUDE these completely:
+  * "New in" / "New Arrivals" - these navigate to a page
+  * "Collections" buttons that link to collection pages
+  * Any item with /url: in ARIA - those are links
+  * Sale, Featured, Editorial items
+  * Close, Search, Menu, Back buttons
+- If there are NO subcategory tabs (just links), respond with:
+  SUBCATEGORIES:
+  NONE
+"""
+
+
+def parse_subcategories(response: str) -> list:
+    """Parse LLM response for subcategories."""
+    subcats = []
+    in_section = False
+
+    for line in response.split('\n'):
+        line = line.strip()
+
+        if 'SUBCATEGORIES:' in line.upper():
+            in_section = True
+            continue
+
+        if in_section:
+            if line.upper() == 'NONE':
+                return []
+            if line.startswith('- TAB:'):
+                name = line[6:].strip()
+                if name:
+                    subcats.append({'type': 'tab', 'name': name})
+            elif line.startswith('- BUTTON:'):
+                name = line[9:].strip()
+                if name:
+                    subcats.append({'type': 'button', 'name': name})
+
+    return subcats
+
+
+def parse_menu_structure(response: str) -> dict:
+    """Parse LLM response for menu structure into top_level, subcategories, and links."""
+    result = {'top_level': [], 'subcategories': [], 'links': []}
+    current_section = None
+
+    for line in response.split('\n'):
+        line = line.strip()
+
+        if 'TOP_LEVEL:' in line.upper():
+            current_section = 'top_level'
+            continue
+        elif 'SUBCATEGORIES:' in line.upper() or 'SUB_CATEGORIES:' in line.upper():
+            current_section = 'subcategories'
+            continue
+        elif 'LINKS:' in line.upper():
+            current_section = 'links'
+            continue
+
+        if current_section and line.startswith('- '):
+            # Parse: - TAB: Name or - BUTTON: Name or - LINK: Name | url
+            if line.startswith('- TAB:'):
+                name = line[6:].strip()
+                if name and name.lower() not in ['none', '']:
+                    result[current_section].append({'type': 'tab', 'name': name})
+            elif line.startswith('- BUTTON:'):
+                name = line[9:].strip()
+                if name and name.lower() not in ['none', '']:
+                    result[current_section].append({'type': 'button', 'name': name})
+            elif line.startswith('- LINK:'):
+                parts = line[7:].strip().split('|')
+                name = parts[0].strip()
+                url = parts[1].strip() if len(parts) > 1 else None
+                if name and name.lower() not in ['none', '']:
+                    result[current_section].append({'type': 'link', 'name': name, 'url': url})
+
+    return result
 
 
 def parse_items(response: str) -> list:
@@ -70,6 +208,10 @@ def parse_items(response: str) -> list:
                 name = line[9:].strip()
                 if name.lower() not in ['none', '']:
                     items.append({'type': 'button', 'name': name})
+            elif line.startswith('- TAB:'):
+                name = line[6:].strip()
+                if name.lower() not in ['none', '']:
+                    items.append({'type': 'tab', 'name': name})
             elif line.startswith('- LINK:'):
                 parts = line[7:].strip().split('|')
                 name = parts[0].strip()
@@ -85,10 +227,11 @@ def parse_items(response: str) -> list:
 # =============================================================================
 
 def extract_buttons_from_aria(aria: str) -> set:
-    """Extract all button names from ARIA."""
+    """Extract all button and tab names from ARIA."""
     import re
     buttons = set()
     for line in aria.split('\n'):
+        # Match buttons: - button "Name"
         btn_match = re.search(r'- button "([^"]+)"', line)
         if btn_match:
             name = btn_match.group(1)
@@ -99,6 +242,11 @@ def extract_buttons_from_aria(aria: str) -> set:
                 if words[:half] == words[half:]:
                     name = ' '.join(words[:half])
             buttons.add(name)
+        # Match tabs: - tab "Name" (with optional [selected])
+        tab_match = re.search(r'- tab "([^"]+)"', line)
+        if tab_match:
+            name = tab_match.group(1)
+            buttons.add(name)
     return buttons
 
 
@@ -106,17 +254,31 @@ def extract_links_from_aria(aria: str) -> dict:
     """Extract all links from ARIA. Returns {name: url}."""
     import re
     links = {}
-    for line in aria.split('\n'):
-        # Match: - link "Text": followed by /url: path
+    lines = aria.split('\n')
+    for i, line in enumerate(lines):
+        # Match: - link "Text"
         link_match = re.search(r'- link "([^"]+)"', line)
         if link_match:
             name = link_match.group(1).strip()
-            # Look for URL on same line or next line
+            # Look for URL on same line
             url_match = re.search(r'/url:\s*([^\s]+)', line)
             if url_match:
                 url = url_match.group(1)
                 if name and url and len(name) < 100:
                     links[name] = url
+            else:
+                # URL might be on next line(s) - check next few lines
+                for j in range(i + 1, min(i + 3, len(lines))):
+                    next_line = lines[j]
+                    url_match = re.search(r'/url:\s*([^\s]+)', next_line)
+                    if url_match:
+                        url = url_match.group(1)
+                        if name and url and len(name) < 100:
+                            links[name] = url
+                        break
+                    # Stop if we hit another element
+                    if re.match(r'\s*-\s+(link|button|tab|img|text)', next_line):
+                        break
     return links
 
 
@@ -205,6 +367,67 @@ async def click_button(page: Page, name: str, container=None, prefer_tab: bool =
             print(f"        [CLICK-DETAIL] Error with {role}: {e}")
             continue
     return False
+
+
+async def hover_and_check(page: Page, name: str, item_type: str = None, container=None) -> tuple[bool, str]:
+    """
+    Hover over an element and check if new content appeared.
+    For sites like Eckhaus Latta where menus reveal on hover, not click.
+
+    Args:
+        page: Playwright page
+        name: Element name to find
+        item_type: Optional type hint ('button', 'tab', 'link') to try first
+        container: Optional container to search within
+
+    Returns (revealed_content: bool, aria_after: str)
+    """
+    search_context = container if container else page
+
+    # Capture ARIA before hover
+    aria_before = await page.locator('body').aria_snapshot()
+    len_before = len(aria_before)
+
+    # Determine role order - try the hinted type first, then others
+    # Button first as fallback since menu triggers are usually buttons
+    base_roles = ['button', 'tab', 'menuitem', 'link']
+    if item_type:
+        type_to_role = {'button': 'button', 'tab': 'tab', 'link': 'link'}
+        preferred_role = type_to_role.get(item_type.lower())
+        if preferred_role and preferred_role in base_roles:
+            base_roles.remove(preferred_role)
+            base_roles.insert(0, preferred_role)
+    roles = base_roles
+
+    for role in roles:
+        try:
+            use_exact = (role == 'tab')
+            locator = search_context.get_by_role(role, name=name, exact=use_exact)
+            count = await locator.count()
+            if count > 0:
+                for i in range(count):
+                    element = locator.nth(i)
+                    if await element.is_visible():
+                        print(f"        [HOVER] Hovering '{name}' as {role}")
+                        await element.hover()
+                        await page.wait_for_timeout(500)  # Wait for menu animation
+
+                        # Capture ARIA after hover
+                        aria_after = await page.locator('body').aria_snapshot()
+                        len_after = len(aria_after)
+
+                        # Check if new content appeared (significant increase in ARIA length)
+                        new_content = len_after > len_before + 200
+                        if new_content:
+                            print(f"        [HOVER] Menu revealed! (+{len_after - len_before} chars)")
+                        else:
+                            print(f"        [HOVER] No new content revealed")
+                        return new_content, aria_after
+        except Exception as e:
+            print(f"        [HOVER] Error with {role}: {e}")
+            continue
+
+    return False, aria_before
 
 
 async def find_menu_container(page: Page, name: str):
@@ -441,8 +664,18 @@ async def navigate_to_path(page: Page, path: list, current_path: list,
             return True, False
         # If failed, fall through to normal navigation
 
+    # Detect if level 0 is a toggle menu (hamburger) - skip re-clicking it for children
+    # Toggle menus: once opened, children are directly accessible without re-clicking parent
+    is_toggle_menu = len(path) > 0 and path[0].lower() in ['menu', 'hamburger', 'nav', 'navigation']
+
     for i, target in enumerate(path):
         level = i  # Level we're trying to reach
+
+        # Skip re-clicking toggle menu if we're navigating to children and menu should be open
+        if is_toggle_menu and level == 0 and len(path) > 1:
+            print(f"    [NAV] Skipping toggle menu '{target}' - accessing children directly")
+            continue
+
         # Use prefer_tab for top-level items (level 0) - they're often tabs in site headers
         prefer_tab = (level == 0)
         # For top-level tabs, URL changes are expected (don't go back)
@@ -620,6 +853,145 @@ async def capture_state(page: Page, path: list, action: str, step: int,
 
 
 # =============================================================================
+# Structured exploration for toggle menus
+# =============================================================================
+
+async def explore_toggle_menu(page: Page, menu_structure: dict, states: list, step: int,
+                               menu_button_name: str, base_url: str) -> int:
+    """
+    Explore a toggle menu with known structure (top_level + subcategories).
+    Returns updated step count.
+
+    For sites like Alexander McQueen where menu has parallel dimensions:
+    - top_level: Women, Men, Gifts, etc.
+    - subcategories: Handbags, Shoes, Ready-to-Wear, etc.
+
+    We explore each combination: Women×Handbags, Women×Shoes, Men×Handbags, etc.
+    """
+    top_level = menu_structure.get('top_level', [])
+    subcategories = menu_structure.get('subcategories', [])
+
+    async def ensure_menu_open():
+        """Re-open menu if it got closed (e.g., after navigation)."""
+        # Check if we navigated away
+        if not page.url.startswith(base_url.rstrip('/')):
+            await page.goto(base_url, wait_until="domcontentloaded")
+            await page.wait_for_timeout(1000)
+        # Try to click menu button
+        clicked = await click_button(page, menu_button_name)
+        if clicked:
+            await page.wait_for_timeout(500)
+        return clicked
+
+    menu_links = menu_structure.get('links', [])
+
+    print(f"\n[STRUCTURED] Exploring toggle menu:")
+    print(f"    Top-level: {[item['name'] for item in top_level]}")
+    print(f"    Subcategories (tabs): {[item['name'] for item in subcategories]}")
+    print(f"    Direct links (won't click): {[item['name'] for item in menu_links]}")
+
+    for tl_item in top_level:
+        tl_name = tl_item['name']
+        tl_type = tl_item['type']
+
+        print(f"\n{'='*60}")
+        print(f"[{step}] TOP-LEVEL: {tl_name}")
+
+        # Ensure menu is open before each top-level
+        await ensure_menu_open()
+
+        # Click the top-level category
+        prefer_tab = (tl_type == 'tab')
+        clicked = await click_button(page, tl_name, prefer_tab=prefer_tab)
+        if not clicked:
+            print(f"    Failed to click {tl_name}, skipping...")
+            continue
+
+        await page.wait_for_timeout(500)
+
+        # Capture state for this top-level category
+        aria = await page.locator('body').aria_snapshot()
+        links = extract_links_from_aria(aria)
+        links = filter_utility_links(links)
+
+        state = await capture_state(page, [tl_name], f"clicked: {tl_name}", step)
+        state['new_links'] = links
+        states.append(state)
+        step += 1
+
+        print(f"    Found {len(links)} links at top level")
+
+        # Ask LLM to identify subcategories for THIS category
+        # This handles any site structure without hardcoding ARIA patterns
+        print(f"    Asking LLM for subcategories...")
+        subcat_response = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=1000,
+            messages=[{
+                "role": "user",
+                "content": prompt_subcategories(aria, tl_name)
+            }]
+        )
+        current_subcats = parse_subcategories(subcat_response.content[0].text)
+        print(f"    Subcategories for {tl_name}: {[s['name'] for s in current_subcats]}")
+
+        # Now explore each subcategory under this top-level
+        for sub_item in current_subcats:
+            sub_name = sub_item['name']
+            sub_type = sub_item['type']
+            print(f"\n  [{step}] {tl_name} > {sub_name}")
+
+            # Ensure menu is open and re-click top-level
+            await ensure_menu_open()
+            await click_button(page, tl_name, prefer_tab=prefer_tab)
+            await page.wait_for_timeout(300)
+
+            # Track URL before click to detect navigation
+            url_before = page.url
+
+            # Click the subcategory using the type identified by LLM
+            prefer_tab_for_sub = (sub_type == 'tab')
+            sub_clicked = await click_button(page, sub_name, prefer_tab=prefer_tab_for_sub)
+            if not sub_clicked:
+                print(f"      Failed to click {sub_name}, skipping...")
+                continue
+
+            await page.wait_for_timeout(500)
+
+            # Check if clicking caused navigation (it's a link, not a tab)
+            url_after = page.url
+            if url_after != url_before:
+                print(f"      [{sub_name}] navigated to {url_after} - capturing as link")
+                # Still capture this as a valid state
+                state = await capture_state(page, [tl_name, sub_name], f"navigated: {tl_name} > {sub_name}", step)
+                state['new_links'] = {sub_name: url_after}
+                states.append(state)
+                step += 1
+                # Go back to home for next iteration
+                await page.goto(base_url, wait_until="domcontentloaded")
+                await page.wait_for_timeout(500)
+                continue
+
+            # Capture state for this combination
+            aria = await page.locator('body').aria_snapshot()
+            links = extract_links_from_aria(aria)
+            links = filter_utility_links(links)
+
+            state = await capture_state(page, [tl_name, sub_name], f"clicked: {tl_name} > {sub_name}", step)
+            state['new_links'] = links
+            states.append(state)
+            step += 1
+
+            print(f"      Found {len(links)} links")
+            for name, url in list(links.items())[:3]:
+                print(f"        [LNK] {name} → {url}")
+            if len(links) > 3:
+                print(f"        ... and {len(links) - 3} more")
+
+    return step
+
+
+# =============================================================================
 # Main explorer
 # =============================================================================
 
@@ -676,22 +1048,93 @@ async def explore(url: str, max_depth: int = 3) -> list:
         top_level = parse_items(response.content[0].text)
         print(f"    Found {len(top_level)} items:")
         for item in top_level:
-            t = f"[{'BTN' if item['type'] == 'button' else 'LNK'}] {item['name']}"
+            type_label = {'button': 'BTN', 'tab': 'TAB', 'link': 'LNK'}.get(item['type'], '???')
+            t = f"[{type_label}] {item['name']}"
             if item.get('url'):
                 t += f" → {item['url']}"
             print(f"      {t}")
 
-        # Initialize stack with button paths to explore
+        # Check if this is a toggle menu site (hamburger menu)
+        # BUT: if there are already visible tabs (like women/men/kids), prefer DFS over toggle menu
+        toggle_menu_keywords = ['menu', 'hamburger', 'nav', 'navigation']
+        toggle_item = None
+
+        # Count visible tabs that are NOT toggle menus (actual category tabs)
+        visible_category_tabs = [item for item in top_level
+                                  if item['type'] == 'tab'
+                                  and not any(kw in item['name'].lower() for kw in toggle_menu_keywords)]
+
+        # Only look for toggle menu if there are NO visible category tabs
+        if not visible_category_tabs:
+            for item in top_level:
+                if item['type'] in ['button', 'tab']:
+                    item_name_lower = item['name'].lower()
+                    if any(kw in item_name_lower for kw in toggle_menu_keywords):
+                        toggle_item = item
+                        break
+
+        if toggle_item:
+            # This is a toggle menu site - use structured exploration
+            print(f"\n[5] Detected toggle menu: {toggle_item['name']}")
+            print("    Opening menu and analyzing structure...")
+
+            # Click to open the menu
+            clicked = await click_button(page, toggle_item['name'])
+            if not clicked:
+                print("    ERROR: Could not open toggle menu")
+                return states
+
+            await page.wait_for_timeout(1000)
+            await dismiss_popups_with_llm(page)
+            await page.wait_for_timeout(300)
+
+            # Get ARIA and ask LLM to identify structure
+            aria = await page.locator('body').aria_snapshot()
+            print("[6] Analyzing menu structure with LLM...")
+
+            response = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=1500,
+                messages=[{
+                    "role": "user",
+                    "content": prompt_menu_structure(aria)
+                }]
+            )
+
+            menu_structure = parse_menu_structure(response.content[0].text)
+            print(f"    LLM identified structure:")
+            print(f"      Top-level: {[item['name'] for item in menu_structure['top_level']]}")
+            print(f"      Subcategories: {[item['name'] for item in menu_structure['subcategories']]}")
+            print(f"      Links: {[item['name'] for item in menu_structure.get('links', [])]}")
+
+            # Use structured exploration
+            step = await explore_toggle_menu(page, menu_structure, states, step,
+                                             menu_button_name=toggle_item['name'], base_url=url)
+
+            print(f"\n{'='*70}")
+            print(f"EXPLORATION COMPLETE")
+            print(f"{'='*70}")
+            print(f"Total states captured: {len(states)}")
+
+            return states
+
+        # Not a toggle menu - use normal DFS exploration
+        # Initialize stack with button/tab/link paths to explore
+        # Links are included because some sites use links that reveal menus on hover/click
+        # If a link navigates away, we handle that by going back
+        # Stack items are tuples: (path_list, item_type) where item_type is for the last item
         stack = []
+        top_level_types = {}  # Map name -> type for top-level items
         for item in top_level:
-            if item['type'] == 'button':
-                stack.append([item['name']])
+            if item['type'] in ['button', 'tab', 'link']:
+                stack.append(([item['name']], item['type']))
+                top_level_types[item['name']] = item['type']
 
         # Reverse for DFS (first item explored first)
         stack = list(reversed(stack))
 
         print(f"\n[5] Starting DFS exploration...")
-        print(f"    Stack: {[s[-1] for s in stack]}")
+        print(f"    Stack: {[s[0][-1] for s in stack]}")
 
         explored = set()  # Track what we've explored
         current_path = []  # Track where we currently are
@@ -700,7 +1143,8 @@ async def explore(url: str, max_depth: int = 3) -> list:
         base_url = url  # For detecting navigation away
 
         while stack:
-            path = stack.pop()
+            # Stack items are tuples: (path_list, item_type)
+            path, item_type = stack.pop()
             path_key = tuple(path)
 
             # Skip if already explored or too deep
@@ -713,9 +1157,46 @@ async def explore(url: str, max_depth: int = 3) -> list:
             explored.add(path_key)
 
             print(f"\n{'='*60}")
-            print(f"[{step}] EXPLORING: {' > '.join(path)}")
+            print(f"[{step}] EXPLORING: {' > '.join(path)} ({item_type})")
             print(f"    Current: {' > '.join(current_path) if current_path else '(root)'}")
             print(f"    Stack remaining: {len(stack)}")
+
+            # For top-level items, try hover first to reveal dropdown menus
+            # Some sites (like Eckhaus Latta) use hover to reveal, click navigates away
+            if len(path) == 1 and not current_path:
+                revealed, aria_after_hover = await hover_and_check(page, path[0], item_type)
+                if revealed:
+                    # Only skip click if it's a link/button (click would navigate away)
+                    # For tabs, clicking is still needed to explore subcategories
+                    if item_type in ['link', 'button']:
+                        print(f"    [HOVER] Menu revealed on hover ({item_type}), capturing without clicking...")
+
+                        # Extract links from hover-revealed content
+                        links = extract_links_from_aria(aria_after_hover)
+                        links = filter_utility_links(links)
+
+                        # Capture state
+                        state = await capture_state(page, path, f"hovered: {path[-1]}", step)
+                        state['new_links'] = links
+                        state['aria'] = aria_after_hover
+                        states.append(state)
+
+                        print(f"    Found {len(links)} links via hover")
+                        for name, url in list(links.items())[:5]:
+                            print(f"      [LNK] {name} → {url}")
+                        if len(links) > 5:
+                            print(f"      ... and {len(links) - 5} more links")
+
+                        step += 1
+
+                        # Move mouse away to close hover menu
+                        await page.mouse.move(0, 0)
+                        await page.wait_for_timeout(300)
+
+                        # Don't add children to stack - hover menus typically show all links at once
+                        continue
+                    else:
+                        print(f"    [HOVER] Content revealed on hover, but {item_type} needs click to explore subcategories")
 
             # Detect top-level category change - reset menu first for clean transition
             if current_path and path and current_path[0].lower() != path[0].lower():
@@ -800,11 +1281,12 @@ async def explore(url: str, max_depth: int = 3) -> list:
 
             # Add new buttons to stack for further exploration (reversed for DFS order)
             # Sort alphabetically for consistent order, reverse so first item is explored first
+            # Child buttons are assumed to be 'button' type (they were discovered as new buttons)
             sorted_buttons = sorted(new_buttons)
             for btn in reversed(sorted_buttons):
                 child_path = path + [btn]
                 if tuple(child_path) not in explored:
-                    stack.append(child_path)
+                    stack.append((child_path, 'button'))
 
             step += 1
 
