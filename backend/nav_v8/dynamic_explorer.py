@@ -96,50 +96,44 @@ RULES:
 """
 
 
-def prompt_subcategories(aria: str, top_level_name: str, top_level_items: list = None) -> str:
-    """Prompt to identify subcategories after clicking a top-level category."""
-    exclude_note = ""
-    if top_level_items:
-        exclude_note = f"""
-EXCLUDE these (main nav bar, not children of "{top_level_name}"): {', '.join(top_level_items)}"""
+def prompt_subcategories(aria: str, current_path: list) -> str:
+    """Prompt to identify subcategories at the current navigation path."""
+    path_str = " > ".join(current_path)
 
-    return f"""I clicked "{top_level_name}" and a dropdown appeared.
+    return f"""PURPOSE: We're building a tree of a fashion site's navigation menu. We need to explore every expandable category to find all product pages.
 
-ARIA:
-{aria[:6000]}
+CURRENT PATH: {path_str}
 
-TASK: List what's inside the "{top_level_name}" dropdown.
-{exclude_note}
+TASK: Find items that are CHILDREN of this path (one level deeper in the menu hierarchy).
 
-WHERE TO LOOK:
-- Find: button "{top_level_name}" [expanded] or tab "{top_level_name}" [expanded]
-- Look INSIDE the menu/region/tablist that follows it
+WHY WE SEPARATE EXPANDABLE VS LINKS:
+- EXPANDABLE items (buttons, tabs, menuitems) reveal MORE subcategories when clicked - we need to explore these further
+- LINK items navigate directly to a product page - we record the URL but don't need to explore further
 
-FORMAT - just read what you see:
+CLASSIFICATION (based on ARIA role):
+- button, menuitem, tab, or anything that expands/switches content → EXPANDABLE
+- link (navigates to a page) → LINKS
 
-CLICKABLE (menuitems, buttons, tabs - we'll click these):
-- MENUITEM: ExactName
+RESPOND:
+
+EXPANDABLE:
 - BUTTON: ExactName
+- MENUITEM: ExactName
 - TAB: ExactName
+- OTHER: ExactName
 
-LINKS (have /url: in ARIA - we won't click these):
+LINKS:
 - LINK: ExactName
 
-RULES:
-- List EVERY menuitem/button/tab you see inside the dropdown
-- List EVERY link you see inside the dropdown
-- Use exact names from ARIA
-- Don't guess or interpret - just read what's there
+CONSTRAINTS:
+- Look at the ARIA ROLE, not whether it has a URL (buttons often have URLs but still expand menus)
+- Only include CHILDREN of the current path, not siblings or parent items
+- Ignore navigation controls: Back, Close, Search, Cart, Menu
+- Use exact names from the ARIA
+- If no expandable children exist, write NONE
 
-EXCLUDE:
-- Close, Search, Cart, Account buttons
-- Main nav items listed above
-
-If empty:
-CLICKABLE:
-NONE
-LINKS:
-NONE
+ARIA SNAPSHOT:
+{aria[:6000]}
 """
 
 
@@ -833,231 +827,189 @@ async def navigate_to_path(page: Page, path: list, current_path: list,
                            back_buttons: dict, level_strategies: dict,
                            base_url: str, target_type: str = None) -> tuple[bool, bool]:
     """
-    Navigate from current_path to target path efficiently.
+    Navigate from current_path to target path using tree navigation.
 
-    Learns and caches what strategy works at each level:
-    - level_strategies[level] = 'direct' | 'back_button' | 'reclick' | 'reset'
-    - back_buttons[level] = selector (if strategy is back_button)
-
-    Fallback chain (only used when level not yet learned):
-    1. Try clicking target directly
-    2. If not found → use back button, retry
-    3. If no back button → try clicking higher level element
-    4. Last resort → reset menu with Escape
+    Algorithm:
+    1. Try clicking the final target directly (handles visible siblings)
+    2. If fails, calculate common ancestor between current and target
+    3. Go UP from current to common ancestor (using back buttons)
+    4. Go DOWN from common ancestor to target
 
     Args:
-        target_type: The ARIA role of the target (last element in path), e.g. 'menuitem', 'tab', 'button'
+        path: Target path like ['Sales', 'Women']
+        current_path: Where we are now like ['Sales', 'Men']
+        back_buttons: Cache of {level: selector} for back buttons
+        level_strategies: Unused, kept for compatibility
+        base_url: Base URL for detecting navigation
+        target_type: ARIA role of final target ('menuitem', 'tab', 'button')
 
     Returns: (success: bool, navigated_away: bool)
     """
-    # Special case: navigating to sibling at level 1 (same parent tab)
-    # Don't re-click the tab - use back button to get to menu, then click target
-    if (len(path) >= 2 and len(current_path) >= 2 and
-        current_path[0].lower() == path[0].lower() and
-        current_path[1].lower() != path[1].lower()):
-        print(f"    [NAV] Sibling navigation: {current_path[1]} → {path[1]} (same tab: {path[0]})")
-        # Use back button if we know it, or find it
-        back_selector = back_buttons.get(1)
-        if not back_selector:
-            back_selector = await find_back_button(page)
-            if back_selector:
-                back_buttons[1] = back_selector
-                print(f"    [NAV] Found back button: {back_selector}")
+    if not path:
+        return True, False
 
-        if back_selector:
-            try:
-                # Find a VISIBLE back button (selector may match multiple elements)
-                locator = page.locator(back_selector)
-                count = await locator.count()
-                clicked = False
-                for i in range(count):
-                    element = locator.nth(i)
-                    if await element.is_visible():
-                        await element.click()
-                        await page.wait_for_timeout(400)
-                        print(f"    [NAV] Clicked back button #{i+1} to return to {path[0]} menu")
-                        clicked = True
-                        break
-                if not clicked:
-                    print(f"    [NAV] Back button not visible, trying fallback...")
-            except Exception as e:
-                print(f"    [NAV] Back button failed: {e}")
+    target = path[-1]
+    prefer_role = target_type
 
-        # Now click the target at level 1
-        # Use target_type when path[1] is the final target, and scope to parent menu
-        sibling_role = target_type if len(path) == 2 else None
-        clicked, navigated = await try_click_with_url_check(page, path[1], prefer_tab=False, skip_url_check=False, prefer_role=sibling_role, parent_menu=path[0])
-        if navigated:
-            return False, True
-        if clicked:
-            return True, False
-        # If failed, fall through to normal navigation
-
-    # Detect if level 0 is a toggle menu (hamburger) - skip re-clicking it for children
-    # Toggle menus: once opened, children are directly accessible without re-clicking parent
+    # Detect if level 0 is a toggle menu (hamburger)
     is_toggle_menu = len(path) > 0 and path[0].lower() in ['menu', 'hamburger', 'nav', 'navigation']
 
-    for i, target in enumerate(path):
-        level = i  # Level we're trying to reach
+    # ==========================================================================
+    # STEP 1: Try clicking the final target directly
+    # This handles the common case where siblings are visible in the same dropdown
+    # ==========================================================================
 
-        # Skip re-clicking toggle menu if we're navigating to children and menu should be open
-        if is_toggle_menu and level == 0 and len(path) > 1:
-            print(f"    [NAV] Skipping toggle menu '{target}' - accessing children directly")
-            continue
+    # Determine parent_menu for scoping the search
+    parent_menu = path[-2] if len(path) >= 2 else None
+    prefer_tab = (len(path) == 1)  # Top-level items are often tabs
+    skip_url_check = prefer_tab
 
-        # Use prefer_tab for top-level items (level 0) - they're often tabs in site headers
-        prefer_tab = (level == 0)
-        # For top-level tabs, URL changes are expected (don't go back)
-        skip_url_check = prefer_tab
-        # Use target_type hint for the last element (the actual target)
-        prefer_role = target_type if (i == len(path) - 1 and target_type) else None
-        # For non-root items, use parent name to scope the search (click inside parent's dropdown)
-        parent_menu = path[i-1] if i > 0 else None
+    clicked, navigated = await try_click_with_url_check(
+        page, target,
+        prefer_tab=prefer_tab,
+        skip_url_check=skip_url_check,
+        prefer_role=prefer_role,
+        parent_menu=parent_menu
+    )
 
-        # Check if we already know the strategy for this level
-        known_strategy = level_strategies.get(level)
+    if navigated:
+        return False, True
+    if clicked:
+        print(f"    [NAV] Direct click succeeded for '{target}'")
+        return True, False
 
-        if known_strategy == STRATEGY_DIRECT:
-            # We know direct click works at this level
-            clicked, navigated = await try_click_with_url_check(page, target, prefer_tab=prefer_tab, skip_url_check=skip_url_check, prefer_role=prefer_role, parent_menu=parent_menu)
-            if navigated:
-                return False, True
-            if clicked:
-                continue
-            # Direct didn't work this time - clear cached strategy and rediscover
-            print(f"    [NAV] Cached 'direct' failed for level {level}, rediscovering...")
-            del level_strategies[level]
-            known_strategy = None
+    # ==========================================================================
+    # STEP 2: Direct click failed - calculate tree navigation
+    # ==========================================================================
 
-        elif known_strategy == STRATEGY_BACK_BUTTON and level in back_buttons:
-            # We know we need back button at this level
-            print(f"    [NAV] Using cached back button for level {level}")
-            try:
-                await page.locator(back_buttons[level]).first.click()
-                await page.wait_for_timeout(400)
-            except:
-                pass
-            clicked, navigated = await try_click_with_url_check(page, target, prefer_tab=prefer_tab, skip_url_check=skip_url_check, prefer_role=prefer_role, parent_menu=parent_menu)
-            if navigated:
-                return False, True
-            if clicked:
-                continue
-            # Back button didn't work - clear and rediscover
-            print(f"    [NAV] Cached back button failed for level {level}, rediscovering...")
-            del level_strategies[level]
-            del back_buttons[level]
-            known_strategy = None
+    print(f"    [NAV] Direct click failed for '{target}', navigating via tree...")
 
-        elif known_strategy == STRATEGY_RECLICK_PARENT and i > 0:
-            # We know we need to re-click parent at this level
-            print(f"    [NAV] Using cached 'reclick parent' for level {level}")
-            parent_prefer_tab = (i - 1 == 0)
-            parent_skip_url_check = parent_prefer_tab
-            await try_click_with_url_check(page, path[i-1], prefer_tab=parent_prefer_tab, skip_url_check=parent_skip_url_check)
-            clicked, navigated = await try_click_with_url_check(page, target, prefer_tab=prefer_tab, skip_url_check=skip_url_check, prefer_role=prefer_role, parent_menu=parent_menu)
-            if navigated:
-                return False, True
-            if clicked:
-                continue
-            # Re-click didn't work - clear and rediscover
-            print(f"    [NAV] Cached 'reclick' failed for level {level}, rediscovering...")
-            del level_strategies[level]
-            known_strategy = None
+    # Find common ancestor length
+    common_len = 0
+    for i in range(min(len(path), len(current_path))):
+        if path[i].lower() == current_path[i].lower():
+            common_len += 1
+        else:
+            break
 
-        elif known_strategy == STRATEGY_RESET:
-            # We know we need full reset at this level
-            print(f"    [NAV] Using cached 'reset' for level {level}")
-            await page.keyboard.press('Escape')
-            await page.wait_for_timeout(300)
-            await open_menu(page)
-            await page.wait_for_timeout(300)
-            # Re-click from root
-            for j in range(i + 1):
-                j_prefer_tab = (j == 0)
-                j_skip_url_check = j_prefer_tab
-                j_prefer_role = prefer_role if j == i else None
-                j_parent_menu = path[j-1] if j > 0 else None
-                clicked, navigated = await try_click_with_url_check(page, path[j], prefer_tab=j_prefer_tab, skip_url_check=j_skip_url_check, prefer_role=j_prefer_role, parent_menu=j_parent_menu)
-                if navigated:
-                    return False, True
-                if not clicked:
-                    return False, False
-            continue
+    levels_up = len(current_path) - common_len
 
-        # No cached strategy or it failed - discover what works
-        if known_strategy is None:
-            # Strategy 1: Try direct click
-            clicked, navigated = await try_click_with_url_check(page, target, prefer_tab=prefer_tab, skip_url_check=skip_url_check, prefer_role=prefer_role, parent_menu=parent_menu)
-            if navigated:
-                return False, True
-            if clicked:
-                level_strategies[level] = STRATEGY_DIRECT
-                print(f"    [NAV] Learned: level {level} uses 'direct'")
-                continue
+    print(f"    [NAV] Current: {current_path}, Target: {path}")
+    print(f"    [NAV] Common ancestor depth: {common_len}, Need to go up: {levels_up} level(s)")
 
-            print(f"    [NAV] '{target}' not found directly, trying fallbacks...")
+    # ==========================================================================
+    # STEP 3: Go UP from current position to common ancestor
+    # ==========================================================================
 
-            # Strategy 2: Look for back button
-            back_selector = await find_back_button(page)
+    if levels_up > 0:
+        for level_idx in range(levels_up):
+            # Calculate actual menu level we're going back FROM
+            current_depth = len(current_path) - level_idx
+
+            # Check if we have a cached back button for this level
+            back_selector = back_buttons.get(current_depth)
+
+            if not back_selector:
+                # Find and cache the back button
+                back_selector = await find_back_button(page)
+                if back_selector:
+                    back_buttons[current_depth] = back_selector
+                    print(f"    [NAV] Cached back button for level {current_depth}: {back_selector}")
+
             if back_selector:
-                print(f"    [NAV] Found back button, clicking and retrying...")
                 try:
-                    await page.locator(back_selector).first.click()
-                    await page.wait_for_timeout(400)
-                except:
-                    pass
+                    locator = page.locator(back_selector)
+                    count = await locator.count()
+                    clicked_back = False
+                    for idx in range(count):
+                        element = locator.nth(idx)
+                        if await element.is_visible():
+                            await element.click()
+                            await page.wait_for_timeout(400)
+                            print(f"    [NAV] Clicked back button (level {level_idx + 1}/{levels_up})")
+                            clicked_back = True
+                            break
+                    if not clicked_back:
+                        print(f"    [NAV] Back button not visible, resetting menu")
+                        await page.keyboard.press('Escape')
+                        await page.wait_for_timeout(300)
+                        common_len = 0
+                        break
+                except Exception as e:
+                    print(f"    [NAV] Back button error: {e}, resetting menu")
+                    await page.keyboard.press('Escape')
+                    await page.wait_for_timeout(300)
+                    common_len = 0
+                    break
+            else:
+                print(f"    [NAV] No back button found, resetting menu")
+                await page.keyboard.press('Escape')
+                await page.wait_for_timeout(300)
+                common_len = 0
+                break
 
-                clicked, navigated = await try_click_with_url_check(page, target, prefer_tab=prefer_tab, skip_url_check=skip_url_check, prefer_role=prefer_role, parent_menu=parent_menu)
-                if navigated:
-                    return False, True
-                if clicked:
-                    level_strategies[level] = STRATEGY_BACK_BUTTON
-                    back_buttons[level] = back_selector
-                    print(f"    [NAV] Learned: level {level} uses 'back_button' ({back_selector})")
-                    continue
+    # ==========================================================================
+    # STEP 4: Go DOWN from common ancestor to target
+    # ==========================================================================
 
-            # Strategy 3: Re-click parent
-            if i > 0:
-                print(f"    [NAV] Trying to re-click parent '{path[i-1]}'...")
-                parent_prefer_tab = (i - 1 == 0)
-                parent_skip_url_check = parent_prefer_tab
-                clicked_parent, _ = await try_click_with_url_check(page, path[i-1], prefer_tab=parent_prefer_tab, skip_url_check=parent_skip_url_check)
-                if clicked_parent:
-                    clicked, navigated = await try_click_with_url_check(page, target, prefer_tab=prefer_tab, skip_url_check=skip_url_check, prefer_role=prefer_role, parent_menu=parent_menu)
+    for i in range(common_len, len(path)):
+        element_name = path[i]
+
+        # Skip toggle menu at level 0 if already open
+        if is_toggle_menu and i == 0 and common_len == 0:
+            # Need to open the toggle menu first
+            pass  # Don't skip, we need to click it
+
+        # Determine click parameters for this level
+        level_prefer_tab = (i == 0)
+        level_skip_url_check = level_prefer_tab
+        level_prefer_role = prefer_role if (i == len(path) - 1) else None
+        level_parent_menu = path[i-1] if i > 0 else None
+
+        clicked, navigated = await try_click_with_url_check(
+            page, element_name,
+            prefer_tab=level_prefer_tab,
+            skip_url_check=level_skip_url_check,
+            prefer_role=level_prefer_role,
+            parent_menu=level_parent_menu
+        )
+
+        if navigated:
+            return False, True
+
+        if not clicked:
+            print(f"    [NAV] Failed to click '{element_name}' at level {i}")
+
+            # Last resort: full reset and try from root
+            if common_len > 0 or i > 0:
+                print(f"    [NAV] Full reset and retry from root...")
+                await page.keyboard.press('Escape')
+                await page.wait_for_timeout(300)
+
+                # Try clicking entire path from root
+                for j in range(len(path)):
+                    j_prefer_tab = (j == 0)
+                    j_skip_url_check = j_prefer_tab
+                    j_prefer_role = prefer_role if (j == len(path) - 1) else None
+                    j_parent_menu = path[j-1] if j > 0 else None
+
+                    clicked, navigated = await try_click_with_url_check(
+                        page, path[j],
+                        prefer_tab=j_prefer_tab,
+                        skip_url_check=j_skip_url_check,
+                        prefer_role=j_prefer_role,
+                        parent_menu=j_parent_menu
+                    )
+
                     if navigated:
                         return False, True
-                    if clicked:
-                        level_strategies[level] = STRATEGY_RECLICK_PARENT
-                        print(f"    [NAV] Learned: level {level} uses 'reclick_parent'")
-                        continue
+                    if not clicked:
+                        print(f"    [NAV] Failed to click '{path[j]}' even after reset")
+                        return False, False
 
-            # Strategy 4: Full reset
-            print(f"    [NAV] Resetting menu and clicking from root...")
-            await page.keyboard.press('Escape')
-            await page.wait_for_timeout(300)
-            await open_menu(page)
-            await page.wait_for_timeout(300)
+                return True, False
 
-            success = True
-            for j in range(i + 1):
-                j_prefer_tab = (j == 0)
-                j_skip_url_check = j_prefer_tab
-                # Use prefer_role only for the target (last element)
-                j_prefer_role = prefer_role if j == i else None
-                j_parent_menu = path[j-1] if j > 0 else None
-                clicked, navigated = await try_click_with_url_check(page, path[j], prefer_tab=j_prefer_tab, skip_url_check=j_skip_url_check, prefer_role=j_prefer_role, parent_menu=j_parent_menu)
-                if navigated:
-                    return False, True
-                if not clicked:
-                    print(f"    [NAV] Failed to click '{path[j]}' even after reset")
-                    success = False
-                    break
-
-            if not success:
-                return False, False
-
-            level_strategies[level] = STRATEGY_RESET
-            print(f"    [NAV] Learned: level {level} uses 'reset'")
+            return False, False
 
     return True, False
 
@@ -1178,7 +1130,7 @@ async def explore_toggle_menu(page: Page, menu_structure: dict, states: list, st
             max_tokens=1000,
             messages=[{
                 "role": "user",
-                "content": prompt_subcategories(aria, tl_name, top_level_names)
+                "content": prompt_subcategories(aria, [tl_name])
             }]
         )
         expandable_items, leaf_links = parse_subcategories(subcat_response.content[0].text)
@@ -1410,6 +1362,10 @@ async def explore(url: str, max_depth: int = 3) -> list:
         level_strategies = {}  # {level: strategy} - learned nav strategies per level
         base_url = url  # For detecting navigation away
 
+        # Track levels with no expandable children - skip LLM after 5 consecutive empty results
+        level_no_expandable_count = {}  # {level: count of consecutive items with no expandable}
+        skip_llm_at_level = set()  # Levels where we've confirmed no expandable children
+
         while stack:
             # Stack items are tuples: (path_list, item_type)
             path, item_type = stack.pop()
@@ -1509,26 +1465,42 @@ async def explore(url: str, max_depth: int = 3) -> list:
             # Get ARIA for analysis
             aria = await page.locator('body').aria_snapshot()
 
-            # Ask LLM what subcategories are available (unified approach like toggle menu)
-            # This handles context - e.g., "Women" under "Sales" vs top-level "Women"
-            # Pass top-level names so LLM knows to exclude them (always visible nav bar)
-            top_level_names = [item['name'] for item in top_level]
-            print(f"    Asking LLM for subcategories under '{path[-1]}'...")
-            subcat_response = client.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=1000,
-                messages=[{
-                    "role": "user",
-                    "content": prompt_subcategories(aria, path[-1], top_level_names)
-                }]
-            )
-            expandable_items, leaf_links = parse_subcategories(subcat_response.content[0].text)
-            # Convert to dict format {name: type} for compatibility - only expandable items go on stack
-            new_buttons = {s['name']: s['type'] for s in expandable_items}
-            llm_links = {s['name']: 'link' for s in leaf_links}
-            print(f"    LLM identified: {list(new_buttons.keys())}")
-            if llm_links:
-                print(f"    LLM links (won't explore): {list(llm_links.keys())}")
+            # Check if we should skip LLM for this level (already know it has no expandable children)
+            current_level = len(path)
+            if current_level in skip_llm_at_level:
+                print(f"    [SKIP-LLM] Level {current_level} confirmed to have no expandable items")
+                expandable_items = []
+                leaf_links = []
+                new_buttons = {}
+                llm_links = {}
+            else:
+                # Ask LLM what subcategories are available
+                print(f"    Asking LLM for subcategories under '{path[-1]}'...")
+                subcat_response = client.messages.create(
+                    model="claude-sonnet-4-20250514",
+                    max_tokens=1000,
+                    messages=[{
+                        "role": "user",
+                        "content": prompt_subcategories(aria, path)
+                    }]
+                )
+                expandable_items, leaf_links = parse_subcategories(subcat_response.content[0].text)
+                # Convert to dict format {name: type} for compatibility - only expandable items go on stack
+                new_buttons = {s['name']: s['type'] for s in expandable_items}
+                llm_links = {s['name']: 'link' for s in leaf_links}
+                print(f"    LLM identified: {list(new_buttons.keys())}")
+                if llm_links:
+                    print(f"    LLM links (won't explore): {list(llm_links.keys())}")
+
+                # Track consecutive items with no expandable children at this level
+                if len(expandable_items) == 0:
+                    level_no_expandable_count[current_level] = level_no_expandable_count.get(current_level, 0) + 1
+                    if level_no_expandable_count[current_level] >= 5:
+                        print(f"    [LEARN] Level {current_level} has no expandable items (5 consecutive), skipping LLM for rest")
+                        skip_llm_at_level.add(current_level)
+                else:
+                    # Reset counter if we find expandable items
+                    level_no_expandable_count[current_level] = 0
 
             # Find new links (compared to initial state)
             current_links = extract_links_from_aria(aria)
