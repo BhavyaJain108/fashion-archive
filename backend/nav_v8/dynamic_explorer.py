@@ -308,29 +308,41 @@ def extract_links_from_aria(aria: str) -> dict:
     links = {}
     lines = aria.split('\n')
     for i, line in enumerate(lines):
-        # Match: - link "Text"
-        link_match = re.search(r'- link "([^"]+)"', line)
-        if link_match:
-            name = link_match.group(1).strip()
+        # Match: - link "Text" OR - link: (nameless)
+        named_match = re.search(r'- link "([^"]+)"', line)
+        nameless_match = re.search(r'- link:\s*$', line)
+
+        if named_match or nameless_match:
+            name = named_match.group(1).strip() if named_match else None
+
             # Look for URL on same line
             url_match = re.search(r'/url:\s*([^\s]+)', line)
             if url_match:
                 url = url_match.group(1)
-                if name and url and len(name) < 100:
-                    links[name] = url
             else:
                 # URL might be on next line(s) - check next few lines
-                for j in range(i + 1, min(i + 3, len(lines))):
+                url = None
+                for j in range(i + 1, min(i + 4, len(lines))):
                     next_line = lines[j]
                     url_match = re.search(r'/url:\s*([^\s]+)', next_line)
                     if url_match:
                         url = url_match.group(1)
-                        if name and url and len(name) < 100:
-                            links[name] = url
                         break
-                    # Stop if we hit another element
-                    if re.match(r'\s*-\s+(link|button|tab|img|text)', next_line):
+                    # Stop if we hit another element (but not /url line)
+                    if re.match(r'\s*-\s+(link|button|tab|img|text|listitem|menu)', next_line):
                         break
+
+            if url:
+                # If no name, derive from URL path
+                if not name or name == 'null':
+                    # /en_us/scarves-women → scarves-women
+                    path_parts = url.rstrip('/').split('/')
+                    name = path_parts[-1] if path_parts else url
+                    # Clean up: scarves-women → Scarves Women
+                    name = name.replace('-', ' ').replace('_', ' ').title()
+
+                if name and len(name) < 100:
+                    links[name] = url
     return links
 
 
@@ -340,10 +352,13 @@ def filter_utility_links(links: dict) -> dict:
         'login', 'cart', 'wishlist', 'account', 'saved',
         'faq', 'contact', 'careers', 'legal', 'privacy', 'cookie', 'terms',
         'facebook', 'instagram', 'tiktok', 'pinterest', 'linkedin', 'twitter',
-        'tel:', 'mailto:', 'javascript:', '#',
+        'tel:', 'mailto:', 'javascript:',
         'track-order', 'returns', 'shipping', 'payment', 'newsletter',
         'store-locator', 'find-store', 'appointments'
     ]
+
+    # Skip anchor-only links (just "#" or "#something" with no path)
+    skip_anchor_only = lambda url: url.startswith('#') or url == '#'
 
     skip_names = [
         'login', 'cart', 'search', 'close', 'back', 'menu',
@@ -360,6 +375,9 @@ def filter_utility_links(links: dict) -> dict:
             continue
         # Skip by URL pattern
         if any(skip in url_lower for skip in skip_patterns):
+            continue
+        # Skip anchor-only links
+        if skip_anchor_only(url):
             continue
 
         filtered[name] = url
