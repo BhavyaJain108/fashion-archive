@@ -135,7 +135,7 @@ def extract_all_buttons(aria: str) -> set:
     return buttons
 
 
-def find_new_links(before_links: dict, after_links: dict) -> list:
+def find_new_links(before_links: dict, after_links: dict, debug: bool = False) -> list:
     """
     Compare before/after HTML links to find newly revealed ones.
     before_links/after_links: {url: text}
@@ -151,17 +151,30 @@ def find_new_links(before_links: dict, after_links: dict) -> list:
     ]
 
     new_links = []
+    skipped_links = []
 
-    for url, text in after_links.items():
-        # Only NEW urls (not in before)
-        if url not in before_links:
-            # Skip utility links
-            url_lower = url.lower()
-            if any(skip in url_lower for skip in skip_patterns):
-                continue
-            if text.lower() in ['login', 'cart', 'search', 'close', 'back']:
-                continue
-            new_links.append({'type': 'link', 'name': text, 'url': url})
+    # Find URLs that are in after but not in before
+    new_urls = set(after_links.keys()) - set(before_links.keys())
+
+    if debug and new_urls:
+        print(f"    [DEBUG] Found {len(new_urls)} new URLs")
+
+    for url in new_urls:
+        text = after_links[url]
+        # Skip utility links
+        url_lower = url.lower()
+        if any(skip in url_lower for skip in skip_patterns):
+            skipped_links.append((text, url, 'url_pattern'))
+            continue
+        if text.lower() in ['login', 'cart', 'search', 'close', 'back']:
+            skipped_links.append((text, url, 'text_filter'))
+            continue
+        new_links.append({'type': 'link', 'name': text, 'url': url})
+
+    if debug and skipped_links:
+        print(f"    [DEBUG] Skipped {len(skipped_links)} links:")
+        for text, url, reason in skipped_links[:5]:
+            print(f"      - {text} | {url} ({reason})")
 
     return new_links
 
@@ -442,13 +455,28 @@ async def explore(url: str, max_depth: int = 10):
             print(f"    [DIFF] Links: {len(before_links)} → {len(after_links)}, Buttons: {len(before_buttons)} → {len(after_buttons)}")
 
             # Find NEW elements
-            new_links = find_new_links(before_links, after_links)
+            new_links = find_new_links(before_links, after_links, debug=True)
             new_buttons = after_buttons - before_buttons
 
             # Filter utility buttons
             skip_buttons = {'back', 'close', 'search', 'login', 'cart', 'shipping to the us',
-                           'change language', 'subscribe', 'play', 'pause', 'mute', 'unmute'}
-            new_buttons = {b for b in new_buttons if b.lower() not in skip_buttons}
+                           'change language', 'subscribe', 'play', 'pause', 'mute', 'unmute',
+                           'chat support', 'cookie settings', 'link', 'chat', 'support',
+                           'cookies', 'settings', 'help', 'menu', 'navigation'}
+
+            def clean_button_name(name):
+                """Clean up button names - remove duplicates like 'Sweaters Sweaters'"""
+                words = name.split()
+                # If first half equals second half, take first half
+                if len(words) >= 2 and len(words) % 2 == 0:
+                    half = len(words) // 2
+                    if words[:half] == words[half:]:
+                        return ' '.join(words[:half])
+                return name
+
+            new_buttons = {clean_button_name(b) for b in new_buttons
+                          if b.lower() not in skip_buttons
+                          and not any(skip in b.lower() for skip in skip_buttons)}
 
             buttons = [{'type': 'button', 'name': name} for name in new_buttons]
             links = new_links

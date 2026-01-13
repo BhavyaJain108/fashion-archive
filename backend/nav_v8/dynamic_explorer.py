@@ -104,7 +104,14 @@ def prompt_subcategories(aria: str, current_path: list) -> str:
 
 CURRENT PATH: {path_str}
 
-TASK: Find items that are CHILDREN of this path (one level deeper in the menu hierarchy).
+FIRST: Determine the PAGE TYPE:
+- NAVIGATION_MENU: Shows category structure (buttons/tabs like "Shoes", "Bags", "Accessories")
+- PRODUCT_LISTING: Shows individual products (items with prices like "$199", "Add to Cart", product names)
+
+If this is a PRODUCT_LISTING page (no navigation menu visible, just products), respond:
+PAGE_TYPE: PRODUCT_LISTING
+
+If this is a NAVIGATION_MENU, find items that are CHILDREN of the current path.
 
 WHY WE SEPARATE EXPANDABLE VS LINKS:
 - EXPANDABLE items (buttons, tabs, menuitems) reveal MORE subcategories when clicked - we need to explore these further
@@ -115,6 +122,8 @@ CLASSIFICATION (based on ARIA role):
 - link (navigates to a page) → LINKS
 
 RESPOND:
+
+PAGE_TYPE: NAVIGATION_MENU
 
 EXPANDABLE:
 - BUTTON: ExactName
@@ -137,18 +146,26 @@ ARIA SNAPSHOT:
 """
 
 
-def parse_subcategories(response: str) -> tuple[list, list]:
+def parse_subcategories(response: str) -> tuple[list, list, bool]:
     """
     Parse LLM response for subcategories.
-    Returns (clickable_items, links) - clickable items will be explored.
+    Returns (clickable_items, links, is_product_listing)
+    - clickable items will be explored
+    - is_product_listing: True if page is a product listing (not a nav menu)
     """
     import re
     clickable = []
     links = []
+    is_product_listing = False
     current_section = None  # 'clickable' or 'links'
 
     for line in response.split('\n'):
         line = line.strip()
+
+        # Check for product listing page indicator
+        if 'PAGE_TYPE' in line.upper() and 'PRODUCT_LISTING' in line.upper():
+            is_product_listing = True
+            continue
 
         if 'CLICKABLE' in line.upper() or 'EXPANDABLE' in line.upper():
             current_section = 'clickable'
@@ -176,7 +193,7 @@ def parse_subcategories(response: str) -> tuple[list, list]:
                     else:
                         links.append(item)
 
-    return clickable, links
+    return clickable, links, is_product_listing
 
 
 def parse_menu_structure(response: str) -> dict:
@@ -420,6 +437,26 @@ def filter_utility_buttons(buttons: set | dict) -> set | dict:
 # =============================================================================
 # Navigation helpers
 # =============================================================================
+
+async def element_exists(page: Page, name: str, element_type: str = 'button') -> bool:
+    """Check if an element exists and is visible on the page."""
+    roles_to_try = {
+        'button': ['button', 'tab', 'link'],
+        'tab': ['tab', 'button', 'link'],
+        'link': ['link', 'button', 'tab'],
+    }.get(element_type, ['button', 'tab', 'link'])
+
+    for role in roles_to_try:
+        try:
+            locator = page.get_by_role(role, name=name, exact=True)
+            if await locator.count() > 0:
+                element = locator.first
+                if await element.is_visible():
+                    return True
+        except:
+            pass
+    return False
+
 
 async def click_button(page: Page, name: str, container=None, prefer_tab: bool = False, prefer_role: str = None, parent_menu: str = None) -> bool:
     """Click a button by name, optionally scoped to a container or parent menu."""
@@ -827,7 +864,7 @@ async def try_click_with_url_check(page: Page, name: str, container=None, prefer
         url_after = page.url
         if url_after != url_before:
             await page.go_back()
-            await page.wait_for_timeout(500)
+            await page.wait_for_timeout(1500)  # Wait for heavy JS pages to load
             return True, True  # Clicked but navigated away
         return True, False  # Clicked successfully, stayed on page
     print(f"      [CLICK] Could not find '{name}'")
@@ -1151,7 +1188,10 @@ async def explore_toggle_menu(page: Page, menu_structure: dict, states: list, st
                 "content": prompt_subcategories(aria, [tl_name])
             }]
         )
-        expandable_items, leaf_links = parse_subcategories(subcat_response.content[0].text)
+        expandable_items, leaf_links, is_product_listing = parse_subcategories(subcat_response.content[0].text)
+        if is_product_listing:
+            print(f"    [PRODUCT_LISTING] Top-level '{tl_name}' is a product page, skipping subcategories")
+            continue
         if expandable_items:
             print(f"    Expandable: {[s['name'] for s in expandable_items]}")
         if leaf_links:
@@ -1191,7 +1231,7 @@ async def explore_toggle_menu(page: Page, menu_structure: dict, states: list, st
                 step += 1
                 # Go back to home for next iteration
                 await page.goto(base_url, wait_until="domcontentloaded")
-                await page.wait_for_timeout(500)
+                await page.wait_for_timeout(1500)  # Wait for heavy JS pages to load
                 continue
 
             # Capture state for this combination
@@ -1363,10 +1403,18 @@ async def explore(url: str, max_depth: int = 3) -> list:
         # Stack items are tuples: (path_list, item_type) where item_type is for the last item
         stack = []
         top_level_types = {}  # Map name -> type for top-level items
+        top_level_urls = {}  # Map name -> url for top-level items that are links
         for item in top_level:
             if item['type'] in ['button', 'tab', 'link', 'group']:
                 stack.append(([item['name']], item['type']))
                 top_level_types[item['name']] = item['type']
+                if item.get('url'):
+                    # Make URL absolute
+                    item_url = item['url']
+                    if item_url.startswith('/'):
+                        from urllib.parse import urljoin
+                        item_url = urljoin(url, item_url)
+                    top_level_urls[item['name']] = item_url
 
         # Reverse for DFS (first item explored first)
         stack = list(reversed(stack))
@@ -1418,6 +1466,10 @@ async def explore(url: str, max_depth: int = 3) -> list:
                         links = extract_links_from_aria(aria_after_hover)
                         links = filter_utility_links(links)
 
+                        # Add the top-level item's own URL if it has one
+                        if path[0] in top_level_urls:
+                            links[path[0]] = top_level_urls[path[0]]
+
                         # Capture state
                         state = await capture_state(page, path, f"hovered: {path[-1]}", step)
                         state['new_links'] = links
@@ -1441,15 +1493,15 @@ async def explore(url: str, max_depth: int = 3) -> list:
                     else:
                         print(f"    [HOVER] Content revealed on hover, but {item_type} needs click to explore subcategories")
 
-            # Detect top-level category change - reset menu first for clean transition
+            # Detect top-level category change - return to base URL for clean transition
+            # We always return to base because nav on product pages may not be reliably clickable
             if current_path and path and current_path[0].lower() != path[0].lower():
-                print(f"    [NAV] Top-level change: {current_path[0]} → {path[0]}, resetting menu")
-                await page.keyboard.press('Escape')
-                await page.wait_for_timeout(300)  # Wait for dropdown close animation
-                # Clear cached navigation strategies since menu state changed
-                level_strategies.clear()
+                print(f"    [NAV] Top-level change: {current_path[0]} → {path[0]}, returning to base URL")
                 current_path = []  # We're now at root
-                print(f"    [NAV] Menu reset complete")
+                await page.goto(base_url, wait_until="domcontentloaded")
+                await page.wait_for_timeout(1500)  # Wait for heavy JS pages to load
+                await dismiss_popups_with_llm(page)
+                print(f"    [NAV] Ready for new top-level")
 
             # Navigate to this path from current position
             # Pass item_type as target_type so we click the right element (e.g., menuitem vs button)
@@ -1463,11 +1515,11 @@ async def explore(url: str, max_depth: int = 3) -> list:
 
             if not success:
                 print(f"    FAILED to navigate to: {' > '.join(path)}")
-                # Reset menu and current_path since we don't know where we are
-                await page.keyboard.press('Escape')
-                await page.wait_for_timeout(300)
-                await open_menu(page)
-                await page.wait_for_timeout(300)
+                # Return to base URL since we don't know where we are
+                print(f"    [NAV] Returning to base URL after failure")
+                await page.goto(base_url, wait_until="domcontentloaded")
+                await page.wait_for_timeout(1500)  # Wait for heavy JS pages to load
+                await dismiss_popups_with_llm(page)
                 current_path = []
                 continue
 
@@ -1502,7 +1554,22 @@ async def explore(url: str, max_depth: int = 3) -> list:
                         "content": prompt_subcategories(aria, path)
                     }]
                 )
-                expandable_items, leaf_links = parse_subcategories(subcat_response.content[0].text)
+                expandable_items, leaf_links, is_product_listing = parse_subcategories(subcat_response.content[0].text)
+
+                # Handle product listing page - treat as leaf, record URL, skip link extraction
+                if is_product_listing:
+                    print(f"    [PRODUCT_LISTING] This is a product page, treating as leaf")
+                    new_buttons = {}
+                    new_links = {path[-1]: page.url}  # Record current URL as the link
+                    # Capture state and continue to next item
+                    action = f"product_listing: {path[-1]}"
+                    state = await capture_state(page, path, action, step, new_buttons, new_links)
+                    states.append(state)
+                    print(f"    Recorded as link: {path[-1]} → {page.url}")
+                    current_path = path
+                    step += 1
+                    continue
+
                 # Convert to dict format {name: type} for compatibility - only expandable items go on stack
                 new_buttons = {s['name']: s['type'] for s in expandable_items}
                 llm_links = {s['name']: 'link' for s in leaf_links}
@@ -1526,6 +1593,10 @@ async def explore(url: str, max_depth: int = 3) -> list:
             initial_links = extract_links_from_aria(states[0]['aria'])
             initial_links = filter_utility_links(initial_links)
             new_links = {k: v for k, v in current_links.items() if k not in initial_links}
+
+            # Add the top-level item's own URL if this is a top-level path
+            if len(path) == 1 and path[0] in top_level_urls:
+                new_links[path[0]] = top_level_urls[path[0]]
 
             # Capture state with discovered items
             action = f"clicked: {path[-1]}"

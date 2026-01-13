@@ -22,6 +22,12 @@ def find_repeated_urls(states: list, threshold: int = 3) -> set:
     return {url for url, count in url_count.items() if count >= threshold}
 
 
+def is_product_link(url: str) -> bool:
+    """Check if URL is a product page (not a category/collection)."""
+    product_patterns = ['/product/', '/products/', '/p/', '/item/']
+    return any(p in url.lower() for p in product_patterns)
+
+
 def build_tree(states: list, base_url: str, filter_urls: set = None) -> dict:
     """
     Build a hierarchical tree from exploration states.
@@ -56,17 +62,32 @@ def build_tree(states: list, base_url: str, filter_urls: set = None) -> dict:
 
         # Add links to this node (avoid duplicates, skip filtered URLs)
         existing_urls = {link["url"] for link in node["links"]}
+        folder_name = path[-1].lower() if path else None
+
         for name, url in links.items():
-            # Skip repeated/common URLs
-            if url in filter_urls:
-                continue
+            # If this link has the folder's name, always add it (for folder's own URL)
+            is_folder_link = folder_name and name.lower() == folder_name
+
+            # Skip repeated/common URLs (but NOT if it's the folder's own link)
+            if not is_folder_link:
+                if url in filter_urls:
+                    continue
             # Make URL absolute
             full_url = urljoin(base_url, url) if not url.startswith("http") else url
-            if full_url in filter_urls:
-                continue
+            if not is_folder_link:
+                if full_url in filter_urls:
+                    continue
+                # Skip product links (individual items, not categories)
+                if is_product_link(full_url):
+                    continue
+
             if full_url not in existing_urls:
                 node["links"].append({"name": name, "url": full_url})
                 existing_urls.add(full_url)
+            elif is_folder_link:
+                # Folder's own URL - add even if URL exists with different name
+                # (ensures we can show the folder's URL in the tree)
+                node["links"].append({"name": name, "url": full_url})
 
     return tree
 
@@ -119,14 +140,30 @@ def tree_to_txt(node: dict, indent: int = 0, lines: list = None) -> list:
         lines = []
 
     prefix = "  " * indent
+    own_url = None
 
     # Print node name (skip root)
     if node["name"] != "root":
-        lines.append(f"{prefix}📁 {node['name']}")
+        # Check if node has its own URL (link with same name as folder)
+        for link in node["links"]:
+            if link["name"].lower() == node["name"].lower():
+                own_url = link["url"]
+                break
+
+        if own_url:
+            lines.append(f"{prefix}📁 {node['name']} → {own_url}")
+        else:
+            lines.append(f"{prefix}📁 {node['name']}")
         prefix = "  " * (indent + 1)
 
-    # Print links (name and URL on same line)
+    # Print links (name and URL on same line), skip folder's own link
     for link in node["links"]:
+        # Skip if this link has the same name as the folder (already shown above)
+        if node["name"] != "root" and link["name"].lower() == node["name"].lower():
+            continue
+        # Skip if this link has the same URL as the folder's own URL (duplicate)
+        if own_url and link["url"] == own_url:
+            continue
         lines.append(f"{prefix}🔗 {link['name']} → {link['url']}")
 
     # Print children recursively
