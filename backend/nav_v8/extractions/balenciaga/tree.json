@@ -1,11 +1,11 @@
 [
   {
-    "name": "SPRING 26",
-    "url": "/en-us/spring-26",
+    "name": "Spring 26",
+    "url": "/en-us/spring26",
     "children": []
   },
   {
-    "name": "GIFTS",
+    "name": "Gifts",
     "url": null,
     "children": [
       {
@@ -41,7 +41,7 @@
     ]
   },
   {
-    "name": "FRAGRANCES",
+    "name": "Fragrances",
     "url": "/en-us/fragrance",
     "children": [
       {
@@ -67,7 +67,7 @@
     ]
   },
   {
-    "name": "BAGS",
+    "name": "Bags",
     "url": "/en-us/bags",
     "children": [
       {
@@ -108,16 +108,11 @@
     ]
   },
   {
-    "name": "WOMEN",
+    "name": "Women",
     "url": null,
     "children": [
       {
-        "name": "Skiwear",
-        "url": "https://www.balenciaga.com/en-us/women/discover/skiwear-for-women",
-        "children": []
-      },
-      {
-        "name": "Ready-to-Wear",
+        "name": "Ready to Wear",
         "url": null,
         "children": [
           {
@@ -218,6 +213,11 @@
               {
                 "name": "Strike",
                 "url": "/en-us/women/shoes-for-women/strike-shoes-for-women",
+                "children": []
+              },
+              {
+                "name": "Crocs",
+                "url": "/en-us/women/shoes-for-women/crocs-shoes-for-women",
                 "children": []
               },
               {
@@ -365,16 +365,11 @@
     ]
   },
   {
-    "name": "MEN",
+    "name": "Men",
     "url": null,
     "children": [
       {
-        "name": "Skiwear",
-        "url": "/en-us/men/discover/skiwear-for-men",
-        "children": []
-      },
-      {
-        "name": "Ready-to-Wear",
+        "name": "Ready to Wear",
         "url": null,
         "children": [
           {
@@ -442,6 +437,11 @@
             "name": "Sneakers",
             "url": "/en-us/men/shoes-for-men/sneakers for-men",
             "children": [
+              {
+                "name": "Hamptons",
+                "url": "/en-us/men/shoes-for-men/hamptons shoes-for-men",
+                "children": []
+              },
               {
                 "name": "Runner",
                 "url": "/en-us/men/shoes-for-men/runner shoes-for-men",
@@ -597,7 +597,7 @@
     ]
   },
   {
-    "name": "COUTURE",
+    "name": "Couture",
     "url": "/en-us/couture",
     "children": []
   }

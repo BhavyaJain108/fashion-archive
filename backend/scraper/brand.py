@@ -449,10 +449,10 @@ If no pagination:
         """
         Get the full rendered HTML of a page using Playwright.
         Uses fast 'domcontentloaded' strategy for quicker loading.
-        
+
         Args:
             url: The URL to fetch
-            
+
         Returns:
             The complete rendered HTML content
         """
@@ -464,17 +464,17 @@ If no pagination:
                     user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
                 )
                 page = context.new_page()
-                
+
                 # Use domcontentloaded for faster loading
                 page.goto(url, wait_until="domcontentloaded", timeout=10000)
-                
+
                 # Brief wait for JavaScript to render
                 page.wait_for_timeout(2000)
-                
+
                 html_content = page.content()
                 browser.close()
                 return html_content
-                
+
         except Exception as e:
             print(f"⚠️  Error fetching HTML: {e}")
             return ""
@@ -691,7 +691,8 @@ If no pagination:
             if href.startswith('/'):
                 href = urljoin(url, href)
             elif not href.startswith('http'):
-                continue  # Skip relative paths without leading slash
+                # Handle relative paths without leading slash (e.g., "collections/mens")
+                href = urljoin(url, href)
             
             # Only include links from the same domain
             base_domain = f"{urlparse(url).scheme}://{urlparse(url).netloc}"
@@ -711,28 +712,27 @@ If no pagination:
             # Extract parent container path for semantic analysis
             parent_path = self._get_parent_container_path(a_tag)
 
+            # Extract navigation depth for tree representation
+            nav_depth = self._get_nav_depth(a_tag)
+            ancestor_path = self._get_full_ancestor_path(a_tag)
+
             # Extract essential information
             link_info = {
                 'url': href,
                 'position_index': position_index,
                 'full_element': str(a_tag)[:200] + '...' if len(str(a_tag)) > 200 else str(a_tag),
-                'parent_container': parent_path
+                'parent_container': parent_path,
+                'nav_depth': nav_depth,
+                'ancestor_path': ancestor_path
             }
 
             # Restore original href to not modify the soup
             a_tag['href'] = original_href
 
             links_with_context.append(link_info)
-        
-        # Remove duplicates by URL while keeping the first occurrence
-        seen_urls = set()
-        unique_links = []
-        for link_info in links_with_context:
-            if link_info['url'] not in seen_urls:
-                seen_urls.add(link_info['url'])
-                unique_links.append(link_info)
-                
-        return unique_links
+
+        # Return all links including duplicates - same URL can appear in multiple menu locations
+        return links_with_context
 
     def _get_parent_container_path(self, element, max_depth=3):
         """
@@ -766,6 +766,81 @@ If no pagination:
                 break
 
         return ' > '.join(path_parts) if path_parts else 'body'
+
+    def _get_nav_depth(self, element) -> int:
+        """
+        Calculate navigation menu depth for an anchor element.
+
+        Counts nested list items (li) within navigation containers to determine
+        how deep in the menu hierarchy this link appears.
+
+        Args:
+            element: BeautifulSoup anchor element
+
+        Returns:
+            Integer depth (0 = top level, 1 = first submenu, etc.)
+        """
+        depth = 0
+        current = element.parent
+        in_nav = False
+
+        while current and current.name != '[document]':
+            # Check if we're inside a navigation container
+            if current.name in ('nav', 'header') or (
+                current.get('class') and any(
+                    cls in ' '.join(current.get('class', [])).lower()
+                    for cls in ['nav', 'menu', 'navigation']
+                )
+            ):
+                in_nav = True
+
+            # Count list items as depth indicators (common nav pattern: ul > li > ul > li)
+            if current.name == 'li' and in_nav:
+                depth += 1
+
+            # Also count nested ul/ol as depth (for non-li based navs)
+            if current.name in ('ul', 'ol') and in_nav:
+                # Check if parent is also ul/ol (nested list)
+                if current.parent and current.parent.name in ('li',):
+                    pass  # Already counted via li
+
+            current = current.parent
+
+        return depth
+
+    def _get_full_ancestor_path(self, element) -> list:
+        """
+        Get full path of ancestor elements for tree building.
+
+        Returns list of (tag_name, id/class identifier, index_among_siblings) tuples
+        to uniquely identify position in DOM.
+        """
+        path = []
+        current = element.parent
+
+        while current and current.name not in ('[document]', 'html', 'body'):
+            # Get identifier for this element
+            identifier = current.name
+            if current.get('id'):
+                identifier = f"{current.name}#{current.get('id')}"
+            elif current.get('class'):
+                identifier = f"{current.name}.{'.'.join(current.get('class')[:2])}"  # Limit classes
+
+            # Get index among siblings of same type
+            siblings = [s for s in current.parent.children if s.name == current.name] if current.parent else []
+            try:
+                idx = siblings.index(current)
+            except (ValueError, AttributeError):
+                idx = 0
+
+            path.insert(0, (current.name, identifier, idx))
+            current = current.parent
+
+            # Limit depth to prevent huge paths
+            if len(path) > 15:
+                break
+
+        return path
 
     def _get_context_snippet(self, element, max_length=100):
         """Get a snippet of text context around an element"""

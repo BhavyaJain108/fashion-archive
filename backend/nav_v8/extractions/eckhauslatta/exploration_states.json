@@ -1,7 +1,7 @@
 [
   {
     "step": 0,
-    "timestamp": "2026-01-11T12:45:46.069776",
+    "timestamp": "2026-01-13T15:51:05.485753",
     "path": [],
     "action": "initial_load",
     "url": "https://www.eckhauslatta.com/",
@@ -12,7 +12,7 @@
   },
   {
     "step": 1,
-    "timestamp": "2026-01-11T12:45:48.584799",
+    "timestamp": "2026-01-13T15:51:09.979133",
     "path": [
       "SHOP"
     ],
@@ -20,6 +20,7 @@
     "url": "https://www.eckhauslatta.com/",
     "new_buttons": [],
     "new_links": {
+      "Skip to main content": "\"#main-content\"",
       "Eckhaus Latta Logotype": "/",
       "Stores": "/stores",
       "Shop All": "/collections/all-products",
@@ -50,25 +51,7 @@
       "THE SNAP THE SNAP THE SNAP $675.00": "/products/the-snap-green",
       "ABOUT": "/about"
     },
-    "aria_length": 4994,
+    "aria_length": 5190,
     "aria_preview": "- link \"Skip to main content\":\n  - /url: \"#main-content\"\n- alert\n- banner:\n  - button \"Shop menu, press Enter to expand\" [expanded]: SHOP\n  - heading \"Eckhaus Latta Logotype\" [level=1]:\n    - link \"Eckhaus Latta Logotype\":\n      - /url: /\n      - img \"Eckhaus Latta Logotype\"\n  - link \"Stores\":\n    - /url: /stores\n  - combobox: \ud83c\uddfa\ud83c\uddf8\n  - button \"SEARCH\"\n  - button \"CART\"\n- navigation:\n  - text: Shop\n  - link \"Shop All\":\n    - /url: /collections/all-products\n  - link \"Bags\":\n    - /url: /collections/..."
-  },
-  {
-    "step": 2,
-    "timestamp": "2026-01-11T12:45:52.889412",
-    "path": [
-      "Stores"
-    ],
-    "action": "clicked: Stores",
-    "url": "https://www.eckhauslatta.com/stores",
-    "new_buttons": [],
-    "new_links": {
-      "ECKHAUS LATTA LOS ANGELES store front": "https://www.google.com/maps/place/980+N+Broadway,+Los+Angeles,+CA+90012/@34.0663681,-118.2381168,17z/data=!3m1!4b1!4m5!3m4!1s0x80c2c65939f415a1:0x1234abfbd291a231!8m2!3d34.0663681!4d-118.2359281",
-      "980B N BROADWAY": "https://www.google.com/maps/place/980+N+Broadway,+Los+Angeles,+CA+90012/data=!4m2!3m1!1s0x80c2c65939f415a1:0x1234abfbd291a231?sa=X&ved=2ahUKEwj34KCPno_kAhVjU98KHTqXB24Q8gEwAHoECAgQAQ",
-      "ECKHAUS LATTA NEW YORK store front": "https://www.google.com/maps/place/75+E+Broadway+%23206,+New+York,+NY+10002/data=!4m2!3m1!1s0x89c25a2899bf5257:0x43c09bb9d62dc621?ved=2ahUKEwjU58q0zJjfAhVHU98KHflUAZ4Q8gEwAHoECAAQAQ",
-      "75 E BROADWAY, UNIT 206": "https://www.google.com/maps/place/75+E+Broadway+%23206,+New+York,+NY+10002/data=!4m2!3m1!1s0x89c25a2899bf5257:0x43c09bb9d62dc621?ved=2ahUKEwjU58q0zJjfAhVHU98KHflUAZ4Q8gEwAHoECAAQAQ"
-    },
-    "aria_length": 2327,
-    "aria_preview": "- link \"Skip to main content\":\n  - /url: \"#main-content\"\n- alert: Stores\n- banner:\n  - button \"Shop menu, press Enter to expand\": SHOP\n  - heading \"Eckhaus Latta Logotype\" [level=1]:\n    - link \"Eckhaus Latta Logotype\":\n      - /url: /\n      - img \"Eckhaus Latta Logotype\"\n  - link \"Stores\":\n    - /url: /stores\n  - combobox: \ud83c\uddfa\ud83c\uddf8\n  - button \"SEARCH\"\n  - button \"CART\"\n- main:\n  - main:\n    - heading \"Eckhaus Latta Stores\" [level=1]\n    - figure:\n      - link \"ECKHAUS LATTA LOS ANGELES store front\":\n..."
   }
 ]

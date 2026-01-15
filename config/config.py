@@ -40,6 +40,10 @@ class Config:
     # LLM Configuration
     OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
     LLM_MODEL = os.getenv('LLM_MODEL', 'gpt-4')
+
+    # Anthropic/Claude Configuration
+    CLAUDE_API_KEY = os.getenv('CLAUDE_API_KEY')
+    CLAUDE_MODEL = os.getenv('CLAUDE_MODEL', 'claude-sonnet-4-20250514')
     
     @classmethod
     def get_image_url(cls, relative_path: str) -> str:

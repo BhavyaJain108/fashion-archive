@@ -1,18 +1,18 @@
 [
   {
     "step": 0,
-    "timestamp": "2026-01-11T12:59:31.446166",
+    "timestamp": "2026-01-13T16:29:33.799490",
     "path": [],
     "action": "initial_load",
     "url": "https://www.alexandermcqueen.com/en-us",
     "new_buttons": [],
     "new_links": {},
-    "aria_length": 4792,
+    "aria_length": 4807,
     "aria_preview": "- img \"Women in McQueen tartan dress and cargo jacket\"\n- paragraph: Women's New In\n- link \"SHOP NOW\":\n  - /url: /en-us/ca/women-new-in\n- banner:\n  - link \"Alexander McQueen\":\n    - /url: /en-us\n    - img \"Alexander McQueen\"\n  - list:\n    - listitem:\n      - button \"Search\":\n        - text: Search\n        - img\n    - listitem:\n      - link:\n        - /url: /en-us/signin\n        - img\n    - listitem:\n      - link:\n        - /url: https://www.alexandermcqueen.com/en-us/cart\n        - img\n    - list..."
   },
   {
     "step": 1,
-    "timestamp": "2026-01-11T12:59:41.889661",
+    "timestamp": "2026-01-13T16:29:53.342538",
     "path": [
       "Women"
     ],
@@ -25,7 +25,7 @@
       "Women's AW25 Collection": "/en-us/ca/women/collections/w-aw25-collection",
       "Holiday Edit | Pre-SS26": "/en-us/ca/women/collections/holiday-edit",
       "Tartan Edit": "/en-us/ca/women/collections/tartan-edit",
-      "Gifts for Her": "/en-us/ca/women/collections/gifts-for-her",
+      "Gifts for Her": "/en-us/ca/gifts/gifts-for-her",
       "Evening": "/en-us/ca/women/collections/occasion-edit",
       "Winter Edit": "/en-us/ca/women/collections/seasonal-edit",
       "Store Locator": "/en-us/stores",
@@ -35,12 +35,12 @@
       "McQueen knee high boots in black": "https://alexandermcqueen.com/marketing?pid=852025WHAE31000",
       "Tartan Manta Bag": "https://alexandermcqueen.com/marketing?pid=8559971VDXB8490"
     },
-    "aria_length": 2929,
+    "aria_length": 2932,
     "aria_preview": "- banner:\n  - list:\n    - listitem:\n      - dialog:\n        - img \"Alexander McQueen\"\n        - img \"McQueen PreSS26 Campaign\"\n        - paragraph: \"Shipping to:\"\n        - button \"United States\"\n        - button \"EN\"\n        - tablist \"Categories\":\n          - tab \"Women\" [selected]\n          - tab \"Men\"\n          - tab \"Gifts\"\n          - tab \"Inside McQueen\"\n        - tabpanel \"Women\":\n          - tablist \"Subcategories\":\n            - tab \"Collections\" [selected]\n            - button \"New in..."
   },
   {
     "step": 2,
-    "timestamp": "2026-01-11T12:59:44.523422",
+    "timestamp": "2026-01-13T16:30:00.482754",
     "path": [
       "Women",
       "Collections"
@@ -54,7 +54,7 @@
       "Women's AW25 Collection": "/en-us/ca/women/collections/w-aw25-collection",
       "Holiday Edit | Pre-SS26": "/en-us/ca/women/collections/holiday-edit",
       "Tartan Edit": "/en-us/ca/women/collections/tartan-edit",
-      "Gifts for Her": "/en-us/ca/women/collections/gifts-for-her",
+      "Gifts for Her": "/en-us/ca/gifts/gifts-for-her",
       "Evening": "/en-us/ca/women/collections/occasion-edit",
       "Winter Edit": "/en-us/ca/women/collections/seasonal-edit",
       "Store Locator": "/en-us/stores",
@@ -64,12 +64,12 @@
       "McQueen knee high boots in black": "https://alexandermcqueen.com/marketing?pid=852025WHAE31000",
       "Tartan Manta Bag": "https://alexandermcqueen.com/marketing?pid=8559971VDXB8490"
     },
-    "aria_length": 2929,
+    "aria_length": 2932,
     "aria_preview": "- banner:\n  - list:\n    - listitem:\n      - dialog:\n        - img \"Alexander McQueen\"\n        - img \"McQueen PreSS26 Campaign\"\n        - paragraph: \"Shipping to:\"\n        - button \"United States\"\n        - button \"EN\"\n        - tablist \"Categories\":\n          - tab \"Women\" [selected]\n          - tab \"Men\"\n          - tab \"Gifts\"\n          - tab \"Inside McQueen\"\n        - tabpanel \"Women\":\n          - tablist \"Subcategories\":\n            - tab \"Collections\" [selected]\n            - button \"New in..."
   },
   {
     "step": 3,
-    "timestamp": "2026-01-11T12:59:45.801365",
+    "timestamp": "2026-01-13T16:30:01.733868",
     "path": [
       "Women",
       "Ready-to-Wear"
@@ -98,12 +98,12 @@
       "McQueen knee high boots in black": "https://alexandermcqueen.com/marketing?pid=852025WHAE31000",
       "Tartan Manta Bag": "https://alexandermcqueen.com/marketing?pid=8559971VDXB8490"
     },
-    "aria_length": 3489,
+    "aria_length": 3504,
     "aria_preview": "- banner:\n  - list:\n    - listitem:\n      - dialog:\n        - img \"Alexander McQueen\"\n        - img \"McQueen PreSS26 Campaign\"\n        - paragraph: \"Shipping to:\"\n        - button \"United States\"\n        - button \"EN\"\n        - tablist \"Categories\":\n          - tab \"Women\" [selected]\n          - tab \"Men\"\n          - tab \"Gifts\"\n          - tab \"Inside McQueen\"\n        - tabpanel \"Women\":\n          - tablist \"Subcategories\":\n            - tab \"Collections\"\n            - button \"New in\":\n        ..."
   },
   {
     "step": 4,
-    "timestamp": "2026-01-11T12:59:47.070278",
+    "timestamp": "2026-01-13T16:30:03.016233",
     "path": [
       "Women",
       "Handbags"
@@ -124,7 +124,6 @@
       "Farringdon": "/en-us/ca/women/handbags/farringdon-bag",
       "Jewelled Satchel": "/en-us/ca/women/handbags/the-jewelled-satchel",
       "Skull Flower": "/en-us/ca/women/handbags/the-skull-flower-bag",
-      "T-Bar Sling": "/en-us/ca/women/handbags/the-sling",
       "Clutch Capsule Collection": "/en-us/ca/women/handbags/clutch-capsule",
       "Store Locator": "/en-us/stores",
       "McQueen double-breasted coat in grey": "https://alexandermcqueen.com/marketing?pid=852855QKABM1021",
@@ -133,12 +132,12 @@
       "McQueen knee high boots in black": "https://alexandermcqueen.com/marketing?pid=852025WHAE31000",
       "Tartan Manta Bag": "https://alexandermcqueen.com/marketing?pid=8559971VDXB8490"
     },
-    "aria_length": 3634,
+    "aria_length": 3524,
     "aria_preview": "- banner:\n  - list:\n    - listitem:\n      - dialog:\n        - img \"Alexander McQueen\"\n        - img \"McQueen PreSS26 Campaign\"\n        - paragraph: \"Shipping to:\"\n        - button \"United States\"\n        - button \"EN\"\n        - tablist \"Categories\":\n          - tab \"Women\" [selected]\n          - tab \"Men\"\n          - tab \"Gifts\"\n          - tab \"Inside McQueen\"\n        - tabpanel \"Women\":\n          - tablist \"Subcategories\":\n            - tab \"Collections\"\n            - button \"New in\":\n        ..."
   },
   {
     "step": 5,
-    "timestamp": "2026-01-11T12:59:48.349066",
+    "timestamp": "2026-01-13T16:30:04.280321",
     "path": [
       "Women",
       "Shoes"
@@ -156,7 +155,6 @@
       "Sandals and Slides": "/en-us/ca/women/shoes/sandals-and-slides",
       "EC1 Sneakers": "/en-us/ca/women/shoes/ec1-sneaker",
       "Oversized Sneaker": "/en-us/ca/women/shoes/oversized-sneaker",
-      "Flexion Sneaker": "/en-us/ca/women/shoes/flexion-sneaker",
       "Tread Slick": "/en-us/ca/women/shoes/tread-slick",
       "Store Locator": "/en-us/stores",
       "McQueen double-breasted coat in grey": "https://alexandermcqueen.com/marketing?pid=852855QKABM1021",
@@ -165,12 +163,12 @@
       "McQueen knee high boots in black": "https://alexandermcqueen.com/marketing?pid=852025WHAE31000",
       "Tartan Manta Bag": "https://alexandermcqueen.com/marketing?pid=8559971VDXB8490"
     },
-    "aria_length": 3199,
+    "aria_length": 3082,
     "aria_preview": "- banner:\n  - list:\n    - listitem:\n      - dialog:\n        - img \"Alexander McQueen\"\n        - img \"McQueen PreSS26 Campaign\"\n        - paragraph: \"Shipping to:\"\n        - button \"United States\"\n        - button \"EN\"\n        - tablist \"Categories\":\n          - tab \"Women\" [selected]\n          - tab \"Men\"\n          - tab \"Gifts\"\n          - tab \"Inside McQueen\"\n        - tabpanel \"Women\":\n          - tablist \"Subcategories\":\n            - tab \"Collections\"\n            - button \"New in\":\n        ..."
   },
   {
     "step": 6,
-    "timestamp": "2026-01-11T12:59:49.621440",
+    "timestamp": "2026-01-13T16:30:05.565866",
     "path": [
       "Women",
       "Accessories"
@@ -195,12 +193,12 @@
       "McQueen knee high boots in black": "https://alexandermcqueen.com/marketing?pid=852025WHAE31000",
       "Tartan Manta Bag": "https://alexandermcqueen.com/marketing?pid=8559971VDXB8490"
     },
-    "aria_length": 2961,
+    "aria_length": 2976,
     "aria_preview": "- banner:\n  - list:\n    - listitem:\n      - dialog:\n        - img \"Alexander McQueen\"\n        - img \"McQueen PreSS26 Campaign\"\n        - paragraph: \"Shipping to:\"\n        - button \"United States\"\n        - button \"EN\"\n        - tablist \"Categories\":\n          - tab \"Women\" [selected]\n          - tab \"Men\"\n          - tab \"Gifts\"\n          - tab \"Inside McQueen\"\n        - tabpanel \"Women\":\n          - tablist \"Subcategories\":\n            - tab \"Collections\"\n            - button \"New in\":\n        ..."
   },
   {
     "step": 7,
-    "timestamp": "2026-01-11T12:59:50.898235",
+    "timestamp": "2026-01-13T16:30:06.833768",
     "path": [
       "Women",
       "Jewellery"
@@ -222,12 +220,12 @@
       "McQueen knee high boots in black": "https://alexandermcqueen.com/marketing?pid=852025WHAE31000",
       "Tartan Manta Bag": "https://alexandermcqueen.com/marketing?pid=8559971VDXB8490"
     },
-    "aria_length": 2542,
+    "aria_length": 2557,
     "aria_preview": "- banner:\n  - list:\n    - listitem:\n      - dialog:\n        - img \"Alexander McQueen\"\n        - img \"McQueen PreSS26 Campaign\"\n        - paragraph: \"Shipping to:\"\n        - button \"United States\"\n        - button \"EN\"\n        - tablist \"Categories\":\n          - tab \"Women\" [selected]\n          - tab \"Men\"\n          - tab \"Gifts\"\n          - tab \"Inside McQueen\"\n        - tabpanel \"Women\":\n          - tablist \"Subcategories\":\n            - tab \"Collections\"\n            - button \"New in\":\n        ..."
   },
   {
     "step": 8,
-    "timestamp": "2026-01-11T12:59:51.637215",
+    "timestamp": "2026-01-13T16:30:07.561422",
     "path": [
       "Men"
     ],
@@ -239,7 +237,7 @@
       "Men\u2019s SS26 Pre Collection": "/en-us/ca/men/collections/m-ss26-pre-collection",
       "Men's AW25 Collection": "/en-us/ca/men/collections/m-aw25-collection",
       "Holiday Edit | Pre-SS26": "/en-us/ca/men/collections/holiday-edit",
-      "Gifts for Him": "/en-us/ca/men/collections/gifts-for-him",
+      "Gifts for Him": "/en-us/ca/gifts/gifts-for-him",
       "Evening Edit": "/en-us/ca/men/collections/occasion-edit",
       "Winter Edit": "/en-us/ca/men/collections/m-seasonal-edit",
       "Store Locator": "/en-us/stores",
@@ -249,12 +247,12 @@
       "McQueen knee high boots in black": "https://alexandermcqueen.com/marketing?pid=852025WHAE31000",
       "Tartan Manta Bag": "https://alexandermcqueen.com/marketing?pid=8559971VDXB8490"
     },
-    "aria_length": 2793,
+    "aria_length": 2798,
     "aria_preview": "- banner:\n  - list:\n    - listitem:\n      - dialog:\n        - img \"Alexander McQueen\"\n        - img \"McQueen Pre SS26 collection for men\"\n        - paragraph: \"Shipping to:\"\n        - button \"United States\"\n        - button \"EN\"\n        - tablist \"Categories\":\n          - tab \"Women\"\n          - tab \"Men\" [selected]\n          - tab \"Gifts\"\n          - tab \"Inside McQueen\"\n        - tabpanel \"Men\":\n          - tablist \"Subcategories\":\n            - tab \"Collections\" [selected]\n            - butto..."
   },
   {
     "step": 9,
-    "timestamp": "2026-01-11T12:59:54.530652",
+    "timestamp": "2026-01-13T16:30:14.318112",
     "path": [
       "Men",
       "Collections"
@@ -267,7 +265,7 @@
       "Men\u2019s SS26 Pre Collection": "/en-us/ca/men/collections/m-ss26-pre-collection",
       "Men's AW25 Collection": "/en-us/ca/men/collections/m-aw25-collection",
       "Holiday Edit | Pre-SS26": "/en-us/ca/men/collections/holiday-edit",
-      "Gifts for Him": "/en-us/ca/men/collections/gifts-for-him",
+      "Gifts for Him": "/en-us/ca/gifts/gifts-for-him",
       "Evening Edit": "/en-us/ca/men/collections/occasion-edit",
       "Winter Edit": "/en-us/ca/men/collections/m-seasonal-edit",
       "Store Locator": "/en-us/stores",
@@ -277,12 +275,12 @@
       "McQueen knee high boots in black": "https://alexandermcqueen.com/marketing?pid=852025WHAE31000",
       "Tartan Manta Bag": "https://alexandermcqueen.com/marketing?pid=8559971VDXB8490"
     },
-    "aria_length": 2793,
+    "aria_length": 2798,
     "aria_preview": "- banner:\n  - list:\n    - listitem:\n      - dialog:\n        - img \"Alexander McQueen\"\n        - img \"McQueen Pre SS26 collection for men\"\n        - paragraph: \"Shipping to:\"\n        - button \"United States\"\n        - button \"EN\"\n        - tablist \"Categories\":\n          - tab \"Women\"\n          - tab \"Men\" [selected]\n          - tab \"Gifts\"\n          - tab \"Inside McQueen\"\n        - tabpanel \"Men\":\n          - tablist \"Subcategories\":\n            - tab \"Collections\" [selected]\n            - butto..."
   },
   {
     "step": 10,
-    "timestamp": "2026-01-11T12:59:55.793945",
+    "timestamp": "2026-01-13T16:30:15.562623",
     "path": [
       "Men",
       "Ready-to-Wear"
@@ -309,12 +307,12 @@
       "McQueen knee high boots in black": "https://alexandermcqueen.com/marketing?pid=852025WHAE31000",
       "Tartan Manta Bag": "https://alexandermcqueen.com/marketing?pid=8559971VDXB8490"
     },
-    "aria_length": 3211,
+    "aria_length": 3226,
     "aria_preview": "- banner:\n  - list:\n    - listitem:\n      - dialog:\n        - img \"Alexander McQueen\"\n        - img \"McQueen Pre SS26 collection for men\"\n        - paragraph: \"Shipping to:\"\n        - button \"United States\"\n        - button \"EN\"\n        - tablist \"Categories\":\n          - tab \"Women\"\n          - tab \"Men\" [selected]\n          - tab \"Gifts\"\n          - tab \"Inside McQueen\"\n        - tabpanel \"Men\":\n          - tablist \"Subcategories\":\n            - tab \"Collections\"\n            - button \"New in\":..."
   },
   {
     "step": 11,
-    "timestamp": "2026-01-11T12:59:57.048049",
+    "timestamp": "2026-01-13T16:30:16.807083",
     "path": [
       "Men",
       "Bags"
@@ -335,12 +333,12 @@
       "McQueen knee high boots in black": "https://alexandermcqueen.com/marketing?pid=852025WHAE31000",
       "Tartan Manta Bag": "https://alexandermcqueen.com/marketing?pid=8559971VDXB8490"
     },
-    "aria_length": 2415,
+    "aria_length": 2430,
     "aria_preview": "- banner:\n  - list:\n    - listitem:\n      - dialog:\n        - img \"Alexander McQueen\"\n        - img \"McQueen Pre SS26 collection for men\"\n        - paragraph: \"Shipping to:\"\n        - button \"United States\"\n        - button \"EN\"\n        - tablist \"Categories\":\n          - tab \"Women\"\n          - tab \"Men\" [selected]\n          - tab \"Gifts\"\n          - tab \"Inside McQueen\"\n        - tabpanel \"Men\":\n          - tablist \"Subcategories\":\n            - tab \"Collections\"\n            - button \"New in\":..."
   },
   {
     "step": 12,
-    "timestamp": "2026-01-11T12:59:58.313941",
+    "timestamp": "2026-01-13T16:30:18.049369",
     "path": [
       "Men",
       "Shoes"
@@ -357,7 +355,6 @@
       "Sandals and Slides": "/en-us/ca/men/shoes/sandals-and-slides",
       "EC1 Sneakers": "/en-us/ca/men/shoes/ec1-sneakers",
       "Oversized Sneaker": "/en-us/ca/men/shoes/oversized-sneaker",
-      "Flexion Sneaker": "/en-us/ca/m-flexion-sneaker",
       "Tread Slick": "/en-us/ca/men/shoes/tread-slick",
       "Store Locator": "/en-us/stores",
       "McQueen double-breasted coat in grey": "https://alexandermcqueen.com/marketing?pid=852855QKABM1021",
@@ -366,12 +363,12 @@
       "McQueen knee high boots in black": "https://alexandermcqueen.com/marketing?pid=852025WHAE31000",
       "Tartan Manta Bag": "https://alexandermcqueen.com/marketing?pid=8559971VDXB8490"
     },
-    "aria_length": 3075,
+    "aria_length": 2968,
     "aria_preview": "- banner:\n  - list:\n    - listitem:\n      - dialog:\n        - img \"Alexander McQueen\"\n        - img \"McQueen Pre SS26 collection for men\"\n        - paragraph: \"Shipping to:\"\n        - button \"United States\"\n        - button \"EN\"\n        - tablist \"Categories\":\n          - tab \"Women\"\n          - tab \"Men\" [selected]\n          - tab \"Gifts\"\n          - tab \"Inside McQueen\"\n        - tabpanel \"Men\":\n          - tablist \"Subcategories\":\n            - tab \"Collections\"\n            - button \"New in\":..."
   },
   {
     "step": 13,
-    "timestamp": "2026-01-11T12:59:59.591629",
+    "timestamp": "2026-01-13T16:30:19.281514",
     "path": [
       "Men",
       "Accessories"
@@ -396,12 +393,12 @@
       "McQueen knee high boots in black": "https://alexandermcqueen.com/marketing?pid=852025WHAE31000",
       "Tartan Manta Bag": "https://alexandermcqueen.com/marketing?pid=8559971VDXB8490"
     },
-    "aria_length": 2932,
+    "aria_length": 2947,
     "aria_preview": "- banner:\n  - list:\n    - listitem:\n      - dialog:\n        - img \"Alexander McQueen\"\n        - img \"McQueen Pre SS26 collection for men\"\n        - paragraph: \"Shipping to:\"\n        - button \"United States\"\n        - button \"EN\"\n        - tablist \"Categories\":\n          - tab \"Women\"\n          - tab \"Men\" [selected]\n          - tab \"Gifts\"\n          - tab \"Inside McQueen\"\n        - tabpanel \"Men\":\n          - tablist \"Subcategories\":\n            - tab \"Collections\"\n            - button \"New in\":..."
   },
   {
     "step": 14,
-    "timestamp": "2026-01-11T13:00:00.867554",
+    "timestamp": "2026-01-13T16:30:20.504914",
     "path": [
       "Men",
       "Jewellery"
@@ -423,12 +420,12 @@
       "McQueen knee high boots in black": "https://alexandermcqueen.com/marketing?pid=852025WHAE31000",
       "Tartan Manta Bag": "https://alexandermcqueen.com/marketing?pid=8559971VDXB8490"
     },
-    "aria_length": 2499,
+    "aria_length": 2514,
     "aria_preview": "- banner:\n  - list:\n    - listitem:\n      - dialog:\n        - img \"Alexander McQueen\"\n        - img \"McQueen Pre SS26 collection for men\"\n        - paragraph: \"Shipping to:\"\n        - button \"United States\"\n        - button \"EN\"\n        - tablist \"Categories\":\n          - tab \"Women\"\n          - tab \"Men\" [selected]\n          - tab \"Gifts\"\n          - tab \"Inside McQueen\"\n        - tabpanel \"Men\":\n          - tablist \"Subcategories\":\n            - tab \"Collections\"\n            - button \"New in\":..."
   },
   {
     "step": 15,
-    "timestamp": "2026-01-11T13:00:01.619516",
+    "timestamp": "2026-01-13T16:30:21.252913",
     "path": [
       "Gifts"
     ],
@@ -449,12 +446,12 @@
       "McQueen knee high boots in black": "https://alexandermcqueen.com/marketing?pid=852025WHAE31000",
       "Tartan Manta Bag": "https://alexandermcqueen.com/marketing?pid=8559971VDXB8490"
     },
-    "aria_length": 2469,
+    "aria_length": 2484,
     "aria_preview": "- banner:\n  - list:\n    - listitem:\n      - dialog:\n        - img \"Alexander McQueen\"\n        - img \"McQueen pumps with skull charm\"\n        - paragraph: \"Shipping to:\"\n        - button \"United States\"\n        - button \"EN\"\n        - tablist \"Categories\":\n          - tab \"Women\"\n          - tab \"Men\"\n          - tab \"Gifts\" [selected]\n          - tab \"Inside McQueen\"\n        - tabpanel \"Gifts\":\n          - tablist \"Subcategories\":\n            - tab \"Gifts for Her\" [selected]\n            - tab \"G..."
   },
   {
     "step": 16,
-    "timestamp": "2026-01-11T13:00:04.166097",
+    "timestamp": "2026-01-13T16:30:27.764562",
     "path": [
       "Gifts",
       "Gifts for Her"
@@ -476,12 +473,12 @@
       "McQueen knee high boots in black": "https://alexandermcqueen.com/marketing?pid=852025WHAE31000",
       "Tartan Manta Bag": "https://alexandermcqueen.com/marketing?pid=8559971VDXB8490"
     },
-    "aria_length": 2469,
+    "aria_length": 2484,
     "aria_preview": "- banner:\n  - list:\n    - listitem:\n      - dialog:\n        - img \"Alexander McQueen\"\n        - img \"McQueen pumps with skull charm\"\n        - paragraph: \"Shipping to:\"\n        - button \"United States\"\n        - button \"EN\"\n        - tablist \"Categories\":\n          - tab \"Women\"\n          - tab \"Men\"\n          - tab \"Gifts\" [selected]\n          - tab \"Inside McQueen\"\n        - tabpanel \"Gifts\":\n          - tablist \"Subcategories\":\n            - tab \"Gifts for Her\" [selected]\n            - tab \"G..."
   },
   {
     "step": 17,
-    "timestamp": "2026-01-11T13:00:05.432907",
+    "timestamp": "2026-01-13T16:30:29.001198",
     "path": [
       "Gifts",
       "Gifts for Him"
@@ -503,12 +500,12 @@
       "McQueen knee high boots in black": "https://alexandermcqueen.com/marketing?pid=852025WHAE31000",
       "Tartan Manta Bag": "https://alexandermcqueen.com/marketing?pid=8559971VDXB8490"
     },
-    "aria_length": 2459,
+    "aria_length": 2474,
     "aria_preview": "- banner:\n  - list:\n    - listitem:\n      - dialog:\n        - img \"Alexander McQueen\"\n        - img \"McQueen pumps with skull charm\"\n        - paragraph: \"Shipping to:\"\n        - button \"United States\"\n        - button \"EN\"\n        - tablist \"Categories\":\n          - tab \"Women\"\n          - tab \"Men\"\n          - tab \"Gifts\" [selected]\n          - tab \"Inside McQueen\"\n        - tabpanel \"Gifts\":\n          - tablist \"Subcategories\":\n            - tab \"Gifts for Her\"\n            - tab \"Gifts for Hi..."
   },
   {
     "step": 18,
-    "timestamp": "2026-01-11T13:00:06.169970",
+    "timestamp": "2026-01-13T16:30:29.742718",
     "path": [
       "Inside McQueen"
     ],
@@ -526,7 +523,31 @@
       "McQueen knee high boots in black": "https://alexandermcqueen.com/marketing?pid=852025WHAE31000",
       "Tartan Manta Bag": "https://alexandermcqueen.com/marketing?pid=8559971VDXB8490"
     },
-    "aria_length": 1936,
+    "aria_length": 1951,
+    "aria_preview": "- banner:\n  - list:\n    - listitem:\n      - dialog:\n        - img \"Alexander McQueen\"\n        - img \"McQueen PreSS26 Campaign\"\n        - paragraph: \"Shipping to:\"\n        - button \"United States\"\n        - button \"EN\"\n        - tablist \"Categories\":\n          - tab \"Women\"\n          - tab \"Men\"\n          - tab \"Gifts\"\n          - tab \"Inside McQueen\" [selected]\n        - tabpanel \"Inside McQueen\":\n          - tablist \"Subcategories\":\n            - button \"About McQueen\":\n              - link \"Ab..."
+  },
+  {
+    "step": 19,
+    "timestamp": "2026-01-13T16:30:36.479660",
+    "path": [
+      "Inside McQueen",
+      "About McQueen"
+    ],
+    "action": "clicked: Inside McQueen > About McQueen",
+    "url": "https://www.alexandermcqueen.com/en-us",
+    "new_buttons": [],
+    "new_links": {
+      "About McQueen": "/en-us/about-the-house",
+      "Stories": "/en-us/stories",
+      "Collection Library": "/en-us/collections",
+      "Store Locator": "/en-us/stores",
+      "McQueen double-breasted coat in grey": "https://alexandermcqueen.com/marketing?pid=852855QKABM1021",
+      "Red Tartan Dress": "https://alexandermcqueen.com/marketing?pid=858338Q1BGE6130",
+      "McQueen silver earrings": "https://alexandermcqueen.com/marketing?pid=854498J161F1046",
+      "McQueen knee high boots in black": "https://alexandermcqueen.com/marketing?pid=852025WHAE31000",
+      "Tartan Manta Bag": "https://alexandermcqueen.com/marketing?pid=8559971VDXB8490"
+    },
+    "aria_length": 1951,
     "aria_preview": "- banner:\n  - list:\n    - listitem:\n      - dialog:\n        - img \"Alexander McQueen\"\n        - img \"McQueen PreSS26 Campaign\"\n        - paragraph: \"Shipping to:\"\n        - button \"United States\"\n        - button \"EN\"\n        - tablist \"Categories\":\n          - tab \"Women\"\n          - tab \"Men\"\n          - tab \"Gifts\"\n          - tab \"Inside McQueen\" [selected]\n        - tabpanel \"Inside McQueen\":\n          - tablist \"Subcategories\":\n            - button \"About McQueen\":\n              - link \"Ab..."
   }
 ]

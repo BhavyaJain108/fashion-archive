@@ -1,5 +1,5 @@
 === SPRING 26 ===
-SPRING 26 | /en-us/spring-26
+SPRING 26 | /en-us/spring26
 
 === GIFTS ===
 
@@ -51,7 +51,7 @@ CLIENT SERVICES | /en-us/client-service
 
 --- Close ---
   New Year Series | https://www.balenciaga.com/en-us/all/new-year-series
-  Spring 26 | https://www.balenciaga.com/en-us/spring-26
+  Spring 26 | https://www.balenciaga.com/en-us/spring26
   Skiwear | https://www.balenciaga.com/en-us/women/discover/skiwear-for-women
   Balenciaga Fragrance Collection | https://www.balenciaga.com/en-us/balenciaga-fragrance-view-all
   Winter 25 | https://www.balenciaga.com/en-us/winter-25-women
@@ -73,13 +73,13 @@ CLIENT SERVICES | /en-us/client-service
   Boots & Ankle boots | /en-us/women/shoes-for-women/boots-and-ankle-boots
   Pumps & Heels | /en-us/women/shoes-for-women/pumps-and-heels-for-women
   Sandals & Mules | /en-us/women/shoes-for-women/sandals-and-mules-for-women
-    Balenciaga | PUMA | /en-us/women/shoes-for-women/balenciaga-%7C-puma-collaboration-shoes-for-women
     Runner | /en-us/women/shoes-for-women/runner-shoes-for-women
     3XL | /en-us/women/shoes-for-women/3xl-shoes-for-women
     Track | /en-us/women/shoes-for-women/track-shoes-for-women
     Speed | /en-us/women/shoes-for-women/speed-shoes-for-women
     Venom | /en-us/women/shoes-for-women/venom-shoes-for-women
     Strike | /en-us/women/shoes-for-women/strike-shoes-for-women
+    Crocs | /en-us/women/shoes-for-women/crocs-shoes-for-women
     Alaska | /en-us/women/shoes-for-women/alaska-shoes-for-women
   View All | /en-us/women/bags-for-women/view-all
   Handbags | /en-us/women/bags-for-women/handbags
@@ -127,7 +127,7 @@ CLIENT SERVICES | /en-us/client-service
 
 --- Close ---
   New Year Series | https://www.balenciaga.com/en-us/all/new-year-series
-  Spring 26 | https://www.balenciaga.com/en-us/spring-26
+  Spring 26 | https://www.balenciaga.com/en-us/spring26
   Football Series | /en-us/men/discover/football-series
   Skiwear | /en-us/men/discover/skiwear-for-men
   Balenciaga Fragrance Collection | https://www.balenciaga.com/en-us/balenciaga-fragrance-view-all
@@ -150,7 +150,7 @@ CLIENT SERVICES | /en-us/client-service
   Sneakers | /en-us/men/shoes-for-men/sneakers%C2%A0for-men
   Boots & Derbies | /en-us/men/shoes-for-men/boots-and-derbies%C2%A0for-men
   Sandals & Mules | /en-us/men/shoes-for-men/sandals-and-mules%C2%A0for-men
-    Balenciaga | PUMA | /en-us/men/shoes-for-men/balenciaga-%7C-puma-collaboration-shoes-for-men
+    Hamptons | /en-us/men/shoes-for-men/hamptons%C2%A0shoes-for-men
     Runner | /en-us/men/shoes-for-men/runner%C2%A0shoes-for-men
     3XL | /en-us/men/shoes-for-men/3xl%C2%A0shoes-for-men
     Track | /en-us/men/shoes-for-men/track%C2%A0shoes-for-men
@@ -195,6 +195,7 @@ COUTURE | /en-us/couture
 === EXPLORE ===
 
 --- Close ---
+  Skiwear Collection | https://www.balenciaga.com/en-us/skiwear-collection
   Balenciaga | First Campaign by Pierpaolo Piccioli | https://www.balenciaga.com/en-us/balenciaga-first-campaign-by-pierpaolo-piccioli
   Balenciaga | PUBG Collaboration | https://www.balenciaga.com/en-us/balenciaga-%7C--pubg-collaboration-edito
   Winter 25 Campaign | https://www.balenciaga.com/en-us/winter-25-campaign
@@ -234,8 +235,9 @@ COUTURE | /en-us/couture
   Cristóbal | https://www.balenciaga.com/en-us/crist%C3%B3bal-3
   George V | https://www.balenciaga.com/en-us/george-v
   Fragrances | https://www.balenciaga.com/en-us/fragrances-2
+  Fall 26 | https://www.balenciaga.com/en-us/fall-26
   Summer 26 | https://www.balenciaga.com/en-us/summer-26
-  Spring 26 | https://www.balenciaga.com/en-us/spring-26-collection
+  Spring 26 | https://www.balenciaga.com/en-us/spring-26
   Winter 25 | https://www.balenciaga.com/en-us/winter-25
   Fall 25 | https://www.balenciaga.com/en-us/fall-25
   Summer 25 | https://www.balenciaga.com/en-us/summer-25

@@ -152,6 +152,13 @@ def test_navigation_simple(brand_key: str, brands_data: dict, latency_tracker: L
                 print(f"   {i}. {link_info['url']}")
             print()
 
+            # Print tree-formatted links
+            from prompts.navigation_analysis import _format_links_as_tree
+            tree_text = _format_links_as_tree(links_with_context)
+            print(f"🌳 Links as tree structure:")
+            print(tree_text)
+            print()
+
         prompt_data = PromptManager.get_navigation_analysis_prompt(brand.url, links_with_context)
         
         # Time LLM call
@@ -203,6 +210,13 @@ def test_navigation_simple(brand_key: str, brands_data: dict, latency_tracker: L
         print(f"\n📋 All {len(links_with_context)} links found:")
         for i, link_info in enumerate(links_with_context, 1):
             print(f"   {i}. {link_info['url']}")
+        print()
+
+        # Print tree-formatted links
+        from prompts.navigation_analysis import _format_links_as_tree
+        tree_text = _format_links_as_tree(links_with_context)
+        print(f"🌳 Links as tree structure:")
+        print(tree_text)
         print()
 
     # Extract just URLs for the set comparison
@@ -410,6 +424,13 @@ def test_direct_url(url: str, verbose: bool = True):
         print(f"\n📋 All {len(links_with_context)} links found:")
         for i, link_info in enumerate(links_with_context, 1):
             print(f"   {i}. {link_info['url']}")
+        print()
+
+        # Print tree-formatted links
+        from prompts.navigation_analysis import _format_links_as_tree
+        tree_text = _format_links_as_tree(links_with_context)
+        print(f"🌳 Links as tree structure:")
+        print(tree_text)
         print()
 
     # Get LLM analysis using HTML elements
