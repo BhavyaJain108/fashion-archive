@@ -1815,79 +1815,41 @@ Return JSON:
             return {"success": False, "error": str(e), "extraction_time": total_time}
     
     def _extract_navigation_tree(self) -> dict:
-        """Extract and analyze navigation tree from homepage"""
-        from prompts import PromptManager
+        """Extract and analyze navigation tree from homepage using nav_v8 extractors.
 
-        # Extract homepage links with context and menu expansion
-        homepage_links = self.extract_page_links_with_context(self.url, expand_navigation_menus=True)
-        if not homepage_links:
-            print(f"      ❌ No links found on homepage")
-            return None
+        Runs static and dynamic extractors in parallel and returns the tree with more links.
+        """
+        from scraper.navigation.extractor import extract_navigation_tree
 
-        print(f"      🔗 Found {len(homepage_links)} homepage links")
-
-        # Analyze navigation with LLM
         try:
-            # Enable debug mode for navigation analysis to help troubleshoot empty responses
-            debug_mode = os.getenv('DEBUG_LLM', 'false').lower() == 'true'
+            # Run the unified navigation extractor (static + dynamic in parallel)
+            navigation_tree = extract_navigation_tree(self.url)
 
-            prompt_data = PromptManager.get_navigation_analysis_prompt(self.url, homepage_links)
-
-            # Navigation analysis needs higher token limit for large sites with many categories
-            # Estimate: prompt ~9k tokens + response up to 8k tokens = 17k total
-            navigation_result = self.llm_handler.call(
-                prompt_data['prompt'],
-                expected_format="json",
-                response_model=prompt_data['model'],
-                max_tokens=16384,  # Increased from default 8192 to handle complex hierarchies
-                debug=debug_mode
-            )
-
-            if navigation_result.get("success"):
-                navigation_tree = navigation_result.get("data", {})
-
-                # Validate that we got a proper response
-                if not navigation_tree:
-                    print(f"      ❌ Navigation analysis returned empty data")
-                    return None
-
-                # Validate required fields are present
-                if "category_tree" not in navigation_tree:
-                    print(f"      ❌ Navigation analysis missing 'category_tree' field")
-                    print(f"         Received keys: {list(navigation_tree.keys())}")
-                    return None
-
-                if "excluded_count" not in navigation_tree:
-                    print(f"      ❌ Navigation analysis missing 'excluded_count' field")
-                    print(f"         Received keys: {list(navigation_tree.keys())}")
-                    return None
-
-                # Check that category_tree is not empty
-                if not navigation_tree.get("category_tree"):
-                    print(f"      ❌ Navigation analysis returned empty category_tree")
-                    return None
-
-                print(f"      ✅ Navigation analysis successful")
-                print(f"         Found {len(navigation_tree.get('category_tree', []))} root categories")
-                print(f"         Excluded {navigation_tree.get('excluded_count', 0)} URLs")
-
-                # Print the navigation tree structure
-                self._print_navigation_tree(navigation_tree)
-
-                return navigation_tree
-            else:
-                error_msg = navigation_result.get('error', 'Unknown')
-                attempts = navigation_result.get('attempts', 1)
-                print(f"      ❌ Navigation analysis failed after {attempts} attempts: {error_msg}")
-
-                # If we have raw response, show it for debugging
-                if "raw_response" in navigation_result:
-                    print(f"         Raw response: {navigation_result['raw_response']}")
-
+            if not navigation_tree:
+                print(f"      ❌ Navigation extraction returned empty data")
                 return None
 
+            # Validate required fields are present
+            if "category_tree" not in navigation_tree:
+                print(f"      ❌ Navigation extraction missing 'category_tree' field")
+                print(f"         Received keys: {list(navigation_tree.keys())}")
+                return None
+
+            # Check that category_tree is not empty
+            if not navigation_tree.get("category_tree"):
+                print(f"      ❌ Navigation extraction returned empty category_tree")
+                return None
+
+            print(f"      ✅ Navigation extraction successful")
+            print(f"         Found {len(navigation_tree.get('category_tree', []))} root categories")
+
+            # Print the navigation tree structure
+            self._print_navigation_tree(navigation_tree)
+
+            return navigation_tree
+
         except Exception as e:
-            print(f"      ❌ Navigation analysis exception: {e}")
+            print(f"      ❌ Navigation extraction exception: {e}")
             import traceback
             traceback.print_exc()
             return None

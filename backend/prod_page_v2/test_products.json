@@ -1,0 +1,145 @@
+{
+  "description": "Test product URLs for pattern discovery. First URL per brand used for pattern learning, rest for verification.",
+  "brands": [
+    {
+      "name": "Uniqlo",
+      "domain": "uniqlo.com",
+      "products": [
+        {"url": "https://www.uniqlo.com/us/en/products/E450314-000/00", "category": "tops", "note": "t-shirt"},
+        {"url": "https://www.uniqlo.com/us/en/products/E463570-000/00", "category": "outerwear", "note": "jacket"},
+        {"url": "https://www.uniqlo.com/us/en/products/E459619-000/00", "category": "bottoms", "note": "pants"}
+      ]
+    },
+    {
+      "name": "Alexander McQueen",
+      "domain": "alexandermcqueen.com",
+      "products": [
+        {"url": "https://www.alexandermcqueen.com/en-us/pr/trompe-l'oeil-single-breasted-jacket-852956QUAAE1000.html", "category": "clothing", "note": "jacket"},
+        {"url": "https://www.alexandermcqueen.com/en-us/pr/crystal-embroidery-mini-jewelled-satchel-85484817HLI1090.html", "category": "bags", "note": "handbag"},
+        {"url": "https://www.alexandermcqueen.com/en-us/pr/ec1-sneaker-854015WIAJ42855.html", "category": "shoes", "note": "sneakers"}
+      ]
+    },
+    {
+      "name": "Khaite",
+      "domain": "khaite.com",
+      "products": [
+        {"url": "https://khaite.com/collections/leather/products/sandor-jacket-in-dark-brown", "category": "outerwear", "note": "leather jacket"},
+        {"url": "https://khaite.com/collections/wardrobe-edit/products/jude-pant-in-black", "category": "bottoms", "note": "pants"},
+        {"url": "https://khaite.com/collections/manhattan-belt-collection/products/manhattan-belt-silver-20mm-in-black", "category": "accessories", "note": "belt"}
+      ]
+    },
+    {
+      "name": "Balenciaga",
+      "domain": "balenciaga.com",
+      "products": [
+        {"url": "https://www.balenciaga.com/en-us/le-city-bag-medium-camel-8230582AB7D2533.html", "category": "bags", "note": "city bag"},
+        {"url": "https://www.balenciaga.com/en-us/balenciaga-%7C-nba-collaboration-tracksuit-jacket-red-864835TROA56417.html", "category": "clothing", "note": "jacket"},
+        {"url": "https://www.balenciaga.com/en-us/crist%C3%B3bal-parfum-refill-colorless-849758T00649980.html", "category": "fragrance", "note": "perfume"}
+      ]
+    },
+    {
+      "name": "Kuurth",
+      "domain": "kuurth.com",
+      "products": [
+        {"url": "https://kuurth.com/collections/armor%C2%AE-bag/products/armor-black-bag", "category": "bags", "note": "bag"},
+        {"url": "https://kuurth.com/collections/all-gold/products/delirium-gold-ring", "category": "jewelry", "note": "ring"},
+        {"url": "https://kuurth.com/collections/watches/products/ignis-sacra-red-watch", "category": "accessories", "note": "watch"}
+      ]
+    },
+    {
+      "name": "Acne Studios",
+      "domain": "acnestudios.com",
+      "products": [
+        {"url": "https://www.acnestudios.com/us/en/loose-fit-jeans---1981-mid-blue/CK0138-AUZ.html?g=woman", "category": "denim", "note": "jeans"},
+        {"url": "https://www.acnestudios.com/us/en/nylon-jacket-black/B90827-900.html?g=man", "category": "outerwear", "note": "jacket"},
+        {"url": "https://www.acnestudios.com/us/en/crewneck-jumper-red/B60382-ACK.html?g=man", "category": "knitwear", "note": "jumper"}
+      ]
+    },
+    {
+      "name": "Stussy",
+      "domain": "stussy.com",
+      "products": [
+        {"url": "https://ca.stussy.com/collections/tees/products/1905113-double-dragon-pigment-dyed-tee-natural", "category": "tops", "note": "t-shirt"},
+        {"url": "https://ca.stussy.com/collections/knits/products/118593-patch-zip-knit-hoodie-black", "category": "tops", "note": "hoodie"},
+        {"url": "https://ca.stussy.com/collections/sunglasses/products/338263-ace-sunglasses-black-black-lens", "category": "accessories", "note": "sunglasses"}
+      ]
+    },
+    {
+      "name": "COS",
+      "domain": "cos.com",
+      "products": [
+        {"url": "https://www.cos.com/en-us/men/menswear/coatsjackets/denim/product/denim-overshirt-dark-blue-1315149001", "category": "outerwear", "note": "overshirt"},
+        {"url": "https://www.cos.com/en-us/women/womenswear/dresses/jerseydresses/product/petal-sleeve-cotton-midi-dress-black-1272841001", "category": "dresses", "note": "dress"},
+        {"url": "https://www.cos.com/en-us/men/menswear/coatsjackets/jackets/product/split-wool-bomber-jacket-dark-grey-1294462002", "category": "outerwear", "note": "jacket"}
+      ]
+    },
+    {
+      "name": "Aritzia",
+      "domain": "aritzia.com",
+      "products": [
+        {"url": "https://www.aritzia.com/us/en/product/the-super-puff%E2%84%A2/126464.html?color=6038", "category": "outerwear", "note": "puffer jacket"},
+        {"url": "https://www.aritzia.com/us/en/product/cozy-sweatfleece-mega-straight%E2%84%A2-sweatpant/116292.html?color=34340", "category": "bottoms", "note": "sweatpants"},
+        {"url": "https://www.aritzia.com/us/en/product/life-refresh-pant/129983.html?color=34340", "category": "bottoms", "note": "pants"}
+      ]
+    },
+    {
+      "name": "Entire Studios",
+      "domain": "entirestudios.com",
+      "products": [
+        {"url": "https://www.entirestudios.com/product/spar-shorts-old-blue", "category": "bottoms", "note": "shorts"},
+        {"url": "https://www.entirestudios.com/product/a-4-bomber-army", "category": "outerwear", "note": "bomber"},
+        {"url": "https://www.entirestudios.com/product/form-sock-black", "category": "accessories", "note": "socks"}
+      ]
+    },
+    {
+      "name": "Jukuhara",
+      "domain": "jukuhara.jp",
+      "products": [
+        {"url": "https://jukuhara.jp/products/vietnamese-t-shirt-copy", "category": "tops", "note": "t-shirt"},
+        {"url": "https://jukuhara.jp/products/jp-sounds-zip-up-jacket-black", "category": "outerwear", "note": "jacket"},
+        {"url": "https://jukuhara.jp/products/tobi-sweatpants", "category": "bottoms", "note": "sweatpants"}
+      ]
+    },
+    {
+      "name": "Eckhaus Latta",
+      "domain": "eckhauslatta.com",
+      "products": [
+        {"url": "https://www.eckhauslatta.com/products/the-snap-green", "category": "bags", "note": "bag"},
+        {"url": "https://www.eckhauslatta.com/products/drift-hoodie-pink-sand", "category": "tops", "note": "hoodie"},
+        {"url": "https://www.eckhauslatta.com/products/duet-skirt-burst", "category": "bottoms", "note": "skirt"}
+      ]
+    }
+  ],
+  "extraction_targets": {
+    "required": [
+      "product_name",
+      "price",
+      "currency",
+      "images",
+      "description"
+    ],
+    "optional": [
+      "sizes_available",
+      "sizes_out_of_stock",
+      "colors_available",
+      "materials",
+      "care_instructions",
+      "sku",
+      "brand_name",
+      "category",
+      "subcategory"
+    ],
+    "images_detail": {
+      "main_image": "Primary product image",
+      "gallery_images": "All product gallery images",
+      "color_swatches": "Images for different colorways",
+      "model_images": "On-model photos vs product-only"
+    },
+    "size_detail": {
+      "size_type": "US, EU, UK, or brand-specific",
+      "available": "Sizes in stock",
+      "unavailable": "Sizes out of stock",
+      "size_guide_url": "Link to size chart if available"
+    }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "brands": [
+    {
+      "brand_id": "eckhauslattacom",
+      "name": "Eckhauslatta",
+      "domain": "eckhauslatta.com",
+      "total_products": 0,
+      "last_scrape_at": "2026-01-15T16:05:16.530612Z"
+    }
+  ],
+  "total_brands": 1,
+  "last_updated": "2026-01-15T16:05:16.534892Z"
+}

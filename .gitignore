@@ -95,3 +95,6 @@ z.txt
 
 # Nav extractions (large JSON/screenshots)
 backend/nav_v8/extractions/
+backend/prod_page_v2/explorations
+backend/prod_page_v2/extractions
+backend/scraper/navigation/extractions
