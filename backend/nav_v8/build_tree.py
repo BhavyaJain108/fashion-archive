@@ -10,16 +10,24 @@ import json
 import sys
 from pathlib import Path
 from urllib.parse import urljoin
-from collections import Counter
 
 
-def find_repeated_urls(states: list, threshold: int = 3) -> set:
-    """Find URLs appearing in threshold+ states - these are likely footer/promo."""
-    url_count = Counter()
+def find_cross_toplevel_urls(states: list) -> set:
+    """Find URLs appearing across 2+ different top-level tabs - these are utility links."""
+    # Group URLs by their top-level category
+    url_to_toplevels = {}  # url -> set of top-level names
     for state in states:
+        path = state.get("path", [])
+        if not path:
+            continue
+        top_level = path[0]
         for url in state.get("new_links", {}).values():
-            url_count[url] += 1
-    return {url for url, count in url_count.items() if count >= threshold}
+            if url not in url_to_toplevels:
+                url_to_toplevels[url] = set()
+            url_to_toplevels[url].add(top_level)
+
+    # Return URLs that appear in 2+ top-level tabs
+    return {url for url, toplevels in url_to_toplevels.items() if len(toplevels) >= 2}
 
 
 def is_product_link(url: str) -> bool:
@@ -134,6 +142,44 @@ def dedupe_parent_child_links(node: dict) -> None:
             node["links"] = [l for l in node["links"] if l["url"] != url]
 
 
+def hoist_common_links(node: dict) -> None:
+    """
+    Hoist links that appear in 2+ children up to the parent.
+
+    If a link appears in multiple children but NOT in parent,
+    move it to parent and remove from children.
+    """
+    if not node["children"]:
+        return
+
+    # First recurse into children (bottom-up)
+    for child in node["children"]:
+        hoist_common_links(child)
+
+    # Get parent URLs
+    parent_urls = {link["url"] for link in node["links"]}
+
+    # Count which children have each URL, track the link info
+    url_to_children = {}  # url -> list of child nodes
+    url_to_link = {}  # url -> link dict (name, url)
+    for child in node["children"]:
+        for link in child["links"]:
+            url = link["url"]
+            if url not in url_to_children:
+                url_to_children[url] = []
+                url_to_link[url] = link
+            url_to_children[url].append(child)
+
+    # Find URLs in 2+ children but NOT in parent → hoist them
+    for url, children_with_url in url_to_children.items():
+        if len(children_with_url) >= 2 and url not in parent_urls:
+            # Hoist to parent
+            node["links"].append(url_to_link[url])
+            # Remove from children
+            for child in children_with_url:
+                child["links"] = [l for l in child["links"] if l["url"] != url]
+
+
 def tree_to_txt(node: dict, indent: int = 0, lines: list = None) -> list:
     """Convert tree to readable text format."""
     if lines is None:
@@ -197,12 +243,15 @@ def process_brand(brand_dir: Path):
         print(f"  No base URL found")
         return
 
-    # Find repeated URLs to filter out (appear 3+ times)
-    repeated_urls = find_repeated_urls(states, threshold=3)
-    print(f"  Filtering {len(repeated_urls)} repeated URLs")
+    # Find URLs that appear across 2+ top-level tabs (utility links to remove)
+    cross_toplevel_urls = find_cross_toplevel_urls(states)
+    print(f"  Filtering {len(cross_toplevel_urls)} cross-toplevel URLs")
 
     # Build tree
-    tree = build_tree(states, base_url, filter_urls=repeated_urls)
+    tree = build_tree(states, base_url, filter_urls=cross_toplevel_urls)
+
+    # Hoist links that appear in 2+ children up to parent
+    hoist_common_links(tree)
 
     # Deduplicate parent-child links
     dedupe_parent_child_links(tree)

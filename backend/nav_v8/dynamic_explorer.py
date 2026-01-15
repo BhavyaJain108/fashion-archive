@@ -23,6 +23,7 @@ from playwright.async_api import async_playwright, Page
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from nav_v8.llm_popup_dismiss import dismiss_popups_with_llm
+from utils.page_wait import wait_for_page_ready
 
 client = Anthropic(api_key=os.getenv('CLAUDE_API_KEY'))
 
@@ -100,46 +101,50 @@ def prompt_subcategories(aria: str, current_path: list) -> str:
     """Prompt to identify subcategories at the current navigation path."""
     path_str = " > ".join(current_path)
 
-    return f"""PURPOSE: We're building a tree of a fashion site's navigation menu. We need to explore every expandable category to find all product pages.
+    return f"""PURPOSE: We're building a navigation tree for a fashion site. We need to find all category paths.
 
 CURRENT PATH: {path_str}
 
-FIRST: Determine the PAGE TYPE:
-- NAVIGATION_MENU: Shows category structure (buttons/tabs like "Shoes", "Bags", "Accessories")
-- PRODUCT_LISTING: Shows individual products (items with prices like "$199", "Add to Cart", product names)
+TASK: Find EXPANDABLE elements that reveal MORE subcategories, and LINKS to category pages.
 
-If this is a PRODUCT_LISTING page (no navigation menu visible, just products), respond:
-PAGE_TYPE: PRODUCT_LISTING
+PAGE TYPE - Determine first:
+- LEAF: No more category navigation exists (only product links, utility links, or nothing)
+- HAS_CATEGORIES: There are expandable elements or category links to record
 
-If this is a NAVIGATION_MENU, find items that are CHILDREN of the current path.
+IF this is a LEAF page:
+PAGE_TYPE: LEAF
 
-WHY WE SEPARATE EXPANDABLE VS LINKS:
-- EXPANDABLE items (buttons, tabs, menuitems) reveal MORE subcategories when clicked - we need to explore these further
-- LINK items navigate directly to a product page - we record the URL but don't need to explore further
+IF there ARE category items:
+PAGE_TYPE: HAS_CATEGORIES
 
-CLASSIFICATION (based on ARIA role):
-- button, menuitem, tab, or anything that expands/switches content → EXPANDABLE
-- link (navigates to a page) → LINKS
+CLASSIFICATION - Based on ARIA ROLE, not the name:
+- EXPANDABLE: role=button, role=tab, role=menuitem → we click these to explore
+- LINK: role=link → we record the URL but don't click
 
-RESPOND:
-
-PAGE_TYPE: NAVIGATION_MENU
+IMPORTANT:
+- Look at the actual ARIA role, not what the name suggests.
+- "Ready-to-wear" with role=menuitem is EXPANDABLE, not a LINK.
+- Include ALL buttons, tabs, and menuitems - do not skip any.
+- Menus often have one item already selected (usually the first) - include it too.
 
 EXPANDABLE:
 - BUTTON: ExactName
-- MENUITEM: ExactName
 - TAB: ExactName
-- OTHER: ExactName
+- MENUITEM: ExactName
 
 LINKS:
 - LINK: ExactName
 
+EXCLUDE from both sections:
+- Individual product links (specific items like "Blue Cotton Dress $89", "Nike Air Max")
+- Utility links (Cart, Login, Search, About Us, Contact, FAQ)
+
 CONSTRAINTS:
-- Look at the ARIA ROLE, not whether it has a URL (buttons often have URLs but still expand menus)
+- Classify by ARIA role, not by name
 - Only include CHILDREN of the current path, not siblings or parent items
-- Ignore navigation controls: Back, Close, Search, Cart, Menu
+- Ignore utility controls: Back, Close, Search, Cart, Menu, Login, Account
 - Use exact names from the ARIA
-- If no expandable children exist, write NONE
+- If no expandable elements or category links exist, respond with PAGE_TYPE: LEAF
 
 ARIA SNAPSHOT:
 {aria[:6000]}
@@ -162,8 +167,8 @@ def parse_subcategories(response: str) -> tuple[list, list, bool]:
     for line in response.split('\n'):
         line = line.strip()
 
-        # Check for product listing page indicator
-        if 'PAGE_TYPE' in line.upper() and 'PRODUCT_LISTING' in line.upper():
+        # Check for leaf page indicator (no more navigation depth)
+        if 'PAGE_TYPE' in line.upper() and ('LEAF' in line.upper() or 'PRODUCT_LISTING' in line.upper()):
             is_product_listing = True
             continue
 
@@ -864,7 +869,7 @@ async def try_click_with_url_check(page: Page, name: str, container=None, prefer
         url_after = page.url
         if url_after != url_before:
             await page.go_back()
-            await page.wait_for_timeout(1500)  # Wait for heavy JS pages to load
+            await wait_for_page_ready(page)
             return True, True  # Clicked but navigated away
         return True, False  # Clicked successfully, stayed on page
     print(f"      [CLICK] Could not find '{name}'")
@@ -1231,7 +1236,7 @@ async def explore_toggle_menu(page: Page, menu_structure: dict, states: list, st
                 step += 1
                 # Go back to home for next iteration
                 await page.goto(base_url, wait_until="domcontentloaded")
-                await page.wait_for_timeout(1500)  # Wait for heavy JS pages to load
+                await wait_for_page_ready(page)
                 continue
 
             # Capture state for this combination
@@ -1281,7 +1286,7 @@ async def explore(url: str, max_depth: int = 3) -> list:
         # Setup
         print("[1] Loading page...")
         await page.goto(url, wait_until="domcontentloaded", timeout=15000)
-        await page.wait_for_timeout(2000)
+        await wait_for_page_ready(page)
 
         print("[2] Dismissing popups...")
         await dismiss_popups_with_llm(page)
@@ -1432,6 +1437,12 @@ async def explore(url: str, max_depth: int = 3) -> list:
         level_no_expandable_count = {}  # {level: count of consecutive items with no expandable}
         skip_llm_at_level = set()  # Levels where we've confirmed no expandable children
 
+        # Track items discovered at each path - used to filter out siblings from LLM responses
+        # Prevents infinite loops when LLM sees persistent nav tabs and reports them as children
+        # Store (name, type) tuples so menuitems don't get filtered by same-named buttons
+        items_at_path = {}
+        items_at_path[()] = {(item['name'], item['type']) for item in top_level}
+
         while stack:
             # Stack items are tuples: (path_list, item_type)
             path, item_type = stack.pop()
@@ -1494,14 +1505,13 @@ async def explore(url: str, max_depth: int = 3) -> list:
                         print(f"    [HOVER] Content revealed on hover, but {item_type} needs click to explore subcategories")
 
             # Detect top-level category change - return to base URL for clean transition
-            # We always return to base because nav on product pages may not be reliably clickable
             if current_path and path and current_path[0].lower() != path[0].lower():
-                print(f"    [NAV] Top-level change: {current_path[0]} → {path[0]}, returning to base URL")
-                current_path = []  # We're now at root
-                await page.goto(base_url, wait_until="domcontentloaded")
-                await page.wait_for_timeout(1500)  # Wait for heavy JS pages to load
-                await dismiss_popups_with_llm(page)
-                print(f"    [NAV] Ready for new top-level")
+                print(f"    [NAV] Top-level change: {current_path[0]} → {path[0]}")
+                current_path = []  # Reset path tracking
+                if page.url.rstrip('/') != base_url.rstrip('/'):
+                    await page.goto(base_url, wait_until="domcontentloaded")
+                    await wait_for_page_ready(page)
+                    await dismiss_popups_with_llm(page)
 
             # Navigate to this path from current position
             # Pass item_type as target_type so we click the right element (e.g., menuitem vs button)
@@ -1518,7 +1528,7 @@ async def explore(url: str, max_depth: int = 3) -> list:
                 # Return to base URL since we don't know where we are
                 print(f"    [NAV] Returning to base URL after failure")
                 await page.goto(base_url, wait_until="domcontentloaded")
-                await page.wait_for_timeout(1500)  # Wait for heavy JS pages to load
+                await wait_for_page_ready(page)
                 await dismiss_popups_with_llm(page)
                 current_path = []
                 continue
@@ -1573,6 +1583,11 @@ async def explore(url: str, max_depth: int = 3) -> list:
                 # Convert to dict format {name: type} for compatibility - only expandable items go on stack
                 new_buttons = {s['name']: s['type'] for s in expandable_items}
                 llm_links = {s['name']: 'link' for s in leaf_links}
+
+                # Record these items as siblings at this path (for filtering later)
+                if new_buttons:
+                    items_at_path[tuple(path)] = {(name, typ) for name, typ in new_buttons.items()}
+
                 print(f"    LLM identified: {list(new_buttons.keys())}")
                 if llm_links:
                     print(f"    LLM links (won't explore): {list(llm_links.keys())}")
@@ -1616,11 +1631,25 @@ async def explore(url: str, max_depth: int = 3) -> list:
             # Add new buttons/tabs to stack for further exploration (reversed for DFS order)
             # Sort alphabetically for consistent order, reverse so first item is explored first
             # Use actual type (button or tab) from extraction
+
+            # Get siblings at current level (to filter out LLM mistakes with persistent nav)
+            parent_path = tuple(path[:-1]) if len(path) > 1 else ()
+            siblings = items_at_path.get(parent_path, set())
+
             sorted_buttons = sorted(new_buttons.keys())
+            filtered_count = 0
             for btn in reversed(sorted_buttons):
+                btn_type = new_buttons[btn]
+                # Skip if this exact (name, type) is a known sibling (LLM confused by persistent nav)
+                if (btn, btn_type) in siblings:
+                    filtered_count += 1
+                    continue
                 child_path = path + [btn]
                 if tuple(child_path) not in explored:
-                    stack.append((child_path, new_buttons[btn]))
+                    stack.append((child_path, btn_type))
+
+            if filtered_count > 0:
+                print(f"    [FILTER] Removed {filtered_count} sibling items (persistent nav)")
 
             step += 1
 
