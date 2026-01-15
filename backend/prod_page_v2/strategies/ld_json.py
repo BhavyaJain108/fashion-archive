@@ -37,7 +37,7 @@ class LdJsonStrategy(BaseStrategy):
                     "No Product LD+JSON found in page"
                 )
 
-            product = self._parse_ld_json(ld_json_data, url)
+            product = self._parse_ld_json(ld_json_data, url, page_data)
             return ExtractionResult.from_product(product, self.strategy_type)
 
         except Exception as e:
@@ -73,7 +73,7 @@ class LdJsonStrategy(BaseStrategy):
 
         return None
 
-    def _parse_ld_json(self, data: dict, url: str) -> Product:
+    def _parse_ld_json(self, data: dict, url: str, page_data: PageData = None) -> Product:
         """Parse LD+JSON Product into Product model."""
         # Extract offers/variants
         variants = []
@@ -96,10 +96,21 @@ class LdJsonStrategy(BaseStrategy):
                     variant.size = size_match.group(1)
             variants.append(variant)
 
-        # Extract images
+        # Extract images - prefer network-captured images, then LD+JSON, then DOM fallback
         images = data.get('image', [])
         if isinstance(images, str):
             images = [images]
+
+        # If we have network-captured images, use filtered version
+        if page_data and page_data.image_urls:
+            network_images = self._filter_product_images(page_data.image_urls, url)
+            if len(network_images) > len(images):
+                images = network_images
+        # Fallback to DOM extraction if still only 1 image
+        elif len(images) <= 1 and page_data and page_data.html:
+            dom_images = self._extract_images_from_dom(page_data.html, url)
+            if len(dom_images) > len(images):
+                images = dom_images
 
         # Get price from offers if not at top level
         price = self._parse_price(data.get('price'))
@@ -122,6 +133,10 @@ class LdJsonStrategy(BaseStrategy):
             brand = data['brand'].get('name')
         elif isinstance(data.get('brand'), str):
             brand = data.get('brand')
+
+        # Fallback: infer brand from domain if not in LD+JSON
+        if not brand:
+            brand = self._infer_brand_from_url(url)
 
         # Get category
         category = None
@@ -161,3 +176,55 @@ class LdJsonStrategy(BaseStrategy):
         if 'outofstock' in availability:
             return False
         return None
+
+    def _extract_images_from_dom(self, html: str, url: str) -> List[str]:
+        """Extract product images from DOM when LD+JSON doesn't have enough."""
+        from bs4 import BeautifulSoup
+        from urllib.parse import urlparse
+
+        soup = BeautifulSoup(html, 'html.parser')
+        domain = urlparse(url).netloc.replace('www.', '')
+
+        images = set()
+
+        # Look for high-quality product images in img tags
+        for img in soup.find_all('img'):
+            src = img.get('src') or img.get('data-src') or ''
+
+            # Skip tiny images, icons, logos
+            if any(x in src.lower() for x in ['icon', 'logo', 'sprite', 'pixel', '1x1']):
+                continue
+
+            # Keep images that look like product images
+            if domain.split('.')[0] in src or 'product' in src.lower() or 'asset' in src:
+                # Prefer larger versions
+                srcset = img.get('srcset', '')
+                if srcset:
+                    # Get largest from srcset
+                    parts = srcset.split(',')
+                    for part in parts:
+                        part_url = part.strip().split(' ')[0]
+                        if part_url.startswith('http'):
+                            images.add(part_url)
+                elif src.startswith('http'):
+                    images.add(src)
+
+        # Also check for images in data attributes (common in galleries)
+        for el in soup.find_all(attrs={'data-zoom': True}):
+            images.add(el.get('data-zoom'))
+        for el in soup.find_all(attrs={'data-large': True}):
+            images.add(el.get('data-large'))
+
+        # Filter and deduplicate
+        filtered = []
+        seen_basenames = set()
+        for img in images:
+            if not img or not img.startswith('http'):
+                continue
+            # Dedupe by basename (avoid same image in different sizes)
+            basename = img.split('?')[0].split('/')[-1].split('_')[0]
+            if basename not in seen_basenames:
+                seen_basenames.add(basename)
+                filtered.append(img)
+
+        return filtered[:15]  # Limit to 15 images

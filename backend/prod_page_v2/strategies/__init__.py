@@ -8,6 +8,7 @@ from .shopify_graphql import ShopifyGraphQLStrategy
 from .ld_json import LdJsonStrategy
 from .api_intercept import ApiInterceptStrategy
 from .html_meta import HtmlMetaStrategy
+from .embedded_json import EmbeddedJsonStrategy
 
 __all__ = [
     'BaseStrategy',
@@ -16,4 +17,5 @@ __all__ = [
     'LdJsonStrategy',
     'ApiInterceptStrategy',
     'HtmlMetaStrategy',
+    'EmbeddedJsonStrategy',
 ]

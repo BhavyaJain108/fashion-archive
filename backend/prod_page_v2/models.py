@@ -3,8 +3,19 @@ Data models for product extraction.
 """
 
 from dataclasses import dataclass, field
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from enum import Enum
+
+
+@dataclass
+class PageData:
+    """Data captured from page load."""
+    url: str
+    html: str = ""
+    json_responses: Dict[str, Any] = field(default_factory=dict)
+    request_headers: Dict[str, Dict[str, str]] = field(default_factory=dict)
+    aria: Optional[dict] = None
+    image_urls: List[str] = field(default_factory=list)
 
 
 class ExtractionStrategy(Enum):

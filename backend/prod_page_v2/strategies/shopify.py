@@ -107,13 +107,21 @@ class ShopifyStrategy(BaseStrategy):
                     else:
                         size, color = opt1, opt2
 
+            # Get availability - explicit field or infer from stock
+            available = v.get('available')
+            stock_count = v.get('inventory_quantity')
+
+            # Infer availability from stock count if not explicitly set
+            if available is None and stock_count is not None:
+                available = stock_count > 0
+
             variant = Variant(
                 size=size,
                 color=color,
                 sku=v.get('sku'),
                 price=self._parse_price(v.get('price')),
-                available=v.get('available'),
-                stock_count=v.get('inventory_quantity'),
+                available=available,
+                stock_count=stock_count,
             )
             # Try to parse size/color from title if still missing
             if not variant.size and v.get('title'):

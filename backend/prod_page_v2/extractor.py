@@ -13,12 +13,11 @@ from urllib.parse import urlparse
 from dataclasses import dataclass, field
 
 from models import (
-    Product, Variant, ExtractionResult, ExtractionStrategy, BrandConfig, MissingFields
+    Product, Variant, ExtractionResult, ExtractionStrategy, BrandConfig, MissingFields, PageData
 )
-from strategies.base import PageData
 from strategies import (
     ShopifyStrategy, ShopifyGraphQLStrategy, LdJsonStrategy,
-    ApiInterceptStrategy, HtmlMetaStrategy
+    ApiInterceptStrategy, HtmlMetaStrategy, EmbeddedJsonStrategy
 )
 from page_loader import load_page
 
@@ -58,6 +57,7 @@ class MultiStrategyConfig:
     verified: bool = False
     discovery_url: Optional[str] = None
     verification_url: Optional[str] = None
+    site_images: List[str] = field(default_factory=list)  # Images to exclude (appear on multiple products)
 
     def get_strategies_for_field(self, field_name: str) -> List[ExtractionStrategy]:
         """Get strategies that provide a specific field."""
@@ -68,13 +68,16 @@ class MultiStrategyConfig:
         return [c.strategy for c in self.contributions if c.fields]
 
     def to_dict(self) -> dict:
-        return {
+        result = {
             "domain": self.domain,
             "contributions": [c.to_dict() for c in self.contributions],
             "verified": self.verified,
             "discovery_url": self.discovery_url,
             "verification_url": self.verification_url,
         }
+        if self.site_images:
+            result["site_images"] = self.site_images
+        return result
 
     @classmethod
     def from_dict(cls, data: dict) -> 'MultiStrategyConfig':
@@ -84,6 +87,7 @@ class MultiStrategyConfig:
             verified=data.get("verified", False),
             discovery_url=data.get("discovery_url"),
             verification_url=data.get("verification_url"),
+            site_images=data.get("site_images", []),
         )
 
 
@@ -113,6 +117,7 @@ class ProductExtractor:
             ShopifyGraphQLStrategy(), # Storefront GraphQL API
             LdJsonStrategy(),         # LD+JSON in HTML
             ApiInterceptStrategy(),   # Captured API responses
+            EmbeddedJsonStrategy(),   # Embedded JSON in scripts (Next.js/React SSR)
             HtmlMetaStrategy(),       # HTML meta tags (fallback)
         ]
 
@@ -268,6 +273,52 @@ class ProductExtractor:
             print("\n  ❌ All strategies failed")
 
         return contributions, results
+
+    async def discover_site_images(self, url1: str, url2: str) -> List[str]:
+        """
+        Discover site-wide images by comparing two product pages.
+
+        Images that appear on both pages are likely site-wide (logos, banners, etc.)
+        not product-specific images.
+
+        Args:
+            url1: First product URL
+            url2: Second product URL (different product, same site)
+
+        Returns:
+            List of image URLs that appear on both pages (site-wide images)
+        """
+        from strategies.base import BaseStrategy
+
+        print(f"\n[SITE IMAGES] Comparing two products to find site-wide images")
+        print(f"  Product 1: {url1}")
+        print(f"  Product 2: {url2}")
+
+        # Load both pages
+        page1 = await load_page(url1)
+        page2 = await load_page(url2)
+
+        print(f"  Page 1 images: {len(page1.image_urls)}")
+        print(f"  Page 2 images: {len(page2.image_urls)}")
+
+        # Get image identities for both pages
+        # Use a strategy instance to access _get_image_identity
+        strategy = self.strategies[0]  # Any strategy will do
+
+        ids1 = {strategy._get_image_identity(url): url for url in page1.image_urls}
+        ids2 = {strategy._get_image_identity(url): url for url in page2.image_urls}
+
+        # Find common images (appear on both)
+        common_ids = set(ids1.keys()) & set(ids2.keys())
+        site_images = [ids1[id] for id in common_ids]
+
+        print(f"  Common images (site-wide): {len(site_images)}")
+        for img in site_images[:5]:
+            print(f"    - {img[:80]}...")
+        if len(site_images) > 5:
+            print(f"    ... and {len(site_images) - 5} more")
+
+        return site_images
 
     async def verify(
         self,
@@ -501,13 +552,37 @@ class ProductExtractor:
             json.dump(config.to_dict(), f, indent=2)
 
     def _load_config(self, domain: str) -> Optional[MultiStrategyConfig]:
-        """Load brand config from file."""
+        """Load brand config from file. Handles both old and new formats."""
         path = self._get_config_path(domain)
         if not path.exists():
             return None
         try:
             with open(path) as f:
-                return MultiStrategyConfig.from_dict(json.load(f))
+                data = json.load(f)
+
+            # Check if it's the new multi-strategy format
+            if 'contributions' in data:
+                return MultiStrategyConfig.from_dict(data)
+
+            # Convert old single-strategy format to new format
+            if 'strategy' in data:
+                strategy_str = data['strategy']
+                strategy = ExtractionStrategy(strategy_str)
+                # Old format didn't track fields - assume all fields
+                contribution = StrategyContribution(
+                    strategy=strategy,
+                    fields=set(TRACKED_FIELDS),
+                    score=100
+                )
+                return MultiStrategyConfig(
+                    domain=data.get('domain', domain),
+                    contributions=[contribution],
+                    verified=data.get('verified', False),
+                    discovery_url=data.get('discovery_url'),
+                    verification_url=data.get('verification_url'),
+                )
+
+            return None
         except Exception:
             return None
 
