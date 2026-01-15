@@ -1,0 +1,729 @@
+{
+  "brand": "acne_studios",
+  "extracted_at": "2025-12-04T16:41:45.561507+00:00",
+  "url": "https://www.acnestudios.com/us/en/home",
+  "method": "dom_click",
+  "tree": [
+    {
+      "name": "Woman",
+      "url": null,
+      "children": [
+        {
+          "name": "New",
+          "url": null,
+          "children": [
+            {
+              "name": "New Arrivals",
+              "url": "https://www.acnestudios.com/us/en/woman/new-arrivals/",
+              "children": []
+            },
+            {
+              "name": "Gifts for Her",
+              "url": "https://www.acnestudios.com/us/en/woman/gift-guide-selection/",
+              "children": []
+            },
+            {
+              "name": "Winter Edit",
+              "url": "https://www.acnestudios.com/us/en/woman/winter-capsule/",
+              "children": []
+            },
+            {
+              "name": "Seasonal Denim",
+              "url": "https://www.acnestudios.com/us/en/woman/seasonal-denim/",
+              "children": []
+            },
+            {
+              "name": "Scarf Personalisation",
+              "url": "https://www.acnestudios.com/us/en/scarves/personalised/",
+              "children": []
+            },
+            {
+              "name": "1996 Logo Garments",
+              "url": "https://www.acnestudios.com/us/en/woman/logo-garments/",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "Clothing",
+          "url": null,
+          "children": [
+            {
+              "name": "View all",
+              "url": "https://www.acnestudios.com/us/en/woman/clothing/",
+              "children": []
+            },
+            {
+              "name": "Jeans",
+              "url": "https://www.acnestudios.com/us/en/woman/jeans/",
+              "children": []
+            },
+            {
+              "name": "Outerwear",
+              "url": "https://www.acnestudios.com/us/en/woman/outerwear/",
+              "children": []
+            },
+            {
+              "name": "Trousers",
+              "url": "https://www.acnestudios.com/us/en/woman/trousers/",
+              "children": []
+            },
+            {
+              "name": "T-shirts",
+              "url": "https://www.acnestudios.com/us/en/woman/t-shirts/",
+              "children": []
+            },
+            {
+              "name": "Knitwear",
+              "url": "https://www.acnestudios.com/us/en/woman/knitwear/",
+              "children": []
+            },
+            {
+              "name": "Sweatshirts",
+              "url": "https://www.acnestudios.com/us/en/woman/sweatshirts/",
+              "children": []
+            },
+            {
+              "name": "Suit Jackets",
+              "url": "https://www.acnestudios.com/us/en/woman/suit-jackets/",
+              "children": []
+            },
+            {
+              "name": "Dresses",
+              "url": "https://www.acnestudios.com/us/en/woman/dresses/",
+              "children": []
+            },
+            {
+              "name": "Shirts & Blouses",
+              "url": "https://www.acnestudios.com/us/en/woman/shirts-and-blouses/",
+              "children": []
+            },
+            {
+              "name": "Skirts",
+              "url": "https://www.acnestudios.com/us/en/woman/skirts/",
+              "children": []
+            },
+            {
+              "name": "Shorts",
+              "url": "https://www.acnestudios.com/us/en/woman/shorts/",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "Shoes & Accessories",
+          "url": null,
+          "children": [
+            {
+              "name": "View all",
+              "url": "https://www.acnestudios.com/us/en/woman/shoes-and-accessories/",
+              "children": []
+            },
+            {
+              "name": "Scarves",
+              "url": "https://www.acnestudios.com/us/en/scarves/",
+              "children": []
+            },
+            {
+              "name": "Bags",
+              "url": "https://www.acnestudios.com/us/en/bags/",
+              "children": []
+            },
+            {
+              "name": "Hats",
+              "url": "https://www.acnestudios.com/us/en/woman/hats/",
+              "children": []
+            },
+            {
+              "name": "Shoes",
+              "url": "https://www.acnestudios.com/us/en/woman/shoes/",
+              "children": []
+            },
+            {
+              "name": "Small Leather Goods",
+              "url": "https://www.acnestudios.com/us/en/woman/small-leather-goods/",
+              "children": []
+            },
+            {
+              "name": "Jewellery",
+              "url": "https://www.acnestudios.com/us/en/woman/jewellery/",
+              "children": []
+            },
+            {
+              "name": "Eyewear",
+              "url": "https://www.acnestudios.com/us/en/woman/eyewear/",
+              "children": []
+            },
+            {
+              "name": "Belts",
+              "url": "https://www.acnestudios.com/us/en/woman/belts/",
+              "children": []
+            },
+            {
+              "name": "Objects",
+              "url": "https://www.acnestudios.com/us/en/woman/accessories/objects/",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "Runway",
+          "url": null,
+          "children": [
+            {
+              "name": "SS26",
+              "url": "https://www.acnestudios.com/us/en/woman/ss26/",
+              "children": []
+            },
+            {
+              "name": "FW25",
+              "url": "https://www.acnestudios.com/us/en/woman/fw25-1/",
+              "children": []
+            },
+            {
+              "name": "Scarves",
+              "url": "https://www.acnestudios.com/us/en/woman/scarves/",
+              "children": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Man",
+      "url": null,
+      "children": [
+        {
+          "name": "New",
+          "url": null,
+          "children": [
+            {
+              "name": "New Arrivals",
+              "url": "https://www.acnestudios.com/us/en/man/new-arrivals/",
+              "children": []
+            },
+            {
+              "name": "Gifts for Him",
+              "url": "https://www.acnestudios.com/us/en/man/gift-guide-selection/",
+              "children": []
+            },
+            {
+              "name": "Winter Edit",
+              "url": "https://www.acnestudios.com/us/en/man/winter-capsule/",
+              "children": []
+            },
+            {
+              "name": "1996 Logo Garments",
+              "url": "https://www.acnestudios.com/us/en/man/logo-garments/",
+              "children": []
+            },
+            {
+              "name": "Scarves Personalisation",
+              "url": "https://www.acnestudios.com/us/en/scarves/personalised/",
+              "children": []
+            },
+            {
+              "name": "Seasonal Denim",
+              "url": "https://www.acnestudios.com/us/en/man/seasonal-denim/",
+              "children": []
+            },
+            {
+              "name": "Garment-Dyed Essentials",
+              "url": "https://www.acnestudios.com/us/en/man/garment-dyed/",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "Clothing",
+          "url": null,
+          "children": [
+            {
+              "name": "View all",
+              "url": "https://www.acnestudios.com/us/en/man/clothing/",
+              "children": []
+            },
+            {
+              "name": "Jeans",
+              "url": "https://www.acnestudios.com/us/en/man/jeans/",
+              "children": []
+            },
+            {
+              "name": "Outerwear",
+              "url": "https://www.acnestudios.com/us/en/man/outerwear/",
+              "children": []
+            },
+            {
+              "name": "Sweatshirts",
+              "url": "https://www.acnestudios.com/us/en/man/sweatshirts/",
+              "children": []
+            },
+            {
+              "name": "Trousers",
+              "url": "https://www.acnestudios.com/us/en/man/trousers/",
+              "children": []
+            },
+            {
+              "name": "Knitwear",
+              "url": "https://www.acnestudios.com/us/en/man/knitwear/",
+              "children": []
+            },
+            {
+              "name": "T-shirts",
+              "url": "https://www.acnestudios.com/us/en/man/t-shirts/",
+              "children": []
+            },
+            {
+              "name": "Shirts",
+              "url": "https://www.acnestudios.com/us/en/man/shirts/",
+              "children": []
+            },
+            {
+              "name": "Suit Jackets",
+              "url": "https://www.acnestudios.com/us/en/man/suit-jackets/",
+              "children": []
+            },
+            {
+              "name": "Shorts",
+              "url": "https://www.acnestudios.com/us/en/man/shorts/",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "Shoes & Accessories",
+          "url": null,
+          "children": [
+            {
+              "name": "View all",
+              "url": "https://www.acnestudios.com/us/en/man/shoes-and-accessories/",
+              "children": []
+            },
+            {
+              "name": "Scarves",
+              "url": "https://www.acnestudios.com/us/en/scarves/",
+              "children": []
+            },
+            {
+              "name": "Bags",
+              "url": "https://www.acnestudios.com/us/en/bags/",
+              "children": []
+            },
+            {
+              "name": "Hats",
+              "url": "https://www.acnestudios.com/us/en/man/hats/",
+              "children": []
+            },
+            {
+              "name": "Shoes",
+              "url": "https://www.acnestudios.com/us/en/man/shoes/",
+              "children": []
+            },
+            {
+              "name": "Small Leather Goods",
+              "url": "https://www.acnestudios.com/us/en/man/small-leather-goods/",
+              "children": []
+            },
+            {
+              "name": "Jewellery",
+              "url": "https://www.acnestudios.com/us/en/man/jewellery/",
+              "children": []
+            },
+            {
+              "name": "Eyewear",
+              "url": "https://www.acnestudios.com/us/en/man/eyewear/",
+              "children": []
+            },
+            {
+              "name": "Belts",
+              "url": "https://www.acnestudios.com/us/en/man/belts/",
+              "children": []
+            },
+            {
+              "name": "Underwear",
+              "url": "https://www.acnestudios.com/us/en/shoes-accessories/underwear/",
+              "children": []
+            },
+            {
+              "name": "Objects",
+              "url": "https://www.acnestudios.com/us/en/man/accessories/objects/",
+              "children": []
+            },
+            {
+              "name": "Other Accessories",
+              "url": "https://www.acnestudios.com/us/en/man/accessories/other/",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "Runway",
+          "url": null,
+          "children": [
+            {
+              "name": "SS26",
+              "url": "https://www.acnestudios.com/us/en/man/ss26/",
+              "children": []
+            },
+            {
+              "name": "FW25",
+              "url": "https://www.acnestudios.com/us/en/man/fw25/",
+              "children": []
+            },
+            {
+              "name": "Scarves",
+              "url": "https://www.acnestudios.com/us/en/man/scarves/",
+              "children": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Bags",
+      "url": null,
+      "children": [
+        {
+          "name": "Lines",
+          "url": null,
+          "children": [
+            {
+              "name": "All Bag Lines",
+              "url": "https://www.acnestudios.com/us/en/bags/lines/",
+              "children": []
+            },
+            {
+              "name": "View all Bags",
+              "url": "https://www.acnestudios.com/us/en/bags/",
+              "children": []
+            },
+            {
+              "name": "Camero",
+              "url": "https://www.acnestudios.com/us/en/bags/camero/",
+              "children": []
+            },
+            {
+              "name": "Multipocket",
+              "url": "https://www.acnestudios.com/us/en/bags/multipocket/",
+              "children": []
+            },
+            {
+              "name": "Musubi",
+              "url": "https://www.acnestudios.com/us/en/bags/musubi/",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "Types",
+          "url": null,
+          "children": [
+            {
+              "name": "Top Handle Bags",
+              "url": "https://www.acnestudios.com/us/en/bags/top-handle-bags/",
+              "children": []
+            },
+            {
+              "name": "Shoulder Bags",
+              "url": "https://www.acnestudios.com/us/en/bags/shoulder-bags/",
+              "children": []
+            },
+            {
+              "name": "Backpacks",
+              "url": "https://www.acnestudios.com/us/en/bags/backpack/",
+              "children": []
+            },
+            {
+              "name": "Crossbody Bags",
+              "url": "https://www.acnestudios.com/us/en/bags/crossbody/",
+              "children": []
+            },
+            {
+              "name": "Totes",
+              "url": "https://www.acnestudios.com/us/en/bags/totes/",
+              "children": []
+            },
+            {
+              "name": "Micro Bags",
+              "url": "https://www.acnestudios.com/us/en/bags/micro/",
+              "children": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Scarves",
+      "url": null,
+      "children": [
+        {
+          "name": "Lines",
+          "url": null,
+          "children": [
+            {
+              "name": "Scarves by Line",
+              "url": "https://www.acnestudios.com/us/en/scarves/lines/",
+              "children": []
+            },
+            {
+              "name": "View all Scarves",
+              "url": "https://www.acnestudios.com/us/en/scarves/",
+              "children": []
+            },
+            {
+              "name": "New In Scarves",
+              "url": "https://www.acnestudios.com/us/en/scarves/new/",
+              "children": []
+            },
+            {
+              "name": "Vally Scarves",
+              "url": "https://www.acnestudios.com/us/en/scarves/vally/",
+              "children": []
+            },
+            {
+              "name": "Canada Scarves",
+              "url": "https://www.acnestudios.com/us/en/scarves/canada/",
+              "children": []
+            },
+            {
+              "name": "Personalised",
+              "url": "https://www.acnestudios.com/us/en/scarves/personalised/",
+              "children": []
+            },
+            {
+              "name": "1996 Logo Scarves",
+              "url": "https://www.acnestudios.com/us/en/scarves/1996-logo/",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "Material",
+          "url": null,
+          "children": [
+            {
+              "name": "Alpaca",
+              "url": "https://www.acnestudios.com/us/en/scarves/alpaca/",
+              "children": []
+            },
+            {
+              "name": "Mohair",
+              "url": "https://www.acnestudios.com/us/en/scarves/mohair/",
+              "children": []
+            },
+            {
+              "name": "Wool",
+              "url": "https://www.acnestudios.com/us/en/scarves/wool/",
+              "children": []
+            },
+            {
+              "name": "Cashmere",
+              "url": "https://www.acnestudios.com/us/en/scarves/cashmere/",
+              "children": []
+            },
+            {
+              "name": "Silk",
+              "url": "https://www.acnestudios.com/us/en/scarves/silk/",
+              "children": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Gifts",
+      "url": null,
+      "children": [
+        {
+          "name": "Woman",
+          "url": null,
+          "children": [
+            {
+              "name": "Gifts For Her",
+              "url": "https://www.acnestudios.com/us/en/woman/gift-guide-selection/",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "Man",
+          "url": null,
+          "children": [
+            {
+              "name": "Gifts For Him",
+              "url": "https://www.acnestudios.com/us/en/man/gift-guide-selection/",
+              "children": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Sale",
+      "url": null,
+      "children": [
+        {
+          "name": "Woman",
+          "url": null,
+          "children": [
+            {
+              "name": "View all",
+              "url": "https://www.acnestudios.com/us/en/sale/woman/",
+              "children": []
+            },
+            {
+              "name": "Outerwear",
+              "url": "https://www.acnestudios.com/us/en/sale/woman/outerwear/",
+              "children": []
+            },
+            {
+              "name": "Suit jackets",
+              "url": "https://www.acnestudios.com/us/en/sale/woman/suit-jackets/",
+              "children": []
+            },
+            {
+              "name": "Knitwear",
+              "url": "https://www.acnestudios.com/us/en/sale/woman/knitwear/",
+              "children": []
+            },
+            {
+              "name": "Sweatshirts",
+              "url": "https://www.acnestudios.com/us/en/sale/woman/sweatshirts/",
+              "children": []
+            },
+            {
+              "name": "Blouses",
+              "url": "https://www.acnestudios.com/us/en/sale/woman/blouses/",
+              "children": []
+            },
+            {
+              "name": "T-shirts",
+              "url": "https://www.acnestudios.com/us/en/sale/woman/t-shirts/",
+              "children": []
+            },
+            {
+              "name": "Dresses",
+              "url": "https://www.acnestudios.com/us/en/sale/woman/dresses/",
+              "children": []
+            },
+            {
+              "name": "Jeans",
+              "url": "https://www.acnestudios.com/us/en/sale/woman/jeans/",
+              "children": []
+            },
+            {
+              "name": "Trousers",
+              "url": "https://www.acnestudios.com/us/en/sale/woman/trousers/",
+              "children": []
+            },
+            {
+              "name": "Shorts",
+              "url": "https://www.acnestudios.com/us/en/sale/woman/shorts/",
+              "children": []
+            },
+            {
+              "name": "Skirts",
+              "url": "https://www.acnestudios.com/us/en/sale/woman/skirts/",
+              "children": []
+            },
+            {
+              "name": "Shoes",
+              "url": "https://www.acnestudios.com/us/en/sale/woman/shoes/",
+              "children": []
+            },
+            {
+              "name": "Hats",
+              "url": "https://www.acnestudios.com/us/en/sale/woman/hats/",
+              "children": []
+            },
+            {
+              "name": "Accessories",
+              "url": "https://www.acnestudios.com/us/en/sale/woman/accessories/",
+              "children": []
+            },
+            {
+              "name": "Swimwear",
+              "url": "https://www.acnestudios.com/us/en/sale/woman/swimwear/",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "Man",
+          "url": null,
+          "children": [
+            {
+              "name": "View all",
+              "url": "https://www.acnestudios.com/us/en/sale/man/",
+              "children": []
+            },
+            {
+              "name": "Outerwear",
+              "url": "https://www.acnestudios.com/us/en/sale/man/outerwear/",
+              "children": []
+            },
+            {
+              "name": "Sweatshirts",
+              "url": "https://www.acnestudios.com/us/en/sale/man/sweatshirts/",
+              "children": []
+            },
+            {
+              "name": "T-shirts",
+              "url": "https://www.acnestudios.com/us/en/sale/man/t-shirts/",
+              "children": []
+            },
+            {
+              "name": "Knitwear",
+              "url": "https://www.acnestudios.com/us/en/sale/man/knitwear/",
+              "children": []
+            },
+            {
+              "name": "Shirts",
+              "url": "https://www.acnestudios.com/us/en/sale/man/shirts/",
+              "children": []
+            },
+            {
+              "name": "Suit jackets",
+              "url": "https://www.acnestudios.com/us/en/sale/man/suit-jackets/",
+              "children": []
+            },
+            {
+              "name": "Jeans",
+              "url": "https://www.acnestudios.com/us/en/sale/man/jeans/",
+              "children": []
+            },
+            {
+              "name": "Trousers",
+              "url": "https://www.acnestudios.com/us/en/sale/man/trousers/",
+              "children": []
+            },
+            {
+              "name": "Shorts",
+              "url": "https://www.acnestudios.com/us/en/sale/man/shorts/",
+              "children": []
+            },
+            {
+              "name": "Shoes",
+              "url": "https://www.acnestudios.com/us/en/sale/man/shoes/",
+              "children": []
+            },
+            {
+              "name": "Hats",
+              "url": "https://www.acnestudios.com/us/en/sale/man/hats/",
+              "children": []
+            },
+            {
+              "name": "Accessories",
+              "url": "https://www.acnestudios.com/us/en/sale/man/accessories/",
+              "children": []
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "stats": {
+    "total_categories": 139,
+    "max_depth": 3
+  }
+}

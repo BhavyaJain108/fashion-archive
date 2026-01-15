@@ -1,0 +1,26 @@
+{
+  "brand": "hm",
+  "url": "https://www2.hm.com/en_us/index.html",
+  "extraction_method": "next_data",
+  "data_path": "window.__NEXT_DATA__.props.pageProps.headerData.menuItems",
+  "requires_browser_context": true,
+  "subcategory_key": "children",
+  "url_template": "https://www2.hm.com{href}",
+  "filters": null,
+  "stats": {
+    "total_categories": 1495,
+    "max_depth": 7,
+    "top_level_count": 6,
+    "depth_distribution": {
+      "1": 6,
+      "2": 47,
+      "3": 268,
+      "4": 216,
+      "5": 550,
+      "6": 354,
+      "7": 54
+    }
+  },
+  "notes": "Next.js site - navigation embedded in __NEXT_DATA__ hydration payload. No separate API endpoint needed.",
+  "extraction_script": "async function extractNavigation() {\n  const dataPath = '__NEXT_DATA__.props.pageProps.headerData.menuItems';\n  const parts = dataPath.split('.');\n  let obj = window;\n  for (const part of parts) {\n    obj = obj?.[part];\n    if (!obj) return [];\n  }\n  \n  function buildTree(items) {\n    if (!items || !Array.isArray(items)) return [];\n    return items.map(item => ({\n      name: item.nodeName || item.name,\n      url: item.href ? (item.href.startsWith('http') ? item.href : 'https://www2.hm.com' + item.href) : null,\n      children: buildTree(item.children)\n    }));\n  }\n  \n  return buildTree(obj);\n}"
+}

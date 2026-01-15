@@ -1,0 +1,23 @@
+{
+  "brand": "zara",
+  "url": "https://www.zara.com/us/",
+  "method": "api",
+  "api_endpoint": "https://www.zara.com/us/en/categories?ajax=true",
+  "api_parser": "function parseNavigationAPI(response) {\n  const data = typeof response === 'string' ? JSON.parse(response) : response;\n  const results = [];\n  \n  if (!data.categories) return results;\n  \n  function extractCategory(category) {\n    const categoryItem = {\n      name: category.name || category.key,\n      url: '',\n      children: []\n    };\n    \n    // Build URL from SEO data if available\n    if (category.seo && category.seo.keyword) {\n      categoryItem.url = `https://www.zara.com/us/en/${category.seo.keyword}-l${category.seo.seoCategoryId}.html`;\n    }\n    \n    // Process subcategories recursively\n    if (category.subcategories && category.subcategories.length > 0) {\n      category.subcategories.forEach(subcat => {\n        const subItem = extractCategory(subcat);\n        if (subItem.name && !subItem.name.match(/^(THE NEW|PARTYWEAR|GIFTS|GIFT CARD)$/)) {\n          categoryItem.children.push(subItem);\n        }\n      });\n    }\n    \n    return categoryItem;\n  }\n  \n  // Process main categories\n  data.categories.forEach(category => {\n    const categoryItem = extractCategory(category);\n    if (categoryItem.name) {\n      results.push(categoryItem);\n    }\n  });\n  \n  return results;\n}",
+  "top_level_categories": [
+    "WOMAN",
+    "MAN",
+    "KIDS",
+    "ZARA HOME",
+    "50TH ANNIVERSARY",
+    "BEAUTY",
+    "MASSIMO DUTTI",
+    "ZARA PRE-OWNED",
+    "TRAVEL MODE"
+  ],
+  "stats": {
+    "total_categories": 9,
+    "max_depth": 2
+  },
+  "notes": "Zara uses a rich navigation API that loads when the main menu is opened. The API returns complete category hierarchy with SEO-friendly URLs. The menu trigger button must be clicked first to load the navigation data."
+}

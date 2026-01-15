@@ -1,0 +1,22 @@
+{
+  "brand": "eckhaus_latta",
+  "extracted_at": "2025-12-04T23:15:22.047552+00:00",
+  "url": "https://www.eckhauslatta.com/?gad_source=1&gad_campaignid=22058160211&gbraid=0AAAAADAlo_D0AgURCRoZaf3pl6fR-gJUU&gclid=CjwKCAiA_dDIBhB6EiwAvzc1cDYQXwDQTK0ZaC_pPuRtUQCacAhSWpyVHlaFbrG8tNgBxY_-1QqTbxoCjSsQAvD_BwE",
+  "method": "dom",
+  "tree": [
+    {
+      "name": "Collections",
+      "url": "https://www.eckhauslatta.com/collections/all-products",
+      "children": []
+    },
+    {
+      "name": "New Arrivals",
+      "url": "https://www.eckhauslatta.com/collections/new-arrivals",
+      "children": []
+    }
+  ],
+  "stats": {
+    "total_categories": 2,
+    "max_depth": 1
+  }
+}

@@ -87,5 +87,11 @@ data/user_data/
 # Logs
 logs/
 
-# Node modules cache
-web_ui/node_modules/.cache/
+# Node modules
+web_ui/node_modules/
+
+# Temp files
+z.txt
+
+# Nav extractions (large JSON/screenshots)
+backend/nav_v8/extractions/

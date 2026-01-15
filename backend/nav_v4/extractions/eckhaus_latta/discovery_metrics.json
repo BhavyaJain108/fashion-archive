@@ -1,0 +1,11 @@
+{
+  "brand": "eckhaus_latta",
+  "url": "https://www.eckhauslatta.com/?gad_source=1&gad_campaignid=22058160211&gbraid=0AAAAADAlo_D0AgURCRoZaf3pl6fR-gJUU&gclid=CjwKCAiA_dDIBhB6EiwAvzc1cDYQXwDQTK0ZaC_pPuRtUQCacAhSWpyVHlaFbrG8tNgBxY_-1QqTbxoCjSsQAvD_BwE",
+  "model": "claude-sonnet-4-20250514",
+  "success": true,
+  "total_input_tokens": 282995,
+  "total_output_tokens": 2325,
+  "total_turns": 15,
+  "duration_seconds": 78.42,
+  "cost_usd": 0.8839
+}

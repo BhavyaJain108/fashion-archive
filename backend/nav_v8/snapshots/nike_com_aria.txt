@@ -1,0 +1,328 @@
+URL: https://www.nike.com
+================================================================================
+
+- navigation "Global Navigation":
+  - link "Skip to main content":
+    - /url: "#skip-to-content"
+  - link "Accessibility at Nike":
+    - /url: https://www.nike.com/accessibility#introduction
+  - navigation "Brand Navigation":
+    - list:
+      - listitem:
+        - link "Jordan":
+          - /url: https://www.nike.com/jordan
+      - listitem:
+        - link "Converse":
+          - /url: https://www.nike.com/w/converse-akmjx
+  - navigation "User Navigation":
+    - list:
+      - listitem:
+        - link "Find a Store":
+          - /url: https://www.nike.com/retail
+      - listitem:
+        - link "Help":
+          - /url: https://www.nike.com/help
+        - group:
+          - menuitem "Help menu"
+      - listitem:
+        - link "Join Us":
+          - /url: https://www.nike.com/membership
+      - listitem:
+        - link "Sign In":
+          - /url: https://www.nike.com/register
+  - link "Nike Home Page":
+    - /url: https://www.nike.com
+  - navigation "Main Navigation":
+    - menu:
+      - listitem:
+        - link "Men":
+          - /url: https://www.nike.com/men
+        - group:
+          - menuitem "Men menu"
+      - listitem:
+        - link "Women":
+          - /url: https://www.nike.com/women
+        - group:
+          - menuitem "Women menu"
+      - listitem:
+        - link "Kids":
+          - /url: https://www.nike.com/kids
+        - group:
+          - menuitem "Kids menu"
+      - listitem:
+        - link "Jordan":
+          - /url: https://www.nike.com/jordan
+        - group:
+          - menuitem "Jordan menu"
+      - listitem:
+        - link "NikeSKIMS":
+          - /url: https://www.nike.com/nikeskims
+        - group:
+          - menuitem "NikeSKIMS menu"
+      - listitem:
+        - link "Sport":
+          - /url: https://www.nike.com/gear-up
+        - group:
+          - menuitem "Sport menu"
+      - listitem:
+        - link "Sale":
+          - /url: https://www.nike.com/w/sale-3yaep
+        - group:
+          - menuitem "Sale menu"
+  - search "Search Nike and Jordan products":
+    - button "Search"
+    - searchbox "Search Products"
+  - link "Favorites":
+    - /url: https://www.nike.com/favorites
+  - 'link "Bag Items: 0"':
+    - /url: https://www.nike.com/cart
+    - paragraph
+- main:
+  - figure "BRING THE ATTACK Stay on the offense with the latest Phantom and Mercurial from Nike Soccer. Explore":
+    - img "Nike. Just Do It"
+    - link "BRING THE ATTACK":
+      - /url: https://www.nike.com/w/the-attack-pack-adqh2
+    - heading "BRING THE ATTACK" [level=3]
+    - paragraph: Stay on the offense with the latest Phantom and Mercurial from Nike Soccer.
+    - link "Explore":
+      - /url: https://www.nike.com/w/the-attack-pack-adqh2
+  - figure "Jordan Trunner Off-Season Comfort Shop":
+    - img "Nike. Just Do It"
+    - link "Jordan Trunner Off-Season Comfort":
+      - /url: https://www.nike.com/w/jordan-flight-club-16v15
+    - paragraph: Jordan Trunner
+    - heading "Off-Season Comfort" [level=3]
+    - link "Shop":
+      - /url: https://www.nike.com/w/jordan-flight-club-16v15
+  - 'figure "Coming Soon: Nike Mind A Mind-Altering Shoe Explore"':
+    - img "Nike. Just Do It"
+    - 'link "Coming Soon: Nike Mind A Mind-Altering Shoe"':
+      - /url: https://www.nike.com/mind
+    - paragraph: "Coming Soon: Nike Mind"
+    - heading "A Mind-Altering Shoe" [level=3]
+    - link "Explore":
+      - /url: https://www.nike.com/mind
+  - list:
+    - listitem
+    - listitem
+    - listitem
+  - heading "SPOTLIGHT" [level=2]
+  - paragraph: Classic silhouettes and cutting-edge innovation to build your game from the ground up.
+  - link "Air Jordan 1":
+    - /url: https://www.nike.com/w/jordan-1-shoes-4fokyzy7ok
+  - link "Air Max":
+    - /url: https://www.nike.com/w/air-max-shoes-a6d8hzy7ok
+  - link "Graphic Tees":
+    - /url: https://www.nike.com/w/graphic-tees-a5cbi
+  - link "Dunk":
+    - /url: https://www.nike.com/w/dunk-shoes-90aohzy7ok
+  - link "Air Force 1":
+    - /url: https://www.nike.com/w/air-force-1-shoes-5sj3yzy7ok
+  - link "24.7 Collection":
+    - /url: https://www.nike.com/w/247-collection-asi8j
+  - link "Vomero 5":
+    - /url: https://www.nike.com/w/zoom-vomero-lifestyle-shoes-13jrmz7gee1zy7ok
+  - link "Shox":
+    - /url: https://www.nike.com/w/shox-shoes-7e8jqzy7ok
+  - link "ACG":
+    - /url: https://www.nike.com/w/acg-clothing-6ymx6z93bsd
+  - link "Rejuven8":
+    - /url: https://www.nike.com/w/nike-rejuven8-shoes-a2h2lzy7ok
+  - link "Vomero Plus":
+    - /url: https://www.nike.com/w/zoom-vomero-running-shoes-37v7jz7gee1zy7ok
+  - link "Pegasus Premium":
+    - /url: https://www.nike.com/w/pegasus-shoes-8nexhzy7ok
+  - link "Fan Gear":
+    - /url: https://www.nike.com/w/fan-gear-b170o
+  - link "Jordan Retro":
+    - /url: https://www.nike.com/w/jordan-heat-check-1n7xt
+  - link "Lebron XXIII":
+    - /url: https://www.nike.com/w/lebron-7y57x
+  - link "Tatum 4":
+    - /url: https://www.nike.com/w/jordan-basketball-shoes-37eefz3glsmzy7ok
+  - figure:
+    - img "Nike. Just Do It"
+  - navigation "secondary":
+    - heading [level=1]
+    - list:
+      - listitem:
+        - link "Find a Store":
+          - /url: https://www.nike.com/retail
+      - listitem:
+        - link "Help":
+          - /url: https://www.nike.com/help
+      - listitem:
+        - link "Join Us":
+          - /url: https://www.nike.com/membership
+      - listitem:
+        - link "Sign In":
+          - /url: https://accounts.nike.com/lookup?client_id=4fd2d5e7db76e0f85a6bb56721bd51df&redirect_uri=https://www.nike.com/auth/login&response_type=code&scope=openid%20nike.digital%20profile%20email%20phone%20flow%20country&state=c07118da23994007bf8cf3a80ed5bf07&code_challenge=b_EJ1OFSBzs_OPL5rTE8pVBc8kddKnXtIgLvb0QNhS8&code_challenge_method=S256
+  - heading "Featured" [level=4]:
+    - button "Featured"
+  - list:
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+  - heading "Shoes" [level=4]:
+    - button "Shoes"
+  - list:
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+  - heading "Clothing" [level=4]:
+    - button "Clothing"
+  - list:
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+  - heading "Kids" [level=4]:
+    - button "Kids"
+  - list:
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+    - listitem
+- contentinfo:
+  - link "Resources":
+    - /url: https://www.nike.com/help
+    - paragraph: Resources
+  - link "Gift Cards":
+    - /url: https://www.nike.com/gift-cards
+    - paragraph: Gift Cards
+  - link "Find a Store":
+    - /url: https://www.nike.com/retail
+    - paragraph: Find a Store
+  - link "Membership":
+    - /url: https://www.nike.com/membership
+    - paragraph: Membership
+  - link "Nike Journal":
+    - /url: https://www.nike.com/stories
+    - paragraph: Nike Journal
+  - link "Site Feedback":
+    - /url: "#site-feedback"
+    - paragraph: Site Feedback
+  - link "Help":
+    - /url: https://www.nike.com/help
+    - paragraph: Help
+  - link "Get Help":
+    - /url: https://www.nike.com/help
+    - paragraph: Get Help
+  - link "Order Status":
+    - /url: https://www.nike.com/orders/details/
+    - paragraph: Order Status
+  - link "Shipping and Delivery":
+    - /url: https://www.nike.com/help/a/shipping-delivery
+    - paragraph: Shipping and Delivery
+  - link "Returns":
+    - /url: https://www.nike.com/help/a/returns-policy
+    - paragraph: Returns
+  - link "Order Cancellation":
+    - /url: https://www.nike.com/help/a/change-cancel-order
+    - paragraph: Order Cancellation
+  - link "Payment Options":
+    - /url: https://www.nike.com/help/a/payment-options
+    - paragraph: Payment Options
+  - link "Gift Card Balance":
+    - /url: https://www.nike.com/orders/gift-card-lookup
+    - paragraph: Gift Card Balance
+  - link "Contact Us":
+    - /url: https://www.nike.com/help/#contact
+    - paragraph: Contact Us
+  - link "Company":
+    - /url: https://about.nike.com/en
+    - paragraph: Company
+  - link "About Nike":
+    - /url: https://about.nike.com/en
+    - paragraph: About Nike
+  - link "News":
+    - /url: http://news.nike.com/
+    - paragraph: News
+  - link "Careers":
+    - /url: https://jobs.nike.com/
+    - paragraph: Careers
+  - link "Investors":
+    - /url: http://investors.nike.com/
+    - paragraph: Investors
+  - link "Purpose":
+    - /url: https://purpose.nike.com/
+    - paragraph: Purpose
+  - link "Sustainability":
+    - /url: https://www.nike.com/sustainability
+    - paragraph: Sustainability
+  - link "Accessibility":
+    - /url: https://www.nike.com/us/en/accessibility/#introduction
+    - paragraph: Accessibility
+  - link "Promotions & Discounts":
+    - /url: https://www.nike.com/promo-code
+    - paragraph: Promotions & Discounts
+  - link "Student":
+    - /url: https://www.nike.com/help/a/student-discount
+    - paragraph: Student
+  - link "Military":
+    - /url: https://www.nike.com/help/a/military-discount
+    - paragraph: Military
+  - link "Teacher":
+    - /url: https://www.nike.com/help/a/teacher-discount
+    - paragraph: Teacher
+  - link "First Responders & Medical Professionals":
+    - /url: https://www.nike.com/help/a/first-responder-discount
+    - paragraph: First Responders & Medical Professionals
+  - link "Birthday":
+    - /url: https://www.nike.com/help/a/birthday-terms-promo
+    - paragraph: Birthday
+  - 'button "Selected Location: United States"': United States
+  - list "sub footer":
+    - listitem:
+      - paragraph: © 2026 Nike, Inc. All Rights Reserved
+    - listitem:
+      - group:
+        - menuitem "Guides menu":
+          - paragraph: Guides
+    - listitem:
+      - link "Terms of Sale":
+        - /url: https://agreementservice.svs.nike.com/us/en_us/rest/agreement?agreementType=termsOfSale&uxId=com.nike.commerce.nikedotcom.web&country=US&language=en&requestType=redirect
+        - paragraph: Terms of Sale
+    - listitem:
+      - link "Terms of Use":
+        - /url: https://agreementservice.svs.nike.com/us/en_us/rest/agreement?agreementType=termsOfUse&uxId=com.nike.commerce.nikedotcom.web&country=US&language=en&requestType=redirect
+        - paragraph: Terms of Use
+    - listitem:
+      - link "Nike Privacy Policy":
+        - /url: https://agreementservice.svs.nike.com/rest/agreement?agreementType=privacyPolicy&uxId=com.nike.commerce.nikedotcom.web&country=US&language=en&requestType=redirect
+        - paragraph: Nike Privacy Policy
+    - listitem:
+      - link "Your Privacy Choices":
+        - /url: https://www.nike.com/guest/settings/do-not-share-my-data
+        - paragraph: Your Privacy Choices
+    - listitem:
+      - link "CA Supply Chains Act":
+        - /url: https://about.nike.com/en/impact-resources/statement-on-forced-labor
+        - paragraph: CA Supply Chains Act
+- alert

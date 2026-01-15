@@ -1,0 +1,11 @@
+{
+  "brand": "zara",
+  "url": "https://www.zara.com/us/",
+  "model": "claude-sonnet-4-20250514",
+  "success": true,
+  "total_input_tokens": 97202,
+  "total_output_tokens": 1285,
+  "total_turns": 8,
+  "duration_seconds": 41.66,
+  "cost_usd": 0.3109
+}

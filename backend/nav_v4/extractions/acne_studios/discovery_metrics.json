@@ -1,0 +1,13 @@
+{
+  "brand": "acne_studios",
+  "url": "https://www.acnestudios.com/us/en/home",
+  "model": "claude-sonnet-4-20250514",
+  "started_at": "2025-12-04T16:32:46.712434+00:00",
+  "total_input_tokens": 509961,
+  "total_output_tokens": 8958,
+  "total_turns": 25,
+  "cost_usd": 1.6643,
+  "duration_seconds": 190.47,
+  "success": true,
+  "completed_at": "2025-12-04T16:35:57.183577+00:00"
+}

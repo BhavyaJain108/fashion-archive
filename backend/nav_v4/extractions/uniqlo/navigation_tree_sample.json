@@ -1,0 +1,72 @@
+{
+  "brand": "uniqlo",
+  "extracted_at": "2025-12-04T09:15:00.000Z",
+  "note": "Full tree has 2036 categories - this is a sample showing structure",
+  "top_level_categories": [
+    "WOMEN",
+    "MEN",
+    "KIDS",
+    "BABY"
+  ],
+  "sample_tree": [
+    {
+      "name": "WOMEN",
+      "id": 22210,
+      "key": "women",
+      "url": "https://www.uniqlo.com/us/en/women",
+      "children": [
+        {
+          "name": "Outerwear",
+          "key": "outerwear-and-blazers",
+          "url": "https://www.uniqlo.com/us/en/women/outerwear-and-blazers",
+          "children": [
+            {"name": "Down Jackets & Coats", "key": "down-jackets-and-coats"},
+            {"name": "Jackets & Parkas", "key": "jackets-and-parkas"},
+            {"name": "Coats", "key": "coats"},
+            {"name": "PUFFTECH", "key": "pufftech"},
+            {"name": "Lightweight Puffers", "key": "ultra-light-down"},
+            {"name": "Blazers", "key": "blazers"},
+            "... (more categories, each with subcategories)"
+          ]
+        },
+        {"name": "T-Shirts, Fleece & Sweats", "key": "tops", "children": "..."},
+        {"name": "Sweaters & Cardigans", "key": "sweaters", "children": "..."},
+        {"name": "Shirts & Blouses", "key": "shirts-and-blouses", "children": "..."},
+        {"name": "Bottoms", "key": "bottoms", "children": "..."},
+        {"name": "Dresses & Skirts", "key": "dresses-and-skirts", "children": "..."},
+        {"name": "Innerwear & Underwear", "key": "innerwear-and-underwear", "children": "..."},
+        {"name": "Loungewear & Home", "key": "loungewear-and-home", "children": "..."},
+        {"name": "Accessories", "key": "accessories-and-shoes", "children": "..."},
+        {"name": "HEATTECH", "key": "heattech", "children": "..."},
+        {"name": "AIRism", "key": "airism", "children": "..."},
+        {"name": "Sport Utility Wear", "key": "sport-utility-wear", "children": "..."},
+        {"name": "Special Collaborations", "key": "special-collaboration", "children": "..."}
+      ]
+    },
+    {
+      "name": "MEN",
+      "id": 22211,
+      "key": "men",
+      "children": ["... (similar structure to WOMEN)"]
+    },
+    {
+      "name": "KIDS",
+      "id": 22212,
+      "key": "kids",
+      "children": ["... (kid-specific categories)"]
+    },
+    {
+      "name": "BABY",
+      "id": 22213,
+      "key": "baby",
+      "children": ["... (baby-specific categories)"]
+    }
+  ],
+  "extraction_info": {
+    "method": "redux_state",
+    "data_path": "window.__PRELOADED_STATE__.taxonomies",
+    "total_categories": 2036,
+    "requires_browser": true,
+    "structure_type": "inverse_parent_references"
+  }
+}
