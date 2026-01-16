@@ -44,6 +44,9 @@ EXTRACT_PROMPT = """Extract the product information from this script content.
 
 Look for product data including: title, price, variants (with size, color, availability, stock count), images, description.
 
+IMPORTANT: If a field is not found, use null (not strings like "unknown" or "N/A").
+Price must be a number or null.
+
 Script content:
 """
 
@@ -87,9 +90,17 @@ class EmbeddedJsonStrategy(BaseStrategy):
             return False
         if not page_data or not page_data.html:
             return False
-        # Look for scripts with product indicators
-        html = page_data.html
-        return ('variants' in html.lower() and 'price' in html.lower())
+        # Look for scripts with product indicators (various terminology)
+        html = page_data.html.lower()
+        has_product_data = 'price' in html and (
+            'variants' in html or
+            'variant' in html or
+            'size' in html or
+            'sizes' in html or
+            'productdetail' in html or
+            '__next_data__' in html
+        )
+        return has_product_data
 
     def _find_product_script(self, html: str) -> Optional[str]:
         """Find the script most likely to contain product data."""
@@ -99,6 +110,13 @@ class EmbeddedJsonStrategy(BaseStrategy):
         best_script = None
         best_score = 0
 
+        # First check for __NEXT_DATA__ which is a strong indicator
+        next_data = soup.find('script', id='__NEXT_DATA__')
+        if next_data and next_data.string:
+            text = next_data.string.lower()
+            if 'price' in text and ('product' in text or 'size' in text):
+                return next_data.string
+
         for script in soup.find_all('script'):
             if not script.string:
                 continue
@@ -107,16 +125,18 @@ class EmbeddedJsonStrategy(BaseStrategy):
             # Score based on product-related keywords
             score = 0
             if 'variants' in text: score += 3
+            if 'variant' in text: score += 2
             if 'price' in text: score += 2
             if 'title' in text: score += 1
             if 'inventory' in text: score += 2
             if 'shopify' in text: score += 2
-            if 'product' in text: score += 1
+            if 'product' in text: score += 2
+            if 'size' in text: score += 2
+            if 'sku' in text: score += 1
 
-            # Penalize very short or very long scripts
+            # Penalize very short scripts
             length = len(script.string)
             if length < 500: score -= 2
-            if length > 50000: score -= 1
 
             if score > best_score:
                 best_score = score

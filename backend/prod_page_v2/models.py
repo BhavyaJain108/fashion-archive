@@ -24,6 +24,7 @@ class ExtractionStrategy(Enum):
     SHOPIFY_GRAPHQL = "shopify_graphql"
     LD_JSON = "ld_json"
     API_INTERCEPT = "api_intercept"
+    LLM_SCHEMA = "llm_schema"
     HTML_META = "html_meta"
     DOM_FALLBACK = "dom_fallback"
 

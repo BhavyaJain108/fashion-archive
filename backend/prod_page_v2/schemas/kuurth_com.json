@@ -1,0 +1,13 @@
+{
+  "name": null,
+  "price": null,
+  "currency": "[4].geolocation.currency",
+  "images": null,
+  "description": null,
+  "variants": {
+    "source": null,
+    "size": null,
+    "available": null,
+    "stock_count": null
+  }
+}

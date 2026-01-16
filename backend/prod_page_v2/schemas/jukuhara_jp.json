@@ -1,0 +1,13 @@
+{
+  "name": "[2].products[0].title",
+  "price": "[2].products[0].variants[0].price",
+  "currency": null,
+  "images": null,
+  "description": "[2].products[0].body_html",
+  "variants": {
+    "source": "[2].products[0].variants",
+    "size": "title",
+    "available": "available",
+    "stock_count": null
+  }
+}

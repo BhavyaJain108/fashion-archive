@@ -1,0 +1,13 @@
+{
+  "name": null,
+  "price": null,
+  "currency": "[2].currency",
+  "images": null,
+  "description": null,
+  "variants": {
+    "source": null,
+    "size": null,
+    "available": null,
+    "stock_count": null
+  }
+}

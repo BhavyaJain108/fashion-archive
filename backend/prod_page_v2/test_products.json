@@ -5,9 +5,9 @@
       "name": "Uniqlo",
       "domain": "uniqlo.com",
       "products": [
-        {"url": "https://www.uniqlo.com/us/en/products/E450314-000/00", "category": "tops", "note": "t-shirt"},
-        {"url": "https://www.uniqlo.com/us/en/products/E463570-000/00", "category": "outerwear", "note": "jacket"},
-        {"url": "https://www.uniqlo.com/us/en/products/E459619-000/00", "category": "bottoms", "note": "pants"}
+        {"url": "https://www.uniqlo.com/us/en/products/E478577-000/00", "category": "outerwear", "note": "jacket"},
+        {"url": "https://www.uniqlo.com/us/en/products/E459619-000/00", "category": "outerwear", "note": "jacket"},
+        {"url": "https://www.uniqlo.com/us/en/products/E483545-000/00", "category": "kids", "note": "dresses"}
       ]
     },
     {

@@ -1,0 +1,13 @@
+{
+  "name": "[4].selectedColor.name",
+  "price": "[1][0].salePriceValue",
+  "currency": "[1][0].currencyCode",
+  "images": "[4].selectedColor.images",
+  "description": null,
+  "variants": {
+    "source": "[3].skuAvailabilities",
+    "size": "id",
+    "available": "inStock",
+    "stock_count": "itemsLeft"
+  }
+}

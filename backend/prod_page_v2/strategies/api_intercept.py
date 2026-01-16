@@ -69,7 +69,7 @@ class ApiInterceptStrategy(BaseStrategy):
         return self._find_best_product_response(page_data.json_responses) is not None
 
     def _find_best_product_response(self, responses: Dict[str, Any]) -> Optional[dict]:
-        """Find the API response most likely to contain product data."""
+        """Find and merge API responses containing product data."""
         candidates = []
 
         for api_url, data in responses.items():
@@ -85,8 +85,45 @@ class ApiInterceptStrategy(BaseStrategy):
         if not candidates:
             return None
 
-        # Return highest scoring response
+        # Sort by score
         candidates.sort(key=lambda x: x[0], reverse=True)
+
+        # Try to merge complementary responses (content-based detection)
+        merged = {}
+        for score, data, api_url in candidates:
+            # Detect by content, not URL pattern
+            if isinstance(data, dict):
+                # Product info response: has selectedColor with name/images (Kering pattern)
+                if 'selectedColor' in data and isinstance(data['selectedColor'], dict):
+                    selected = data['selectedColor']
+                    if 'name' in selected or 'images' in selected:
+                        merged.update(selected)
+                    if 'sizes' in data:
+                        merged['sizes'] = data['sizes']
+                # Availability response: has skuAvailabilities list
+                elif 'skuAvailabilities' in data and isinstance(data['skuAvailabilities'], list):
+                    merged['skuAvailabilities'] = data['skuAvailabilities']
+                    if 'inStock' in data:
+                        merged['inStock'] = data['inStock']
+
+            # Price response: list with salePriceValue/listPriceValue
+            elif isinstance(data, list) and data:
+                first = data[0]
+                if isinstance(first, dict):
+                    if 'salePriceValue' in first:
+                        merged['price'] = first['salePriceValue']
+                        if 'currencyCode' in first:
+                            merged['currency'] = first['currencyCode']
+                    elif 'listPriceValue' in first:
+                        merged['price'] = first['listPriceValue']
+                        if 'currencyCode' in first:
+                            merged['currency'] = first['currencyCode']
+
+        # If we merged data and got a name, use merged result
+        if merged and 'name' in merged:
+            return merged
+
+        # Otherwise return the single best response
         return candidates[0][1]
 
     def _is_tracking_domain(self, url: str) -> bool:
@@ -257,7 +294,34 @@ class ApiInterceptStrategy(BaseStrategy):
     def _find_variants(self, data: dict) -> List[Variant]:
         """Find variants in data."""
         variants = []
-        variant_keys = ['variants', 'sizes', 'skuAvailabilities', 'l2s']
+
+        # Alexander McQueen pattern: sizes + skuAvailabilities merged by id
+        if 'sizes' in data and isinstance(data['sizes'], list):
+            sizes = data['sizes']
+            # Build availability lookup by id
+            avail_map = {}
+            if 'skuAvailabilities' in data and isinstance(data['skuAvailabilities'], list):
+                for avail in data['skuAvailabilities']:
+                    if isinstance(avail, dict) and 'id' in avail:
+                        avail_map[str(avail['id'])] = avail
+
+            for size_item in sizes:
+                if not isinstance(size_item, dict):
+                    continue
+                size_id = str(size_item.get('id', ''))
+                avail_info = avail_map.get(size_id, {})
+
+                variants.append(Variant(
+                    size=size_item.get('displayValue') or size_item.get('value'),
+                    sku=size_id,
+                    available=avail_info.get('inStock'),
+                    stock_count=avail_info.get('itemsLeft'),
+                ))
+            if variants:
+                return variants
+
+        # Standard variant patterns
+        variant_keys = ['variants', 'skuAvailabilities', 'l2s']
 
         for key in variant_keys:
             if key not in data:
@@ -275,7 +339,7 @@ class ApiInterceptStrategy(BaseStrategy):
                             sku=item.get('sku') or item.get('id'),
                             price=self._parse_price(item.get('price')),
                             available=item.get('available') or item.get('availableForSale') or item.get('inStock'),
-                            stock_count=item.get('inventory_quantity') or item.get('quantity'),
+                            stock_count=item.get('inventory_quantity') or item.get('quantity') or item.get('itemsLeft'),
                         ))
 
             # Handle dict of variants (keyed by SKU)

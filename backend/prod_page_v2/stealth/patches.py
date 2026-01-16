@@ -7,14 +7,8 @@ Based on understanding of what Cloudflare and similar services check.
 
 # JavaScript to inject before page load that patches detection vectors
 STEALTH_JS = """
-// 1. Remove webdriver flag
-Object.defineProperty(navigator, 'webdriver', {
-    get: () => undefined,
-    configurable: true
-});
-
-// Also delete it from the prototype
-delete Navigator.prototype.webdriver;
+// 1. Webdriver is handled by --disable-blink-features=AutomationControlled
+// DO NOT patch it with JS - that re-adds the property and makes detection easier!
 
 // 2. Mock plugins array (real Chrome has these)
 Object.defineProperty(navigator, 'plugins', {

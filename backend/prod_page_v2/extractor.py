@@ -19,6 +19,7 @@ from strategies import (
     ShopifyStrategy, ShopifyGraphQLStrategy, LdJsonStrategy,
     ApiInterceptStrategy, HtmlMetaStrategy, EmbeddedJsonStrategy
 )
+from strategies.llm_schema import LlmSchemaStrategy
 from page_loader import load_page
 
 
@@ -117,8 +118,9 @@ class ProductExtractor:
             ShopifyGraphQLStrategy(), # Storefront GraphQL API
             LdJsonStrategy(),         # LD+JSON in HTML
             ApiInterceptStrategy(),   # Captured API responses
-            EmbeddedJsonStrategy(),   # Embedded JSON in scripts (Next.js/React SSR)
-            HtmlMetaStrategy(),       # HTML meta tags (fallback)
+            LlmSchemaStrategy(),      # LLM-discovered API schema (universal)
+            EmbeddedJsonStrategy(),   # LLM parses embedded scripts (fallback)
+            HtmlMetaStrategy(),       # HTML meta tags (last resort)
         ]
 
     def _get_contributed_fields(self, product: Product) -> Set[str]:
