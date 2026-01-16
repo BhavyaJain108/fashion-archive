@@ -1,0 +1,13 @@
+{
+  "name": null,
+  "price": null,
+  "currency": "[4].selection.currency",
+  "images": "[3].themes[0].items[0].images",
+  "description": "[3].themes[0].items[0].description",
+  "variants": {
+    "source": "[1].data.1315149001001.product.items",
+    "size": "name",
+    "available": "stock",
+    "stock_count": "stockQuantity"
+  }
+}

@@ -50,17 +50,22 @@ class PaginationAnalysis(BaseModel):
 class LLMHandler:
     """
     Generic handler for LLM interactions.
-    
+
     Simple utility that:
     - Takes a prompt and expected output format
     - Returns parsed JSON response
-    - Tracks latency
+    - Tracks latency and token usage
     """
-    
+
+    # Class-level usage tracking (shared across all instances)
+    _total_input_tokens = 0
+    _total_output_tokens = 0
+    _call_count = 0
+
     def __init__(self, model: str = "claude-sonnet-4-20250514"):
         """
         Initialize LLM Handler
-        
+
         Args:
             model: Claude model to use (default: Sonnet 3.5 for quality)
         """
@@ -70,6 +75,40 @@ class LLMHandler:
         else:
             self.client = None
             print("⚠️  ClaudeInterface not available - WebFetch calls will be used")
+
+    @classmethod
+    def get_total_usage(cls) -> Dict[str, Any]:
+        """Get cumulative token usage across all calls."""
+        # Claude Sonnet 4 pricing (per 1M tokens)
+        INPUT_COST_PER_M = 3.0   # $3 per 1M input tokens
+        OUTPUT_COST_PER_M = 15.0  # $15 per 1M output tokens
+
+        input_cost = (cls._total_input_tokens / 1_000_000) * INPUT_COST_PER_M
+        output_cost = (cls._total_output_tokens / 1_000_000) * OUTPUT_COST_PER_M
+
+        return {
+            "input_tokens": cls._total_input_tokens,
+            "output_tokens": cls._total_output_tokens,
+            "total_tokens": cls._total_input_tokens + cls._total_output_tokens,
+            "call_count": cls._call_count,
+            "estimated_cost_usd": round(input_cost + output_cost, 4),
+            "input_cost_usd": round(input_cost, 4),
+            "output_cost_usd": round(output_cost, 4),
+        }
+
+    @classmethod
+    def reset_usage(cls):
+        """Reset usage counters."""
+        cls._total_input_tokens = 0
+        cls._total_output_tokens = 0
+        cls._call_count = 0
+
+    def _track_usage(self, usage: Optional[Dict[str, int]]):
+        """Track usage from a call."""
+        if usage:
+            LLMHandler._total_input_tokens += usage.get('input_tokens', 0)
+            LLMHandler._total_output_tokens += usage.get('output_tokens', 0)
+            LLMHandler._call_count += 1
     
     def call(self, prompt: str, expected_format: str = "json", response_model: BaseModel = None, max_tokens: int = 8192, max_retries: int = 4, debug: bool = False) -> Dict[str, Any]:
         """
@@ -145,22 +184,32 @@ class LLMHandler:
                         else:
                             result = response
 
+                        # Get token usage if available
+                        usage = self.client.get_last_usage() if hasattr(self.client, 'get_last_usage') else None
+                        self._track_usage(usage)
+
                         return {
                             "data": result,
                             "latency_ms": latency_ms,
                             "success": True,
-                            "attempts": attempt + 1
+                            "attempts": attempt + 1,
+                            "usage": usage
                         }
                     else:
                         # Regular text generation
                         response = self.client.generate(prompt, max_tokens=max_tokens)
                         latency_ms = (time.time() - start_time) * 1000
-                        
+
+                        # Get token usage if available
+                        usage = self.client.get_last_usage() if hasattr(self.client, 'get_last_usage') else None
+                        self._track_usage(usage)
+
                         return {
                             "response": response,
                             "latency_ms": latency_ms,
                             "success": True,
-                            "attempts": attempt + 1
+                            "attempts": attempt + 1,
+                            "usage": usage
                         }
                 else:
                     raise NotImplementedError("No LLM client available - use WebFetch externally")

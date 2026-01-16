@@ -146,6 +146,52 @@ class ProductExtractor:
             fields.add('category')
         return fields
 
+    def _compute_minimal_strategies(self, contributions: List[StrategyContribution]) -> List[StrategyContribution]:
+        """
+        Compute the minimal set of strategies needed to cover all available fields.
+
+        Algorithm (greedy set cover):
+        1. Sort by score (highest first)
+        2. For each strategy, check what NEW fields it provides (not already covered)
+        3. Only keep strategies that provide at least one new field
+        4. Skip strategies that only provide fields already covered by higher-scoring ones
+
+        Returns:
+            Minimal list of StrategyContribution, each with only the fields it's responsible for
+        """
+        if not contributions:
+            return []
+
+        # Sort by score descending
+        sorted_contribs = sorted(contributions, key=lambda c: c.score, reverse=True)
+
+        minimal_set = []
+        covered_fields = set()
+
+        print(f"\n  [MINIMAL SET] Computing optimal strategy set:")
+
+        for contrib in sorted_contribs:
+            # What new fields does this strategy provide?
+            new_fields = contrib.fields - covered_fields
+
+            if new_fields:
+                # This strategy provides value - include it
+                minimal_contrib = StrategyContribution(
+                    strategy=contrib.strategy,
+                    fields=new_fields,  # Only the NEW fields it uniquely provides
+                    score=contrib.score
+                )
+                minimal_set.append(minimal_contrib)
+                covered_fields.update(new_fields)
+
+                print(f"    ✓ {contrib.strategy.value} (score {contrib.score}): +{', '.join(sorted(new_fields))}")
+            else:
+                print(f"    ✗ {contrib.strategy.value} (score {contrib.score}): SKIPPED (all fields already covered)")
+
+        print(f"  [MINIMAL SET] Result: {len(minimal_set)} strategies (was {len(contributions)})")
+
+        return minimal_set
+
     def _merge_products(self, results: List[ExtractionResult], url: str) -> Product:
         """Merge multiple extraction results into one product."""
         # Sort by score (highest first) - higher score = more trustworthy
@@ -422,12 +468,12 @@ class ProductExtractor:
             print(f"\n❌ Verification failed for {domain}")
             return None
 
-        # Create config with only strategies that contributed fields
-        active_contributions = [c for c in contributions if c.fields]
+        # Create config with MINIMAL strategy set (skip redundant strategies)
+        minimal_contributions = self._compute_minimal_strategies(contributions)
 
         config = MultiStrategyConfig(
             domain=domain,
-            contributions=active_contributions,
+            contributions=minimal_contributions,
             verified=True,
             discovery_url=product_urls[0],
             verification_url=product_urls[1],

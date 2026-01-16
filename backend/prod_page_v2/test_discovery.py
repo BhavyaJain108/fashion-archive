@@ -13,12 +13,36 @@ import asyncio
 import json
 import time
 import argparse
+import sys
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 from collections import defaultdict
 
+from tabulate import tabulate
+
+# Add paths for imports (must match what strategies use)
+sys.path.insert(0, str(Path(__file__).parent))  # prod_page_v2
+sys.path.insert(0, str(Path(__file__).parent.parent))  # backend
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))  # project root (for backend.scraper.*)
+
 from extractor import ProductExtractor, MultiStrategyConfig, StrategyContribution
 from models import Product, ExtractionResult, ExtractionStrategy
+
+# Import LLMHandler for cost tracking (MUST use same path as strategies to share class-level counters)
+try:
+    from backend.scraper.llm_handler import LLMHandler
+    HAS_LLM_TRACKING = True
+    print(f"  [DEBUG] LLMHandler imported from backend.scraper.llm_handler")
+except ImportError as e:
+    print(f"  [DEBUG] Failed to import from backend.scraper: {e}")
+    try:
+        from scraper.llm_handler import LLMHandler
+        HAS_LLM_TRACKING = True
+        print(f"  [DEBUG] LLMHandler imported from scraper.llm_handler (WARNING: may not share counters)")
+    except ImportError:
+        HAS_LLM_TRACKING = False
+        LLMHandler = None
+        print(f"  [DEBUG] LLMHandler not available")
 
 
 def section(title: str):
@@ -119,12 +143,23 @@ async def run_discovery_phase(
         print(f"  Domain: {domain}")
         print(f"  URL: {first_url}")
 
+        # Reset LLM usage tracking before this URL
+        if HAS_LLM_TRACKING:
+            LLMHandler.reset_usage()
+
         # Time the discovery
         start_time = time.perf_counter()
         contributions, extraction_results = await extractor.discover(first_url)
         discovery_time = time.perf_counter() - start_time
 
+        # Get LLM usage for this URL
+        llm_usage = None
+        if HAS_LLM_TRACKING:
+            llm_usage = LLMHandler.get_total_usage()
+
         print(f"\n  Time: {discovery_time:.2f}s")
+        if llm_usage and llm_usage['call_count'] > 0:
+            print(f"  LLM Calls: {llm_usage['call_count']}, Tokens: {llm_usage['total_tokens']:,}, Cost: ${llm_usage['estimated_cost_usd']:.4f}")
 
         # Get the primary strategy (highest score)
         primary_strategy = None
@@ -153,13 +188,17 @@ async def run_discovery_phase(
             "merged_product": merged_product,
             "primary_strategy": primary_strategy,
             "urls": [p["url"] for p in brand_data["products"]],
+            "llm_usage": llm_usage,
         }
 
-        # Save config for verification phase
+        # Save config for verification phase - use MINIMAL strategy set
         if contributions:
+            # Compute minimal set (skip redundant strategies)
+            minimal_contributions = extractor._compute_minimal_strategies(contributions)
+
             config = MultiStrategyConfig(
                 domain=domain,
-                contributions=contributions,
+                contributions=minimal_contributions,
                 verified=True,  # Mark as verified so extract_single uses only active strategies
                 discovery_url=first_url,
             )
@@ -206,20 +245,33 @@ async def run_verification_phase(
 
         verification_times = []
         verification_products = []
+        verification_costs = []
 
         # Test on URLs 2 and 3
         for i, url in enumerate(urls[1:], start=2):
             print(f"\n  --- URL {i} ---")
             print(f"  URL: {url}")
 
+            # Reset LLM usage tracking before this URL
+            if HAS_LLM_TRACKING:
+                LLMHandler.reset_usage()
+
             start_time = time.perf_counter()
             result = await extractor.extract_single(url, config)
             verify_time = time.perf_counter() - start_time
 
+            # Get LLM usage for this URL
+            url_llm_usage = None
+            if HAS_LLM_TRACKING:
+                url_llm_usage = LLMHandler.get_total_usage()
+
             verification_times.append(verify_time)
+            verification_costs.append(url_llm_usage)
 
             speedup = discovery_time / verify_time if verify_time > 0 else 0
             print(f"  Time: {verify_time:.2f}s (Discovery was {discovery_time:.2f}s → {speedup:.1f}x faster)")
+            if url_llm_usage and url_llm_usage['call_count'] > 0:
+                print(f"  LLM Calls: {url_llm_usage['call_count']}, Tokens: {url_llm_usage['total_tokens']:,}, Cost: ${url_llm_usage['estimated_cost_usd']:.4f}")
 
             print("\n  PRODUCT DATA:")
             if result.success and result.product:
@@ -234,6 +286,7 @@ async def run_verification_phase(
             "products": verification_products,
             "discovery_time": discovery_time,
             "avg_verification_time": sum(verification_times) / len(verification_times) if verification_times else 0,
+            "llm_costs": verification_costs,
         }
 
     return verification_results
@@ -278,15 +331,75 @@ def print_summary(
 
     # Completeness scores
     print("\n  EXTRACTION COMPLETENESS:")
-    print(f"    {'Brand':<25} | {'Score':>5} | Missing Fields")
-    print(f"    {'-'*25}-+-{'-'*5}-+-{'-'*30}")
-
+    completeness_rows = []
     for brand_name, data in discovery_results.items():
         product = data["merged_product"]
         score = product.completeness_score() if product.name else 0
         missing = product.missing_fields.to_list() if product.name else ["all"]
         missing_str = ', '.join(missing) if missing else '-'
-        print(f"    {brand_name:<25} | {score:>5} | {missing_str}")
+        completeness_rows.append([brand_name, score, missing_str])
+
+    print(tabulate(completeness_rows, headers=["Brand", "Score", "Missing Fields"], tablefmt="simple_outline"))
+
+    # Cost & Latency summary table
+    print("\n  COST & LATENCY SUMMARY:")
+
+    total_cost = 0.0
+    total_tokens = 0
+    cost_rows = []
+
+    for brand_name, data in discovery_results.items():
+        # Discovery time and cost
+        d_time = data.get("discovery_time", 0)
+        d_usage = data.get("llm_usage")
+        d_cost = d_usage['estimated_cost_usd'] if d_usage and d_usage['call_count'] > 0 else 0.0
+        d_tokens = d_usage['total_tokens'] if d_usage else 0
+        d_cost_str = f"${d_cost:.4f}" if d_cost > 0 else "-"
+
+        # Verification times and costs
+        v_data = verification_results.get(brand_name, {})
+        v_times = v_data.get("times", [])
+        v_costs = v_data.get("llm_costs", [])
+
+        url2_time_str = f"{v_times[0]:.1f}s" if len(v_times) >= 1 else "N/A"
+        url3_time_str = f"{v_times[1]:.1f}s" if len(v_times) >= 2 else "N/A"
+
+        url2_cost = 0.0
+        url3_cost = 0.0
+        url2_cost_str = "-"
+        url3_cost_str = "-"
+
+        if len(v_costs) >= 1 and v_costs[0] and v_costs[0]['call_count'] > 0:
+            url2_cost = v_costs[0]['estimated_cost_usd']
+            url2_cost_str = f"${url2_cost:.4f}"
+            total_tokens += v_costs[0]['total_tokens']
+
+        if len(v_costs) >= 2 and v_costs[1] and v_costs[1]['call_count'] > 0:
+            url3_cost = v_costs[1]['estimated_cost_usd']
+            url3_cost_str = f"${url3_cost:.4f}"
+            total_tokens += v_costs[1]['total_tokens']
+
+        brand_total = d_cost + url2_cost + url3_cost
+        total_cost += brand_total
+        total_tokens += d_tokens
+
+        cost_rows.append([
+            brand_name,
+            f"{d_time:.1f}s",
+            d_cost_str,
+            url2_time_str,
+            url2_cost_str,
+            url3_time_str,
+            url3_cost_str,
+            f"${brand_total:.4f}"
+        ])
+
+    # Add total row
+    cost_rows.append(["TOTAL", "", "", "", "", "", "", f"${total_cost:.4f}"])
+
+    headers = ["Brand", "URL1 Time", "URL1 Cost", "URL2 Time", "URL2 Cost", "URL3 Time", "URL3 Cost", "Total"]
+    print(tabulate(cost_rows, headers=headers, tablefmt="simple_outline"))
+    print(f"\n  Total LLM tokens used: {total_tokens:,}")
 
 
 async def main(brand_filter: Optional[str] = None):

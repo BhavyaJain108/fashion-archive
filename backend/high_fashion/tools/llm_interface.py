@@ -18,16 +18,20 @@ load_dotenv(env_path)
 
 class LLMInterface(ABC):
     """Abstract base class for LLM providers"""
-    
+
     @abstractmethod
     def generate(self, prompt: str, max_tokens: int = 1000, temperature: float = 0.0) -> str:
         """Generate text response from prompt"""
         pass
 
+    def get_last_usage(self) -> Optional[Dict[str, int]]:
+        """Return token usage from last call: {input_tokens, output_tokens}"""
+        return getattr(self, '_last_usage', None)
+
 
 class ClaudeInterface(LLMInterface):
     """Anthropic Claude interface"""
-    
+
     def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None):
         try:
             from anthropic import Anthropic
@@ -36,6 +40,7 @@ class ClaudeInterface(LLMInterface):
                 raise ValueError("Claude API key not found")
             self.client = Anthropic(api_key=self.api_key)
             self.model = model or os.getenv('CLAUDE_MODEL', 'claude-sonnet-4-20250514')
+            self._last_usage = None
         except ImportError:
             raise ImportError("anthropic package not installed. Run: pip install anthropic")
     
@@ -64,6 +69,13 @@ class ClaudeInterface(LLMInterface):
                     "input_schema": schema
                 }]
             )
+
+            # Capture token usage
+            if hasattr(response, 'usage'):
+                self._last_usage = {
+                    'input_tokens': response.usage.input_tokens,
+                    'output_tokens': response.usage.output_tokens
+                }
 
             if debug:
                 print(f"🔍 DEBUG: Response received")
@@ -110,6 +122,12 @@ class ClaudeInterface(LLMInterface):
                 temperature=temperature,
                 messages=[{"role": "user", "content": prompt}]
             )
+            # Capture token usage
+            if hasattr(response, 'usage'):
+                self._last_usage = {
+                    'input_tokens': response.usage.input_tokens,
+                    'output_tokens': response.usage.output_tokens
+                }
             return response.content[0].text.strip()
 
 
