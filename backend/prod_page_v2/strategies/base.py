@@ -171,6 +171,9 @@ class BaseStrategy(ABC):
             'google', 'facebook', 'doubleclick', 'criteo',
             'pixel', 'tracking', 'beacon', 'clarity.ms',
             'akstat.io', 'akamai', 'cloudflare',
+            # Ad/tracking networks
+            'reddit.com', 'adnxs.com', 'adsrvr.org', 'media6degrees',
+            'klaviyo', 'connect.facebook', 'match.adsrvr',
         ]
 
         # URL patterns to exclude (icons, logos, etc.)
@@ -179,6 +182,10 @@ class BaseStrategy(ABC):
             '/footer/', '/header/', '/nav/',
             'payment', 'cc-', '-brands.svg',
             'placeholder', 'clear.svg', 'arrow',
+            # Thumbnail/chip images (not main product images)
+            '/chip/', '_chip.',
+            # Tracking pixels
+            'rp.gif', '/bounce', '/track/',
         ]
 
         # File extensions to exclude (usually not product photos)

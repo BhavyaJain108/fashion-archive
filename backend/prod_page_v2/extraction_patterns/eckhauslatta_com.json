@@ -1,0 +1,8 @@
+{
+  "title_pattern": "\"tags\":(\\[[^\\]]*\\]),\"title\":\"([^\"]+)\"",
+  "price_pattern": "\"price\":([0-9.]+),\"shopifyGid\"",
+  "description_pattern": "\"allowOutOfStockSelection\":([^\"]+),\"description\":\"([^\"]+)\"",
+  "category_pattern": "\"previewImageUrl\":\"([^\"]+)\",\"productType\":\"([^\"]+)\"",
+  "variants_pattern": "\"option1\":\"([^\"]+)\",\"option2\":\"\"",
+  "image_pattern": "\"previewImageUrl\":\"([^\"]+)\",\"productType\""
+}

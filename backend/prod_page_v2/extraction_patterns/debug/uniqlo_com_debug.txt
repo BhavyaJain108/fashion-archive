@@ -1,0 +1,187 @@
+================================================================================
+DOM_FALLBACK DEBUG OUTPUT
+Domain: uniqlo.com
+Slug: 
+Matching scripts: 0
+Total filtered size: 50,000 chars
+================================================================================
+
+================================================================================
+SECTION 1: LLM RESPONSE (what the LLM identified)
+================================================================================
+PRODUCT_NAME: Seamless Down Parka
+PRODUCT_NAME_PATTERN: "name":"{{VALUE}}","mpn":"{{SLUG}}"
+PRODUCT_NAME_REASONING: The combination of name field followed by mpn (manufacturer part number) field in JSON-LD structured data is unique to product identification
+
+PRICE: 149.9
+PRICE_PATTERN: "offers":{"@type":"Offer","price":"{{VALUE}}"
+PRICE_REASONING: The offers object with @type Offer followed by price field is unique to structured product pricing data
+
+DESCRIPTION: Brave the cold in style with the Women's Seamless Down Parka, designed for superior warmth and a sleek silhouette. Its seamless construction blocks wind, while premium down insulation and a water-repellent finish keep you cozy and dry. The longer length and adjustable hood offer extra coverage, making it a winter essential for city commutes or weekend escapes.  - Filled with lightweight, insulating premium down. - Water-repellent finish for added weather protection. - Longer length and hood for full-body warmth. - Hidden fastener and snap closure for a polished look. - Side pockets with soft lining for comfort and utility.
+DESCRIPTION_PATTERN: "category":"{{VALUE}}","description":"{{VALUE}}"
+DESCRIPTION_REASONING: The category field followed by description field in JSON-LD product schema creates a unique pattern for product descriptions
+
+CATEGORY: WOMEN / Outerwear / Down Jackets & Coats / Seamless
+CATEGORY_PATTERN: "category":"{{VALUE}}","description":
+CATEGORY_REASONING: The category field in JSON-LD structured data before description field is unique to product categorization
+
+VARIANTS: XXS,XS,S,M,L,XL,XXL
+VARIANTS_PATTERN: "chip--medium size-chip-short" tabindex="0" aria-disabled="false" data-testid="ITOChip" value="{{ARRAY}}" id="{{ARRAY}}
+VARIANTS_REASONING: The size chip buttons with specific classes and value attributes containing size codes is unique to size variant selection
+
+IMAGE: https://image.uniqlo.com/UQ/ST3/us/imagesgoods/478577/item/usgoods_09_478577_3x4.jpg
+IMAGE_PATTERN: "image":"{{VALUE}}","mpn":"{{SLUG}}"
+IMAGE_REASONING: The image field followed by mpn field in JSON-LD structured data is unique to product image identification
+
+================================================================================
+SECTION 2: PARSED IDENTIFICATIONS (highlighted in scripts)
+================================================================================
+
+--- PRODUCT_NAME ---
+LLM returned: Seamless Down Parka
+FOUND at char 5596:
+t" content="width=device-width, initial-scale=1">
+<meta name="google-site-verification" content="Dy1r8quVMu58G93X6nCb9br8YI61xzkoBn_axJMv6eY">
+<title>
+>>> MATCH START >>>
+Seamless Down Parka
+<<< MATCH END <<<
+ | UNIQLO US</title>
+
+<meta name="format-detection" content="telephone=no">
+
+
+<!-- Manifest.json -->
+<link rel="manifest" href="/us/en/manifest.json">
+
+--- PRODUCT_NAME_PATTERN ---
+LLM returned: "name":"{{VALUE}}","mpn":"{{SLUG}}"
+NOT FOUND in filtered scripts!
+
+--- PRODUCT_NAME_REASONING ---
+LLM returned: The combination of name field followed by mpn (manufacturer part number) field in JSON-LD structured data is unique to product identification
+NOT FOUND in filtered scripts!
+
+--- PRICE ---
+LLM returned: 149.9
+FOUND at char 35924:
+.com/UQ/ST3/us/imagesgoods/478577/item/usgoods_09_478577_3x4.jpg","mpn":"E478577-000","name":"Seamless Down Parka","offers":{"@type":"Offer","price":"
+>>> MATCH START >>>
+149.9
+<<< MATCH END <<<
+","priceCurrency":"USD","url":"https://www.uniqlo.com/us/en/products/E478577-000/00","availability":"InStock","hasMerchantReturnPolicy":{"@type":"Merc
+
+--- PRICE_PATTERN ---
+LLM returned: "offers":{"@type":"Offer","price":"{{VALUE}}"
+NOT FOUND in filtered scripts!
+
+--- PRICE_REASONING ---
+LLM returned: The offers object with @type Offer followed by price field is unique to structured product pricing data
+NOT FOUND in filtered scripts!
+
+--- DESCRIPTION ---
+LLM returned: Brave the cold in style with the Women's Seamless Down Parka, designed for superior warmth and a sleek silhouette. Its seamless construction blocks wind, while premium down insulation and a water-repellent finish keep you cozy and dry. The longer length and adjustable hood offer extra coverage, maki...
+FOUND at char 35113:
+.uniqlo.com/us/en/products/E478577-000/00","color":"BLACK","size":"S","category":"WOMEN / Outerwear / Down Jackets & Coats / Seamless","description":"
+>>> MATCH START >>>
+Brave the cold in style with the Women's Seamless Down Parka, designed for superior warmth and a sleek silhouette. Its seamless construction blocks wind, while premium down insulation and a water-repellent finish keep you cozy and dry. The longer length and adjustable hood offer extra coverage, making it a winter essential for city commutes or weekend escapes.  - Filled with lightweight, insulating premium down. - Water-repellent finish for added weather protection. - Longer length and hood for full-body warmth. - Hidden fastener and snap closure for a polished look. - Side pockets with soft lining for comfort and utility.
+<<< MATCH END <<<
+","image":"https://image.uniqlo.com/UQ/ST3/us/imagesgoods/478577/item/usgoods_09_478577_3x4.jpg","mpn":"E478577-000","name":"Seamless Down Parka","off
+
+--- DESCRIPTION_PATTERN ---
+LLM returned: "category":"{{VALUE}}","description":"{{VALUE}}"
+NOT FOUND in filtered scripts!
+
+--- DESCRIPTION_REASONING ---
+LLM returned: The category field followed by description field in JSON-LD product schema creates a unique pattern for product descriptions
+NOT FOUND in filtered scripts!
+
+--- CATEGORY ---
+LLM returned: WOMEN / Outerwear / Down Jackets & Coats / Seamless
+FOUND at char 35045:
+arka"}},"brand":{"@type":"Brand","name":"UNIQLO"},"url":"https://www.uniqlo.com/us/en/products/E478577-000/00","color":"BLACK","size":"S","category":"
+>>> MATCH START >>>
+WOMEN / Outerwear / Down Jackets & Coats / Seamless
+<<< MATCH END <<<
+","description":"Brave the cold in style with the Women's Seamless Down Parka, designed for superior warmth and a sleek silhouette. Its seamless const
+
+--- CATEGORY_PATTERN ---
+LLM returned: "category":"{{VALUE}}","description":
+NOT FOUND in filtered scripts!
+
+--- CATEGORY_REASONING ---
+LLM returned: The category field in JSON-LD structured data before description field is unique to product categorization
+NOT FOUND in filtered scripts!
+
+--- VARIANTS ---
+LLM returned: XXS,XS,S,M,L,XL,XXL
+NOT FOUND in filtered scripts!
+
+--- VARIANTS_PATTERN ---
+LLM returned: "chip--medium size-chip-short" tabindex="0" aria-disabled="false" data-testid="ITOChip" value="{{ARRAY}}" id="{{ARRAY}}
+NOT FOUND in filtered scripts!
+
+--- VARIANTS_REASONING ---
+LLM returned: The size chip buttons with specific classes and value attributes containing size codes is unique to size variant selection
+NOT FOUND in filtered scripts!
+
+--- IMAGE ---
+LLM returned: https://image.uniqlo.com/UQ/ST3/us/imagesgoods/478577/item/usgoods_09_478577_3x4.jpg
+FOUND at char 7102:
+helmet="true" property="og:title" content="Seamless Down Parka | UNIQLO US">
+      
+      <meta data-react-helmet="true" property="og:image" content="
+>>> MATCH START >>>
+https://image.uniqlo.com/UQ/ST3/us/imagesgoods/478577/item/usgoods_09_478577_3x4.jpg
+<<< MATCH END <<<
+">
+      <meta data-react-helmet="true" name="twitter:card" content="summary">
+      <meta data-react-helmet="true" name="twitter:site" content="UNIQL
+
+--- IMAGE_PATTERN ---
+LLM returned: "image":"{{VALUE}}","mpn":"{{SLUG}}"
+NOT FOUND in filtered scripts!
+
+--- IMAGE_REASONING ---
+LLM returned: The image field followed by mpn field in JSON-LD structured data is unique to product image identification
+NOT FOUND in filtered scripts!
+
+================================================================================
+SECTION 3: GENERATED REGEX PATTERNS (ALL MATCHES)
+================================================================================
+
+title_pattern: "name":"([^"]+)","mpn":"{{SLUG}}"
+  ✗ Pattern does NOT match!
+
+price_pattern: "offers":\{"@type":"Offer","price":"([0-9.]+)"
+  Found 1 matches:
+
+  Match 1 at pos 35889:
+    Captured: 149.9
+    Context: ...,"mpn":"E478577-000","name":"Seamless Down Parka","offers":{"@type":"Offer","price":"149.9","priceCurrency":"USD","url":"https://www.uniqlo.c...
+
+description_pattern: "category":"([^"]+)","description":"([^"]+)"
+  Found 1 matches:
+
+  Match 1 at pos 35033:
+    Captured: WOMEN / Outerwear / Down Jackets & Coats / Seamless
+    Context: ...oducts/E478577-000/00","color":"BLACK","size":"S","category":"WOMEN / Outerwear / Down Jackets & Coats / Seamless","description":"Brave the cold in style with the Women's Seamless Down Parka, designed for superior warmth and a sleek silhouette. Its seamless construction blocks wind, while premium down insulation and a water-repellent finish keep you cozy and dry. The longer length and adjustable hood offer extra coverage, making it a winter essential for city commutes or weekend escapes.  - Filled with lightweight, insulating premium down. - Water-repellent finish for added weather protection. - Longer length and hood for full-body warmth. - Hidden fastener and snap closure for a polished look. - Side pockets with soft lining for comfort and utility.","image":"https://image.uniqlo.com/UQ/ST3/us/image...
+
+category_pattern: "category":"([^"]+)","description":
+  Found 1 matches:
+
+  Match 1 at pos 35033:
+    Captured: WOMEN / Outerwear / Down Jackets & Coats / Seamless
+    Context: ...oducts/E478577-000/00","color":"BLACK","size":"S","category":"WOMEN / Outerwear / Down Jackets & Coats / Seamless","description":"Brave the cold in style with the Women's Seamless...
+
+variants_pattern: "chip\-\-medium\ size\-chip\-short"\ tabindex="0"\ aria\-disabled="false"\ data\-testid="ITOChip"\ value="(\[[^\]]*\])"\ id="(\[[^\]]*\])
+  ✗ Pattern does NOT match!
+
+image_pattern: "image":"([^"]+)","mpn":"{{SLUG}}"
+  ✗ Pattern does NOT match!
+
+================================================================================
+SECTION 4: FILTERED SCRIPTS (sent to LLM)
+Number of scripts: 0
+Total length: 50,000 chars
+================================================================================

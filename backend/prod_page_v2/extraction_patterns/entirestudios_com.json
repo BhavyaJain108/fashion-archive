@@ -1,0 +1,8 @@
+{
+  "title_pattern": "\"slug\":\"{{SLUG}}\",\"title\":\"([^\"]+)\"",
+  "price_pattern": "\"priceRange\":\\{\"maxVariantPrice\":([0-9.]+),\"minVariantPrice\":([0-9.]+)\\}",
+  "description_pattern": "\"description\":\"([^\"]+)\",\"descriptionHtml\":\"([^\"]+)\"",
+  "category_pattern": "\"productType\":\"([^\"]+)\"",
+  "variants_pattern": "\"options\":\\[\\{\"id\":\"gid://shopify/ProductOption/9644849725536\",\"name\":\"Size\",\"position\":1,\"values\":(\\[[^\\]]*\\])\\}\\]",
+  "image_pattern": "\"thumbnailUrl\":\"([^\"]+)\""
+}

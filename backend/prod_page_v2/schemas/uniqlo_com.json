@@ -1,13 +1,18 @@
 {
-  "name": null,
-  "price": null,
-  "currency": null,
-  "images": null,
+  "name": "[5].items[0].name",
+  "price": "[5].items[0].prices.base.value",
+  "currency": "[5].items[0].prices.base.currency.code",
   "description": null,
-  "variants": {
-    "source": null,
-    "size": null,
-    "available": null,
-    "stock_count": null
-  }
+  "brand": "UNIQLO",
+  "category": "[4].result.breadcrumbs.category.locale",
+  "sku": "[5].items[0].productId",
+  "images": "[5].items[0].images.main",
+  "image_url_field": "image",
+  "variants": "[6].result.l2s",
+  "variant_size_field": "size.displayCode",
+  "variant_color_field": "color.displayCode",
+  "variant_price_field": null,
+  "variant_available_field": "sales",
+  "variant_stock_field": null,
+  "variant_sku_field": "l2Id"
 }

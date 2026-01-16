@@ -1,0 +1,213 @@
+================================================================================
+DOM_FALLBACK DEBUG OUTPUT
+Domain: eckhauslatta.com
+Slug: the-snap-green
+Matching scripts: 5
+Total filtered size: 19,934 chars
+================================================================================
+
+================================================================================
+SECTION 1: LLM RESPONSE (what the LLM identified)
+================================================================================
+PRODUCT_NAME: THE SNAP
+PRODUCT_NAME_PATTERN: "tags":{{ARRAY}},"title":"{{VALUE}}"
+PRODUCT_NAME_REASONING: The tags array immediately precedes the title field in the product object, making this pattern unique to product identification
+
+PRICE: 675
+PRICE_PATTERN: "price":{{VALUE}},"shopifyGid"
+PRICE_REASONING: The price field followed by shopifyGid is unique to variant pricing structure
+
+DESCRIPTION: <p><meta charset="utf-8"><span>Our first bag, The Snap, was designed with utility in mind. Silver snaps encircle the straps, serving as a functional closure. The Snap is large enough to fit a laptop or your lunch, but small enough for a night out. Made in vegetable dyed Italian lambskin with an debossed logo and custom logo snaps. Internal zip pocket. </span></p>\n<p><meta charset="utf-8"><strong>*EXCLUDED FROM SALE</strong></p>\n<p> </p>\n<p> </p>
+DESCRIPTION_PATTERN: "allowOutOfStockSelection":{{VALUE}},"description":"{{VALUE}}"
+DESCRIPTION_REASONING: The allowOutOfStockSelection boolean field directly precedes the description field in the product object
+
+CATEGORY: Accessories
+CATEGORY_PATTERN: "previewImageUrl":"{{VALUE}}","productType":"{{VALUE}}"
+CATEGORY_REASONING: The previewImageUrl field immediately precedes the productType field which contains the category
+
+VARIANTS: GREEN
+VARIANTS_PATTERN: "option1":"{{VALUE}}","option2":""
+VARIANTS_REASONING: The option1 field followed by empty option2 field is unique to the variant options structure
+
+IMAGE: https://cdn.shopify.com/s/files/1/0691/7057/files/The-Snap_Green_1_1efefce7-f579-4506-9817-1830c463ee99.jpg?v=1764951051
+IMAGE_PATTERN: "previewImageUrl":"{{VALUE}}","productType"
+IMAGE_REASONING: The previewImageUrl field followed by productType is unique to the main product image location
+
+================================================================================
+SECTION 2: PARSED IDENTIFICATIONS (highlighted in scripts)
+================================================================================
+
+--- PRODUCT_NAME ---
+LLM returned: THE SNAP
+FOUND at char 5837:
+$","meta","0",{"name":"viewport","content":"width=device-width, initial-scale=1"}],["$","meta","1",{"charSet":"utf-8"}],["$","title","2",{"children":"
+>>> MATCH START >>>
+THE SNAP
+<<< MATCH END <<<
+"}],["$","meta","3",{"name":"description","content":"\u003cp\u003eOur first bag, The Snap, was designed with utility in mind. Silver snaps encircle th
+
+--- PRODUCT_NAME_PATTERN ---
+LLM returned: "tags":{{ARRAY}},"title":"{{VALUE}}"
+NOT FOUND in filtered scripts!
+
+--- PRODUCT_NAME_REASONING ---
+LLM returned: The tags array immediately precedes the title field in the product object, making this pattern unique to product identification
+NOT FOUND in filtered scripts!
+
+--- PRICE ---
+LLM returned: 675
+FOUND at char 19196:
+totalImages":7,"variants":[{"compareAtPrice":null,"inventoryPolicy":"deny","inventoryQuantity":71,"option1":"GREEN","option2":"","option3":"","price":
+>>> MATCH START >>>
+675
+<<< MATCH END <<<
+,"shopifyGid":"gid://shopify/ProductVariant/49933180535063","shopifyVariantId":49933180535063,"title":"GREEN"}]},"blurDataUrls":["$15d","$15e","$15f",
+
+--- PRICE_PATTERN ---
+LLM returned: "price":{{VALUE}},"shopifyGid"
+NOT FOUND in filtered scripts!
+
+--- PRICE_REASONING ---
+LLM returned: The price field followed by shopifyGid is unique to variant pricing structure
+NOT FOUND in filtered scripts!
+
+--- DESCRIPTION ---
+LLM returned: <p><meta charset="utf-8"><span>Our first bag, The Snap, was designed with utility in mind. Silver snaps encircle the straps, serving as a functional closure. The Snap is large enough to fit a laptop or your lunch, but small enough for a night out. Made in vegetable dyed Italian lambskin with an debo...
+NOT FOUND in filtered scripts!
+
+--- DESCRIPTION_PATTERN ---
+LLM returned: "allowOutOfStockSelection":{{VALUE}},"description":"{{VALUE}}"
+NOT FOUND in filtered scripts!
+
+--- DESCRIPTION_REASONING ---
+LLM returned: The allowOutOfStockSelection boolean field directly precedes the description field in the product object
+NOT FOUND in filtered scripts!
+
+--- CATEGORY ---
+LLM returned: Accessories
+FOUND at char 14800:
+ewImageUrl":"https://cdn.shopify.com/s/files/1/0691/7057/files/The-Snap_Green_1_1efefce7-f579-4506-9817-1830c463ee99.jpg?v=1764951051","productType":"
+>>> MATCH START >>>
+Accessories
+<<< MATCH END <<<
+","seo":null,"shopifyGid":"gid://shopify/Product/9782477259031","status":"active","swatchGroup":{"_id":"4bcb4551-f988-4fee-9db5-b681a8d2aa43","swatche
+
+--- CATEGORY_PATTERN ---
+LLM returned: "previewImageUrl":"{{VALUE}}","productType":"{{VALUE}}"
+NOT FOUND in filtered scripts!
+
+--- CATEGORY_REASONING ---
+LLM returned: The previewImageUrl field immediately precedes the productType field which contains the category
+NOT FOUND in filtered scripts!
+
+--- VARIANTS ---
+LLM returned: GREEN
+FOUND at char 14605:
+skin","modelInfo":"H19\\" x W17\\" x D5.5\\" with 11\\" handle drop","note":null,"options":[{"_key":"ipxOKpnL0VUFtf7N9K9wP","name":"Color","values":["
+>>> MATCH START >>>
+GREEN
+<<< MATCH END <<<
+"]}],"origin":"Produced in China","previewImageUrl":"https://cdn.shopify.com/s/files/1/0691/7057/files/The-Snap_Green_1_1efefce7-f579-4506-9817-1830c4
+
+--- VARIANTS_PATTERN ---
+LLM returned: "option1":"{{VALUE}}","option2":""
+NOT FOUND in filtered scripts!
+
+--- VARIANTS_REASONING ---
+LLM returned: The option1 field followed by empty option2 field is unique to the variant options structure
+NOT FOUND in filtered scripts!
+
+--- IMAGE ---
+LLM returned: https://cdn.shopify.com/s/files/1/0691/7057/files/The-Snap_Green_1_1efefce7-f579-4506-9817-1830c463ee99.jpg?v=1764951051
+FOUND at char 12879:
+en_1_1efefce7-f579-4506-9817-1830c463ee99.jpg","gender":"","height":2165,"position":1,"shopifyGid":"gid://shopify/ProductImage/51078023905559","url":"
+>>> MATCH START >>>
+https://cdn.shopify.com/s/files/1/0691/7057/files/The-Snap_Green_1_1efefce7-f579-4506-9817-1830c463ee99.jpg?v=1764951051
+<<< MATCH END <<<
+","width":1681},{"_type":"shopifyImage","altText":"","filename":"The-Snap_Green_2_5644d3c0-40ef-45f6-8793-4a2d363c91da.jpg","gender":"","height":1733,
+
+--- IMAGE_PATTERN ---
+LLM returned: "previewImageUrl":"{{VALUE}}","productType"
+NOT FOUND in filtered scripts!
+
+--- IMAGE_REASONING ---
+LLM returned: The previewImageUrl field followed by productType is unique to the main product image location
+NOT FOUND in filtered scripts!
+
+================================================================================
+SECTION 3: GENERATED REGEX PATTERNS (ALL MATCHES)
+================================================================================
+
+title_pattern: "tags":(\[[^\]]*\]),"title":"([^"]+)"
+  Found 1 matches:
+
+  Match 1 at pos 18913:
+    Captured: ["Accessories","All","Bags","Gift Guide","Mike and Zoe Edit","New","new-bg-color","PS25","Solid","Wo...
+    Context: ...e"}},"title":"Navy"}}],"title":"Snap Bag Colors"},"tags":["Accessories","All","Bags","Gift Guide","Mike and Zoe Edit","New","new-bg-color","PS25","Solid","Woven"],"title":"THE SNAP","totalImages":7,"variants":[{"compareAtPrice":nul...
+
+price_pattern: "price":([0-9.]+),"shopifyGid"
+  Found 1 matches:
+
+  Match 1 at pos 19188:
+    Captured: 675
+    Context: ...y":71,"option1":"GREEN","option2":"","option3":"","price":675,"shopifyGid":"gid://shopify/ProductVariant/49933180535063","sh...
+
+description_pattern: "allowOutOfStockSelection":([^"]+),"description":"([^"]+)"
+  Found 1 matches:
+
+  Match 1 at pos 11965:
+    Captured: true
+    Context: ...,{"product":{"_id":"shopifyProduct-9782477259031","allowOutOfStockSelection":true,"description":"\u003cp\u003e\u003cmeta charset=\\"utf-8\\"\u003e\u003cspan\u003eOur first bag, The S...
+
+category_pattern: "previewImageUrl":"([^"]+)","productType":"([^"]+)"
+  Found 1 matches:
+
+  Match 1 at pos 14644:
+    Captured: https://cdn.shopify.com/s/files/1/0691/7057/files/The-Snap_Green_1_1efefce7-f579-4506-9817-1830c463e...
+    Context: ..."values":["GREEN"]}],"origin":"Produced in China","previewImageUrl":"https://cdn.shopify.com/s/files/1/0691/7057/files/The-Snap_Green_1_1efefce7-f579-4506-9817-1830c463ee99.jpg?v=1764951051","productType":"Accessories","seo":null,"shopifyGid":"gid://shopify/Product/97...
+
+variants_pattern: "option1":"([^"]+)","option2":""
+  Found 1 matches:
+
+  Match 1 at pos 19144:
+    Captured: GREEN
+    Context: ...l,"inventoryPolicy":"deny","inventoryQuantity":71,"option1":"GREEN","option2":"","option3":"","price":675,"shopifyGid":"gid://shop...
+
+image_pattern: "previewImageUrl":"([^"]+)","productType"
+  Found 1 matches:
+
+  Match 1 at pos 14644:
+    Captured: https://cdn.shopify.com/s/files/1/0691/7057/files/The-Snap_Green_1_1efefce7-f579-4506-9817-1830c463e...
+    Context: ..."values":["GREEN"]}],"origin":"Produced in China","previewImageUrl":"https://cdn.shopify.com/s/files/1/0691/7057/files/The-Snap_Green_1_1efefce7-f579-4506-9817-1830c463ee99.jpg?v=1764951051","productType":"Accessories","seo":null,"shopifyGid":"gid://shop...
+
+================================================================================
+SECTION 4: FILTERED SCRIPTS (sent to LLM)
+Number of scripts: 5
+Total length: 19,934 chars
+================================================================================
+
+--- SCRIPT 1 (451 chars) ---
+self.__next_f.push([1,"c:I[12846,[],\"\"]\nf:I[4707,[],\"\"]\n11:I[37226,[\"826\",\"static/chunks/app/(app)/products/%5Bslug%5D/error-dfaf710cb585953a.js?dpl=dpl_7SPmLhqUXB2hTP94e2LfP3Crh7ip\"],\"default\"]\n12:I[36423,[],\"\"]\n13:I[97296,[\"7165\",\"static/chunks/app/(app)/products/%5Bslug%5D/not-found-9190a0999e30a587.js?dpl=dpl_7SPmLhqUXB2hTP94e2LfP3Crh7ip\"],\"default\"]\n16:I[61060,[],\"\"]\n10:[\"slug\",\">>>the-snap-green<<<\",\"d\"]\n17:[]\n"])
+
+--- SCRIPT 2 (5,831 chars) ---
+self.__next_f.push([1,"0:[\"$\",\"$Lc\",null,{\"buildId\":\"uY8eV_JUHs2vMlOg84_3S\",\"assetPrefix\":\"\",\"urlParts\":[\"\",\"products\",\">>>the-snap-green<<<\"],\"initialTree\":[\"\",{\"children\":[\"(app)\",{\"children\":[\"products\",{\"children\":[[\"slug\",\">>>the-snap-green<<<\",\"d\"],{\"children\":[\"__PAGE__\",{}]}]}]},\"$undefined\",\"$undefined\",true]}],\"initialSeedData\":[\"\",{\"children\":[\"(app)\",{\"children\":[\"products\",{\"children\":[[\"slug\",\">>>the-snap-green<<<\",\"d\"],{\"children\":[\"__PAGE__\",{},[[\"$Ld\",\"$Le\",null],null],null]},[[[[\"$\",\"link\",\"0\",{\"rel\":\"stylesheet\",\"href\":\"/_next/static/css/5fa41d23809e2169.css?dpl=dpl_7SPmLhqUXB2hTP94e2LfP3Crh7ip\",\"precedence\":\"next\",\"crossOrigin\":\"$undefined\"}]],[\"$\",\"div\",null,{\"className\":\"product-layout w-full mx-auto pt-5 md:pt-0 pb-16 md:pb-0 md:pr-24 lg:container\",\"children\":[\"$\",\"$Lf\",null,{\"parallelRouterKey\":\"children\",\"segmentPath\":[\"children\",\"(app)\",\"children\",\"products\",\"children\",\"$10\",\"children\"],\"error\":\"$11\",\"errorStyles\":[],\"errorScripts\":[],\"template\":[\"$\",\"$L12\",null,{}],\"templateStyles\":\"$undefined\",\"templateScripts\":\"$undefined\",\"notFound\":[\"$\",\"$L13\",null,{}],\"notFoundStyles\":[]}]}]],null],[[\"$\",\"div\",null,{\"className\":\"product-content relative\",\"children\":[[\"$\",\"div\",null,{\"className\":\"border-t border-primary md:border-none md:hidden fixed flex gap-x-2 justify-between items-baseline top-11 left-0 right-0 z-10 mx-4 py-2\",\"children\":[[\"$\",\"div\",null,{\"className\":\"animate-pulse rounded-md bg-primary/10 h-4 w-20\"}],[\"$\",\"div\",null,{\"className\":\"animate-pulse rounded-md bg-primary/10 h-4 w-32\"}]]}],[\"$\",\"div\",null,{\"className\":\"md:grid md:grid-cols-[1fr_300px] md:gap-x-6\",\"children\":[[\"$\",\"div\",null,{\"className\":\"mt-16 md:mt-0\",\"children\":[[\"$\",\"div\",null,{\"className\":\"block md:hidden\",\"children\":[\"$\",\"div\",null,{\"className\":\"animate-pulse rounded-md bg-primary/10 w-full aspect-[3/4]\"}]}],[\"$\",\"div\",null,{\"className\":\"hidden md:block space-y-4\",\"children\":[[\"$\",\"div\",null,{\"className\":\"animate-pulse rounded-md w-full aspect-[3/4] bg-transparent\"}],[\"$\",\"div\",null,{\"className\":\"animate-pulse rounded-md w-full aspect-[3/4] bg-transparent\"}]]}]]}],[\"$\",\"div\",null,{\"className\":\"product-details md:sticky md:top-64 md:h-fit md:self-start\",\"children\":[\"$\",\"div\",null,{\"className\":\"md:min-h-[calc(100vh-64px)] space-y-4\",\"children\":[[\"$\",\"div\",null,{\"className\":\"hidden md:block space-y-2\",\"children\":[[\"$\",\"div\",null,{\"className\":\"animate-pulse rounded-md bg-primary/10 h-6 w-48\"}],[\"$\",\"div\",null,{\"className\":\"animate-pulse rounded-md bg-primary/10 h-4 w-24\"}]]}],[\"$\",\"div\",null,{\"className\":\"mt-6 space-y-3\",\"children\":[[\"$\",\"div\",null,{\"className\":\"grid grid-cols-2 gap-2\",\"children\":[[\"$\",\"div\",null,{\"className\":\"animate-pulse rounded-md bg-primary/10 h-10\"}],[\"$\",\"div\",null,{\"className\":\"animate-pulse rounded-md bg-primary/10 h-10\"}]]}],[\"$\",\"div\",null,{\"className\":\"animate-pulse rounded-md bg-primary/10 h-12 w-full\"}],[\"$\",\"div\",null,{\"className\":\"animate-pulse rounded-md bg-primary/10 h-20 w-full\"}]]}]]}]}]]}]]}],[],[]]]},[null,[\"$\",\"$Lf\",null,{\"parallelRouterKey\":\"children\",\"segmentPath\":[\"children\",\"(app)\",\"children\",\"products\",\"children\"],\"error\":\"$undefined\",\"errorStyles\":\"$undefined\",\"errorScripts\":\"$undefined\",\"template\":[\"$\",\"$L12\",null,{}],\"templateStyles\":\"$undefined\",\"templateScripts\":\"$undefined\",\"notFound\":\"$undefined\",\"notFoundStyles\":\"$undefined\"}]],null]},[[[[\"$\",\"link\",\"0\",{\"rel\":\"stylesheet\",\"href\":\"/_next/static/css/ef46db3751d8e999.css?dpl=dpl_7SPmLhqUXB2hTP94e2LfP3Crh7ip\",\"precedence\":\"next\",\"crossOrigin\":\"$undefined\"}],[\"$\",\"link\",\"1\",{\"rel\":\"stylesheet\",\"href\":\"/_next/static/css/4b5097b2c3e5d57b.css?dpl=dpl_7SPmLhqUXB2hTP94e2LfP3Crh7ip\",\"precedence\":\"next\",\"crossOrigin\":\"$undefined\"}]],\"$L14\"],null],null]},[null,[\"$\",\"$Lf\",null,{\"parallelRouterKey\":\"children\",\"segmentPath\":[\"children\"],\"error\":\"$undefined\",\"errorStyles\":\"$undefined\",\"errorScripts\":\"$undefined\",\"template\":[\"$\",\"$L12\",null,{}],\"templateStyles\":\"$undefined\",\"templateScripts\":\"$undefined\",\"notFound\":[[\"$\",\"title\",null,{\"children\":\"404: This page could not be found.\"}],[\"$\",\"div\",null,{\"style\":{\"fontFamily\":\"system-ui,\\\"Segoe UI\\\",Roboto,Helvetica,Arial,sans-serif,\\\"Apple Color Emoji\\\",\\\"Segoe UI Emoji\\\"\",\"height\":\"100vh\",\"textAlign\":\"center\",\"display\":\"flex\",\"flexDirection\":\"column\",\"alignItems\":\"center\",\"justifyContent\":\"center\"},\"children\":[\"$\",\"div\",null,{\"children\":[[\"$\",\"style\",null,{\"dangerouslySetInnerHTML\":{\"__html\":\"body{color:#000;background:#fff;margin:0}.next-error-h1{border-right:1px solid rgba(0,0,0,.3)}@media (prefers-color-scheme:dark){body{color:#fff;background:#000}.next-error-h1{border-right:1px solid rgba(255,255,255,.3)}}\"}}],[\"$\",\"h1\",null,{\"className\":\"next-error-h1\",\"style\":{\"display\":\"inline-block\",\"margin\":\"0 20px 0 0\",\"padding\":\"0 23px 0 0\",\"fontSize\":24,\"fontWeight\":500,\"verticalAlign\":\"top\",\"lineHeight\":\"49px\"},\"children\":\"404\"}],[\"$\",\"div\",null,{\"style\":{\"display\":\"inline-block\"},\"children\":[\"$\",\"h2\",null,{\"style\":{\"fontSize\":14,\"fontWeight\":400,\"lineHeight\":\"49px\",\"margin\":0},\"children\":\"This page could not be found.\"}]}]]}]}]],\"notFoundStyles\":[]}]],null],\"couldBeIntercepted\":false,\"initialHead\":[null,\"$L15\"],\"globalErrorComponent\":\"$16\",\"missingSlots\":\"$W17\"}]\n"])
+
+--- SCRIPT 3 (2,536 chars) ---
+self.__next_f.push([1,"15:[[\"$\",\"meta\",\"0\",{\"name\":\"viewport\",\"content\":\"width=device-width, initial-scale=1\"}],[\"$\",\"meta\",\"1\",{\"charSet\":\"utf-8\"}],[\"$\",\"title\",\"2\",{\"children\":\"THE SNAP\"}],[\"$\",\"meta\",\"3\",{\"name\":\"description\",\"content\":\"\u003cp\u003eOur first bag, The Snap, was designed with utility in mind. Silver snaps encircle the straps, serving as a functional closure. The Snap is large enough to fit a laptop or your lunch, but small enough for a night out. Made in vegetable dyed Italian lambskin with an debossed logo and custom logo snaps. Internal zip pocket. \u003c/p\u003e\\n\u003cp\u003e\u003cstrong\u003e*EXCLUDED FROM SALE\u003c/strong\u003e\u003c/p\u003e\\n\u003cp\u003e \u003c/p\u003e\\n\u003cp\u003e \u003c/p\u003e\"}],[\"$\",\"meta\",\"4\",{\"property\":\"og:title\",\"content\":\"THE SNAP\"}],[\"$\",\"meta\",\"5\",{\"property\":\"og:description\",\"content\":\"\u003cp\u003eOur first bag, The Snap, was designed with utility in mind. Silver snaps encircle the straps, serving as a functional closure. The Snap is large enough to fit a laptop or your lunch, but small enough for a night out. Made in vegetable dyed Italian lambskin with an debossed logo and custom logo snaps. Internal zip pocket. \u003c/p\u003e\\n\u003cp\u003e\u003cstrong\u003e*EXCLUDED FROM SALE\u003c/strong\u003e\u003c/p\u003e\\n\u003cp\u003e \u003c/p\u003e\\n\u003cp\u003e \u003c/p\u003e\"}],[\"$\",\"meta\",\"6\",{\"property\":\"og:url\",\"content\":\"https://eckhauslatta.com/products/>>>the-snap-green<<<\"}],[\"$\",\"meta\",\"7\",{\"property\":\"og:type\",\"content\":\"website\"}],[\"$\",\"meta\",\"8\",{\"name\":\"twitter:card\",\"content\":\"summary\"}],[\"$\",\"meta\",\"9\",{\"name\":\"twitter:title\",\"content\":\"THE SNAP\"}],[\"$\",\"meta\",\"10\",{\"name\":\"twitter:description\",\"content\":\"\u003cp\u003eOur first bag, The Snap, was designed with utility in mind. Silver snaps encircle the straps, serving as a functional closure. The Snap is large enough to fit a laptop or your lunch, but small enough for a night out. Made in vegetable dyed Italian lambskin with an debossed logo and custom logo snaps. Internal zip pocket. \u003c/p\u003e\\n\u003cp\u003e\u003cstrong\u003e*EXCLUDED FROM SALE\u003c/strong\u003e\u003c/p\u003e\\n\u003cp\u003e \u003c/p\u003e\\n\u003cp\u003e \u003c/p\u003e\"}],[\"$\",\"link\",\"11\",{\"rel\":\"icon\",\"href\":\"/favicon.ico\",\"type\":\"image/x-icon\",\"sizes\":\"48x48\"}],[\"$\",\"meta\",\"12\",{\"name\":\"next-size-adjust\"}]]\nd:null\n"])
+
+--- SCRIPT 4 (12,589 chars) ---
+self.__next_f.push([1,"e:[\"$\",\"$15a\",null,{\"fallback\":[\"$\",\"div\",null,{\"className\":\"product-content relative\",\"children\":[[\"$\",\"div\",null,{\"className\":\"border-t border-primary md:border-none md:hidden fixed flex gap-x-2 justify-between items-baseline top-11 left-0 right-0 z-10 mx-4 py-2\",\"children\":[[\"$\",\"div\",null,{\"className\":\"animate-pulse rounded-md bg-primary/10 h-4 w-20\"}],[\"$\",\"div\",null,{\"className\":\"animate-pulse rounded-md bg-primary/10 h-4 w-32\"}]]}],[\"$\",\"div\",null,{\"className\":\"md:grid md:grid-cols-[1fr_300px] md:gap-x-6\",\"children\":[[\"$\",\"div\",null,{\"className\":\"mt-16 md:mt-0\",\"children\":[[\"$\",\"div\",null,{\"className\":\"block md:hidden\",\"children\":[\"$\",\"div\",null,{\"className\":\"animate-pulse rounded-md bg-primary/10 w-full aspect-[3/4]\"}]}],[\"$\",\"div\",null,{\"className\":\"hidden md:block space-y-4\",\"children\":[[\"$\",\"div\",null,{\"className\":\"animate-pulse rounded-md w-full aspect-[3/4] bg-transparent\"}],[\"$\",\"div\",null,{\"className\":\"animate-pulse rounded-md w-full aspect-[3/4] bg-transparent\"}]]}]]}],[\"$\",\"div\",null,{\"className\":\"product-details md:sticky md:top-64 md:h-fit md:self-start\",\"children\":[\"$\",\"div\",null,{\"className\":\"md:min-h-[calc(100vh-64px)] space-y-4\",\"children\":[[\"$\",\"div\",null,{\"className\":\"hidden md:block space-y-2\",\"children\":[[\"$\",\"div\",null,{\"className\":\"animate-pulse rounded-md bg-primary/10 h-6 w-48\"}],[\"$\",\"div\",null,{\"className\":\"animate-pulse rounded-md bg-primary/10 h-4 w-24\"}]]}],[\"$\",\"div\",null,{\"className\":\"mt-6 space-y-3\",\"children\":[[\"$\",\"div\",null,{\"className\":\"grid grid-cols-2 gap-2\",\"children\":[[\"$\",\"div\",null,{\"className\":\"animate-pulse rounded-md bg-primary/10 h-10\"}],[\"$\",\"div\",null,{\"className\":\"animate-pulse rounded-md bg-primary/10 h-10\"}]]}],[\"$\",\"div\",null,{\"className\":\"animate-pulse rounded-md bg-primary/10 h-12 w-full\"}],[\"$\",\"div\",null,{\"className\":\"animate-pulse rounded-md bg-primary/10 h-20 w-full\"}]]}]]}]}]]}]]}],\"children\":[\"$\",\"$15a\",null,{\"fallback\":[\"$\",\"div\",null,{\"className\":\"product-content relative\",\"children\":[[\"$\",\"div\",null,{\"className\":\"border-t border-primary md:border-none md:hidden fixed flex gap-x-2 justify-between items-baseline top-11 left-0 right-0 z-10 mx-4 py-2\",\"children\":[[\"$\",\"div\",null,{\"className\":\"animate-pulse rounded-md bg-primary/10 h-4 w-20\"}],[\"$\",\"div\",null,{\"className\":\"animate-pulse rounded-md bg-primary/10 h-4 w-32\"}]]}],[\"$\",\"div\",null,{\"className\":\"md:grid md:grid-cols-[1fr_300px] md:gap-x-6\",\"children\":[[\"$\",\"div\",null,{\"className\":\"mt-16 md:mt-0\",\"children\":[[\"$\",\"div\",null,{\"className\":\"block md:hidden\",\"children\":[\"$\",\"div\",null,{\"className\":\"animate-pulse rounded-md bg-primary/10 w-full aspect-[3/4]\"}]}],[\"$\",\"div\",null,{\"className\":\"hidden md:block space-y-4\",\"children\":[[\"$\",\"div\",null,{\"className\":\"animate-pulse rounded-md w-full aspect-[3/4] bg-transparent\"}],[\"$\",\"div\",null,{\"className\":\"animate-pulse rounded-md w-full aspect-[3/4] bg-transparent\"}]]}]]}],[\"$\",\"div\",null,{\"className\":\"product-details md:sticky md:top-64 md:h-fit md:self-start\",\"children\":[\"$\",\"div\",null,{\"className\":\"md:min-h-[calc(100vh-64px)] space-y-4\",\"children\":[[\"$\",\"div\",null,{\"className\":\"hidden md:block space-y-2\",\"children\":[[\"$\",\"div\",null,{\"className\":\"animate-pulse rounded-md bg-primary/10 h-6 w-48\"}],[\"$\",\"div\",null,{\"className\":\"animate-pulse rounded-md bg-primary/10 h-4 w-24\"}]]}],[\"$\",\"div\",null,{\"className\":\"mt-6 space-y-3\",\"children\":[[\"$\",\"div\",null,{\"className\":\"grid grid-cols-2 gap-2\",\"children\":[[\"$\",\"div\",null,{\"className\":\"animate-pulse rounded-md bg-primary/10 h-10\"}],[\"$\",\"div\",null,{\"className\":\"animate-pulse rounded-md bg-primary/10 h-10\"}]]}],[\"$\",\"div\",null,{\"className\":\"animate-pulse rounded-md bg-primary/10 h-12 w-full\"}],[\"$\",\"div\",null,{\"className\":\"animate-pulse rounded-md bg-primary/10 h-20 w-full\"}]]}]]}]}]]}]]}],\"children\":[\"$\",\"$L15b\",null,{\"reason\":\"next/dynamic\",\"children\":[\"$\",\"$L15c\",null,{\"product\":{\"_id\":\"shopifyProduct-9782477259031\",\"allowOutOfStockSelection\":true,\"description\":\"\u003cp\u003e\u003cmeta charset=\\\"utf-8\\\"\u003e\u003cspan\u003eOur first bag, The Snap, was designed with utility in mind. Silver snaps encircle the straps, serving as a functional closure. The Snap is large enough to fit a laptop or your lunch, but small enough for a night out. Made in vegetable dyed Italian lambskin with an debossed logo and custom logo snaps. Internal zip pocket. \u003c/span\u003e\u003c/p\u003e\\n\u003cp\u003e\u003cmeta charset=\\\"utf-8\\\"\u003e\u003cstrong\u003e*EXCLUDED FROM SALE\u003c/strong\u003e\u003c/p\u003e\\n\u003cp\u003e \u003c/p\u003e\\n\u003cp\u003e \u003c/p\u003e\",\"handle\":\">>>the-snap-green<<<\",\"hidden\":false,\"images\":[{\"_type\":\"shopifyImage\",\"altText\":\"\",\"filename\":\">>>The-Snap_Green<<<_1_1efefce7-f579-4506-9817-1830c463ee99.jpg\",\"gender\":\"\",\"height\":2165,\"position\":1,\"shopifyGid\":\"gid://shopify/ProductImage/51078023905559\",\"url\":\"https://cdn.shopify.com/s/files/1/0691/7057/files/>>>The-Snap_Green<<<_1_1efefce7-f579-4506-9817-1830c463ee99.jpg?v=1764951051\",\"width\":1681},{\"_type\":\"shopifyImage\",\"altText\":\"\",\"filename\":\">>>The-Snap_Green<<<_2_5644d3c0-40ef-45f6-8793-4a2d363c91da.jpg\",\"gender\":\"\",\"height\":1733,\"position\":2,\"shopifyGid\":\"gid://shopify/ProductImage/51078023938327\",\"url\":\"https://cdn.shopify.com/s/files/1/0691/7057/files/>>>The-Snap_Green<<<_2_5644d3c0-40ef-45f6-8793-4a2d363c91da.jpg?v=1764951051\",\"width\":1346},{\"_type\":\"shopifyImage\",\"altText\":\"\",\"filename\":\">>>The-Snap_Green<<<_3_0bae5295-008e-4a0c-b42f-0f72c79082fa.jpg\",\"gender\":\"\",\"height\":1185,\"position\":3,\"shopifyGid\":\"gid://shopify/ProductImage/51078023971095\",\"url\":\"https://cdn.shopify.com/s/files/1/0691/7057/files/>>>The-Snap_Green<<<_3_0bae5295-008e-4a0c-b42f-0f72c79082fa.jpg?v=1764951051\",\"width\":921},{\"_type\":\"shopifyImage\",\"altText\":\"\",\"filename\":\">>>The-Snap_Green<<<_4_7e4892ea-ec6b-4448-8570-695aadddffa3.jpg\",\"gender\":\"\",\"height\":1078,\"position\":4,\"shopifyGid\":\"gid://shopify/ProductImage/51078024003863\",\"url\":\"https://cdn.shopify.com/s/files/1/0691/7057/files/>>>The-Snap_Green<<<_4_7e4892ea-ec6b-4448-8570-695aadddffa3.jpg?v=1764951051\",\"width\":837},{\"_type\":\"shopifyImage\",\"altText\":\"\",\"filename\":\">>>The-Snap_Green<<<_5_7b2a701e-a946-447a-a997-beb6179f6ae8.jpg\",\"gender\":\"\",\"height\":1199,\"position\":5,\"shopifyGid\":\"gid://shopify/ProductImage/51078024036631\",\"url\":\"https://cdn.shopify.com/s/files/1/0691/7057/files/>>>The-Snap_Green<<<_5_7b2a701e-a946-447a-a997-beb6179f6ae8.jpg?v=1764951051\",\"width\":931}],\"isAvailable\":true,\"materials\":\"Material: Italian lambskin\",\"modelInfo\":\"H19\\\" x W17\\\" x D5.5\\\" with 11\\\" handle drop\",\"note\":null,\"options\":[{\"_key\":\"ipxOKpnL0VUFtf7N9K9wP\",\"name\":\"Color\",\"values\":[\"GREEN\"]}],\"origin\":\"Produced in China\",\"previewImageUrl\":\"https://cdn.shopify.com/s/files/1/0691/7057/files/>>>The-Snap_Green<<<_1_1efefce7-f579-4506-9817-1830c463ee99.jpg?v=1764951051\",\"productType\":\"Accessories\",\"seo\":null,\"shopifyGid\":\"gid://shopify/Product/9782477259031\",\"status\":\"active\",\"swatchGroup\":{\"_id\":\"4bcb4551-f988-4fee-9db5-b681a8d2aa43\",\"swatches\":[{\"product\":{\"_id\":\"shopifyProduct-9782477259031\",\"handle\":\">>>the-snap-green<<<\",\"previewImage\":{\"_key\":\"8qxVs5_WrPvAaoHZIE5CQ\",\"_type\":\"shopifyImage\",\"altText\":\"\",\"filename\":\">>>The-Snap_Green<<<_1_1efefce7-f579-4506-9817-1830c463ee99.jpg\",\"gender\":\"\",\"height\":2165,\"position\":1,\"shopifyGid\":\"gid://shopify/ProductImage/51078023905559\",\"url\":\"https://cdn.shopify.com/s/files/1/0691/7057/files/>>>The-Snap_Green<<<_1_1efefce7-f579-4506-9817-1830c463ee99.jpg?v=1764951051\",\"width\":1681},\"title\":\"THE SNAP\"},\"swatch\":{\"_id\":\"6964f16c-5bc0-4f71-b716-1fabe3d2f7b1\",\"color\":{\"_type\":\"color\",\"alpha\":1,\"hex\":\"#49602b\",\"hsl\":{\"_type\":\"hslaColor\",\"a\":1,\"h\":85.94454072790298,\"l\":0.27205238,\"s\":0.37988133020560233},\"hsv\":{\"_type\":\"hsvaColor\",\"a\":1,\"h\":85.94454072790298,\"s\":0.5506,\"v\":0.3754},\"rgb\":{\"_type\":\"rgbaColor\",\"a\":1,\"b\":43,\"g\":96,\"r\":73}},\"image\":null,\"title\":\"Green\"}},{\"product\":{\"_id\":\"shopifyProduct-9782476898583\",\"handle\":\"the-snap-black\",\"previewImage\":{\"_key\":\"a7Svt2JF4RdH4nmwvTbic\",\"_type\":\"shopifyImage\",\"altText\":\"\",\"filename\":\"The-Snap_Black_1_7d84a0e2-ed3d-41a1-a796-15532888811f.jpg\",\"gender\":\"\",\"height\":1697,\"position\":1,\"shopifyGid\":\"gid://shopify/ProductImage/51078034587927\",\"url\":\"https://cdn.shopify.com/s/files/1/0691/7057/files/The-Snap_Black_1_7d84a0e2-ed3d-41a1-a796-15532888811f.jpg?v=1764951079\",\"width\":1318},\"title\":\"THE SNAP\"},\"swatch\":{\"_id\":\"91087a98-a8ef-4f9b-b590-0431dcc790cf\",\"color\":{\"_type\":\"color\",\"alpha\":1,\"hex\":\"#000000\",\"hsl\":{\"_type\":\"hslaColor\",\"a\":1,\"h\":199.99999999999972,\"l\":0,\"s\":0},\"hsv\":{\"_type\":\"hsvaColor\",\"a\":1,\"h\":199.99999999999972,\"s\":0,\"v\":0},\"rgb\":{\"_type\":\"rgbaColor\",\"a\":1,\"b\":0,\"g\":0,\"r\":0}},\"image\":null,\"title\":\"Black\"}},{\"product\":{\"_id\":\"shopifyProduct-9968639574295\",\"handle\":\"the-snap-forget\",\"previewImage\":{\"_key\":\"SGoaC4lpXUj-3qIO0uibS\",\"_type\":\"shopifyImage\",\"altText\":\"\",\"filename\":\"DL_24_c934f8cf-7f5a-4435-a4d0-b8d3d061b30b.jpg\",\"gender\":\"\",\"height\":2755,\"position\":1,\"shopifyGid\":\"gid://shopify/ProductImage/51077991006487\",\"url\":\"https://cdn.shopify.com/s/files/1/0691/7057/files/DL_24_c934f8cf-7f5a-4435-a4d0-b8d3d061b30b.jpg?v=1764950949\",\"width\":2139},\"title\":\"THE SNAP\"},\"swatch\":{\"_id\":\"86450907-590a-4fc7-9172-53cfae9c453e\",\"color\":{\"_type\":\"color\",\"alpha\":1,\"hex\":\"#24a3e3\",\"hsl\":{\"_type\":\"hslaColor\",\"a\":1,\"h\":200,\"l\":0.5156,\"s\":0.7732},\"hsv\":{\"_type\":\"hsvaColor\",\"a\":1,\"h\":200,\"s\":0.8414,\"v\":0.8901},\"rgb\":{\"_type\":\"rgbaColor\",\"a\":1,\"b\":227,\"g\":163,\"r\":46}},\"image\":{\"_type\":\"image\",\"asset\":{\"_ref\":\"image-9682b11b0598fa9407adf3a87a8c87600c7d99dd-464x396-png\",\"_type\":\"reference\"}},\"title\":\"Forget\"}},{\"product\":{\"_id\":\"shopifyProduct-9968639541527\",\"handle\":\"the-snap-bone\",\"previewImage\":{\"_key\":\"o7Jx2GLjDGBcSINqxaqjP\",\"_type\":\"shopifyImage\",\"altText\":\"\",\"filename\":\"DL_16_9facb115-a7bd-4e80-a604-2011f4447301.jpg\",\"gender\":\"\",\"height\":2931,\"position\":1,\"shopifyGid\":\"gid://shopify/ProductImage/51078004343063\",\"url\":\"https://cdn.shopify.com/s/files/1/0691/7057/files/DL_16_9facb115-a7bd-4e80-a604-2011f4447301.jpg?v=1764950982\",\"width\":2276},\"title\":\"THE SNAP\"},\"swatch\":{\"_id\":\"951d5fc0-2012-44f2-89e7-b5993f6de600\",\"color\":null,\"image\":{\"_type\":\"image\",\"asset\":{\"_ref\":\"image-c5389e8a98d88881690e1d51ddcbe919b59e253e-482x458-png\",\"_type\":\"reference\"}},\"title\":\"Bone\"}},{\"product\":{\"_id\":\"shopifyProduct-9968639443223\",\"handle\":\"the-snap-navy\",\"previewImage\":{\"_key\":\"fVV6Ta-Xi-VhiBCikW1a8\",\"_type\":\"shopifyImage\",\"altText\":\"\",\"filename\":\"DL_31_308c872f-bc6b-46a2-845b-712a649f16c4.jpg\",\"gender\":\"\",\"height\":2546,\"position\":1,\"shopifyGid\":\"gid://shopify/ProductImage/51078009487639\",\"url\":\"https://cdn.shopify.com/s/files/1/0691/7057/files/DL_31_308c872f-bc6b-46a2-845b-712a649f16c4.jpg?v=1764951013\",\"width\":1977},\"title\":\"THE SNAP\"},\"swatch\":{\"_id\":\"ff58d680-2361-4ca1-8a21-fa6d68504027\",\"color\":null,\"image\":{\"_type\":\"image\",\"asset\":{\"_ref\":\"image-d3560296eca657402149049d217c9d7530e04499-476x438-png\",\"_type\":\"reference\"}},\"title\":\"Navy\"}}],\"title\":\"Snap Bag Colors\"},\"tags\":[\"Accessories\",\"All\",\"Bags\",\"Gift Guide\",\"Mike and Zoe Edit\",\"New\",\"new-bg-color\",\"PS25\",\"Solid\",\"Woven\"],\"title\":\"THE SNAP\",\"totalImages\":7,\"variants\":[{\"compareAtPrice\":null,\"inventoryPolicy\":\"deny\",\"inventoryQuantity\":71,\"option1\":\"GREEN\",\"option2\":\"\",\"option3\":\"\",\"price\":675,\"shopifyGid\":\"gid://shopify/ProductVariant/49933180535063\",\"shopifyVariantId\":49933180535063,\"title\":\"GREEN\"}]},\"blurDataUrls\":[\"$15d\",\"$15e\",\"$15f\",\"$160\",\"$161\"]}]}]}]}]\n"])
+
+--- SCRIPT 5 (531 chars) ---
+
+            window._learnq = window._learnq || [];
+            var product = {
+              Name: "THE SNAP",
+              ProductID: "9782477259031",
+              ImageURL: "https://cdn.shopify.com/s/files/1/0691/7057/files/>>>The-Snap_Green<<<_1_1efefce7-f579-4506-9817-1830c463ee99.jpg?v=1764951051",
+              URL: "https://eckhauslatta.com/products/>>>the-snap-green<<<",
+              Price: 675,
+              CompareAtPrice: null,
+            };
+            window._learnq.push(['track', 'Viewed Product', product]);
+          

@@ -284,8 +284,14 @@ class ProductExtractor:
 
         results = []
         contributions = []
+        best_score = 0
 
         for strategy in self.strategies:
+            # Skip expensive dom_fallback if we already have a great result
+            if strategy.strategy_type == ExtractionStrategy.DOM_FALLBACK and best_score >= 95:
+                print(f"\n  Skipping {strategy.strategy_type.value}... (already have score {best_score})")
+                continue
+
             print(f"\n  Trying {strategy.strategy_type.value}...")
             result = await strategy.extract(url, page_data)
             results.append(result)
@@ -298,6 +304,7 @@ class ProductExtractor:
                     score=result.score
                 )
                 contributions.append(contribution)
+                best_score = max(best_score, result.score)
 
                 print(f"    ✓ Success! Score: {result.score}")
                 print(f"    → Fields: {', '.join(sorted(fields))}")

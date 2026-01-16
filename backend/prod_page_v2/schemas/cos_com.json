@@ -1,13 +1,18 @@
 {
   "name": null,
   "price": null,
-  "currency": "[4].selection.currency",
-  "images": "[3].themes[0].items[0].images",
-  "description": "[3].themes[0].items[0].description",
-  "variants": {
-    "source": "[1].data.1315149001001.product.items",
-    "size": "name",
-    "available": "stock",
-    "stock_count": "stockQuantity"
-  }
+  "currency": null,
+  "description": null,
+  "brand": "COS",
+  "category": null,
+  "sku": "[2].data.1315149001001.product.items[0].sku",
+  "images": null,
+  "image_url_field": null,
+  "variants": "[2].data.1315149001001.product.items",
+  "variant_size_field": "name",
+  "variant_color_field": null,
+  "variant_price_field": null,
+  "variant_available_field": "stock",
+  "variant_stock_field": "stockQuantity",
+  "variant_sku_field": "sku"
 }

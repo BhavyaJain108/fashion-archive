@@ -2,12 +2,17 @@
   "name": null,
   "price": null,
   "currency": "[4].geolocation.currency",
-  "images": null,
   "description": null,
-  "variants": {
-    "source": null,
-    "size": null,
-    "available": null,
-    "stock_count": null
-  }
+  "brand": null,
+  "category": null,
+  "sku": null,
+  "images": null,
+  "image_url_field": null,
+  "variants": null,
+  "variant_size_field": null,
+  "variant_color_field": null,
+  "variant_price_field": null,
+  "variant_available_field": null,
+  "variant_stock_field": null,
+  "variant_sku_field": null
 }
