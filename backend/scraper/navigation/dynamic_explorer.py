@@ -1316,6 +1316,9 @@ async def explore(url: str, max_depth: int = 3) -> list:
 
         top_level = parse_items(response.content[0].text)
 
+        # Filter out home page links (just "/")
+        top_level = [item for item in top_level if item.get('url') != '/']
+
         # Filter to majority type - nav items should be consistent (all tabs, all buttons, etc.)
         # This removes stray utility buttons when main nav is tabs
         if len(top_level) > 1:
@@ -1700,6 +1703,19 @@ async def main():
     with open(summary_file, 'w') as f:
         json.dump(states_summary, f, indent=2)
     print(f"\nSaved state summary: {summary_file}")
+
+    # Build and save tree
+    from build_tree import build_tree, find_cross_toplevel_urls, dedupe_parent_child_links, hoist_common_links
+    base_url = states[0].get("url", url) if states else url
+    cross_toplevel_urls = find_cross_toplevel_urls(states)
+    tree = build_tree(states, base_url, filter_urls=cross_toplevel_urls)
+    hoist_common_links(tree)
+    dedupe_parent_child_links(tree)
+
+    tree_file = output_dir / 'navigation_tree.json'
+    with open(tree_file, 'w') as f:
+        json.dump(tree, f, indent=2)
+    print(f"Saved navigation tree: {tree_file}")
 
     # Save full states (with ARIA, without screenshots for size)
     full_states = []

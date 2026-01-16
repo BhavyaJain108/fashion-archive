@@ -139,6 +139,22 @@ async def get_nav_links_with_structure(page) -> str:
     return result
 
 
+def resolve_urls_in_tree(node, base_url: str):
+    """Recursively resolve relative URLs to absolute URLs in the tree."""
+    from urllib.parse import urljoin
+
+    if isinstance(node, list):
+        for item in node:
+            resolve_urls_in_tree(item, base_url)
+    elif isinstance(node, dict):
+        url = node.get('url')
+        if url and not url.startswith('http'):
+            node['url'] = urljoin(base_url, url)
+        children = node.get('children', [])
+        if children:
+            resolve_urls_in_tree(children, base_url)
+
+
 async def extract_tree(url: str, output_dir: Path = None) -> tuple:
     """Extract navigation tree using LLM to interpret DOM structure.
     Returns (tree, links_text)
@@ -265,6 +281,10 @@ Respond with ONLY the JSON array, no markdown, no explanation:
             result = re.sub(r'"(\s*)\{', r'",\1{', result)
 
             tree = json.loads(result)
+
+            # Resolve relative URLs to absolute URLs
+            resolve_urls_in_tree(tree, url)
+
             print("\n[5] Tree extracted:")
             print(json.dumps(tree, indent=2))
             return tree, links_text

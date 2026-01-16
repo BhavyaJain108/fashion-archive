@@ -41,14 +41,20 @@ POPUP: <role> "<exact button text>"
 
 Priority (what to dismiss first):
 1. Cookie consent → "Accept All Cookies", "Accept All", "Allow All"
-2. Newsletter modal → "Close", "X", "No thanks"
-3. Country selector → "Continue", "Confirm"
-4. Promo/welcome popup → "Close", "X"
+2. Newsletter/email signup → "Close", "X", "No thanks", "Maybe later"
+3. Discount/promo code popup → "Close", "X", "No thanks", "Continue without"
+4. Free gift/giveaway popup → "Close", "X", "No thanks", "Skip"
+5. Spin-to-win/wheel popup → "Close", "X", "No thanks"
+6. Country/region selector → "Continue", "Confirm", "Stay on site"
+7. Age verification → "Yes", "I am over 18", "Enter"
+8. Welcome/first-time visitor → "Close", "X", "Continue shopping"
 
 Things that are NOT popups (never dismiss):
 - "Close menu" / navigation controls
 - Search/cart close buttons
 - Menu-related controls
+- Product quick-view modals
+- Size guides
 
 CRITICAL: "Close menu" is NEVER a popup.
 
@@ -91,6 +97,7 @@ async def try_direct_popup_selectors(page: Page) -> int:
 
     # Common cookie/popup buttons - ordered by priority
     selectors = [
+        # Cookie consent
         'button:has-text("Accept All Cookies")',
         'button:has-text("Accept All")',
         'button:has-text("ACCEPT ALL COOKIES")',
@@ -98,15 +105,42 @@ async def try_direct_popup_selectors(page: Page) -> int:
         'button:has-text("Accept Cookies")',
         '[id*="cookie"] button:has-text("Accept")',
         '[id*="consent"] button:has-text("Accept")',
-        # Geolocation/country popups - site-specific selectors only
-        '#popin-ip',  # Jacquemus geoloc popup
+        # Geolocation/country popups
+        '#popin-ip',
         '.popin__geoloc a[data-locale="en_US"]',
         '.js-close-panel[data-panel-id*="geoloc"]',
-        # Don't use generic 'button:has-text("United States")' - too broad
         # Newsletter/signup close buttons
         '#attentive_overlay button[aria-label*="close" i]',
         '#attentive_overlay button:has-text("Close")',
-        'iframe[title*="Sign Up"]',  # Will try to remove
+        '[class*="newsletter"] button[aria-label*="close" i]',
+        '[class*="popup"] button[aria-label*="close" i]',
+        '[class*="modal"] button[aria-label*="close" i]',
+        # Klaviyo popups
+        '[data-testid*="klaviyo"] button[aria-label*="close" i]',
+        '[class*="klaviyo"] button[aria-label*="close" i]',
+        '[class*="klaviyo"] button:has-text("Close")',
+        '[class*="klaviyo"] button:has-text("No thanks")',
+        'form[data-testid*="klaviyo"] button[aria-label*="close" i]',
+        'button[aria-label="Close dialog"]',
+        'button[aria-label="Close form"]',
+        # Promo/discount popups
+        '[class*="promo"] button:has-text("Close")',
+        '[class*="promo"] button:has-text("No thanks")',
+        '[class*="discount"] button:has-text("Close")',
+        '[class*="offer"] button:has-text("Close")',
+        'button:has-text("No thanks")',
+        'button:has-text("Maybe later")',
+        'button:has-text("Continue without")',
+        # Spin wheel / gamification
+        '[class*="wheel"] button:has-text("Close")',
+        '[class*="spin"] button:has-text("Close")',
+        # Generic close buttons on overlays
+        '[class*="overlay"] button:has-text("Close")',
+        '[class*="overlay"] button[aria-label*="close" i]',
+        # Iframes to remove
+        'iframe[title*="Sign Up"]',
+        'iframe[title*="Newsletter"]',
+        'iframe[title*="Popup"]',
     ]
 
     for sel in selectors:
