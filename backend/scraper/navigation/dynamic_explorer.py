@@ -27,6 +27,16 @@ from utils.page_wait import wait_for_page_ready
 
 client = Anthropic(api_key=os.getenv('CLAUDE_API_KEY'))
 
+# Module-level LLM usage tracking (reset at start of explore())
+_llm_usage = {"input_tokens": 0, "output_tokens": 0}
+
+def _track_llm_response(response):
+    """Track LLM usage from a response."""
+    global _llm_usage
+    if response.usage:
+        _llm_usage["input_tokens"] += response.usage.input_tokens
+        _llm_usage["output_tokens"] += response.usage.output_tokens
+
 
 # =============================================================================
 # LLM: Find top-level nav items
@@ -1193,6 +1203,7 @@ async def explore_toggle_menu(page: Page, menu_structure: dict, states: list, st
                 "content": prompt_subcategories(aria, [tl_name])
             }]
         )
+        _track_llm_response(subcat_response)
         expandable_items, leaf_links, is_product_listing = parse_subcategories(subcat_response.content[0].text)
         if is_product_listing:
             print(f"    [PRODUCT_LISTING] Top-level '{tl_name}' is a product page, skipping subcategories")
@@ -1262,11 +1273,13 @@ async def explore_toggle_menu(page: Page, menu_structure: dict, states: list, st
 # Main explorer
 # =============================================================================
 
-async def explore(url: str, max_depth: int = 3) -> list:
+async def explore(url: str, max_depth: int = 3) -> tuple:
     """
     Explore navigation menu using DFS.
-    Returns list of captured states at each step.
+    Returns tuple of (list of captured states, llm_usage dict).
     """
+    global _llm_usage
+    _llm_usage = {"input_tokens": 0, "output_tokens": 0}  # Reset tracking
 
     print(f"\n{'='*70}")
     print("DYNAMIC NAV EXPLORER")
@@ -1313,8 +1326,12 @@ async def explore(url: str, max_depth: int = 3) -> list:
                 ]
             }]
         )
+        _track_llm_response(response)
 
         top_level = parse_items(response.content[0].text)
+
+        # Filter out home page links (just "/")
+        top_level = [item for item in top_level if item.get('url') != '/']
 
         # Filter to majority type - nav items should be consistent (all tabs, all buttons, etc.)
         # This removes stray utility buttons when main nav is tabs
@@ -1364,7 +1381,7 @@ async def explore(url: str, max_depth: int = 3) -> list:
             clicked = await click_button(page, toggle_item['name'])
             if not clicked:
                 print("    ERROR: Could not open toggle menu")
-                return states
+                return states, _llm_usage
 
             await page.wait_for_timeout(1000)
             await dismiss_popups_with_llm(page)
@@ -1382,6 +1399,7 @@ async def explore(url: str, max_depth: int = 3) -> list:
                     "content": prompt_menu_structure(aria)
                 }]
             )
+            _track_llm_response(response)
 
             menu_structure = parse_menu_structure(response.content[0].text)
             print(f"    LLM identified structure:")
@@ -1398,7 +1416,7 @@ async def explore(url: str, max_depth: int = 3) -> list:
             print(f"{'='*70}")
             print(f"Total states captured: {len(states)}")
 
-            return states
+            return states, _llm_usage
 
         # Not a toggle menu - use normal DFS exploration
         # Initialize stack with button/tab/link/group paths to explore
@@ -1564,6 +1582,7 @@ async def explore(url: str, max_depth: int = 3) -> list:
                         "content": prompt_subcategories(aria, path)
                     }]
                 )
+                _track_llm_response(subcat_response)
                 expandable_items, leaf_links, is_product_listing = parse_subcategories(subcat_response.content[0].text)
 
                 # Handle product listing page - treat as leaf, record URL, skip link extraction
@@ -1658,7 +1677,7 @@ async def explore(url: str, max_depth: int = 3) -> list:
         print(f"{'='*70}")
         print(f"Total states captured: {len(states)}")
 
-        return states
+        return states, _llm_usage
 
     finally:
         await page.wait_for_timeout(1000)
@@ -1700,6 +1719,19 @@ async def main():
     with open(summary_file, 'w') as f:
         json.dump(states_summary, f, indent=2)
     print(f"\nSaved state summary: {summary_file}")
+
+    # Build and save tree
+    from build_tree import build_tree, find_cross_toplevel_urls, dedupe_parent_child_links, hoist_common_links
+    base_url = states[0].get("url", url) if states else url
+    cross_toplevel_urls = find_cross_toplevel_urls(states)
+    tree = build_tree(states, base_url, filter_urls=cross_toplevel_urls)
+    hoist_common_links(tree)
+    dedupe_parent_child_links(tree)
+
+    tree_file = output_dir / 'navigation_tree.json'
+    with open(tree_file, 'w') as f:
+        json.dump(tree, f, indent=2)
+    print(f"Saved navigation tree: {tree_file}")
 
     # Save full states (with ARIA, without screenshots for size)
     full_states = []

@@ -490,10 +490,10 @@ class ProductExtractor:
         self._save_config(config)
 
         print(f"\n{'='*60}")
-        print(f"✓ SUCCESS - {domain}")
+        print(f"SUCCESS - {domain}")
         print(f"  Active strategies:")
-        for c in active_contributions:
-            print(f"    • {c.strategy.value}: {', '.join(sorted(c.fields))}")
+        for c in minimal_contributions:
+            print(f"    - {c.strategy.value}: {', '.join(sorted(c.fields))}")
         print(f"  Config saved to: {self._get_config_path(domain)}")
         print('='*60)
 

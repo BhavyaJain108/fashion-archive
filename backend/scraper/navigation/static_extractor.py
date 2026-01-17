@@ -139,6 +139,22 @@ async def get_nav_links_with_structure(page) -> str:
     return result
 
 
+def resolve_urls_in_tree(node, base_url: str):
+    """Recursively resolve relative URLs to absolute URLs in the tree."""
+    from urllib.parse import urljoin
+
+    if isinstance(node, list):
+        for item in node:
+            resolve_urls_in_tree(item, base_url)
+    elif isinstance(node, dict):
+        url = node.get('url')
+        if url and not url.startswith('http'):
+            node['url'] = urljoin(base_url, url)
+        children = node.get('children', [])
+        if children:
+            resolve_urls_in_tree(children, base_url)
+
+
 async def extract_tree(url: str, output_dir: Path = None) -> tuple:
     """Extract navigation tree using LLM to interpret DOM structure.
     Returns (tree, links_text)
@@ -160,6 +176,7 @@ async def extract_tree(url: str, output_dir: Path = None) -> tuple:
     browser = await playwright.chromium.launch(headless=False)
     page = await browser.new_page()
     links_text = ""
+    llm_usage = {"input_tokens": 0, "output_tokens": 0}  # Initialize for tracking
 
     try:
         print("[1] Loading page...")
@@ -234,6 +251,11 @@ Respond with ONLY the JSON array, no markdown, no explanation:
             }]
         )
 
+        # Capture LLM usage for metrics (accumulate)
+        if response.usage:
+            llm_usage["input_tokens"] += response.usage.input_tokens
+            llm_usage["output_tokens"] += response.usage.output_tokens
+
         result = response.content[0].text.strip()
 
         # Save raw LLM response for debugging
@@ -265,14 +287,18 @@ Respond with ONLY the JSON array, no markdown, no explanation:
             result = re.sub(r'"(\s*)\{', r'",\1{', result)
 
             tree = json.loads(result)
+
+            # Resolve relative URLs to absolute URLs
+            resolve_urls_in_tree(tree, url)
+
             print("\n[5] Tree extracted:")
             print(json.dumps(tree, indent=2))
-            return tree, links_text
+            return tree, links_text, llm_usage
 
         except json.JSONDecodeError as e:
             print(f"\n[ERROR] Could not parse JSON: {e}")
             print(f"Raw response saved to: {raw_response_file}")
-            return None, links_text
+            return None, links_text, llm_usage
 
     finally:
         await page.wait_for_timeout(2000)

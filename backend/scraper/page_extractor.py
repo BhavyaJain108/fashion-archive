@@ -7,6 +7,7 @@ No shared state, designed for parallel processing.
 """
 
 import time
+import threading
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 from urllib.parse import urljoin, urlparse
@@ -15,6 +16,17 @@ from collections import Counter
 from llm_handler import LLMHandler
 from prompts import lineage_selection
 from prompts import pagination_detection
+
+# Thread-local storage for quiet mode (shared with url_extractor)
+try:
+    from url_extractor import _thread_local, _log
+except ImportError:
+    _thread_local = threading.local()
+
+    def _log(message: str):
+        """Print message unless quiet mode is enabled."""
+        if not getattr(_thread_local, 'quiet', False):
+            print(message)
 
 
 def escape_css_selector_for_playwright(selector: str) -> str:
@@ -202,11 +214,11 @@ def _extract_with_scrolling(page_url: str, pattern: Dict[str, str], brand_name: 
             # Detect pagination elements once at the beginning
             pagination_element_detected = _detect_pagination_element(page)
             if pagination_element_detected:
-                print(f"   🎯 Pagination element detected: {pagination_element_detected}")
-                print(f"   📍 Will scroll to pagination element first, then to bottom")
+                _log(f"   🎯 Pagination element detected: {pagination_element_detected}")
+                _log(f"   📍 Will scroll to pagination element first, then to bottom")
                 pagination_triggers_found.append(pagination_element_detected)
             else:
-                print(f"   📄 No pagination elements detected - using standard bottom scroll")
+                _log(f"   📄 No pagination elements detected - using standard bottom scroll")
             
             # Initialize scrolling variables
             scroll_count = 0
@@ -215,10 +227,10 @@ def _extract_with_scrolling(page_url: str, pattern: Dict[str, str], brand_name: 
             # Optimize attempts based on loading mechanism knowledge
             if brand_instance and brand_instance.load_more_loading_mechanism:
                 max_no_change_attempts = 1  # Only 1 attempt if we know site uses load more
-                print(f"   🔄 Scrolling to load content (optimized for load more): {page_url}")
+                _log(f"   🔄 Scrolling to load content (optimized for load more): {page_url}")
             else:
                 max_no_change_attempts = 2  # Standard attempts for unknown loading mechanism
-                print(f"   🔄 Scrolling to load all content for: {page_url}")
+                _log(f"   🔄 Scrolling to load all content for: {page_url}")
             
             # Step 1: If pagination detected, chase it first
             if pagination_element_detected:
@@ -226,7 +238,7 @@ def _extract_with_scrolling(page_url: str, pattern: Dict[str, str], brand_name: 
                 _scroll_using_pagination_element(page, pagination_element_detected, pagination_triggers_found)
                 
                 # After pagination chasing, do normal bottom scrolling
-                print(f"   📄 Pagination chasing complete, now scrolling to bottom...")
+                _log(f"   📄 Pagination chasing complete, now scrolling to bottom...")
             
             # Emit scroll start
             emit_event(brand_instance, "scroll_start", {
@@ -246,7 +258,7 @@ def _extract_with_scrolling(page_url: str, pattern: Dict[str, str], brand_name: 
                 # Get new height after scrolling and waiting
                 new_height = page.evaluate("document.body.scrollHeight")
 
-                print(f"   📏 Scroll #{scroll_count}: height {current_height} → {new_height}")
+                _log(f"   📏 Scroll #{scroll_count}: height {current_height} → {new_height}")
 
                 # Emit scroll iteration
                 emit_event(brand_instance, "scroll_iteration", {
@@ -260,13 +272,13 @@ def _extract_with_scrolling(page_url: str, pattern: Dict[str, str], brand_name: 
                 # Check if height changed after scroll
                 if new_height == current_height:
                     no_change_count += 1
-                    print(f"   ⏳ No height change (attempt {no_change_count}/{max_no_change_attempts})")
+                    _log(f"   ⏳ No height change (attempt {no_change_count}/{max_no_change_attempts})")
                     
                     if no_change_count >= max_no_change_attempts:
                         break  # Exit traditional scrolling loop
                     else:
                         # Wait longer when no change detected to allow lazy loading (3 second wait)
-                        print(f"   ⏳ Waiting for potential lazy loading...")
+                        _log(f"   ⏳ Waiting for potential lazy loading...")
                         page.wait_for_timeout(3000)  # 3 second wait as specified
                 else:
                     # Height changed, reset the no-change counter
@@ -280,7 +292,7 @@ def _extract_with_scrolling(page_url: str, pattern: Dict[str, str], brand_name: 
             })
 
             # Always check for load more after scrolling is complete (regardless of scrolling method)
-            print(f"   🔍 Scrolling complete, checking for load more buttons...")
+            _log(f"   🔍 Scrolling complete, checking for load more buttons...")
             load_more_clicked = _handle_load_more_button(page, page_url, brand_instance)
 
             if load_more_clicked:
@@ -290,7 +302,7 @@ def _extract_with_scrolling(page_url: str, pattern: Dict[str, str], brand_name: 
             
             # If load more was found and clicked, keep chasing it like pagination elements
             if load_more_clicked:
-                print(f"   🎯 Load more button found and clicked, chasing load more until exhausted...")
+                _log(f"   🎯 Load more button found and clicked, chasing load more until exhausted...")
 
                 load_more_click_count = 1
                 no_load_more_attempts = 0
@@ -305,15 +317,15 @@ def _extract_with_scrolling(page_url: str, pattern: Dict[str, str], brand_name: 
                     page.wait_for_timeout(3000)  # Wait for content to load
 
                     new_height = page.evaluate("document.body.scrollHeight")
-                    print(f"   📏 After load more #{load_more_click_count}: height {current_height} → {new_height}")
+                    _log(f"   📏 After load more #{load_more_click_count}: height {current_height} → {new_height}")
 
                     # Check if height changed - if not, button clicks aren't loading content
                     if new_height == current_height:
                         no_height_change_count += 1
-                        print(f"   ⚠️  Page height unchanged after click (attempt {no_height_change_count}/{max_no_height_change})")
+                        _log(f"   ⚠️  Page height unchanged after click (attempt {no_height_change_count}/{max_no_height_change})")
 
                         if no_height_change_count >= max_no_height_change:
-                            print(f"   🛑 Abandoning load more - page height not increasing after {load_more_click_count} clicks")
+                            _log(f"   🛑 Abandoning load more - page height not increasing after {load_more_click_count} clicks")
                             break
                     else:
                         # Height changed, reset counter
@@ -325,7 +337,7 @@ def _extract_with_scrolling(page_url: str, pattern: Dict[str, str], brand_name: 
                     if additional_click:
                         load_more_click_count += 1
                         no_load_more_attempts = 0  # Reset attempts counter
-                        print(f"   🎯 Load more button clicked again (click #{load_more_click_count})")
+                        _log(f"   🎯 Load more button clicked again (click #{load_more_click_count})")
 
                         emit_event(brand_instance, "load_more_clicked", {
                             "url": page_url,
@@ -335,21 +347,21 @@ def _extract_with_scrolling(page_url: str, pattern: Dict[str, str], brand_name: 
                         })
                     else:
                         no_load_more_attempts += 1
-                        print(f"   ⏳ No load more button found (attempt {no_load_more_attempts}/{max_load_more_attempts})")
+                        _log(f"   ⏳ No load more button found (attempt {no_load_more_attempts}/{max_load_more_attempts})")
 
                         if no_load_more_attempts >= max_load_more_attempts:
-                            print(f"   ✅ No more load more buttons found after {load_more_click_count} clicks")
+                            _log(f"   ✅ No more load more buttons found after {load_more_click_count} clicks")
                             break
                         else:
                             # Wait longer and try again (like traditional scrolling)
-                            print(f"   ⏳ Waiting longer for potential load more button...")
+                            _log(f"   ⏳ Waiting longer for potential load more button...")
                             page.wait_for_timeout(3000)  # Extra wait before retry
             
             # More Links: Detect pagination after all scrolling is complete (skip for pages 2+)
             if not skip_more_links_detection:
                 pagination_detection_result = _detect_post_scroll_pagination(page, page_url)
             else:
-                print(f"   ⏩ Skipping More Links detection for additional page")
+                _log(f"   ⏩ Skipping More Links detection for additional page")
                 pagination_detection_result = {
                     "pagination_found": False,
                     "url_pattern": None,
@@ -403,12 +415,12 @@ def extract_multi_page_products(page_url: str, pattern: Dict[str, str], brand_na
             "lineage_memory": {"rejected_lineages": set()}
         }
     
-    print(f"\n🔗 Multi-Page Extraction Starting...")
+    _log(f"\n🔗 Multi-Page Extraction Starting...")
     
     # Generate page URLs
     page_urls = _generate_page_urls(page_url, pagination_result)
     if not page_urls:
-        print(f"   📄 No additional pages to extract")
+        _log(f"   📄 No additional pages to extract")
         return {
             "products": [],
             "pages_extracted": 0,
@@ -417,7 +429,7 @@ def extract_multi_page_products(page_url: str, pattern: Dict[str, str], brand_na
             "lineage_memory": {"rejected_lineages": set()}
         }
     
-    print(f"   📊 Extracting from {len(page_urls)} additional pages: {page_urls}")
+    _log(f"   📊 Extracting from {len(page_urls)} additional pages: {page_urls}")
     
     # Initialize lineage memory (will be populated from page 1 results)
     lineage_memory = {
@@ -475,9 +487,9 @@ def extract_multi_page_products(page_url: str, pattern: Dict[str, str], brand_na
                     if products_found > 0:
                         all_products.extend(page_result["products"])
                         pages_with_products += 1
-                        print(f"   ✅ Page {page_num}: {products_found} products extracted")
+                        _log(f"   ✅ Page {page_num}: {products_found} products extracted")
                     else:
-                        print(f"   📄 Page {page_num}: 0 products detected")
+                        _log(f"   📄 Page {page_num}: 0 products detected")
                     
                     per_page_stats.append({
                         "page_num": page_num,
@@ -491,7 +503,7 @@ def extract_multi_page_products(page_url: str, pattern: Dict[str, str], brand_na
                     # Handle sequential fallback results
                     fallback_results = future.result()
                     if fallback_results:
-                        print(f"   🔄 Sequential fallback completed: {len(fallback_results)} additional pages processed")
+                        _log(f"   🔄 Sequential fallback completed: {len(fallback_results)} additional pages processed")
                         for result in fallback_results:
                             if result.get("products"):
                                 all_products.extend(result["products"])
@@ -501,7 +513,7 @@ def extract_multi_page_products(page_url: str, pattern: Dict[str, str], brand_na
                 if source == "parallel":
                     page_num = info["page_num"]
                     url = info["url"]
-                    print(f"   ❌ Page {page_num} extraction failed: {e}")
+                    _log(f"   ❌ Page {page_num} extraction failed: {e}")
                     per_page_stats.append({
                         "page_num": page_num,
                         "url": url,
@@ -510,15 +522,15 @@ def extract_multi_page_products(page_url: str, pattern: Dict[str, str], brand_na
                         "source": "parallel"
                     })
                 else:
-                    print(f"   ❌ Sequential fallback failed: {e}")
+                    _log(f"   ❌ Sequential fallback failed: {e}")
     
     total_time = time.time() - start_time
 
     # No deduplication - keep all product containers even if they have the same URL
-    print(f"   📊 Multi-page extraction complete:")
-    print(f"      • Pages processed: {len(per_page_stats)}")
-    print(f"      • Total products: {len(all_products)}")
-    print(f"      • Total time: {total_time:.2f}s")
+    _log(f"   📊 Multi-page extraction complete:")
+    _log(f"      • Pages processed: {len(per_page_stats)}")
+    _log(f"      • Total products: {len(all_products)}")
+    _log(f"      • Total time: {total_time:.2f}s")
 
     return {
         "products": all_products,
@@ -555,7 +567,7 @@ def _sequential_fallback_extraction(base_url: str, pattern: Dict[str, str], bran
     if not url_pattern or not max_page_detected:
         return []
     
-    print(f"\n🔄 Sequential Fallback: Checking pages beyond detected max ({max_page_detected})...")
+    _log(f"\n🔄 Sequential Fallback: Checking pages beyond detected max ({max_page_detected})...")
     
     fallback_stats = []
     current_page_num = highest_page_processed + 1
@@ -577,7 +589,7 @@ def _sequential_fallback_extraction(base_url: str, pattern: Dict[str, str], bran
                 # Custom pattern - replace X with page number
                 next_page_url = base_url + url_pattern.replace("X", str(current_page_num))
             
-            print(f"   🔍 Testing page {current_page_num}: {next_page_url}")
+            _log(f"   🔍 Testing page {current_page_num}: {next_page_url}")
             
             # Extract from this page using existing function
             page_result = _extract_single_additional_page(
@@ -588,7 +600,7 @@ def _sequential_fallback_extraction(base_url: str, pattern: Dict[str, str], bran
             products_found = len(page_result.get("products", []))
             
             if products_found > 0:
-                print(f"   ✅ Page {current_page_num}: {products_found} products found - continuing")
+                _log(f"   ✅ Page {current_page_num}: {products_found} products found - continuing")
                 fallback_stats.append({
                     "page_num": current_page_num,
                     "url": next_page_url,
@@ -599,7 +611,7 @@ def _sequential_fallback_extraction(base_url: str, pattern: Dict[str, str], bran
                 })
                 consecutive_failures = 0  # Reset failure counter
             else:
-                print(f"   📄 Page {current_page_num}: 0 products - fallback complete")
+                _log(f"   📄 Page {current_page_num}: 0 products - fallback complete")
                 fallback_stats.append({
                     "page_num": current_page_num,
                     "url": next_page_url,
@@ -610,7 +622,7 @@ def _sequential_fallback_extraction(base_url: str, pattern: Dict[str, str], bran
                 break  # Stop when we hit a page with 0 products
                 
         except Exception as e:
-            print(f"   ❌ Page {current_page_num}: Failed ({str(e)[:50]}...) - counting as failure")
+            _log(f"   ❌ Page {current_page_num}: Failed ({str(e)[:50]}...) - counting as failure")
             consecutive_failures += 1
             fallback_stats.append({
                 "page_num": current_page_num,
@@ -622,18 +634,18 @@ def _sequential_fallback_extraction(base_url: str, pattern: Dict[str, str], bran
             
             # If it's a 404-like error, stop immediately
             if "404" in str(e) or "not found" in str(e).lower():
-                print(f"   🚫 Page {current_page_num}: 404 detected - fallback complete")
+                _log(f"   🚫 Page {current_page_num}: 404 detected - fallback complete")
                 break
         
         current_page_num += 1
         
         # Safety limit: don't go beyond 50 pages beyond detected max
         if current_page_num > max_page_detected + 50:
-            print(f"   🛑 Reached safety limit (page {current_page_num}) - stopping fallback")
+            _log(f"   🛑 Reached safety limit (page {current_page_num}) - stopping fallback")
             break
     
     if consecutive_failures >= max_consecutive_failures:
-        print(f"   🛑 Sequential fallback stopped after {max_consecutive_failures} consecutive failures")
+        _log(f"   🛑 Sequential fallback stopped after {max_consecutive_failures} consecutive failures")
     
     return fallback_stats
 
@@ -652,7 +664,7 @@ def _concurrent_sequential_fallback(base_url: str, pattern: Dict[str, str], bran
     if not url_pattern:
         return []
     
-    print(f"   🔄 Starting concurrent sequential fallback from page {max_page_detected + 1}...")
+    _log(f"   🔄 Starting concurrent sequential fallback from page {max_page_detected + 1}...")
     
     fallback_results = []
     current_page_num = max_page_detected + 1
@@ -674,7 +686,7 @@ def _concurrent_sequential_fallback(base_url: str, pattern: Dict[str, str], bran
                 # Custom pattern - replace X with page number
                 next_page_url = base_url + url_pattern.replace("X", str(current_page_num))
             
-            print(f"   🔍 Fallback testing page {current_page_num}: {next_page_url}")
+            _log(f"   🔍 Fallback testing page {current_page_num}: {next_page_url}")
             
             # Extract from this page
             page_result = _extract_single_additional_page(
@@ -695,7 +707,7 @@ def _concurrent_sequential_fallback(base_url: str, pattern: Dict[str, str], bran
             products_found = len(filtered_products)
 
             if products_found > 0:
-                print(f"   ✅ Fallback page {current_page_num}: {products_found}/{products_before_filtering} valid products after filtering - continuing")
+                _log(f"   ✅ Fallback page {current_page_num}: {products_found}/{products_before_filtering} valid products after filtering - continuing")
                 fallback_results.append({
                     "page_num": current_page_num,
                     "url": next_page_url,
@@ -707,7 +719,7 @@ def _concurrent_sequential_fallback(base_url: str, pattern: Dict[str, str], bran
                 })
                 consecutive_failures = 0
             else:
-                print(f"   📄 Fallback page {current_page_num}: 0 valid products after lineage filtering - fallback complete")
+                _log(f"   📄 Fallback page {current_page_num}: 0 valid products after lineage filtering - fallback complete")
                 fallback_results.append({
                     "page_num": current_page_num,
                     "url": next_page_url,
@@ -719,7 +731,7 @@ def _concurrent_sequential_fallback(base_url: str, pattern: Dict[str, str], bran
                 break
                 
         except Exception as e:
-            print(f"   ❌ Fallback page {current_page_num}: Failed ({str(e)[:50]}...)")
+            _log(f"   ❌ Fallback page {current_page_num}: Failed ({str(e)[:50]}...)")
             consecutive_failures += 1
             fallback_results.append({
                 "page_num": current_page_num,
@@ -731,14 +743,14 @@ def _concurrent_sequential_fallback(base_url: str, pattern: Dict[str, str], bran
             
             # If it's a 404-like error, stop immediately
             if "404" in str(e) or "not found" in str(e).lower():
-                print(f"   🚫 Fallback page {current_page_num}: 404 detected - fallback complete")
+                _log(f"   🚫 Fallback page {current_page_num}: 404 detected - fallback complete")
                 break
         
         current_page_num += 1
         
         # Safety limit: don't go beyond 50 pages beyond detected max
         if current_page_num > max_page_detected + 50:
-            print(f"   🛑 Fallback reached safety limit (page {current_page_num}) - stopping")
+            _log(f"   🛑 Fallback reached safety limit (page {current_page_num}) - stopping")
             break
     
     return fallback_results
@@ -788,7 +800,7 @@ def _extract_single_additional_page(page_url: str, pattern: Dict[str, str], bran
     start_time = time.time()
     
     try:
-        print(f"   🌐 Page {page_num}: Extracting from {page_url}")
+        _log(f"   🌐 Page {page_num}: Extracting from {page_url}")
         
         # Call the main extraction function with optimizations
         # This will include Phase 1 (pagination scrolling), Phase 2 (height), Phase 3 (load more)
@@ -813,7 +825,7 @@ def _extract_single_additional_page(page_url: str, pattern: Dict[str, str], bran
         }
         
     except Exception as e:
-        print(f"   ❌ Page {page_num}: Extraction failed - {e}")
+        _log(f"   ❌ Page {page_num}: Extraction failed - {e}")
         return {
             "products": [],
             "extraction_time": time.time() - start_time,
@@ -834,8 +846,8 @@ def _extract_products_from_current_state(page, page_url: str, pattern: Dict[str,
     name_selector = escape_css_selector_for_js(pattern.get('name_selector', ''))
 
     # Debug logging
-    print(f"         🔍 DEBUG: Raw container selector: {pattern.get('container_selector', '')}")
-    print(f"         🔍 DEBUG: Escaped container selector: {container_selector}")
+    _log(f"         🔍 DEBUG: Raw container selector: {pattern.get('container_selector', '')}")
+    _log(f"         🔍 DEBUG: Escaped container selector: {container_selector}")
 
     # Use JavaScript to extract product data - safely JSON-escape selectors
     import json
@@ -843,7 +855,7 @@ def _extract_products_from_current_state(page, page_url: str, pattern: Dict[str,
     link_selector_escaped = json.dumps(link_selector)
     name_selector_escaped = json.dumps(name_selector)
 
-    print(f"         🔍 DEBUG: JSON-escaped container selector: {container_selector_escaped}")
+    _log(f"         🔍 DEBUG: JSON-escaped container selector: {container_selector_escaped}")
 
     # Force DOM reflow to ensure lazy-loaded elements are visible to subsequent queries
     # Some sites (like Entire Studios) use lazy-loading that doesn't commit elements to the render tree
@@ -851,7 +863,7 @@ def _extract_products_from_current_state(page, page_url: str, pattern: Dict[str,
     container_count = page.evaluate(f"""
         () => document.querySelectorAll({container_selector_escaped}).length
     """)
-    print(f"         📦 Containers found after DOM reflow: {container_count}")
+    _log(f"         📦 Containers found after DOM reflow: {container_count}")
 
     extraction_result = page.evaluate(f"""
         () => {{
@@ -1131,18 +1143,18 @@ def _extract_products_from_current_state(page, page_url: str, pattern: Dict[str,
     """)
 
     # Debug: Print how many containers were found
-    print(f"         📦 DEBUG: Containers found by querySelector: {len(extraction_result)}")
+    _log(f"         📦 DEBUG: Containers found by querySelector: {len(extraction_result)}")
 
     # Debug: Print detailed image extraction info for products with 0 or 1 images
     for product_data in extraction_result:
         image_count = len(product_data.get('images', []))
         if image_count < 2:
             product_name = product_data.get('name', 'Unknown')
-            print(f"\n         🔍 DEBUG: Product '{product_name}' has {image_count} images")
+            _log(f"\n         🔍 DEBUG: Product '{product_name}' has {image_count} images")
             for debug_line in product_data.get('debug_image_info', []):
-                print(f"            {debug_line}")
+                _log(f"            {debug_line}")
             if product_data.get('debug_rejection_reasons'):
-                print(f"            Rejections: {product_data.get('debug_rejection_reasons')}")
+                _log(f"            Rejections: {product_data.get('debug_rejection_reasons')}")
 
     # Process extracted data
     for product_data in extraction_result:
@@ -1241,7 +1253,7 @@ def apply_lineage_filtering(products: List[Dict[str, Any]], page_url: str, categ
                 if product.get('full_lineage') not in brand_instance.rejected_lineages
             ]
             if len(products) < initial_count:
-                print(f"   🚫 Pre-filtered {initial_count - len(products)} products with globally rejected lineages")
+                _log(f"   🚫 Pre-filtered {initial_count - len(products)} products with globally rejected lineages")
 
         # Step 2: Get globally approved lineages
         global_approved = brand_instance.approved_lineages if brand_instance else set()
@@ -1263,11 +1275,11 @@ def apply_lineage_filtering(products: List[Dict[str, Any]], page_url: str, categ
                 unknown_lineages.add(lineage)
 
         if global_approved and approved_products:
-            print(f"   ✅ Auto-approved {len(approved_products)} products with globally known lineages")
+            _log(f"   ✅ Auto-approved {len(approved_products)} products with globally known lineages")
 
         # Step 4: If no unknown lineages, return approved products
         if not unknown_lineages:
-            print(f"   ⏭️  No new lineages to analyze")
+            _log(f"   ⏭️  No new lineages to analyze")
             return approved_products
 
         # Step 5: Count frequencies of unknown lineages for LLM analysis
@@ -1277,22 +1289,22 @@ def apply_lineage_filtering(products: List[Dict[str, Any]], page_url: str, categ
             if lineage != 'Unknown':
                 unknown_lineage_counter[lineage] += 1
 
-        print(f"\n🔍 LINEAGE ANALYSIS (New Lineages Only):")
-        print(f"   📊 Found {len(unknown_lineage_counter)} new lineage patterns from {len(unknown_lineage_products)} products")
+        _log(f"\n🔍 LINEAGE ANALYSIS (New Lineages Only):")
+        _log(f"   📊 Found {len(unknown_lineage_counter)} new lineage patterns from {len(unknown_lineage_products)} products")
 
         # Create sorted list for easy indexing by number
         sorted_lineages = sorted(unknown_lineage_counter.items(), key=lambda x: x[1], reverse=True)
 
         for i, (lineage, count) in enumerate(sorted_lineages, 1):
-            print(f"   {i}. \"{lineage}\" ({count} products)")
+            _log(f"   {i}. \"{lineage}\" ({count} products)")
 
         # If only 1 unknown lineage, auto-approve it (no point asking LLM)
         if len(unknown_lineage_counter) < 2:
-            print(f"   ⏭️  Only 1 new lineage pattern - auto-approving")
+            _log(f"   ⏭️  Only 1 new lineage pattern - auto-approving")
             # Store as approved
             if brand_instance:
                 brand_instance.store_lineage_memory(page_url, set(), unknown_lineages)
-                print(f"   💾 Stored 1 approved lineage for this category")
+                _log(f"   💾 Stored 1 approved lineage for this category")
             return products  # All products approved
 
         # Step 6: Call LLM for unknown lineages only
@@ -1302,7 +1314,7 @@ def apply_lineage_filtering(products: List[Dict[str, Any]], page_url: str, categ
         prompt = lineage_selection.get_prompt(page_url, category_name, lineage_frequencies)
         response_model = lineage_selection.get_response_model()
 
-        print(f"   🤖 Asking LLM to classify {len(unknown_lineages)} new lineages...")
+        _log(f"   🤖 Asking LLM to classify {len(unknown_lineages)} new lineages...")
 
         from instrumentation import emit_event
         import time
@@ -1321,13 +1333,13 @@ def apply_lineage_filtering(products: List[Dict[str, Any]], page_url: str, categ
 
         if not llm_result or not llm_result.get('success'):
             error_msg = llm_result.get('error', 'Unknown error') if llm_result else 'No response'
-            print(f"   ❌ LLM failed to classify lineages - {error_msg}")
+            _log(f"   ❌ LLM failed to classify lineages - {error_msg}")
             return approved_products  # Return only pre-approved products
 
         # Extract LLM decision
         result = llm_result.get('data')
         if not result or 'valid_lineage_numbers' not in result:
-            print(f"   ❌ LLM response missing valid_lineage_numbers")
+            _log(f"   ❌ LLM response missing valid_lineage_numbers")
             return approved_products
 
         valid_lineage_numbers = result['valid_lineage_numbers']
@@ -1341,17 +1353,17 @@ def apply_lineage_filtering(products: List[Dict[str, Any]], page_url: str, categ
 
         newly_rejected_lineages = unknown_lineages - newly_approved_lineages
 
-        print(f"   ✅ LLM approved {len(newly_approved_lineages)} new lineages:")
+        _log(f"   ✅ LLM approved {len(newly_approved_lineages)} new lineages:")
         for lineage in newly_approved_lineages:
-            print(f"      • \"{lineage}\"")
+            _log(f"      • \"{lineage}\"")
         if newly_rejected_lineages:
-            print(f"   🚫 LLM rejected {len(newly_rejected_lineages)} new lineages")
-        print(f"   💭 Reasoning: {result.get('analysis', 'No reasoning')}")
+            _log(f"   🚫 LLM rejected {len(newly_rejected_lineages)} new lineages")
+        _log(f"   💭 Reasoning: {result.get('analysis', 'No reasoning')}")
 
         # Step 7: Update global brand memory with new decisions
         if brand_instance:
             brand_instance.store_lineage_memory(page_url, newly_rejected_lineages, newly_approved_lineages)
-            print(f"   💾 Updated global lineage memory")
+            _log(f"   💾 Updated global lineage memory")
 
         # Step 8: Filter products - keep approved (old + new)
         all_approved_lineages = global_approved | newly_approved_lineages
@@ -1360,12 +1372,12 @@ def apply_lineage_filtering(products: List[Dict[str, Any]], page_url: str, categ
             if product.get('full_lineage') in all_approved_lineages
         ]
 
-        print(f"   📦 Final: {len(final_products)}/{initial_count} products ({len(approved_products)} pre-approved + {len(final_products) - len(approved_products)} newly approved)")
+        _log(f"   📦 Final: {len(final_products)}/{initial_count} products ({len(approved_products)} pre-approved + {len(final_products) - len(approved_products)} newly approved)")
 
         return final_products
 
     except Exception as e:
-        print(f"   ❌ Incremental lineage filtering failed: {e}")
+        _log(f"   ❌ Incremental lineage filtering failed: {e}")
         import traceback
         traceback.print_exc()
         return []
@@ -1407,7 +1419,7 @@ def extract_multiple_pages(page_urls: List[str], patterns: List[Dict[str, str]],
     results = []
     
     for page_url in page_urls:
-        print(f"  🔄 Processing: {extract_category_name(page_url)}")
+        _log(f"  🔄 Processing: {extract_category_name(page_url)}")
         result = extract_products_from_page(page_url, patterns, brand_name, allow_pattern_discovery=True)
         results.append(result)
         
@@ -1415,10 +1427,10 @@ def extract_multiple_pages(page_urls: List[str], patterns: List[Dict[str, str]],
         products_count = len(result["products"])
         extraction_time = result["metrics"]["extraction_time"]
         
-        print(f"  {status} {result['category_name']}: {products_count} products in {extraction_time:.1f}s")
+        _log(f"  {status} {result['category_name']}: {products_count} products in {extraction_time:.1f}s")
         
         if not result["success"]:
-            print(f"     Error: {result['error']}")
+            _log(f"     Error: {result['error']}")
     
     return results
 
@@ -1595,7 +1607,7 @@ def _detect_and_click_load_more(page, page_url: str, brand_instance) -> bool:
     Detect load more button for the first time and store info.
     """
     try:
-        print(f"   🔍 First-time load more detection...")
+        _log(f"   🔍 First-time load more detection...")
         
         # Common load more button selectors
         load_more_selectors = [
@@ -1621,7 +1633,7 @@ def _detect_and_click_load_more(page, page_url: str, brand_instance) -> bool:
                 elements = page.locator(selector)
                 if elements.count() > 0 and elements.first.is_visible():
                     detected_selector = selector
-                    print(f"   ✅ Load more button found: {selector}")
+                    _log(f"   ✅ Load more button found: {selector}")
                     break
             except:
                 continue
@@ -1644,12 +1656,12 @@ def _detect_and_click_load_more(page, page_url: str, brand_instance) -> bool:
                 return True
             elif click_successful:
                 # Click worked but we already have load more info - don't overwrite
-                print(f"   ✅ Load more button clicked but info already stored - not overwriting")
+                _log(f"   ✅ Load more button clicked but info already stored - not overwriting")
                 return True
             else:
                 # Click failed - don't save anything if this is first detection
                 if brand_instance.load_more_detected is None:
-                    print(f"   ⚠️  Load more button detection failed - selector matches but not clickable")
+                    _log(f"   ⚠️  Load more button detection failed - selector matches but not clickable")
                     brand_instance.mark_no_load_more()
                 return False
         else:
@@ -1658,7 +1670,7 @@ def _detect_and_click_load_more(page, page_url: str, brand_instance) -> bool:
             return False
             
     except Exception as e:
-        print(f"   ❌ Error during load more detection: {e}")
+        _log(f"   ❌ Error during load more detection: {e}")
         brand_instance.mark_no_load_more()
         return False
 
@@ -1668,22 +1680,22 @@ def _click_stored_load_more(page, page_url: str, brand_instance) -> bool:
     Click load more button using stored information.
     """
     try:
-        print(f"   🎯 Using stored load more info...")
+        _log(f"   🎯 Using stored load more info...")
         
         # Apply stored modal bypasses only once per session
         if (brand_instance.load_more_modal_bypasses.get('modals_detected', 0) > 0 and 
             not brand_instance.load_more_modals_applied):
-            print(f"   🚫 Applying {brand_instance.load_more_modal_bypasses['modals_detected']} stored modal bypasses (first time)...")
+            _log(f"   🚫 Applying {brand_instance.load_more_modal_bypasses['modals_detected']} stored modal bypasses (first time)...")
             bypass_blocking_modals_only(page, page_url)
             brand_instance.load_more_modals_applied = True
         elif brand_instance.load_more_modals_applied:
-            print(f"   ✅ Modal bypasses already applied this session")
+            _log(f"   ✅ Modal bypasses already applied this session")
         
         # Click the stored button selector
         return _click_load_more_button(page, brand_instance.load_more_button_selector)
         
     except Exception as e:
-        print(f"   ❌ Error clicking stored load more button: {e}")
+        _log(f"   ❌ Error clicking stored load more button: {e}")
         return False
 
 
@@ -1696,20 +1708,20 @@ def _click_load_more_button(page, selector: str) -> bool:
         
         # Verify button still exists and is visible
         if not button.count() or not button.is_visible():
-            print(f"   ⚠️  Load more button no longer visible: {selector}")
+            _log(f"   ⚠️  Load more button no longer visible: {selector}")
             return False
             
         if button.is_disabled():
-            print(f"   ⚠️  Load more button is disabled: {selector}")
+            _log(f"   ⚠️  Load more button is disabled: {selector}")
             return False
         
         # Click the button
         button.click(timeout=5000)
-        print(f"   ✅ Load more button clicked successfully")
+        _log(f"   ✅ Load more button clicked successfully")
         return True
         
     except Exception as e:
-        print(f"   ❌ Failed to click load more button: {e}")
+        _log(f"   ❌ Failed to click load more button: {e}")
         return False
 
 
@@ -1778,29 +1790,29 @@ def _detect_post_scroll_pagination(page, page_url: str) -> Dict[str, Any]:
     }
     
     try:
-        print(f"   🔍 More Links: Detecting post-scroll pagination patterns...")
+        _log(f"   🔍 More Links: Detecting post-scroll pagination patterns...")
         
         # Extract bottom section links (last 30% of page)
         bottom_links = _extract_bottom_page_links(page, page_url)
         
         if not bottom_links:
             result["reasoning"] = "No links found in bottom section of page"
-            print(f"   📄 No bottom links found - single page category")
+            _log(f"   📄 No bottom links found - single page category")
             return result
             
-        print(f"   📊 Analyzing {len(bottom_links)} bottom section links for pagination")
+        _log(f"   📊 Analyzing {len(bottom_links)} bottom section links for pagination")
         
         
         # Filter links to only include those related to current category
         category_filtered_links = _filter_links_by_category(bottom_links, page_url)
-        print(f"   🎯 Category-filtered links ({len(category_filtered_links)} remain after filtering):")
+        _log(f"   🎯 Category-filtered links ({len(category_filtered_links)} remain after filtering):")
         for i, link in enumerate(category_filtered_links):
-            print(f"      {i+1}. {link}")
+            _log(f"      {i+1}. {link}")
 
         # Early return if no links remain after filtering - no need to call LLM
         if not category_filtered_links:
             result["reasoning"] = "No category-relevant links found after filtering"
-            print(f"   📄 No category links found - single page category")
+            _log(f"   📄 No category links found - single page category")
             return result
 
         # Debug: Identify potential pagination candidates from filtered links
@@ -1810,11 +1822,11 @@ def _detect_post_scroll_pagination(page, page_url: str) -> Dict[str, Any]:
                 pagination_candidates.append(link)
         
         if pagination_candidates:
-            print(f"   🎯 Pagination candidates in category links ({len(pagination_candidates)} total):")
+            _log(f"   🎯 Pagination candidates in category links ({len(pagination_candidates)} total):")
             for i, candidate in enumerate(pagination_candidates):
-                print(f"      • {candidate}")
+                _log(f"      • {candidate}")
         else:
-            print(f"   📄 No obvious pagination candidates found in category-filtered links")
+            _log(f"   📄 No obvious pagination candidates found in category-filtered links")
         
         # Use LLM to analyze pagination pattern (using filtered links)
         from prompts.pagination_detection import get_prompt, get_response_model
@@ -1841,27 +1853,27 @@ def _detect_post_scroll_pagination(page, page_url: str) -> Dict[str, Any]:
                 
             # Print LLM reasoning for debugging
             reasoning = result.get("reasoning", "No reasoning provided")
-            print(f"   🧠 LLM Analysis: {reasoning}")
+            _log(f"   🧠 LLM Analysis: {reasoning}")
             
             # Debug: Print the actual result structure
-            print(f"   🔍 DEBUG: pagination_found={result.get('pagination_found')}, max_page={result.get('max_page_detected')}, pattern={result.get('url_pattern')}")
+            _log(f"   🔍 DEBUG: pagination_found={result.get('pagination_found')}, max_page={result.get('max_page_detected')}, pattern={result.get('url_pattern')}")
             
             # Logging based on detection results
             if result["pagination_found"]:
                 if result["max_page_detected"]:
-                    print(f"   ✅ Pagination detected: {result['url_pattern']} (max page: {result['max_page_detected']})")
+                    _log(f"   ✅ Pagination detected: {result['url_pattern']} (max page: {result['max_page_detected']})")
                 else:
-                    print(f"   ✅ Pagination detected: {result['url_pattern']} (next: {result['next_page_url']})")
+                    _log(f"   ✅ Pagination detected: {result['url_pattern']} (next: {result['next_page_url']})")
             else:
-                print(f"   📄 No pagination detected - single page category")
+                _log(f"   📄 No pagination detected - single page category")
                 
         else:
             result["reasoning"] = f"LLM analysis failed: {llm_response.get('error', 'Unknown error')}"
-            print(f"   ❌ LLM pagination analysis failed: {llm_response.get('error', 'Unknown error')}")
+            _log(f"   ❌ LLM pagination analysis failed: {llm_response.get('error', 'Unknown error')}")
             
     except Exception as e:
         result["reasoning"] = f"Exception during pagination detection: {str(e)}"
-        print(f"   ❌ More Links pagination detection failed: {e}")
+        _log(f"   ❌ More Links pagination detection failed: {e}")
         
     return result
 
@@ -1918,7 +1930,7 @@ def _extract_bottom_page_links(page, base_url: str) -> List[str]:
         return ordered_unique_links
         
     except Exception as e:
-        print(f"   ⚠️  Error extracting bottom links: {e}")
+        _log(f"   ⚠️  Error extracting bottom links: {e}")
         return []
 
 
@@ -1968,7 +1980,7 @@ def _filter_links_by_category(bottom_links: List[str], current_page_url: str) ->
         return category_filtered
         
     except Exception as e:
-        print(f"   ⚠️  Error filtering category links: {e}")
+        _log(f"   ⚠️  Error filtering category links: {e}")
         # Fallback: return original links
         return bottom_links
 
@@ -2008,7 +2020,7 @@ def _scroll_using_pagination_element(page, pagination_selector, _pagination_trig
         stable_count = 0
         max_stable_attempts = 2
         
-        print(f"   🎯 Using pagination element as scroll target: {pagination_selector}")
+        _log(f"   🎯 Using pagination element as scroll target: {pagination_selector}")
         
         while True:
             scroll_count += 1
@@ -2016,27 +2028,27 @@ def _scroll_using_pagination_element(page, pagination_selector, _pagination_trig
             # Get pagination element position before scrolling
             pagination_element = page.locator(pagination_selector).last
             if not pagination_element.is_visible():
-                print(f"   ❌ Pagination element no longer visible after {scroll_count} scrolls")
+                _log(f"   ❌ Pagination element no longer visible after {scroll_count} scrolls")
                 break
                 
             pagination_position = pagination_element.bounding_box()
             if not pagination_position:
-                print(f"   ❌ Cannot get pagination element position after {scroll_count} scrolls")
+                _log(f"   ❌ Cannot get pagination element position after {scroll_count} scrolls")
                 break
                 
             current_pagination_y = pagination_position['y'] + pagination_position['height']
             page_bottom = page.evaluate("document.body.scrollHeight")
             
-            print(f"   📏 Scroll #{scroll_count}: Pagination at {current_pagination_y:.0f}px, page bottom {page_bottom}px")
+            _log(f"   📏 Scroll #{scroll_count}: Pagination at {current_pagination_y:.0f}px, page bottom {page_bottom}px")
             
             # Check if pagination element has stopped moving
             if last_pagination_position is not None:
                 position_diff = abs(current_pagination_y - last_pagination_position)
                 if position_diff < 10:  # Element hasn't moved significantly
                     stable_count += 1
-                    print(f"   ⏸️  Pagination element stable (attempt {stable_count}/{max_stable_attempts})")
+                    _log(f"   ⏸️  Pagination element stable (attempt {stable_count}/{max_stable_attempts})")
                     if stable_count >= max_stable_attempts:
-                        print(f"   ✅ Pagination element stopped moving after {scroll_count} scrolls")
+                        _log(f"   ✅ Pagination element stopped moving after {scroll_count} scrolls")
                         break
                 else:
                     stable_count = 0  # Reset if element moved
@@ -2049,10 +2061,10 @@ def _scroll_using_pagination_element(page, pagination_selector, _pagination_trig
             
             # Safety check to prevent infinite loops
             if scroll_count > 50:
-                print(f"   ⚠️  Reached maximum scroll attempts ({scroll_count})")
+                _log(f"   ⚠️  Reached maximum scroll attempts ({scroll_count})")
                 break
                 
     except Exception as e:
-        print(f"   ❌ Error in pagination scrolling: {e}")
+        _log(f"   ❌ Error in pagination scrolling: {e}")
 
 

@@ -103,6 +103,15 @@ class LLMHandler:
         cls._total_output_tokens = 0
         cls._call_count = 0
 
+    @classmethod
+    def get_snapshot(cls) -> Dict[str, int]:
+        """Return current usage state for delta calculation."""
+        return {
+            "input_tokens": cls._total_input_tokens,
+            "output_tokens": cls._total_output_tokens,
+            "call_count": cls._call_count
+        }
+
     def _track_usage(self, usage: Optional[Dict[str, int]]):
         """Track usage from a call."""
         if usage:

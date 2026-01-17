@@ -13,6 +13,9 @@ tests/results/
 tests/tests/results/
 tests/test_images/
 
+# Extraction outputs
+navigation/extractions/
+
 # IDE
 .vscode/
 .idea/
