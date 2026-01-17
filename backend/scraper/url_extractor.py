@@ -9,6 +9,7 @@ Uses LLM classification to filter product links from navigation/recommendations.
 
 import time
 import json
+import threading
 from dataclasses import dataclass, field, asdict
 from typing import Dict, List, Any, Optional, Set
 from datetime import datetime
@@ -18,6 +19,15 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from llm_handler import LLMHandler
 from prompts import url_classification
+
+# Thread-local storage for quiet mode
+_thread_local = threading.local()
+
+
+def _log(message: str):
+    """Print message unless quiet mode is enabled."""
+    if not getattr(_thread_local, 'quiet', False):
+        print(message)
 
 # Import reusable functions from page_extractor
 from page_extractor import (
@@ -67,6 +77,11 @@ class URLExtractionResult:
     pages_processed: int = 1
     extraction_time: float = 0.0
     llm_filtering_stats: Dict = field(default_factory=dict)
+    llm_usage: Dict = field(default_factory=lambda: {
+        "calls": 0,
+        "input_tokens": 0,
+        "output_tokens": 0
+    })
     errors: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict:
@@ -77,8 +92,16 @@ class URLExtractionResult:
             "pages_processed": self.pages_processed,
             "extraction_time": self.extraction_time,
             "llm_filtering_stats": self.llm_filtering_stats,
+            "llm_usage": self.llm_usage,
             "errors": self.errors
         }
+
+    def add_llm_usage(self, usage: Dict):
+        """Accumulate LLM usage from a call."""
+        if usage:
+            self.llm_usage["calls"] += 1
+            self.llm_usage["input_tokens"] += usage.get("input_tokens", 0)
+            self.llm_usage["output_tokens"] += usage.get("output_tokens", 0)
 
 
 def _extract_links_from_current_state(page, page_url: str) -> List[Dict]:
@@ -144,7 +167,7 @@ def _extract_links_from_current_state(page, page_url: str) -> List[Dict]:
         return links_data
 
     except Exception as e:
-        print(f"   ❌ Error extracting links: {e}")
+        _log(f"   ❌ Error extracting links: {e}")
         return []
 
 
@@ -176,19 +199,19 @@ def _scroll_and_extract_links(page_url: str, brand_instance=None) -> Dict[str, A
 
         try:
             # Navigate to page
-            print(f"   🌐 Loading: {page_url}")
+            _log(f"   🌐 Loading: {page_url}")
             page.goto(page_url, wait_until="domcontentloaded", timeout=60000)  # 60s timeout for slow connections
             page.wait_for_timeout(2000)
 
             # Extract initial links
             initial_links = _extract_links_from_current_state(page, page_url)
             discovery_info["initial_load_count"] = len(initial_links)
-            print(f"   📊 Initial load: {len(initial_links)} links found")
+            _log(f"   📊 Initial load: {len(initial_links)} links found")
 
             # Detect pagination elements
             pagination_element = _detect_pagination_element(page)
             if pagination_element:
-                print(f"   🎯 Pagination element detected: {pagination_element}")
+                _log(f"   🎯 Pagination element detected: {pagination_element}")
 
             # Scrolling phase
             scroll_count = 0
@@ -198,7 +221,7 @@ def _scroll_and_extract_links(page_url: str, brand_instance=None) -> Dict[str, A
             if brand_instance and brand_instance.load_more_loading_mechanism:
                 max_no_change = 1
 
-            print(f"   🔄 Scrolling to load all content...")
+            _log(f"   🔄 Scrolling to load all content...")
 
             # If pagination element found, chase it first (simplified)
             if pagination_element:
@@ -229,14 +252,14 @@ def _scroll_and_extract_links(page_url: str, brand_instance=None) -> Dict[str, A
             # Extract links after scrolling
             after_scroll_links = _extract_links_from_current_state(page, page_url)
             discovery_info["after_scroll_count"] = len(after_scroll_links)
-            print(f"   📊 After scrolling: {len(after_scroll_links)} links found")
+            _log(f"   📊 After scrolling: {len(after_scroll_links)} links found")
 
             # Load more button handling
-            print(f"   🔍 Checking for load more buttons...")
+            _log(f"   🔍 Checking for load more buttons...")
             load_more_clicked = _handle_load_more_button(page, page_url, brand_instance)
 
             if load_more_clicked:
-                print(f"   🎯 Load more button found, chasing until exhausted...")
+                _log(f"   🎯 Load more button found, chasing until exhausted...")
                 click_count = 1
                 no_click_attempts = 0
                 no_height_change = 0
@@ -268,7 +291,7 @@ def _scroll_and_extract_links(page_url: str, brand_instance=None) -> Dict[str, A
             # Extract final links after all loading
             final_links = _extract_links_from_current_state(page, page_url)
             discovery_info["after_load_more_count"] = len(final_links)
-            print(f"   📊 After load more: {len(final_links)} links found")
+            _log(f"   📊 After load more: {len(final_links)} links found")
 
             all_links = final_links
 
@@ -310,7 +333,7 @@ def classify_product_links(
             lineage_groups[lineage] = []
         lineage_groups[lineage].append(link)
 
-    print(f"   📊 Found {len(lineage_groups)} unique lineage patterns across {len(links)} links")
+    _log(f"   📊 Found {len(lineage_groups)} unique lineage patterns across {len(links)} links")
 
     # Check for pre-approved/rejected lineages from brand instance
     approved_lineages: Set[str] = set()
@@ -333,9 +356,9 @@ def classify_product_links(
         else:
             unknown_lineage_links.extend(group_links)
 
-    print(f"   ✅ Pre-approved: {len(known_approved_links)} links ({len([l for l in lineage_groups if l in approved_lineages])} lineages)")
-    print(f"   ❌ Pre-rejected: {len(known_rejected_links)} links ({len([l for l in lineage_groups if l in rejected_lineages])} lineages)")
-    print(f"   ❓ Unknown: {len(unknown_lineage_links)} links need classification")
+    _log(f"   ✅ Pre-approved: {len(known_approved_links)} links ({len([l for l in lineage_groups if l in approved_lineages])} lineages)")
+    _log(f"   ❌ Pre-rejected: {len(known_rejected_links)} links ({len([l for l in lineage_groups if l in rejected_lineages])} lineages)")
+    _log(f"   ❓ Unknown: {len(unknown_lineage_links)} links need classification")
 
     newly_approved_links = []
     newly_approved_lineages = set()
@@ -366,7 +389,7 @@ def classify_product_links(
                     if len(sampled_links) >= sample_size:
                         break
 
-        print(f"   🧠 Sending {len(sampled_links)} sample links to LLM for classification...")
+        _log(f"   🧠 Sending {len(sampled_links)} sample links to LLM for classification...")
 
         # Call LLM
         llm_handler = LLMHandler()
@@ -383,8 +406,8 @@ def classify_product_links(
             confidence = data.get("confidence", "Medium")
             analysis = data.get("analysis", "")
 
-            print(f"   📋 LLM classified {len(product_indices)} of {len(sampled_links)} as products (confidence: {confidence})")
-            print(f"   📝 Analysis: {analysis[:200]}...")
+            _log(f"   📋 LLM classified {len(product_indices)} of {len(sampled_links)} as products (confidence: {confidence})")
+            _log(f"   📝 Analysis: {analysis[:200]}...")
 
             # Map indices back to lineages
             for i, link in enumerate(sampled_links):
@@ -400,9 +423,9 @@ def classify_product_links(
                 if lineage in newly_approved_lineages:
                     newly_approved_links.append(link)
         else:
-            print(f"   ❌ LLM classification failed: {response.get('error', 'Unknown error')}")
+            _log(f"   ❌ LLM classification failed: {response.get('error', 'Unknown error')}")
             # Fallback: use URL heuristics
-            print(f"   🔄 Using URL heuristics as fallback...")
+            _log(f"   🔄 Using URL heuristics as fallback...")
             for link in unknown_lineage_links:
                 url = link.get("url", "")
                 # Common product URL patterns
@@ -432,6 +455,24 @@ def classify_product_links(
             seen_urls.add(url)
             unique_product_links.append(link)
 
+    # Build rejected URLs grouped by lineage
+    all_rejected_lineages = rejected_lineages | newly_rejected_lineages
+    approved_urls = {link.get("url") for link in all_product_links}
+
+    rejected_by_lineage = {}
+    for link in links:
+        url = link.get("url", "")
+        lineage = link.get("lineage", "unknown")
+
+        # If this URL wasn't approved, it was rejected
+        if url not in approved_urls:
+            if lineage not in rejected_by_lineage:
+                rejected_by_lineage[lineage] = []
+            rejected_by_lineage[lineage].append({
+                "url": url,
+                "link_text": link.get("link_text", "")
+            })
+
     stats = {
         "total_links_found": len(links),
         "product_links_approved": len(unique_product_links),
@@ -439,10 +480,11 @@ def classify_product_links(
         "lineages_approved": list(approved_lineages | newly_approved_lineages),
         "lineages_rejected": list(rejected_lineages | newly_rejected_lineages),
         "pre_approved_count": len(known_approved_links),
-        "newly_classified_count": len(newly_approved_links)
+        "newly_classified_count": len(newly_approved_links),
+        "rejected_by_lineage": rejected_by_lineage
     }
 
-    print(f"   ✅ Classification complete: {len(unique_product_links)} product URLs identified")
+    _log(f"   ✅ Classification complete: {len(unique_product_links)} product URLs identified")
 
     return {
         "product_links": unique_product_links,
@@ -504,7 +546,7 @@ def _extract_urls_from_single_page(
         }
 
     except Exception as e:
-        print(f"   ❌ Error extracting URLs from {page_url}: {e}")
+        _log(f"   ❌ Error extracting URLs from {page_url}: {e}")
         return {
             "product_urls": [],
             "pagination_detected": None,
@@ -532,19 +574,19 @@ def extract_multi_page_urls(
             "stats": {}
         }
 
-    print(f"\n🔗 Multi-Page URL Extraction Starting...")
+    _log(f"\n🔗 Multi-Page URL Extraction Starting...")
 
     # Generate page URLs
     page_urls = _generate_page_urls(base_url, pagination_result)
     if not page_urls:
-        print(f"   📄 No additional pages to extract")
+        _log(f"   📄 No additional pages to extract")
         return {
             "product_urls": [],
             "pages_extracted": 0,
             "stats": {}
         }
 
-    print(f"   📊 Extracting URLs from {len(page_urls)} additional pages")
+    _log(f"   📊 Extracting URLs from {len(page_urls)} additional pages")
 
     all_urls = []
     per_page_stats = []
@@ -571,9 +613,9 @@ def extract_multi_page_urls(
 
                 if urls_found:
                     all_urls.extend(urls_found)
-                    print(f"   ✅ Page {info['page_num']}: {len(urls_found)} product URLs")
+                    _log(f"   ✅ Page {info['page_num']}: {len(urls_found)} product URLs")
                 else:
-                    print(f"   📄 Page {info['page_num']}: 0 product URLs")
+                    _log(f"   📄 Page {info['page_num']}: 0 product URLs")
 
                 per_page_stats.append({
                     "page_num": info["page_num"],
@@ -583,7 +625,7 @@ def extract_multi_page_urls(
                 })
 
             except Exception as e:
-                print(f"   ❌ Page {info['page_num']} failed: {e}")
+                _log(f"   ❌ Page {info['page_num']} failed: {e}")
                 per_page_stats.append({
                     "page_num": info["page_num"],
                     "url": info["url"],
@@ -593,10 +635,10 @@ def extract_multi_page_urls(
 
     total_time = time.time() - start_time
 
-    print(f"   📊 Multi-page extraction complete:")
-    print(f"      • Pages processed: {len(per_page_stats)}")
-    print(f"      • Total URLs: {len(all_urls)}")
-    print(f"      • Time: {total_time:.2f}s")
+    _log(f"   📊 Multi-page extraction complete:")
+    _log(f"      • Pages processed: {len(per_page_stats)}")
+    _log(f"      • Total URLs: {len(all_urls)}")
+    _log(f"      • Time: {total_time:.2f}s")
 
     return {
         "product_urls": all_urls,
@@ -608,20 +650,29 @@ def extract_multi_page_urls(
 
 def extract_urls_from_category(
     category_url: str,
-    brand_instance=None
+    brand_instance=None,
+    quiet: bool = False
 ) -> URLExtractionResult:
     """
     Extract all product URLs from a single category.
 
     Main entry point for single category extraction.
+
+    Args:
+        category_url: URL of the category page
+        brand_instance: Optional brand instance for shared state
+        quiet: If True, suppress all log output (for parallel execution)
     """
+    # Set thread-local quiet flag
+    _thread_local.quiet = quiet
+
     start_time = time.time()
     category_name = extract_category_name(category_url)
 
-    print(f"\n{'='*60}")
-    print(f"📁 Extracting URLs from: {category_name}")
-    print(f"   URL: {category_url}")
-    print(f"{'='*60}")
+    _log(f"\n{'='*60}")
+    _log(f"📁 Extracting URLs from: {category_name}")
+    _log(f"   URL: {category_url}")
+    _log(f"{'='*60}")
 
     result = URLExtractionResult(
         category_url=category_url,
@@ -645,7 +696,7 @@ def extract_urls_from_category(
 
         # Multi-page extraction if pagination detected
         if pagination_detected and pagination_detected.get("pagination_found"):
-            print(f"\n   📖 Pagination detected, extracting additional pages...")
+            _log(f"\n   📖 Pagination detected, extracting additional pages...")
 
             multi_result = extract_multi_page_urls(
                 category_url, category_name, brand_instance, pagination_detected
@@ -666,13 +717,13 @@ def extract_urls_from_category(
 
         result.extraction_time = time.time() - start_time
 
-        print(f"\n   ✅ Category complete: {len(result.product_urls)} unique product URLs")
-        print(f"   ⏱️  Time: {result.extraction_time:.2f}s")
+        _log(f"\n   ✅ Category complete: {len(result.product_urls)} unique product URLs")
+        _log(f"   ⏱️  Time: {result.extraction_time:.2f}s")
 
     except Exception as e:
         result.errors.append(str(e))
         result.extraction_time = time.time() - start_time
-        print(f"   ❌ Category extraction failed: {e}")
+        _log(f"   ❌ Category extraction failed: {e}")
 
     return result
 
@@ -705,12 +756,12 @@ def extract_urls_from_navigation_tree(
     category_tree = navigation_tree.get("category_tree", [])
     leaf_urls = flatten_dict_tree(category_tree)
 
-    print(f"\n{'='*60}")
-    print(f"🚀 URL EXTRACTION PIPELINE")
-    print(f"{'='*60}")
-    print(f"   Categories to process: {len(leaf_urls)}")
-    print(f"   Parallel: {parallel} (workers: {max_workers})")
-    print(f"{'='*60}\n")
+    _log(f"\n{'='*60}")
+    _log(f"🚀 URL EXTRACTION PIPELINE")
+    _log(f"{'='*60}")
+    _log(f"   Categories to process: {len(leaf_urls)}")
+    _log(f"   Parallel: {parallel} (workers: {max_workers})")
+    _log(f"{'='*60}\n")
 
     results: Dict[str, URLExtractionResult] = {}
 
@@ -728,7 +779,7 @@ def extract_urls_from_navigation_tree(
                     result = future.result()
                     results[url] = result
                 except Exception as e:
-                    print(f"   ❌ Category failed: {url} - {e}")
+                    _log(f"   ❌ Category failed: {url} - {e}")
                     results[url] = URLExtractionResult(
                         category_url=url,
                         category_name=extract_category_name(url),
@@ -762,16 +813,16 @@ def extract_urls_from_navigation_tree(
         "estimated_cost_usd": llm_usage.get("estimated_cost_usd", 0)
     }
 
-    print(f"\n{'='*60}")
-    print(f"📊 EXTRACTION COMPLETE")
-    print(f"{'='*60}")
-    print(f"   Categories: {summary['successful_categories']}/{summary['total_categories']}")
-    print(f"   Total URLs: {summary['total_urls']}")
-    print(f"   Unique URLs: {summary['unique_urls']}")
-    print(f"   Time: {summary['extraction_time']:.2f}s")
-    print(f"   LLM calls: {summary['llm_calls']}")
-    print(f"   Estimated cost: ${summary['estimated_cost_usd']:.4f}")
-    print(f"{'='*60}\n")
+    _log(f"\n{'='*60}")
+    _log(f"📊 EXTRACTION COMPLETE")
+    _log(f"{'='*60}")
+    _log(f"   Categories: {summary['successful_categories']}/{summary['total_categories']}")
+    _log(f"   Total URLs: {summary['total_urls']}")
+    _log(f"   Unique URLs: {summary['unique_urls']}")
+    _log(f"   Time: {summary['extraction_time']:.2f}s")
+    _log(f"   LLM calls: {summary['llm_calls']}")
+    _log(f"   Estimated cost: ${summary['estimated_cost_usd']:.4f}")
+    _log(f"{'='*60}\n")
 
     return {
         "success": summary['successful_categories'] > 0,
