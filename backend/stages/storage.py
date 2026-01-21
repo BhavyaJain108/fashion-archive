@@ -219,28 +219,33 @@ def load_config(domain: str) -> Optional[dict]:
         return json.load(f)
 
 
-def save_product(domain: str, product: dict, category_path: str):
+def save_product(domain: str, product: dict, category_path: str, source_url: str = None):
     """Save product to category folder.
 
     Args:
         domain: Domain name
         product: Product data dict
         category_path: Path like "women/tops" or "men"
+        source_url: Original URL from urls.json (used for filename to preserve variants)
     """
     domain_dir = ensure_domain_dir(domain)
     products_dir = domain_dir / "products" / category_path
     products_dir.mkdir(parents=True, exist_ok=True)
 
-    # Create filename from product name or URL
-    name = product.get("name", "")
-    url = product.get("url", "")
-
-    if name:
-        slug = name.lower().replace(" ", "-").replace("/", "-")
-        slug = ''.join(c for c in slug if c.isalnum() or c == '-')
+    # Create filename from source URL (preserves variant URLs) or fallback to name
+    if source_url:
+        # Extract slug from original URL to preserve variant identifier
+        slug = source_url.rstrip('/').split('/')[-1].split('?')[0]
     else:
-        # Extract from URL
-        slug = url.rstrip('/').split('/')[-1]
+        name = product.get("name", "")
+        url = product.get("url", "")
+
+        if name:
+            slug = name.lower().replace(" ", "-").replace("/", "-")
+            slug = ''.join(c for c in slug if c.isalnum() or c == '-')
+        else:
+            # Extract from URL
+            slug = url.rstrip('/').split('/')[-1]
 
     filepath = products_dir / f"{slug}.json"
 

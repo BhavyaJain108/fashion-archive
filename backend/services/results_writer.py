@@ -102,7 +102,7 @@ class ScrapeResultsWriter:
                     "total_scrape_runs": 0,
                     "scraper_version": "1.0"
                 },
-                "data_path": f"data/brands/{brand_id}"
+                "data_path": f"extractions/{domain.replace('.', '_')}"
             }
             self.storage.create_brand(brand_id, brand_data)
 

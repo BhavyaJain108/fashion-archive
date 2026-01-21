@@ -15,13 +15,11 @@ import time
 from urllib.parse import unquote
 from datetime import datetime
 
-# Import storage and scraping components
+# Import storage
 from backend.storage import get_storage
-from backend.services import ScrapeResultsWriter
 
-# Get storage instance (can be configured)
-STORAGE_MODE = os.getenv("STORAGE_MODE", "files")  # "files", "database", or "both"
-storage = get_storage(mode=STORAGE_MODE)
+# Get storage instance
+storage = get_storage()
 
 
 # =============================================================================
@@ -257,7 +255,7 @@ def create_brand():
                 "total_scrape_runs": 0,
                 "scraper_version": "1.0"
             },
-            "data_path": f"data/brands/{brand_id}"
+            "data_path": f"extractions/{domain.replace('.', '_')}"
         }
 
         # Create brand first (this creates the directory structure)
@@ -610,18 +608,48 @@ def start_scrape(brand_id):
         # Start scrape in background thread
         def run_scrape():
             try:
-                # Import scraper
-                from backend.scraper.brand import Brand
+                # Import pipeline stages
+                from backend.stages.navigation import extract_navigation
+                from backend.stages.urls import extract_urls
+                from backend.stages.products import run_extract_products
+                from backend.stages.storage import get_domain
 
-                # Run scrape with brand_id
-                brand_instance = Brand(brand['homepage_url'], test_mode=False, brand_id=brand_id)
-                results = brand_instance.run_full_extraction_pipeline()
+                homepage_url = brand['homepage_url']
+                domain = get_domain(homepage_url).replace('.', '_')
+
+                # Stage 1: Navigation
+                with job_lock:
+                    scraping_jobs[job_id]["current_action"] = "Stage 1: Extracting navigation..."
+                    scraping_jobs[job_id]["progress"] = 10
+
+                nav_result = extract_navigation(homepage_url)
+                if not nav_result:
+                    raise Exception("Navigation extraction failed")
+
+                # Stage 2: URLs
+                with job_lock:
+                    scraping_jobs[job_id]["current_action"] = "Stage 2: Extracting product URLs..."
+                    scraping_jobs[job_id]["progress"] = 40
+
+                urls_result = extract_urls(domain)
+                if not urls_result:
+                    raise Exception("URL extraction failed")
+
+                # Stage 3: Products
+                with job_lock:
+                    scraping_jobs[job_id]["current_action"] = "Stage 3: Extracting product details..."
+                    scraping_jobs[job_id]["progress"] = 70
+
+                products_result = run_extract_products(domain)
+                if not products_result or not products_result.get("success"):
+                    raise Exception("Product extraction failed")
 
                 # Update job status
                 with job_lock:
                     scraping_jobs[job_id]["status"] = "completed"
                     scraping_jobs[job_id]["end_time"] = datetime.utcnow().isoformat() + "Z"
                     scraping_jobs[job_id]["progress"] = 100
+                    scraping_jobs[job_id]["current_action"] = "Complete"
 
             except Exception as e:
                 import traceback
@@ -747,16 +775,8 @@ def analyze_brand():
 
 def serve_image(brand_id, category_slug, filename):
     """GET /api/images/{brand}/{category}/{filename} - Serve image"""
-    try:
-        image_path = storage.data_manager.get_image_path(brand_id, category_slug, filename)
-
-        if not image_path.exists():
-            return jsonify({"error": "Image not found"}), 404
-
-        return send_file(str(image_path))
-
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    # Local image storage is deprecated - products now use remote URLs
+    return jsonify({"error": "Local image storage not available. Use product image URLs directly."}), 404
 
 
 def get_product_images(product_url_encoded):
@@ -768,20 +788,8 @@ def get_product_images(product_url_encoded):
         if not product:
             return jsonify({"error": "Product not found"}), 404
 
-        # Add local URLs to images
+        # Return images as-is (products now use remote URLs)
         images = product.get("images", [])
-        for image in images:
-            if image.get("local_path"):
-                # Generate local URL from path
-                # Example: data/brands/jukuhara/images/t_shirts/image.jpg
-                # -> /api/images/jukuhara/t_shirts/image.jpg
-                local_path = image["local_path"]
-                parts = local_path.split("/")
-                if len(parts) >= 4:
-                    brand = parts[-4]
-                    category = parts[-2]
-                    filename = parts[-1]
-                    image["local_url"] = f"/api/images/{brand}/{category}/{filename}"
 
         return jsonify({
             "product_url": product_url,
@@ -809,6 +817,7 @@ def register_routes(app):
 
     # Products
     app.add_url_rule('/api/products', 'get_products', get_products, methods=['GET'])
+    app.add_url_rule('/api/products/counts', 'get_product_counts', get_product_counts, methods=['GET'])
     app.add_url_rule('/api/products/<path:product_url_encoded>', 'get_product', get_product, methods=['GET'])
     app.add_url_rule('/api/products/aggregate', 'aggregate_products', aggregate_products, methods=['GET'])
     app.add_url_rule('/api/products/search', 'search_products', search_products, methods=['GET'])

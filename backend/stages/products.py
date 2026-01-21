@@ -13,12 +13,13 @@ from pathlib import Path
 from typing import Dict, List, Set
 
 # Add paths for imports
+sys.path.insert(0, str(Path(__file__).parent))  # stages/
 sys.path.insert(0, str(Path(__file__).parent.parent / "prod_page_v2"))
 sys.path.insert(0, str(Path(__file__).parent.parent / "scraper"))
 
-from storage import load_urls, save_config, save_product, get_category_path_for_url, ensure_domain_dir
+from stages.storage import load_urls, save_config, save_product, get_category_path_for_url, ensure_domain_dir
 from llm_handler import LLMHandler
-from metrics import update_stage_metrics, calculate_cost
+from stages.metrics import update_stage_metrics, calculate_cost
 
 
 def flatten_urls(urls_tree: dict) -> List[str]:
@@ -123,16 +124,18 @@ async def extract_products(domain: str, concurrency: int = 10) -> dict:
     if len(all_urls) > 2:
         print(f"\nExtracting {len(all_urls) - 2} remaining products (concurrency={concurrency})...")
         batch_start_time = time.time()
-        results = await extractor.extract_batch(config, all_urls[2:], concurrency=concurrency)
+        batch_urls = all_urls[2:]
+        results = await extractor.extract_batch(config, batch_urls, concurrency=concurrency)
         batch_end_time = time.time()
 
-        for result in results:
+        # Zip results with original URLs (asyncio.gather preserves order)
+        for source_url, result in zip(batch_urls, results):
             products_extracted += 1
             if result.success and result.product:
                 products_successful += 1
 
-                # Get category path for this product
-                category_path = get_category_path_for_url(result.product.url, urls_tree)
+                # Get category path using original URL (for correct category mapping)
+                category_path = get_category_path_for_url(source_url, urls_tree)
 
                 # Convert product to dict
                 product_dict = {
@@ -142,6 +145,7 @@ async def extract_products(domain: str, concurrency: int = 10) -> dict:
                     "images": result.product.images,
                     "description": result.product.description,
                     "url": result.product.url,
+                    "source_url": source_url,  # Original URL from urls.json
                     "brand": result.product.brand,
                     "sku": result.product.sku,
                     "category": result.product.category,
@@ -157,16 +161,16 @@ async def extract_products(domain: str, concurrency: int = 10) -> dict:
                     ],
                 }
 
-                # Save product
-                filepath = save_product(clean_domain, product_dict, category_path)
+                # Save product using source_url for filename (preserves variants)
+                filepath = save_product(clean_domain, product_dict, category_path, source_url=source_url)
                 products_saved.append(str(filepath))
 
     # Also save the discovery products
-    for i, url in enumerate(all_urls[:2]):
-        result = await extractor.extract_single(url, config)
+    for i, source_url in enumerate(all_urls[:2]):
+        result = await extractor.extract_single(source_url, config)
         if result.success and result.product:
             products_successful += 1
-            category_path = get_category_path_for_url(url, urls_tree)
+            category_path = get_category_path_for_url(source_url, urls_tree)
 
             product_dict = {
                 "name": result.product.name,
@@ -175,6 +179,7 @@ async def extract_products(domain: str, concurrency: int = 10) -> dict:
                 "images": result.product.images,
                 "description": result.product.description,
                 "url": result.product.url,
+                "source_url": source_url,  # Original URL from urls.json
                 "brand": result.product.brand,
                 "sku": result.product.sku,
                 "category": result.product.category,
@@ -190,7 +195,7 @@ async def extract_products(domain: str, concurrency: int = 10) -> dict:
                 ],
             }
 
-            filepath = save_product(clean_domain, product_dict, category_path)
+            filepath = save_product(clean_domain, product_dict, category_path, source_url=source_url)
             products_saved.append(str(filepath))
 
     # Update config with counts

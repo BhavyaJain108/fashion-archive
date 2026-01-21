@@ -13,11 +13,12 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 
 # Add paths for imports
+sys.path.insert(0, str(Path(__file__).parent))  # stages/
 sys.path.insert(0, str(Path(__file__).parent.parent / "scraper"))
 sys.path.insert(0, str(Path(__file__).parent.parent / "scraper" / "navigation"))
 
-from storage import get_domain, save_navigation, count_categories
-from metrics import update_stage_metrics, calculate_cost
+from stages.storage import get_domain, save_navigation, count_categories
+from stages.metrics import update_stage_metrics, calculate_cost
 
 
 def run_static_extractor(url: str) -> dict:
@@ -70,6 +71,15 @@ def convert_dynamic_to_standard(node: dict) -> list:
     # Recursively convert children
     for child in node.get("children", []):
         child_nodes = convert_dynamic_to_standard(child)
+        child_name = child.get("name", "Unknown")
+
+        # Find node's own URL from its links (link where name matches node name)
+        child_url = None
+        for link in child.get("links", []):
+            if link.get("name", "").lower() == child_name.lower():
+                child_url = link.get("url")
+                break
+
         if child_nodes:
             # If child has multiple nodes, wrap them
             if len(child_nodes) == 1 and not child_nodes[0].get("children"):
@@ -78,15 +88,15 @@ def convert_dynamic_to_standard(node: dict) -> list:
             else:
                 # Multiple nodes or has children - create category node
                 result.append({
-                    "name": child.get("name", "Unknown"),
-                    "url": None,
+                    "name": child_name,
+                    "url": child_url,  # Include node's own URL if available
                     "children": child_nodes
                 })
         elif child.get("links"):
             # Child has links but no nested children
             result.append({
-                "name": child.get("name", "Unknown"),
-                "url": None,
+                "name": child_name,
+                "url": child_url,  # Include node's own URL if available
                 "children": convert_dynamic_to_standard(child)
             })
 
@@ -159,15 +169,14 @@ def count_tree(tree) -> int:
     return count
 
 
-def extract_navigation(url: str, timeout: int = 120) -> dict:
+def extract_navigation(url: str, timeout: int = 120, mode: str = "both") -> dict:
     """
-    Extract navigation tree using both static and dynamic methods.
-
-    Runs both in parallel and picks the better result.
+    Extract navigation tree using static and/or dynamic methods.
 
     Args:
         url: Website URL
         timeout: Max time per extractor in seconds
+        mode: "static", "dynamic", or "both" (default)
 
     Returns:
         Navigation tree dict with category_tree, category_count, method
@@ -180,41 +189,67 @@ def extract_navigation(url: str, timeout: int = 120) -> dict:
     print(f"{'='*60}")
     print(f"URL: {url}")
     print(f"Domain: {domain}")
+    print(f"Mode: {mode}")
     print(f"{'='*60}\n")
 
     static_result = None
     dynamic_result = None
 
-    # Run both extractors in parallel
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        print("Running static and dynamic extractors in parallel...")
-
-        static_future = executor.submit(run_static_extractor, url)
-        dynamic_future = executor.submit(run_dynamic_extractor, url)
-
-        # Get static result
+    if mode == "static":
+        # Run only static extractor
+        print("Running static extractor only...")
         try:
-            static_result = static_future.result(timeout=timeout)
+            static_result = run_static_extractor(url)
             if static_result:
                 print(f"  Static: {static_result['category_count']} categories")
             else:
                 print(f"  Static: failed")
-        except FuturesTimeoutError:
-            print(f"  Static: timeout")
         except Exception as e:
             print(f"  Static: error - {e}")
 
-        # Get dynamic result
+    elif mode == "dynamic":
+        # Run only dynamic extractor
+        print("Running dynamic extractor only...")
         try:
-            dynamic_result = dynamic_future.result(timeout=timeout)
+            dynamic_result = run_dynamic_extractor(url)
             if dynamic_result:
                 print(f"  Dynamic: {dynamic_result['category_count']} categories")
             else:
                 print(f"  Dynamic: failed")
-        except FuturesTimeoutError:
-            print(f"  Dynamic: timeout")
         except Exception as e:
             print(f"  Dynamic: error - {e}")
+
+    else:
+        # Run both extractors in parallel
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            print("Running static and dynamic extractors in parallel...")
+
+            static_future = executor.submit(run_static_extractor, url)
+            dynamic_future = executor.submit(run_dynamic_extractor, url)
+
+            # Get static result
+            try:
+                static_result = static_future.result(timeout=timeout)
+                if static_result:
+                    print(f"  Static: {static_result['category_count']} categories")
+                else:
+                    print(f"  Static: failed")
+            except FuturesTimeoutError:
+                print(f"  Static: timeout")
+            except Exception as e:
+                print(f"  Static: error - {e}")
+
+            # Get dynamic result
+            try:
+                dynamic_result = dynamic_future.result(timeout=timeout)
+                if dynamic_result:
+                    print(f"  Dynamic: {dynamic_result['category_count']} categories")
+                else:
+                    print(f"  Dynamic: failed")
+            except FuturesTimeoutError:
+                print(f"  Dynamic: timeout")
+            except Exception as e:
+                print(f"  Dynamic: error - {e}")
 
     # Pick better result
     if static_result and dynamic_result:
@@ -226,12 +261,12 @@ def extract_navigation(url: str, timeout: int = 120) -> dict:
             print(f"\nUsing dynamic result ({result['category_count']} categories)")
     elif static_result:
         result = static_result
-        print(f"\nUsing static result (dynamic failed)")
+        print(f"\nUsing static result" + (" (dynamic failed)" if mode == "both" else ""))
     elif dynamic_result:
         result = dynamic_result
-        print(f"\nUsing dynamic result (static failed)")
+        print(f"\nUsing dynamic result" + (" (static failed)" if mode == "both" else ""))
     else:
-        print("\nBoth extractors failed!")
+        print("\nExtraction failed!")
         return None
 
     # Save results
@@ -278,19 +313,31 @@ def extract_navigation(url: str, timeout: int = 120) -> dict:
     return result
 
 
-async def extract_navigation_async(url: str, timeout: int = 120) -> dict:
+async def extract_navigation_async(url: str, timeout: int = 120, mode: str = "both") -> dict:
     """Async wrapper for extract_navigation."""
+    import functools
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, extract_navigation, url, timeout)
+    return await loop.run_in_executor(None, functools.partial(extract_navigation, url, timeout, mode))
 
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python navigation.py <url>")
+        print("Usage: python navigation.py <url> [--static|--dynamic]")
+        print("  --static   Run only static extractor")
+        print("  --dynamic  Run only dynamic extractor")
+        print("  (default)  Run both and pick better result")
         sys.exit(1)
 
     url = sys.argv[1]
-    result = extract_navigation(url)
+
+    # Parse mode flag
+    mode = "both"
+    if "--static" in sys.argv:
+        mode = "static"
+    elif "--dynamic" in sys.argv:
+        mode = "dynamic"
+
+    result = extract_navigation(url, mode=mode)
 
     if result:
         print(f"\nSuccess: {result['category_count']} categories extracted")

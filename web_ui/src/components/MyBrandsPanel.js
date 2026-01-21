@@ -39,24 +39,24 @@ function MyBrandsPanel() {
           try {
             const details = await FashionArchiveAPI.getBrandDetails(followedBrand.brand_id);
 
-            // Load navigation tree
-            const navResponse = await fetch(
-              `http://localhost:8081/api/image?path=${encodeURIComponent(`data/brands/${followedBrand.brand_id}/navigation.json`)}`
-            );
-            let navigation = { category_tree: [] };
-            if (navResponse.ok) {
-              const navText = await navResponse.text();
-              try {
-                navigation = JSON.parse(navText);
-              } catch (e) {
-                console.warn('Could not parse navigation for', followedBrand.brand_id);
+            // Load navigation tree via API endpoint
+            let navigation = [];
+            try {
+              const navResponse = await fetch(
+                `http://localhost:8081/api/brands/${followedBrand.brand_id}/categories/hierarchy`
+              );
+              if (navResponse.ok) {
+                const navData = await navResponse.json();
+                navigation = navData.hierarchy || [];
               }
+            } catch (e) {
+              console.warn('Could not load navigation for', followedBrand.brand_id);
             }
 
             return {
               ...followedBrand,
               ...details,
-              navigation: navigation.category_tree || []
+              navigation: navigation
             };
           } catch (err) {
             console.error(`Error loading brand ${followedBrand.brand_id}:`, err);
@@ -88,29 +88,25 @@ function MyBrandsPanel() {
     }
   };
 
-  // Load product counts for all leaf categories from scraping_intel.json
+  // Load product counts for all leaf categories via API
   const loadProductCounts = async (brandsWithData) => {
     const counts = {};
 
     for (const brand of brandsWithData) {
       try {
-        // Fetch scraping intel which contains product counts
-        const intelResponse = await fetch(
-          `http://localhost:8081/api/image?path=${encodeURIComponent(`data/brands/${brand.brand_id}/scraping_intel.json`)}`
+        // Fetch product counts via API endpoint
+        const countsResponse = await fetch(
+          `http://localhost:8081/api/products/counts?brand_id=${brand.brand_id}`
         );
 
-        if (intelResponse.ok) {
-          const intelText = await intelResponse.text();
-          const intel = JSON.parse(intelText);
+        if (countsResponse.ok) {
+          const countsData = await countsResponse.json();
+          const urlCounts = countsData.counts || {};
 
-          // Extract product counts from worked_on_categories
-          const workedOnCategories = intel.patterns?.product_listing?.primary?.worked_on_categories || [];
-
-          for (const category of workedOnCategories) {
-            if (category.category_url) {
-              const leafKey = `${brand.brand_id}::${category.category_url}`;
-              counts[leafKey] = category.products_found || 0;
-            }
+          // Map URL counts to leaf keys
+          for (const [categoryUrl, count] of Object.entries(urlCounts)) {
+            const leafKey = `${brand.brand_id}::${categoryUrl}`;
+            counts[leafKey] = count;
           }
         }
       } catch (error) {
@@ -242,41 +238,29 @@ function MyBrandsPanel() {
     try {
       setLoadingProducts(true);
 
-      // Track seen products by slug to avoid duplicates
-      const seenProductSlugs = new Set();
+      // Track seen products by URL to avoid duplicates
+      const seenProductUrls = new Set();
       const deduplicatedProducts = [];
 
-      // Helper function to extract product slug by removing category URL
-      const getProductSlug = (productUrl, categoryUrl) => {
-        if (!productUrl || !categoryUrl) return productUrl;
-
-        // Remove trailing slashes for consistent comparison
-        const normalizedProductUrl = productUrl.replace(/\/$/, '');
-        const normalizedCategoryUrl = categoryUrl.replace(/\/$/, '');
-
-        // If product URL starts with category URL, remove it
-        if (normalizedProductUrl.startsWith(normalizedCategoryUrl)) {
-          return normalizedProductUrl.substring(normalizedCategoryUrl.length);
-        }
-
-        return productUrl;
+      // Helper function to get product URL (handles both old and new formats)
+      const getProductUrl = (product) => {
+        return product.url || product.product_url || '';
       };
 
       // If there's a newly selected key, load it first (prepend)
       let newProducts = [];
-      let newCategoryUrl = '';
       let existingProductsWithCategory = [];
 
       if (newlySelectedKey && selectedSet.has(newlySelectedKey)) {
         // Load the newly selected category first
-        const [brandId, categoryUrl] = newlySelectedKey.split('::');
-        newCategoryUrl = categoryUrl;
-        const response = await fetch(
-          `http://localhost:8081/api/products?brand_id=${brandId}&classification_url=${encodeURIComponent(categoryUrl)}&limit=1000`
+        const [brandId, categoryIdentifier] = newlySelectedKey.split('::');
+        // Try both classification_url and classification_name for compatibility
+        let response = await fetch(
+          `http://localhost:8081/api/products?brand_id=${brandId}&classification_url=${encodeURIComponent(categoryIdentifier)}&limit=1000`
         );
         if (response.ok) {
           const data = await response.json();
-          newProducts = (data.products || []).map(p => ({ ...p, _categoryUrl: categoryUrl }));
+          newProducts = (data.products || []).map(p => ({ ...p, _category: categoryIdentifier }));
         }
       }
 
@@ -284,31 +268,31 @@ function MyBrandsPanel() {
       for (const leafKey of selectedSet) {
         if (leafKey === newlySelectedKey) continue; // Skip the newly added one
 
-        const [brandId, categoryUrl] = leafKey.split('::');
+        const [brandId, categoryIdentifier] = leafKey.split('::');
         const response = await fetch(
-          `http://localhost:8081/api/products?brand_id=${brandId}&classification_url=${encodeURIComponent(categoryUrl)}&limit=1000`
+          `http://localhost:8081/api/products?brand_id=${brandId}&classification_url=${encodeURIComponent(categoryIdentifier)}&limit=1000`
         );
 
         if (response.ok) {
           const data = await response.json();
-          const productsWithCategory = (data.products || []).map(p => ({ ...p, _categoryUrl: categoryUrl }));
+          const productsWithCategory = (data.products || []).map(p => ({ ...p, _category: categoryIdentifier }));
           existingProductsWithCategory.push(...productsWithCategory);
         }
       }
 
       // Deduplicate: prioritize new products, then add existing ones if not already seen
       for (const product of newProducts) {
-        const slug = getProductSlug(product.product_url, product._categoryUrl);
-        if (slug && !seenProductSlugs.has(slug)) {
-          seenProductSlugs.add(slug);
+        const url = getProductUrl(product);
+        if (url && !seenProductUrls.has(url)) {
+          seenProductUrls.add(url);
           deduplicatedProducts.push(product);
         }
       }
 
       for (const product of existingProductsWithCategory) {
-        const slug = getProductSlug(product.product_url, product._categoryUrl);
-        if (slug && !seenProductSlugs.has(slug)) {
-          seenProductSlugs.add(slug);
+        const url = getProductUrl(product);
+        if (url && !seenProductUrls.has(url)) {
+          seenProductUrls.add(url);
           deduplicatedProducts.push(product);
         }
       }
@@ -408,7 +392,7 @@ function MyBrandsPanel() {
       const isExpanded = expandedCategories[categoryKey];
 
       // All categories display in lowercase
-      const displayName = category.name.toLowerCase();
+      const displayName = (category.name || 'Unknown').toLowerCase();
 
       const productCount = isLeaf ? productCounts[leafKey] : null;
 
@@ -475,7 +459,7 @@ function MyBrandsPanel() {
                       : undefined
                   }}
                 >
-                  <span className="brand-name-text">{brand.name.toUpperCase()}</span>
+                  <span className="brand-name-text">{(brand.name || brand.brand_id || 'Unknown').toUpperCase()}</span>
                   {isScraping && <span className="brand-loading-text"> loading...</span>}
                 </div>
 
@@ -507,25 +491,43 @@ function MyBrandsPanel() {
         ) : products.length > 0 ? (
           <div className="product-grid">
             {products.map((product, idx) => {
-              // Extract brand name from brand_id (e.g., "jukuhara" -> "JUKUHARA")
-              const brandName = product.brand_id ? product.brand_id.replace(/_/g, ' ').toUpperCase() : '';
+              // Extract brand name from brand_id or brand field
+              const brandName = product.brand
+                ? product.brand.toUpperCase()
+                : (product.brand_id ? product.brand_id.replace(/_/g, ' ').toUpperCase() : '');
+
+              // Handle both old (product_name) and new (name) field names
+              const productName = product.name || product.product_name || 'Unknown Product';
+              const productUrl = product.url || product.product_url || '';
+
+              // Handle both old (images[].src) and new (images[] as URLs) formats
+              let imageUrl = null;
+              if (product.images && product.images.length > 0) {
+                const firstImage = product.images[0];
+                imageUrl = typeof firstImage === 'string' ? firstImage : firstImage.src;
+              }
+
+              // Handle both old (attributes.price) and new (price + currency) formats
+              const priceDisplay = product.price
+                ? `${product.currency || ''} ${product.price}`.trim()
+                : product.attributes?.price;
 
               return (
-                <div key={`${product.product_url}-${idx}`} className="product-card">
-                  {product.images && product.images.length > 0 && (
+                <div key={`${productUrl}-${idx}`} className="product-card">
+                  {imageUrl && (
                     <div className="product-image">
                       <img
-                        src={product.images[0].src}
-                        alt={product.product_name}
+                        src={imageUrl}
+                        alt={productName}
                         loading="lazy"
                       />
                     </div>
                   )}
                   <div className="product-info">
                     <div className="product-brand">{brandName}</div>
-                    <div className="product-name">{product.product_name}</div>
-                    {product.attributes?.price && (
-                      <div className="product-price">{product.attributes.price}</div>
+                    <div className="product-name">{productName}</div>
+                    {priceDisplay && (
+                      <div className="product-price">{priceDisplay}</div>
                     )}
                   </div>
                 </div>

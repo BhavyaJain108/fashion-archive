@@ -303,7 +303,7 @@ def load_metrics(domain: str) -> Dict:
 
     Returns parsed metrics as a dict, or empty dict if no file exists.
     """
-    from storage import ensure_domain_dir
+    from stages.storage import ensure_domain_dir
 
     metrics_file = ensure_domain_dir(domain) / "metrics.json"
     if metrics_file.exists():
@@ -319,7 +319,7 @@ def save_metrics(domain: str, stages: Dict[str, Dict]):
     """
     Save metrics to both .txt (human readable) and .json (machine readable).
     """
-    from storage import ensure_domain_dir
+    from stages.storage import ensure_domain_dir
 
     domain_dir = ensure_domain_dir(domain)
 

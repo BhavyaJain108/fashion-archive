@@ -4,7 +4,7 @@ User Brand Following System
 ============================
 
 Manages which brands a user is following.
-Brands are stored centrally in data/brands/, but each user has their own list.
+Brands are stored centrally in extractions/{domain}/, but each user has their own list.
 """
 
 import sqlite3
@@ -17,7 +17,7 @@ class BrandFollowing:
     """
     Manages brand following for a specific user
 
-    - Central brand data in data/brands/
+    - Central brand data in extractions/{domain}/
     - User-specific following list in data/user_data/{user_folder}/brand_collections/following.db
     """
 

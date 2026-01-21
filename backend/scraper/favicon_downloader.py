@@ -23,15 +23,17 @@ class FaviconDownloader:
         Args:
             homepage_url: The brand's homepage URL
             brand_id: Unique brand identifier
-            save_dir: Directory to save favicon (default: data/brands/{brand_id})
+            save_dir: Directory to save favicon (default: extractions/{domain}/)
 
         Returns:
             str: Path to downloaded favicon, or None if not found
         """
         try:
-            # Set save directory
+            # Set save directory based on domain
             if save_dir is None:
-                save_dir = os.path.join('data', 'brands', brand_id)
+                parsed = urlparse(homepage_url)
+                domain = parsed.netloc.replace('www.', '').replace('.', '_')
+                save_dir = os.path.join('extractions', domain)
 
             os.makedirs(save_dir, exist_ok=True)
 

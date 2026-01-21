@@ -107,25 +107,43 @@ RULES:
 """
 
 
-def prompt_subcategories(aria: str, current_path: list) -> str:
+def prompt_subcategories(aria: str, current_path: list, extracted_links: dict = None) -> str:
     """Prompt to identify subcategories at the current navigation path."""
     path_str = " > ".join(current_path)
+
+    # Format extracted links for the prompt
+    links_section = ""
+    if extracted_links:
+        links_list = [f"  - {name} → {url}" for name, url in list(extracted_links.items())[:30]]
+        links_section = f"""
+EXTRACTED LINKS ON THIS PAGE:
+{chr(10).join(links_list)}
+"""
 
     return f"""PURPOSE: We're building a navigation tree for a fashion site. We need to find all category paths.
 
 CURRENT PATH: {path_str}
+{links_section}
+TASK: First determine if this is a PRODUCT LISTING page or a NAVIGATION page.
 
-TASK: Find EXPANDABLE elements that reveal MORE subcategories, and LINKS to category pages.
+HOW TO IDENTIFY A PRODUCT LISTING PAGE (LEAF):
+Look at the EXTRACTED LINKS above. If you see ANY of these, it's a LEAF page:
+1. "Filter", "Filter and sort", "Filters", "Refine" - filter controls
+2. "Clear" - filter reset button
+3. "Sort", "Sort by" - sort controls
+4. Links to individual products (long names with colors/sizes like "Tokyo Dad Jeans | Baggy, Wide-Leg Metal Black")
 
-PAGE TYPE - Determine first:
-- LEAF: No more category navigation exists (only product links, utility links, or nothing)
-- HAS_CATEGORIES: There are expandable elements or category links to record
+CRITICAL: If EXTRACTED LINKS contains "Filter", "Filter and sort", "Clear", or "Sort" → this is a LEAF page.
 
-IF this is a LEAF page:
+RESPOND WITH THIS FORMAT:
+
+First line MUST be one of:
 PAGE_TYPE: LEAF
-
-IF there ARE category items:
 PAGE_TYPE: HAS_CATEGORIES
+
+If PAGE_TYPE: LEAF, stop there. Don't list any items.
+
+If PAGE_TYPE: HAS_CATEGORIES, find EXPANDABLE elements and LINKS to category pages:
 
 CLASSIFICATION - Based on ARIA ROLE, not the name:
 - EXPANDABLE: role=button, role=tab, role=menuitem → we click these to explore
@@ -148,13 +166,16 @@ LINKS:
 EXCLUDE from both sections:
 - Individual product links (specific items like "Blue Cotton Dress $89", "Nike Air Max")
 - Utility links (Cart, Login, Search, About Us, Contact, FAQ)
+- Filter/facet options (color names, size names, price ranges)
+- Sort options
+- Pagination controls
 
 CONSTRAINTS:
 - Classify by ARIA role, not by name
 - Only include CHILDREN of the current path, not siblings or parent items
 - Ignore utility controls: Back, Close, Search, Cart, Menu, Login, Account
 - Use exact names from the ARIA
-- If no expandable elements or category links exist, respond with PAGE_TYPE: LEAF
+- If you see filters/sort controls, respond with PAGE_TYPE: LEAF
 
 ARIA SNAPSHOT:
 {aria[:6000]}
@@ -380,13 +401,19 @@ def extract_links_from_aria(aria: str) -> dict:
 
 def filter_utility_links(links: dict) -> dict:
     """Filter out utility/non-product links."""
-    skip_patterns = [
+    skip_url_patterns = [
         'login', 'cart', 'wishlist', 'account', 'saved',
         'faq', 'contact', 'careers', 'legal', 'privacy', 'cookie', 'terms',
         'facebook', 'instagram', 'tiktok', 'pinterest', 'linkedin', 'twitter',
         'tel:', 'mailto:', 'javascript:',
         'track-order', 'returns', 'shipping', 'payment', 'newsletter',
-        'store-locator', 'find-store', 'appointments'
+        'store-locator', 'find-store', 'appointments',
+        # Filter/vendor URLs - these are product filters, not categories
+        '/vendors?', 'vendors?q=', '?q=', '?filter=', '?color=', '?size=',
+        # External utility domains
+        'calendly.com', 'shopify.com', 'klaviyo.com',
+        # Return/exchange policy
+        'return-exchange', 'refund-policy',
     ]
 
     # Skip anchor-only links (just "#" or "#something" with no path)
@@ -394,7 +421,12 @@ def filter_utility_links(links: dict) -> dict:
 
     skip_names = [
         'login', 'cart', 'search', 'close', 'back', 'menu',
-        'saved items', 'wishlist', 'account', 'sign in'
+        'saved items', 'wishlist', 'account', 'sign in',
+        # Utility links
+        'skip to content', 'skip to main', 'powered by',
+        'book appointment', 'book a call', 'schedule',
+        # Color/size names (common filter values - these aren't categories)
+        'explore',  # Generic non-category link
     ]
 
     filtered = {}
@@ -406,7 +438,7 @@ def filter_utility_links(links: dict) -> dict:
         if any(skip in name_lower for skip in skip_names):
             continue
         # Skip by URL pattern
-        if any(skip in url_lower for skip in skip_patterns):
+        if any(skip in url_lower for skip in skip_url_patterns):
             continue
         # Skip anchor-only links
         if skip_anchor_only(url):
@@ -491,7 +523,7 @@ async def click_button(page: Page, name: str, container=None, prefer_tab: bool =
                             element = inner_locator.first
                             if await element.is_visible():
                                 print(f"        [CLICK-DETAIL] Found '{name}' as {role} inside {menu_role} '{parent_menu}'")
-                                await element.click(timeout=3000)
+                                await element.click(timeout=3000, force=True)
                                 await page.wait_for_timeout(150)
                                 return True
             except:
@@ -532,13 +564,13 @@ async def click_button(page: Page, name: str, container=None, prefer_tab: bool =
                     element = locator.nth(i)
                     if await element.is_visible():
                         print(f"        [CLICK-DETAIL] Found '{name}' as {role} (#{i+1} of {count}, visible)")
-                        # Short timeout - fail fast if blocked, try next option
-                        await element.click(timeout=3000)
+                        # Short timeout - fail fast if blocked, force to bypass overlay checks
+                        await element.click(timeout=3000, force=True)
                         await page.wait_for_timeout(150)
                         return True
                 print(f"        [CLICK-DETAIL] Found '{name}' as {role} but none visible")
         except Exception as e:
-            print(f"        [CLICK-DETAIL] {role} failed, trying next...")
+            print(f"        [CLICK-DETAIL] {role} failed: {e}")
             continue
 
     # Try <summary> elements (used by <details> pattern, appear as "group" in ARIA)
@@ -555,19 +587,9 @@ async def click_button(page: Page, name: str, container=None, prefer_tab: bool =
                 element = summary.nth(i)
                 if await element.is_visible():
                     print(f"        [CLICK-DETAIL] Found '{name}' as summary (#{i+1} of {count}, visible)")
-                    try:
-                        # First try normal click
-                        await element.click(timeout=2000)
-                        await page.wait_for_timeout(150)
-                        return True
-                    except:
-                        # If blocked, close dropdowns and force click
-                        print(f"        [CLICK-DETAIL] Blocked, pressing Escape and retrying...")
-                        await page.keyboard.press('Escape')
-                        await page.wait_for_timeout(100)
-                        await element.click(timeout=2000, force=True)
-                        await page.wait_for_timeout(150)
-                        return True
+                    await element.click(timeout=2000, force=True)
+                    await page.wait_for_timeout(150)
+                    return True
             print(f"        [CLICK-DETAIL] Found '{name}' as summary but none visible")
     except Exception as e:
         print(f"        [CLICK-DETAIL] Error with summary: {e}")
@@ -650,7 +672,7 @@ async def hover_and_check(page: Page, name: str, item_type: str = None, containe
                     element = locator.nth(i)
                     if await element.is_visible():
                         print(f"        [HOVER] Hovering '{name}' as {role}")
-                        await element.hover()
+                        await element.hover(timeout=5000, force=True)
                         await page.wait_for_timeout(500)  # Wait for menu animation
 
                         # Capture ARIA after hover
@@ -688,7 +710,7 @@ async def hover_and_check(page: Page, name: str, item_type: str = None, containe
                 element = summary.nth(i)
                 if await element.is_visible():
                     print(f"        [HOVER] Hovering '{name}' as summary")
-                    await element.hover(timeout=5000)
+                    await element.hover(timeout=5000, force=True)
                     await page.wait_for_timeout(500)
 
                     aria_after = await page.locator('body').aria_snapshot()
@@ -1200,11 +1222,13 @@ async def explore_toggle_menu(page: Page, menu_structure: dict, states: list, st
             max_tokens=1000,
             messages=[{
                 "role": "user",
-                "content": prompt_subcategories(aria, [tl_name])
+                "content": prompt_subcategories(aria, [tl_name], links)
             }]
         )
         _track_llm_response(subcat_response)
-        expandable_items, leaf_links, is_product_listing = parse_subcategories(subcat_response.content[0].text)
+        raw_response = subcat_response.content[0].text
+        print(f"    LLM raw response:\n{raw_response[:500]}")
+        expandable_items, leaf_links, is_product_listing = parse_subcategories(raw_response)
         if is_product_listing:
             print(f"    [PRODUCT_LISTING] Top-level '{tl_name}' is a product page, skipping subcategories")
             continue
@@ -1261,10 +1285,8 @@ async def explore_toggle_menu(page: Page, menu_structure: dict, states: list, st
             step += 1
 
             print(f"      Found {len(links)} links")
-            for name, url in list(links.items())[:3]:
+            for name, url in links.items():
                 print(f"        [LNK] {name} → {url}")
-            if len(links) > 3:
-                print(f"        ... and {len(links) - 3} more")
 
     return step
 
@@ -1333,17 +1355,18 @@ async def explore(url: str, max_depth: int = 3) -> tuple:
         # Filter out home page links (just "/")
         top_level = [item for item in top_level if item.get('url') != '/']
 
-        # Filter to majority type - nav items should be consistent (all tabs, all buttons, etc.)
-        # This removes stray utility buttons when main nav is tabs
+        # Filter to majority type - but keep items with URLs (they're valid nav destinations)
+        # This removes stray utility buttons (no URL) when main nav is links
         if len(top_level) > 1:
             from collections import Counter
             type_counts = Counter(item['type'] for item in top_level)
             majority_type = type_counts.most_common(1)[0][0]
             if type_counts[majority_type] > 1:  # Only filter if majority has >1 item
                 original_count = len(top_level)
-                top_level = [item for item in top_level if item['type'] == majority_type]
+                # Keep items that match majority type OR have a URL
+                top_level = [item for item in top_level if item['type'] == majority_type or item.get('url')]
                 if len(top_level) < original_count:
-                    print(f"    Filtered to {majority_type} items (majority type)")
+                    print(f"    Filtered to {majority_type} items (majority type), kept items with URLs")
 
         print(f"    Found {len(top_level)} items:")
         for item in top_level:
@@ -1506,10 +1529,8 @@ async def explore(url: str, max_depth: int = 3) -> tuple:
                         states.append(state)
 
                         print(f"    Found {len(links)} links via hover")
-                        for name, url in list(links.items())[:5]:
+                        for name, url in links.items():
                             print(f"      [LNK] {name} → {url}")
-                        if len(links) > 5:
-                            print(f"      ... and {len(links) - 5} more links")
 
                         step += 1
 
@@ -1563,6 +1584,10 @@ async def explore(url: str, max_depth: int = 3) -> tuple:
             # Get ARIA for analysis
             aria = await page.locator('body').aria_snapshot()
 
+            # Extract links early so we can pass them to LLM for product page detection
+            current_links = extract_links_from_aria(aria)
+            current_links = filter_utility_links(current_links)
+
             # Check if we should skip LLM for this level (already know it has no expandable children)
             current_level = len(path)
             if current_level in skip_llm_at_level:
@@ -1579,22 +1604,30 @@ async def explore(url: str, max_depth: int = 3) -> tuple:
                     max_tokens=1000,
                     messages=[{
                         "role": "user",
-                        "content": prompt_subcategories(aria, path)
+                        "content": prompt_subcategories(aria, path, current_links)
                     }]
                 )
                 _track_llm_response(subcat_response)
-                expandable_items, leaf_links, is_product_listing = parse_subcategories(subcat_response.content[0].text)
+                raw_response = subcat_response.content[0].text
+                print(f"    LLM raw response:\n{raw_response[:500]}")
+                expandable_items, leaf_links, is_product_listing = parse_subcategories(raw_response)
 
                 # Handle product listing page - treat as leaf, record URL, skip link extraction
                 if is_product_listing:
                     print(f"    [PRODUCT_LISTING] This is a product page, treating as leaf")
                     new_buttons = {}
-                    new_links = {path[-1]: page.url}  # Record current URL as the link
+                    # Use known URL from initial scan if available, otherwise fall back to page.url
+                    item_name = path[-1]
+                    if len(path) == 1 and item_name in top_level_urls:
+                        recorded_url = top_level_urls[item_name]
+                    else:
+                        recorded_url = page.url
+                    new_links = {item_name: recorded_url}
                     # Capture state and continue to next item
-                    action = f"product_listing: {path[-1]}"
+                    action = f"product_listing: {item_name}"
                     state = await capture_state(page, path, action, step, new_buttons, new_links)
                     states.append(state)
-                    print(f"    Recorded as link: {path[-1]} → {page.url}")
+                    print(f"    Recorded as link: {item_name} → {recorded_url}")
                     current_path = path
                     step += 1
                     continue
@@ -1622,8 +1655,7 @@ async def explore(url: str, max_depth: int = 3) -> tuple:
                     level_no_expandable_count[current_level] = 0
 
             # Find new links (compared to initial state)
-            current_links = extract_links_from_aria(aria)
-            current_links = filter_utility_links(current_links)
+            # current_links already extracted above for LLM
             initial_links = extract_links_from_aria(states[0]['aria'])
             initial_links = filter_utility_links(initial_links)
             new_links = {k: v for k, v in current_links.items() if k not in initial_links}
@@ -1638,14 +1670,10 @@ async def explore(url: str, max_depth: int = 3) -> tuple:
             states.append(state)
 
             print(f"    Found {len(new_buttons)} subcategories, {len(new_links)} new links")
-            for name, typ in list(new_buttons.items())[:5]:
+            for name, typ in new_buttons.items():
                 print(f"      [{typ.upper()}] {name}")
-            if len(new_buttons) > 5:
-                print(f"      ... and {len(new_buttons) - 5} more buttons/tabs")
-            for name, url in list(new_links.items())[:5]:
+            for name, url in new_links.items():
                 print(f"      [LNK] {name} → {url}")
-            if len(new_links) > 5:
-                print(f"      ... and {len(new_links) - 5} more links")
 
             # Add new buttons/tabs to stack for further exploration (reversed for DFS order)
             # Sort alphabetically for consistent order, reverse so first item is explored first

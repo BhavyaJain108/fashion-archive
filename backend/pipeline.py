@@ -11,7 +11,9 @@ Stages:
 
 Usage:
   # Individual stages
-  python pipeline.py nav <url>                    # Stage 1
+  python pipeline.py nav <url>                    # Stage 1 (both extractors)
+  python pipeline.py nav <url> --static           # Stage 1 (static only)
+  python pipeline.py nav <url> --dynamic          # Stage 1 (dynamic only)
   python pipeline.py urls <domain>                # Stage 2 (requires nav.json)
   python pipeline.py products <domain>            # Stage 3 (requires urls.json)
 
@@ -22,6 +24,7 @@ Usage:
 
 Examples:
   python pipeline.py nav https://eckhauslatta.com
+  python pipeline.py nav https://poolhousenewyork.com --dynamic
   python pipeline.py urls eckhauslatta_com
   python pipeline.py products eckhauslatta_com
   python pipeline.py all https://www.khaite.com
@@ -39,11 +42,11 @@ sys.path.insert(0, str(Path(__file__).parent / "prod_page_v2"))
 from stages.storage import get_domain
 
 
-def run_nav(url: str) -> bool:
+def run_nav(url: str, mode: str = "both") -> bool:
     """Run Stage 1: Navigation extraction."""
     from stages.navigation import extract_navigation
 
-    result = extract_navigation(url)
+    result = extract_navigation(url, mode=mode)
     return result is not None
 
 
@@ -105,10 +108,19 @@ def main():
         print("Usage: python pipeline.py nav <url>")
         sys.exit(1)
 
+    # Parse nav mode flag
+    nav_mode = "both"
+    if "--static" in sys.argv:
+        nav_mode = "static"
+    elif "--dynamic" in sys.argv:
+        nav_mode = "dynamic"
+
     print(f"\n{'#'*60}")
     print(f"# FASHION SCRAPING PIPELINE")
     print(f"# Stages: {' -> '.join(stages)}")
     print(f"# Target: {url or domain}")
+    if "nav" in stages and nav_mode != "both":
+        print(f"# Nav Mode: {nav_mode}")
     print(f"{'#'*60}\n")
 
     success = True
@@ -116,7 +128,7 @@ def main():
     # Run stages
     for stage in stages:
         if stage == "nav":
-            success = run_nav(url)
+            success = run_nav(url, mode=nav_mode)
         elif stage == "urls":
             success = run_urls(domain)
         elif stage == "products":

@@ -2419,8 +2419,9 @@ Return JSON:
                 'tests', 'results', brand_name
             )
         else:
-            # Save to data/brands/{brand_name}/images/{hierarchy}/ (for production)
-            base_dir = os.path.join('data', 'brands', brand_name, 'images')
+            # Save to extractions/{domain}/images/{hierarchy}/ (for production)
+            domain = urlparse(self.url).netloc.replace('www.', '').replace('.', '_')
+            base_dir = os.path.join('extractions', domain, 'images')
 
         # Build the full path using the hierarchy
         path_components = [comp.replace(' ', '_').replace('/', '_') for comp in category_path]
