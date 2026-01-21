@@ -2018,7 +2018,7 @@ def _scroll_using_pagination_element(page, pagination_selector, _pagination_trig
         scroll_count = 0
         last_pagination_position = None
         stable_count = 0
-        max_stable_attempts = 2
+        max_stable_attempts = 3  # Need 3 consecutive stable checks to confirm loading complete
         
         _log(f"   🎯 Using pagination element as scroll target: {pagination_selector}")
         
@@ -2055,7 +2055,7 @@ def _scroll_using_pagination_element(page, pagination_selector, _pagination_trig
             
             # Scroll to pagination element
             pagination_element.scroll_into_view_if_needed()
-            page.wait_for_timeout(2000)  # Wait for content to load
+            page.wait_for_timeout(3000)  # Wait for content to load and render
             
             last_pagination_position = current_pagination_y
             

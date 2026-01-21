@@ -75,6 +75,43 @@ cat extractions/eckhauslatta_com/urls.txt
 python pipeline.py all https://www.khaite.com
 ```
 
+## Debugging
+
+### Test Single Category (URL Extraction)
+
+Use `test_category.py` to debug URL extraction for a single category page:
+
+```bash
+# Basic usage (headful by default - shows browser)
+python test_category.py <category_url>
+
+# With expected product count
+python test_category.py <url> --target <count>
+
+# Headless mode (no browser window)
+python test_category.py <url> --headless
+```
+
+**Examples:**
+
+```bash
+# Test poolhouse new releases (expect 239 products)
+python test_category.py https://poolhousenewyork.com/collections/new-releases --target 239
+
+# Test eckhauslatta bags in headless mode
+python test_category.py https://www.eckhauslatta.com/collections/bags --headless
+
+# Quick test without target
+python test_category.py https://www.khaite.com/collections/dresses
+```
+
+The test shows:
+- Pagination element detection
+- Scroll progress and element positions
+- Load more button detection
+- LLM classification results
+- Final product count vs target
+
 ## Troubleshooting
 
 If a stage fails, you can re-run just that stage. Previous stage outputs are preserved.

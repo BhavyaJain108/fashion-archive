@@ -15,11 +15,13 @@ from contextlib import redirect_stdout, redirect_stderr
 from datetime import datetime
 
 # Add paths for imports
+sys.path.insert(0, str(Path(__file__).parent))  # stages/
 sys.path.insert(0, str(Path(__file__).parent.parent / "scraper"))
 
-from storage import load_navigation, save_urls, get_domain, ensure_domain_dir
+from stages.storage import load_navigation, save_urls, get_domain, ensure_domain_dir
 from llm_handler import LLMHandler
-from metrics import update_stage_metrics, calculate_cost
+from stages.metrics import update_stage_metrics, calculate_cost
+from brand import Brand
 
 
 def get_leaf_categories(tree: list, parent_path: str = "") -> List[Dict]:
@@ -51,7 +53,7 @@ def get_leaf_categories(tree: list, parent_path: str = "") -> List[Dict]:
     return leaves
 
 
-def extract_urls_from_category(category_url: str, category_name: str) -> Dict:
+def extract_urls_from_category(category_url: str, category_name: str, brand_instance=None) -> Dict:
     """Extract product URLs from a single category page.
 
     Returns dict with: urls, logs, extraction_time, llm_usage.
@@ -66,7 +68,7 @@ def extract_urls_from_category(category_url: str, category_name: str) -> Dict:
     log_lines.append("=" * 60)
 
     try:
-        result = extract_category(category_url, brand_instance=None, quiet=True)
+        result = extract_category(category_url, brand_instance=brand_instance, quiet=True)
         urls = [p.url for p in result.product_urls]
         extraction_time = result.extraction_time
         llm_usage = getattr(result, 'llm_usage', {"calls": 0, "input_tokens": 0, "output_tokens": 0})
@@ -252,6 +254,10 @@ def extract_urls(domain: str, max_workers: int = 8) -> dict:
         print(f"Run stage 1 first: python pipeline.py nav <url>")
         return None
 
+    # Create Brand instance for shared state (load more detection, lineage caching)
+    brand_instance = Brand(url=f"https://{domain}/")
+    print(f"Brand instance created for: {domain}")
+
     # Get leaf categories
     tree = nav_tree.get("category_tree", [])
     leaves = get_leaf_categories(tree)
@@ -271,7 +277,7 @@ def extract_urls(domain: str, max_workers: int = 8) -> dict:
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_leaf = {
-            executor.submit(extract_urls_from_category, leaf["url"], leaf["name"]): leaf
+            executor.submit(extract_urls_from_category, leaf["url"], leaf["name"], brand_instance): leaf
             for leaf in leaves
         }
 

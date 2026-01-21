@@ -7,6 +7,7 @@ Preserves all pagination/scroll/load-more discovery logic.
 Uses LLM classification to filter product links from navigation/recommendations.
 """
 
+import os
 import time
 import json
 import threading
@@ -23,6 +24,63 @@ from prompts import url_classification
 # Thread-local storage for quiet mode
 _thread_local = threading.local()
 
+# Import shared popup selectors from navigation module
+from navigation.popup_selectors import (
+    POPUP_CLOSE_SELECTORS,
+    POPUP_IFRAME_SELECTORS,
+    OVERLAY_REMOVAL_SELECTORS,
+)
+
+
+def _dismiss_popups_sync(page) -> int:
+    """
+    Dismiss popups using direct selectors (sync version).
+    Uses same selectors as navigation/llm_popup_dismiss.py for consistency.
+    """
+    dismissed = 0
+
+    # Click popup close buttons
+    for sel in POPUP_CLOSE_SELECTORS:
+        try:
+            btn = page.locator(sel).first
+            if btn.count() > 0 and btn.is_visible():
+                btn.click(timeout=2000)
+                page.wait_for_timeout(300)
+                _log(f"   [POPUP] Clicked: {sel}")
+                dismissed += 1
+        except:
+            continue
+
+    # Remove popup iframes
+    for sel in POPUP_IFRAME_SELECTORS:
+        try:
+            iframe = page.locator(sel)
+            if iframe.count() > 0 and iframe.is_visible():
+                page.evaluate(f"document.querySelector('{sel}')?.parentElement?.remove()")
+                _log(f"   [POPUP] Removed iframe: {sel}")
+                dismissed += 1
+        except:
+            continue
+
+    # Remove overlay elements from DOM entirely
+    for selector in OVERLAY_REMOVAL_SELECTORS:
+        try:
+            removed = page.evaluate(f"""
+                (() => {{
+                    const els = document.querySelectorAll('{selector}');
+                    const count = els.length;
+                    els.forEach(el => el.remove());
+                    return count;
+                }})()
+            """)
+            if removed > 0:
+                _log(f"   [POPUP] Removed {removed} overlay elements: {selector}")
+                dismissed += removed
+        except:
+            continue
+
+    return dismissed
+
 
 def _log(message: str):
     """Print message unless quiet mode is enabled."""
@@ -38,6 +96,7 @@ from page_extractor import (
     _filter_links_by_category,
     _generate_page_urls,
     _handle_load_more_button,
+    _scroll_using_pagination_element,
     escape_css_selector_for_playwright,
 )
 
@@ -190,7 +249,9 @@ def _scroll_and_extract_links(page_url: str, brand_instance=None) -> Dict[str, A
     }
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        # Use EXTRACTOR_HEADLESS env var (default True for pipeline, False for test_category.py)
+        headless = os.environ.get('EXTRACTOR_HEADLESS', '1') == '1'
+        browser = p.chromium.launch(headless=headless)
         context = browser.new_context(
             ignore_https_errors=True,
             user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
@@ -201,7 +262,12 @@ def _scroll_and_extract_links(page_url: str, brand_instance=None) -> Dict[str, A
             # Navigate to page
             _log(f"   🌐 Loading: {page_url}")
             page.goto(page_url, wait_until="domcontentloaded", timeout=60000)  # 60s timeout for slow connections
-            page.wait_for_timeout(2000)
+            page.wait_for_timeout(3000)  # Wait for async popups to load
+
+            # Dismiss popups that might block interactions
+            _dismiss_popups_sync(page)
+            page.wait_for_timeout(1000)  # Let popup animation complete
+            _dismiss_popups_sync(page)  # Try again in case more popups appeared
 
             # Extract initial links
             initial_links = _extract_links_from_current_state(page, page_url)
@@ -223,15 +289,12 @@ def _scroll_and_extract_links(page_url: str, brand_instance=None) -> Dict[str, A
 
             _log(f"   🔄 Scrolling to load all content...")
 
-            # If pagination element found, chase it first (simplified)
+            # If pagination element found, use proper pagination-based scrolling
             if pagination_element:
-                try:
-                    page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                    page.wait_for_timeout(2000)
-                except:
-                    pass
+                _log(f"   📍 Using pagination element for scroll targeting")
+                _scroll_using_pagination_element(page, pagination_element, [])
 
-            # Height-based scrolling
+            # Height-based scrolling (fallback or additional)
             while True:
                 current_height = page.evaluate("document.body.scrollHeight")
                 scroll_count += 1

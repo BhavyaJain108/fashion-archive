@@ -93,55 +93,10 @@ async def try_direct_popup_selectors(page: Page) -> int:
     Try common popup selectors directly (faster than LLM, catches non-ARIA popups).
     Returns number dismissed.
     """
-    dismissed = 0
+    from navigation.popup_selectors import POPUP_CLOSE_SELECTORS, POPUP_IFRAME_SELECTORS
 
-    # Common cookie/popup buttons - ordered by priority
-    selectors = [
-        # Cookie consent
-        'button:has-text("Accept All Cookies")',
-        'button:has-text("Accept All")',
-        'button:has-text("ACCEPT ALL COOKIES")',
-        'button:has-text("Allow All")',
-        'button:has-text("Accept Cookies")',
-        '[id*="cookie"] button:has-text("Accept")',
-        '[id*="consent"] button:has-text("Accept")',
-        # Geolocation/country popups
-        '#popin-ip',
-        '.popin__geoloc a[data-locale="en_US"]',
-        '.js-close-panel[data-panel-id*="geoloc"]',
-        # Newsletter/signup close buttons
-        '#attentive_overlay button[aria-label*="close" i]',
-        '#attentive_overlay button:has-text("Close")',
-        '[class*="newsletter"] button[aria-label*="close" i]',
-        '[class*="popup"] button[aria-label*="close" i]',
-        '[class*="modal"] button[aria-label*="close" i]',
-        # Klaviyo popups
-        '[data-testid*="klaviyo"] button[aria-label*="close" i]',
-        '[class*="klaviyo"] button[aria-label*="close" i]',
-        '[class*="klaviyo"] button:has-text("Close")',
-        '[class*="klaviyo"] button:has-text("No thanks")',
-        'form[data-testid*="klaviyo"] button[aria-label*="close" i]',
-        'button[aria-label="Close dialog"]',
-        'button[aria-label="Close form"]',
-        # Promo/discount popups
-        '[class*="promo"] button:has-text("Close")',
-        '[class*="promo"] button:has-text("No thanks")',
-        '[class*="discount"] button:has-text("Close")',
-        '[class*="offer"] button:has-text("Close")',
-        'button:has-text("No thanks")',
-        'button:has-text("Maybe later")',
-        'button:has-text("Continue without")',
-        # Spin wheel / gamification
-        '[class*="wheel"] button:has-text("Close")',
-        '[class*="spin"] button:has-text("Close")',
-        # Generic close buttons on overlays
-        '[class*="overlay"] button:has-text("Close")',
-        '[class*="overlay"] button[aria-label*="close" i]',
-        # Iframes to remove
-        'iframe[title*="Sign Up"]',
-        'iframe[title*="Newsletter"]',
-        'iframe[title*="Popup"]',
-    ]
+    dismissed = 0
+    selectors = POPUP_CLOSE_SELECTORS + POPUP_IFRAME_SELECTORS
 
     for sel in selectors:
         try:
@@ -164,6 +119,35 @@ async def try_direct_popup_selectors(page: Page) -> int:
             continue
 
     return dismissed
+
+
+async def remove_overlay_elements(page: Page) -> int:
+    """
+    Remove known popup/overlay elements from DOM entirely.
+    This ensures they can't intercept clicks even if hidden.
+
+    Returns number of elements removed.
+    """
+    from navigation.popup_selectors import OVERLAY_REMOVAL_SELECTORS
+
+    removed = 0
+    for selector in OVERLAY_REMOVAL_SELECTORS:
+        try:
+            count = await page.evaluate(f"""
+                (() => {{
+                    const els = document.querySelectorAll('{selector}');
+                    const count = els.length;
+                    els.forEach(el => el.remove());
+                    return count;
+                }})()
+            """)
+            if count > 0:
+                print(f"    [DOM] Removed {count} elements: {selector}")
+                removed += count
+        except:
+            continue
+
+    return removed
 
 
 async def dismiss_popups_with_llm(page: Page, max_attempts: int = 1) -> int:
@@ -212,6 +196,13 @@ async def dismiss_popups_with_llm(page: Page, max_attempts: int = 1) -> int:
         except Exception as e:
             print(f"    ✗ Skip")
             break
+
+    # Finally: remove overlay elements from DOM entirely
+    # This ensures they can't intercept clicks even if hidden
+    print("  [DOM removal]")
+    removed = await remove_overlay_elements(page)
+    if removed > 0:
+        await page.wait_for_timeout(300)
 
     return dismissed
 
