@@ -99,3 +99,5 @@ backend/prod_page_v2/explorations
 backend/prod_page_v2/extractions
 backend/scraper/navigation/extractions
 backend/extractions/
+# Debug output
+backend/prod_page_v2/extraction_patterns/debug/
