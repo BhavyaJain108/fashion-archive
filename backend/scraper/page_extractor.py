@@ -2050,12 +2050,17 @@ def _scroll_using_pagination_element(page, pagination_selector, _pagination_trig
                     if stable_count >= max_stable_attempts:
                         _log(f"   ✅ Pagination element stopped moving after {scroll_count} scrolls")
                         break
+
+                    # Scroll up to re-trigger lazy loading instead of just waiting
+                    _log(f"   🔄 Scrolling up to re-trigger lazy load...")
+                    page.evaluate("window.scrollBy(0, -500)")
+                    page.wait_for_timeout(500)
                 else:
                     stable_count = 0  # Reset if element moved
-            
+
             # Scroll to pagination element
             pagination_element.scroll_into_view_if_needed()
-            page.wait_for_timeout(3000)  # Wait for content to load and render
+            page.wait_for_timeout(2000)  # Wait for content to load and render
             
             last_pagination_position = current_pagination_y
             

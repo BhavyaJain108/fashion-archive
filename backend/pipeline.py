@@ -66,6 +66,41 @@ def run_products(domain: str) -> bool:
     return result is not None and result.get("success")
 
 
+def run_streaming(url: str, nav_mode: str = "both") -> bool:
+    """Run streaming pipeline: nav -> (urls + products in parallel).
+
+    Products start extracting as soon as URLs become available,
+    rather than waiting for all URL extraction to complete.
+    """
+    from stages.streaming import StreamingOrchestrator
+    from stages.storage import load_navigation
+
+    domain = get_domain(url).replace('.', '_')
+
+    # Stage 1: Navigation (unchanged)
+    print("\n" + "="*60)
+    print("STAGE 1: NAVIGATION")
+    print("="*60)
+    if not run_nav(url, mode=nav_mode):
+        print("Navigation extraction failed")
+        return False
+
+    # Load nav tree for streaming
+    nav_tree = load_navigation(domain)
+    if not nav_tree:
+        print(f"Failed to load nav.json for {domain}")
+        return False
+
+    # Stage 2+3: Streaming URL -> Product extraction
+    print("\n" + "="*60)
+    print("STAGES 2+3: STREAMING URL & PRODUCT EXTRACTION")
+    print("="*60)
+    orchestrator = StreamingOrchestrator(domain, nav_tree)
+    result = orchestrator.run()
+
+    return result.success
+
+
 def main():
     if len(sys.argv) < 3:
         print(__doc__)
@@ -76,6 +111,9 @@ def main():
 
     # Determine what stages to run
     stages = []
+
+    # Handle 'all' command specially (uses streaming)
+    use_streaming = (command == "all")
 
     if command == "nav":
         stages = ["nav"]
@@ -88,7 +126,7 @@ def main():
     elif command == "urls+products":
         stages = ["urls", "products"]
     elif command == "all":
-        stages = ["nav", "urls", "products"]
+        stages = ["streaming"]  # Special marker for streaming mode
     else:
         print(f"Unknown command: {command}")
         print(__doc__)
@@ -103,9 +141,9 @@ def main():
         url = None
 
     # Validate inputs
-    if "nav" in stages and not url:
-        print("Error: nav stage requires a URL")
-        print("Usage: python pipeline.py nav <url>")
+    if ("nav" in stages or use_streaming) and not url:
+        print("Error: This command requires a URL")
+        print("Usage: python pipeline.py <command> <url>")
         sys.exit(1)
 
     # Parse nav mode flag
@@ -117,26 +155,37 @@ def main():
 
     print(f"\n{'#'*60}")
     print(f"# FASHION SCRAPING PIPELINE")
-    print(f"# Stages: {' -> '.join(stages)}")
+    if use_streaming:
+        print(f"# Mode: STREAMING (nav -> urls+products parallel)")
+    else:
+        print(f"# Stages: {' -> '.join(stages)}")
     print(f"# Target: {url or domain}")
-    if "nav" in stages and nav_mode != "both":
+    if nav_mode != "both":
         print(f"# Nav Mode: {nav_mode}")
     print(f"{'#'*60}\n")
 
     success = True
 
     # Run stages
-    for stage in stages:
-        if stage == "nav":
-            success = run_nav(url, mode=nav_mode)
-        elif stage == "urls":
-            success = run_urls(domain)
-        elif stage == "products":
-            success = run_products(domain)
-
+    if use_streaming:
+        # Streaming mode: nav -> (urls + products in parallel)
+        success = run_streaming(url, nav_mode)
         if not success:
-            print(f"\nStage '{stage}' failed. Stopping pipeline.")
+            print(f"\nStreaming pipeline failed.")
             sys.exit(1)
+    else:
+        # Sequential mode for individual stages
+        for stage in stages:
+            if stage == "nav":
+                success = run_nav(url, mode=nav_mode)
+            elif stage == "urls":
+                success = run_urls(domain)
+            elif stage == "products":
+                success = run_products(domain)
+
+            if not success:
+                print(f"\nStage '{stage}' failed. Stopping pipeline.")
+                sys.exit(1)
 
     print(f"\n{'#'*60}")
     print(f"# PIPELINE COMPLETE")

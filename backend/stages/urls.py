@@ -24,12 +24,32 @@ from stages.metrics import update_stage_metrics, calculate_cost
 from brand import Brand
 
 
-def get_leaf_categories(tree: list, parent_path: str = "") -> List[Dict]:
+import re
+from urllib.parse import urlparse, parse_qs
+
+
+def _is_all_category(name: str) -> bool:
+    """Check if category name is an 'all' type (View All, Shop All, etc.)."""
+    # Match standalone word "all" (case insensitive)
+    return bool(re.search(r'\ball\b', name, re.IGNORECASE))
+
+
+def get_leaf_categories(tree: list, parent_path: str = "", _skipped: list = None) -> List[Dict]:
     """Extract all leaf categories (no children) from tree.
+
+    Skips 'View All' type categories if they have at least 2 siblings,
+    since they're aggregates of their sibling categories.
 
     Returns list of dicts with name, url, path.
     """
+    # Track skipped categories at top level
+    if _skipped is None:
+        _skipped = []
+
     leaves = []
+
+    # Count leaves at this level (for sibling detection)
+    leaves_at_level = [n for n in tree if not n.get("children") and n.get("url")]
 
     for node in tree:
         name = node.get("name", "Unknown")
@@ -40,10 +60,14 @@ def get_leaf_categories(tree: list, parent_path: str = "") -> List[Dict]:
 
         if children:
             # Recurse into children
-            leaves.extend(get_leaf_categories(children, current_path))
+            leaves.extend(get_leaf_categories(children, current_path, _skipped))
         else:
             # This is a leaf
             if url:
+                # Skip "all" categories if they have 2+ siblings (3+ leaves at this level)
+                if _is_all_category(name) and len(leaves_at_level) >= 3:
+                    _skipped.append({"name": name, "path": current_path})
+                    continue
                 leaves.append({
                     "name": name,
                     "url": url,
@@ -51,6 +75,16 @@ def get_leaf_categories(tree: list, parent_path: str = "") -> List[Dict]:
                 })
 
     return leaves
+
+
+def get_leaf_categories_with_stats(tree: list) -> tuple:
+    """Get leaf categories and stats about skipped 'all' categories.
+
+    Returns (leaves, skipped_count, skipped_names).
+    """
+    skipped = []
+    leaves = get_leaf_categories(tree, "", skipped)
+    return leaves, len(skipped), [s["name"] for s in skipped]
 
 
 def extract_urls_from_category(category_url: str, category_name: str, brand_instance=None) -> Dict:
@@ -75,6 +109,22 @@ def extract_urls_from_category(category_url: str, category_name: str, brand_inst
 
         log_lines.append(f"Products found: {len(urls)}")
         log_lines.append(f"Extraction time: {result.extraction_time:.2f}s")
+
+        # Scroll/extraction stats
+        discovery = getattr(result, 'discovery_info', {})
+        if discovery:
+            log_lines.append("")
+            log_lines.append("=" * 40)
+            log_lines.append("SCROLL STATS")
+            log_lines.append("=" * 40)
+            log_lines.append(f"Initial links: {discovery.get('initial_load_count', 0)}")
+            log_lines.append(f"After scrolling: {discovery.get('after_scroll_count', 0)}")
+            log_lines.append(f"After load more: {discovery.get('after_load_more_count', 0)}")
+            pagination = discovery.get('pagination_detected')
+            if pagination:
+                log_lines.append(f"Pagination element: {pagination.get('pagination_selector', 'none')}")
+                if pagination.get('pagination_found'):
+                    log_lines.append(f"Multi-page: {pagination.get('total_pages', 1)} pages detected")
 
         if result.llm_filtering_stats:
             stats = result.llm_filtering_stats
@@ -168,12 +218,46 @@ def attach_urls_to_tree(tree: list, url_map: Dict[str, List[str]]) -> list:
         children = node.get("children", [])
         if children:
             new_node["children"] = attach_urls_to_tree(children, url_map)
+
+            # Aggregate sibling products into "all" type categories that were skipped
+            _aggregate_into_all_categories(new_node["children"])
         else:
             new_node["children"] = []
 
         result.append(new_node)
 
     return result
+
+
+def _aggregate_into_all_categories(siblings: list):
+    """Aggregate products from siblings into 'all' type categories with no products.
+
+    Modifies siblings in place.
+    """
+    if len(siblings) < 3:
+        # Need at least 3 siblings (all + 2 others) for aggregation to make sense
+        return
+
+    # Find "all" type categories with no products (they were skipped during extraction)
+    all_categories = [s for s in siblings if _is_all_category(s["name"]) and not s["products"]]
+
+    if not all_categories:
+        return
+
+    # Collect all products from non-"all" siblings
+    aggregated = []
+    seen = set()
+    for sibling in siblings:
+        if not _is_all_category(sibling["name"]):
+            for url in sibling.get("products", []):
+                if url not in seen:
+                    seen.add(url)
+                    aggregated.append(url)
+
+    # Assign aggregated products to each "all" category
+    for all_cat in all_categories:
+        all_cat["products"] = aggregated
+        all_cat["product_count"] = len(aggregated)
 
 
 def filter_empty_categories(tree: list) -> tuple:
@@ -220,7 +304,76 @@ def filter_empty_categories(tree: list) -> tuple:
     return filtered, empty
 
 
-def extract_urls(domain: str, max_workers: int = 8) -> dict:
+def clean_redundant_parent_urls(tree: list, parent_path: str = "") -> list:
+    """Remove parent URLs that match child URLs (redundant).
+
+    If a parent's URL is the same as one of its children's URLs,
+    set the parent's URL to null - it's just a category container,
+    the child will handle that URL.
+
+    Returns list of removed parent names for logging.
+    """
+    removed = []
+
+    for node in tree:
+        name = node.get("name", "Unknown")
+        url = node.get("url")
+        children = node.get("children", [])
+        current_path = f"{parent_path} > {name}" if parent_path else name
+
+        if children:
+            # Check if parent URL matches any child URL
+            child_urls = {c.get("url") for c in children if c.get("url")}
+            if url and url in child_urls:
+                node["url"] = None
+                removed.append(current_path)
+
+            # Recurse into children
+            child_removed = clean_redundant_parent_urls(children, current_path)
+            removed.extend(child_removed)
+
+    return removed
+
+
+def dedupe_urls_by_path(urls: List[str]) -> Tuple[List[str], int, int]:
+    """Deduplicate URLs by path, ignoring query parameters.
+
+    Many sites show the same product with different query params (e.g., color variants).
+    This function keeps only one URL per unique path, preferring URLs without query params.
+
+    Args:
+        urls: List of product URLs
+
+    Returns:
+        (deduped_urls, original_count, removed_count)
+    """
+    if not urls:
+        return [], 0, 0
+
+    original_count = len(urls)
+
+    # Group URLs by path (scheme + netloc + path, ignoring query)
+    path_to_urls: Dict[str, List[str]] = {}
+    for url in urls:
+        parsed = urlparse(url)
+        # Normalize path key: scheme://netloc/path (no query, no fragment)
+        path_key = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+        if path_key not in path_to_urls:
+            path_to_urls[path_key] = []
+        path_to_urls[path_key].append(url)
+
+    # Pick the best URL for each path (prefer no query params)
+    deduped = []
+    for path_key, url_list in path_to_urls.items():
+        # Sort: URLs without query params first, then by length (shorter = cleaner)
+        url_list.sort(key=lambda u: (bool(urlparse(u).query), len(u)))
+        deduped.append(url_list[0])
+
+    removed_count = original_count - len(deduped)
+    return deduped, original_count, removed_count
+
+
+def extract_urls(domain: str, max_workers: int = 4) -> dict:
     """
     Extract product URLs from all categories.
 
@@ -254,14 +407,34 @@ def extract_urls(domain: str, max_workers: int = 8) -> dict:
         print(f"Run stage 1 first: python pipeline.py nav <url>")
         return None
 
+    # Clean redundant parent URLs (where parent URL = child URL)
+    tree = nav_tree.get("category_tree", [])
+    removed_parents = clean_redundant_parent_urls(tree)
+    if removed_parents:
+        print(f"Removed {len(removed_parents)} redundant parent URLs:")
+        for path in removed_parents:
+            print(f"  - {path}")
+        print()
+
     # Create Brand instance for shared state (load more detection, lineage caching)
     brand_instance = Brand(url=f"https://{domain}/")
     print(f"Brand instance created for: {domain}")
+    leaves, skipped_count, skipped_names = get_leaf_categories_with_stats(tree)
 
-    # Get leaf categories
-    tree = nav_tree.get("category_tree", [])
-    leaves = get_leaf_categories(tree)
-    print(f"Found {len(leaves)} leaf categories to process\n")
+    unique_category_urls = len(set(leaf["url"] for leaf in leaves))
+
+    # Build info message
+    info_parts = []
+    if unique_category_urls < len(leaves):
+        info_parts.append(f"{len(leaves) - unique_category_urls} duplicate URLs")
+    if skipped_count > 0:
+        info_parts.append(f"{skipped_count} 'All' categories skipped")
+
+    if info_parts:
+        print(f"Found {len(leaves)} leaf categories ({', '.join(info_parts)})")
+    else:
+        print(f"Found {len(leaves)} leaf categories to process")
+    print()
 
     # Reset and snapshot LLM usage before extraction
     LLMHandler.reset_usage()
@@ -271,39 +444,62 @@ def extract_urls(domain: str, max_workers: int = 8) -> dict:
     # Extract URLs from each category (parallel)
     url_map: Dict[str, List[str]] = {}
     all_urls: Set[str] = set()
+    all_raw_urls: List[str] = []  # All URLs before dedup (for full_urls.txt)
     results: List[Dict] = []  # Collect results for summary
     category_logs: Dict[str, str] = {}  # Collect logs per category
     category_metrics: List[Dict] = []  # Collect per-category metrics
+    dedup_stats = {"total_raw": 0, "total_deduped": 0, "total_removed": 0}  # Track dedup
+
+    # Track which category URLs we've already submitted (avoid extracting same URL twice)
+    submitted_urls: Dict[str, any] = {}  # url -> future
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_to_leaf = {
-            executor.submit(extract_urls_from_category, leaf["url"], leaf["name"], brand_instance): leaf
-            for leaf in leaves
-        }
+        future_to_leaf = {}
+        for leaf in leaves:
+            if leaf["url"] in submitted_urls:
+                # Reuse the existing future for this URL
+                future_to_leaf[submitted_urls[leaf["url"]]].append(leaf)
+            else:
+                # Submit new extraction task
+                future = executor.submit(extract_urls_from_category, leaf["url"], leaf["name"], brand_instance)
+                future_to_leaf[future] = [leaf]  # List to handle multiple leaves with same URL
+                submitted_urls[leaf["url"]] = future
 
         completed = 0
         for future in as_completed(future_to_leaf):
-            leaf = future_to_leaf[future]
-            completed += 1
+            leaves_for_future = future_to_leaf[future]
+            completed += len(leaves_for_future)
 
             # Show progress counter (same line)
             print(f"\r  Extracting... {completed}/{len(leaves)}", end="", flush=True)
 
             try:
                 result_data = future.result()
-                urls = result_data["urls"]
+                raw_urls = result_data["urls"]
                 logs = result_data["logs"]
                 extraction_time = result_data.get("extraction_time", 0.0)
                 llm_usage = result_data.get("llm_usage", {})
 
-                url_map[leaf["url"]] = urls
-                all_urls.update(urls)
-                results.append({"name": leaf["name"], "count": len(urls), "error": None})
-                category_logs[leaf["name"]] = logs
+                # Track raw URLs for full_urls.txt
+                all_raw_urls.extend(raw_urls)
 
-                # Track per-category metrics
+                # Dedupe URLs by path (removes color variants, etc.)
+                urls, raw_count, removed_count = dedupe_urls_by_path(raw_urls)
+                dedup_stats["total_raw"] += raw_count
+                dedup_stats["total_deduped"] += len(urls)
+                dedup_stats["total_removed"] += removed_count
+
+                # Apply results to all leaves that share this URL
+                for leaf in leaves_for_future:
+                    url_map[leaf["url"]] = urls
+                    all_urls.update(urls)
+                    dedup_note = f" (deduped from {raw_count})" if removed_count > 0 else ""
+                    results.append({"name": leaf["name"], "count": len(urls), "raw_count": raw_count, "error": None})
+                    category_logs[leaf["name"]] = logs
+
+                # Track metrics only once per actual extraction
                 category_metrics.append({
-                    "name": leaf["name"],
+                    "name": leaves_for_future[0]["name"],
                     "duration": extraction_time,
                     "products": len(urls),
                     "llm_calls": llm_usage.get("calls", 0),
@@ -313,11 +509,12 @@ def extract_urls(domain: str, max_workers: int = 8) -> dict:
                     )
                 })
             except Exception as e:
-                url_map[leaf["url"]] = []
-                results.append({"name": leaf["name"], "count": 0, "error": str(e)})
-                category_logs[leaf["name"]] = f"Error: {e}"
+                for leaf in leaves_for_future:
+                    url_map[leaf["url"]] = []
+                    results.append({"name": leaf["name"], "count": 0, "error": str(e)})
+                    category_logs[leaf["name"]] = f"Error: {e}"
                 category_metrics.append({
-                    "name": leaf["name"],
+                    "name": leaves_for_future[0]["name"],
                     "duration": 0.0,
                     "products": 0,
                     "llm_calls": 0,
@@ -330,8 +527,23 @@ def extract_urls(domain: str, max_workers: int = 8) -> dict:
     stage_duration = time.time() - stage_start_time
     llm_snapshot_after = LLMHandler.get_snapshot()
 
+    # Save full_urls.txt (all raw URLs before dedup)
+    domain_dir = ensure_domain_dir(clean_domain)
+    full_urls_path = domain_dir / "full_urls.txt"
+    with open(full_urls_path, 'w') as f:
+        for url in all_raw_urls:
+            f.write(f"{url}\n")
+    print(f"  Saved raw URLs: {full_urls_path}")
+
+    # Dedup warning if >70% removed
+    if dedup_stats["total_raw"] > 0:
+        removal_pct = (dedup_stats["total_removed"] / dedup_stats["total_raw"]) * 100
+        if removal_pct > 70:
+            print(f"\n  ⚠️  WARNING: {removal_pct:.1f}% of URLs removed by dedup ({dedup_stats['total_removed']}/{dedup_stats['total_raw']})")
+            print(f"     This may indicate an issue with URL structure or excessive variants.")
+
     # Save logs to files
-    logs_dir = ensure_domain_dir(clean_domain) / "logs"
+    logs_dir = domain_dir / "logs"
     logs_dir.mkdir(exist_ok=True)
 
     # Save individual category logs
@@ -365,13 +577,15 @@ def extract_urls(domain: str, max_workers: int = 8) -> dict:
     print(f"  Logs saved to: {logs_dir}/")
 
     # Print summary table
-    print(f"\n  {'Category':<35} {'Products':>10}")
-    print(f"  {'-'*35} {'-'*10}")
+    print(f"\n  {'Category':<35} {'Products':>10} {'Raw':>8}")
+    print(f"  {'-'*35} {'-'*10} {'-'*8}")
     for r in sorted(results, key=lambda x: -x["count"]):
         if r["error"]:
-            print(f"  {r['name'][:35]:<35} {'ERROR':>10}")
+            print(f"  {r['name'][:35]:<35} {'ERROR':>10} {'-':>8}")
         elif r["count"] > 0:
-            print(f"  {r['name'][:35]:<35} {r['count']:>10}")
+            raw_count = r.get("raw_count", r["count"])
+            dedup_marker = "*" if raw_count > r["count"] else ""
+            print(f"  {r['name'][:35]:<35} {r['count']:>10}{dedup_marker} {raw_count:>8}")
 
     # Show empty categories count
     empty_count = sum(1 for r in results if r["count"] == 0 and not r["error"])
@@ -436,12 +650,14 @@ def extract_urls(domain: str, max_workers: int = 8) -> dict:
     print(f"\n{'='*60}")
     print(f"URL EXTRACTION COMPLETE")
     print(f"{'='*60}")
-    print(f"Total products: {total_products}")
+    print(f"Raw URLs: {dedup_stats['total_raw']}")
+    print(f"After dedup: {dedup_stats['total_deduped']} ({dedup_stats['total_removed']} removed)")
     print(f"Unique products: {unique_products}")
     print(f"Duration: {stage_duration:.1f}s")
     print(f"LLM Cost: ${llm_cost:.4f} ({llm_calls} calls, {llm_input_tokens + llm_output_tokens:,} tokens)")
     print(f"Saved: {json_path}")
     print(f"Saved: {txt_path}")
+    print(f"Saved: {full_urls_path}")
     print(f"Metrics: {metrics_path}")
     print(f"{'='*60}\n")
 

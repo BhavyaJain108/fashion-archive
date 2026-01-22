@@ -235,6 +235,7 @@ RULES:
 - Use section headers (=== NAME ===) as top-level categories
 - Use indentation within sections to determine children
 - Every node MUST have: "name" (string), "url" (string or null), "children" (array, can be empty)
+- IMPORTANT: Copy URLs exactly as they appear - do NOT decode URL-encoded characters like %C2%A0, %20, etc.
 
 Respond with ONLY the JSON array, no markdown, no explanation:
 """

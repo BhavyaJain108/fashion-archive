@@ -17,7 +17,10 @@ sys.path.insert(0, str(Path(__file__).parent))  # stages/
 sys.path.insert(0, str(Path(__file__).parent.parent / "scraper"))
 sys.path.insert(0, str(Path(__file__).parent.parent / "scraper" / "navigation"))
 
-from stages.storage import get_domain, save_navigation, count_categories
+from stages.storage import (
+    get_domain, save_navigation, count_categories,
+    load_brand_meta, save_brand_meta
+)
 from stages.metrics import update_stage_metrics, calculate_cost
 
 
@@ -182,20 +185,36 @@ def extract_navigation(url: str, timeout: int = 120, mode: str = "both") -> dict
         Navigation tree dict with category_tree, category_count, method
     """
     domain = get_domain(url)
+    clean_domain = domain.replace('.', '_')
     stage_start_time = time.time()
+
+    # Check for cached brand metadata (only when mode is "both")
+    cached_method = None
+    brand_meta = None
+    if mode == "both":
+        brand_meta = load_brand_meta(clean_domain)
+        if brand_meta and brand_meta.get("nav", {}).get("winning_method"):
+            cached_method = brand_meta["nav"]["winning_method"]
+            print(f"\n[CACHE] Found cached nav method: {cached_method}")
 
     print(f"\n{'='*60}")
     print(f"STAGE 1: NAVIGATION EXTRACTION")
     print(f"{'='*60}")
     print(f"URL: {url}")
     print(f"Domain: {domain}")
-    print(f"Mode: {mode}")
+    print(f"Mode: {mode}" + (f" (cached: {cached_method})" if cached_method else ""))
     print(f"{'='*60}\n")
 
     static_result = None
     dynamic_result = None
 
-    if mode == "static":
+    # Determine effective mode (use cache if available)
+    effective_mode = mode
+    if cached_method and mode == "both":
+        effective_mode = cached_method
+        print(f"Using cached method: {cached_method}")
+
+    if effective_mode == "static":
         # Run only static extractor
         print("Running static extractor only...")
         try:
@@ -207,7 +226,7 @@ def extract_navigation(url: str, timeout: int = 120, mode: str = "both") -> dict
         except Exception as e:
             print(f"  Static: error - {e}")
 
-    elif mode == "dynamic":
+    elif effective_mode == "dynamic":
         # Run only dynamic extractor
         print("Running dynamic extractor only...")
         try:
@@ -268,6 +287,16 @@ def extract_navigation(url: str, timeout: int = 120, mode: str = "both") -> dict
     else:
         print("\nExtraction failed!")
         return None
+
+    # Save brand metadata for future runs (remember which method won)
+    new_meta = {
+        "nav": {
+            "winning_method": result.get("method", "unknown"),
+        },
+        "last_updated": datetime.now().isoformat()
+    }
+    save_brand_meta(clean_domain, new_meta)
+    print(f"\n[CACHE] Saved winning method: {result.get('method')}")
 
     # Save results
     json_path, txt_path = save_navigation(domain, result)

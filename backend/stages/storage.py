@@ -255,6 +255,62 @@ def save_product(domain: str, product: dict, category_path: str, source_url: str
     return filepath
 
 
+# ============================================================
+# Brand Metadata (for caching nav method, etc.)
+# ============================================================
+
+def save_brand_meta(domain: str, meta: dict):
+    """Save brand metadata (nav method, fingerprint, etc.)."""
+    domain_dir = ensure_domain_dir(domain)
+    meta_path = domain_dir / "brand_meta.json"
+
+    with open(meta_path, 'w') as f:
+        json.dump(meta, f, indent=2)
+
+    return meta_path
+
+
+def load_brand_meta(domain: str) -> Optional[dict]:
+    """Load brand metadata."""
+    domain_dir = get_domain_dir(domain)
+    meta_path = domain_dir / "brand_meta.json"
+
+    if not meta_path.exists():
+        return None
+
+    with open(meta_path) as f:
+        return json.load(f)
+
+
+def get_top_level_names(nav_tree: dict) -> list:
+    """Extract top-level category names from nav tree for fingerprinting."""
+    tree = nav_tree.get("category_tree", [])
+    if not tree:
+        return []
+    return [node.get("name", "") for node in tree if node.get("name")]
+
+
+def fingerprint_matches(old_names: list, new_names: list, threshold: float = 0.5) -> bool:
+    """Check if top-level names match enough to trust cached method.
+
+    Returns True if >threshold of old names are still present.
+    """
+    if not old_names:
+        return False
+
+    old_set = {n.lower() for n in old_names}
+    new_set = {n.lower() for n in new_names}
+
+    overlap = len(old_set & new_set)
+    match_ratio = overlap / len(old_set)
+
+    return match_ratio >= threshold
+
+
+# ============================================================
+# Helpers
+# ============================================================
+
 def get_category_path_for_url(product_url: str, urls_tree: dict) -> str:
     """Find category path for a product URL.
 

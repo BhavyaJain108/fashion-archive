@@ -142,6 +142,7 @@ class URLExtractionResult:
         "output_tokens": 0
     })
     errors: List[str] = field(default_factory=list)
+    discovery_info: Dict = field(default_factory=dict)  # Scroll/extraction stats
 
     def to_dict(self) -> Dict:
         return {
@@ -605,7 +606,8 @@ def _extract_urls_from_single_page(
             "product_urls": product_urls,
             "pagination_detected": discovery_info.get("pagination_detected") if not skip_pagination_detection else None,
             "extraction_time": extraction_time,
-            "stats": stats
+            "stats": stats,
+            "discovery_info": discovery_info
         }
 
     except Exception as e:
@@ -753,6 +755,7 @@ def extract_urls_from_category(
 
         result.product_urls.extend(page1_urls)
         result.llm_filtering_stats = page1_result.get("stats", {})
+        result.discovery_info = page1_result.get("discovery_info", {})
 
         if page1_result.get("error"):
             result.errors.append(f"Page 1: {page1_result['error']}")
