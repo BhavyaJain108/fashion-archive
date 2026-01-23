@@ -86,7 +86,11 @@ class StreamingOrchestrator:
         self.urls_produced = 0
         self.products_extracted = 0
         self.products_successful = 0
+        self.products_retried = 0  # Count of retry attempts
         self.errors: List[str] = []
+
+        # URL tracking for urls.json (category -> list of URLs)
+        self.category_urls: Dict[str, Dict] = {}  # path -> {name, url, products}
 
         # Lock for stats updates
         self._stats_lock = threading.Lock()
@@ -264,6 +268,13 @@ class StreamingOrchestrator:
 
                     with self._stats_lock:
                         self.urls_produced += len(urls)
+                        # Track URLs for urls.json
+                        self.category_urls[category_path] = {
+                            "name": leaf["name"],
+                            "url": leaf["url"],
+                            "path": leaf["path"],
+                            "products": urls
+                        }
 
                 except Exception as e:
                     print(f"  [{completed}/{len(leaves)}] {leaf['name']}: ERROR - {e}")
@@ -277,6 +288,9 @@ class StreamingOrchestrator:
             for url in all_raw_urls:
                 f.write(f"{url}\n")
         print(f"\n[URL Producer] Saved raw URLs: {full_urls_path}")
+
+        # Save urls.json (deduped URLs organized by category)
+        self._save_urls_json()
 
         # Dedup warning if >70% removed
         if dedup_stats["total_raw"] > 0:
@@ -317,9 +331,28 @@ class StreamingOrchestrator:
     async def _async_product_consumer(self):
         """
         Async consumer that extracts products from queued URLs.
+
+        Uses:
+        - BrowserPool: Memory-efficient browser reuse (fixed RAM regardless of queue size)
+        - AdaptiveRateLimiter: Adjusts concurrency to avoid rate limits
+
+        ARCHITECTURE:
+            ┌─────────────────────────────────────────────────────────────────┐
+            │                     Product Consumer                            │
+            │                                                                 │
+            │   URL Queue ──▶ Rate Limiter ──▶ Browser Pool ──▶ Extractor   │
+            │                 (controls       (provides        (extracts     │
+            │                  speed)          pages)           product)     │
+            └─────────────────────────────────────────────────────────────────┘
+
+        The two layers of control serve different purposes:
+        - Rate limiter: Prevents HTTP 429 errors from the target site
+        - Browser pool: Caps memory usage (10 browsers = ~1.5GB max)
         """
         from prod_page_v2.extractor import ProductExtractor
+        from prod_page_v2.browser_pool import BrowserPool
         from stages.storage import save_product
+        from stages.rate_limiter import AdaptiveRateLimiter
 
         print("[Product Consumer] Waiting for discovery URLs...")
 
@@ -345,76 +378,260 @@ class StreamingOrchestrator:
                 self.errors.append("Discovery failed")
             return
 
-        print(f"[Product Consumer] Discovery complete. Starting extraction...")
+        print(f"[Product Consumer] Discovery complete. Setting up extraction pipeline...")
 
-        # Track which URLs we've already processed (discovery URLs)
+        # Track which URLs we've already processed
         processed_urls: Set[str] = set()
 
-        # Extract and save discovery products first
-        for url, category_path in self.discovery_urls:
-            result = await extractor.extract_single(url, self.config)
-            with self._stats_lock:
-                self.products_extracted += 1
-            if result.success and result.product:
-                product_dict = self._product_to_dict(result.product, url)
-                save_product(self.domain, product_dict, category_path, source_url=url)
+        # =================================================================
+        # BROWSER POOL SETUP
+        # =================================================================
+        # The browser pool provides memory-efficient browser reuse:
+        # - Fixed number of browsers (caps RAM usage)
+        # - Pages created/destroyed per request (prevents memory leaks)
+        # - Browsers recycled every N pages (resets accumulated garbage)
+        #
+        # Pool size should be >= rate limiter's max concurrency
+        # (otherwise pool becomes the bottleneck, not rate limiting)
+        # =================================================================
+        pool_size = min(15, self.product_concurrency)  # Don't need more browsers than concurrency
+        browser_pool = BrowserPool(
+            size=pool_size,
+            pages_per_recycle=50,  # Restart browser every 50 pages to prevent memory leaks
+            headless=True
+        )
+
+        # =================================================================
+        # RATE LIMITER SETUP (v2 - Token Bucket with Shared Pause)
+        # =================================================================
+        # The new rate limiter:
+        # - Uses token bucket to enforce exact requests/second
+        # - On ANY 429: pauses ALL workers, calculates actual rate
+        # - Resumes at calculated safe rate
+        # - No wasted 429s from independent learning
+        # =================================================================
+        rate_limiter = AdaptiveRateLimiter(
+            initial_rate=float(self.product_concurrency),  # Start at N req/s
+            max_rate=50.0,
+            min_rate=2.0,  # Don't go below 2 req/s (prevents worker starvation)
+            burst_size=pool_size  # Allow all workers to start after pause
+        )
+
+        print(f"[Product Consumer] Browser pool: {pool_size} browsers")
+        print(f"[Product Consumer] Rate limiter: starting at {rate_limiter.rate:.1f} req/s")
+
+        # Start browser pool
+        await browser_pool.start()
+
+        try:
+            # Extract and save discovery products (not using pool yet - these were already loaded)
+            for url, category_path in self.discovery_urls:
+                result = await extractor.extract_single(url, self.config)
                 with self._stats_lock:
-                    self.products_successful += 1
-            processed_urls.add(url)
-
-        print(f"[Product Consumer] Discovery products saved. Processing queue...")
-
-        # Semaphore for concurrency control
-        semaphore = asyncio.Semaphore(self.product_concurrency)
-        pending_tasks: Set[asyncio.Task] = set()
-
-        async def extract_and_save(url: str, category_path: str):
-            async with semaphore:
-                try:
-                    result = await extractor.extract_single(url, self.config)
+                    self.products_extracted += 1
+                if result.success and result.product:
+                    product_dict = self._product_to_dict(result.product, url)
+                    save_product(self.domain, product_dict, category_path, source_url=url)
                     with self._stats_lock:
-                        self.products_extracted += 1
-                    if result.success and result.product:
-                        product_dict = self._product_to_dict(result.product, url)
-                        save_product(self.domain, product_dict, category_path, source_url=url)
-                        with self._stats_lock:
-                            self.products_successful += 1
-                except Exception as e:
-                    with self._stats_lock:
-                        self.errors.append(f"Product {url}: {e}")
-
-        # Process queue
-        while True:
-            try:
-                # Non-blocking get with timeout
-                batch = self.url_queue.get(timeout=1.0)
-            except queue.Empty:
-                # Clean up completed tasks while waiting
-                if pending_tasks:
-                    done = {t for t in pending_tasks if t.done()}
-                    pending_tasks -= done
-                continue
-
-            if batch.is_sentinel:
-                break
-
-            # Process URLs in batch (skip already processed)
-            for url in batch.urls:
-                if url in processed_urls:
-                    continue
+                        self.products_successful += 1
                 processed_urls.add(url)
 
-                task = asyncio.create_task(
-                    extract_and_save(url, batch.category_path)
-                )
-                pending_tasks.add(task)
+            print(f"[Product Consumer] Discovery products saved. Processing queue...")
 
-        # Wait for remaining tasks
-        if pending_tasks:
-            print(f"[Product Consumer] Waiting for {len(pending_tasks)} remaining extractions...")
-            await asyncio.gather(*pending_tasks, return_exceptions=True)
+            pending_tasks: Set[asyncio.Task] = set()
+            MAX_RETRIES = 3  # Retry configuration
 
-        print(f"[Product Consumer] Complete. Products: {self.products_successful}/{self.products_extracted}")
+            # Progress tracking
+            progress = {
+                "total_queued": 0,
+                "completed": 0,
+                "successful": 0,
+                "failed": 0,
+                "in_flight": 0,
+                "last_log_time": time.time(),
+                "categories_received": 0,
+            }
+            PROGRESS_INTERVAL = 3  # Log progress every 3 seconds
+
+            def log_progress(force: bool = False):
+                """Log progress if enough time has passed."""
+                now = time.time()
+                if force or (now - progress["last_log_time"]) >= PROGRESS_INTERVAL:
+                    progress["last_log_time"] = now
+                    pct = (progress["completed"] / progress["total_queued"] * 100) if progress["total_queued"] > 0 else 0
+                    print(f"[Progress] {progress['completed']}/{progress['total_queued']} ({pct:.0f}%) | "
+                          f"✓{progress['successful']} ✗{progress['failed']} | "
+                          f"in-flight: {progress['in_flight']} | "
+                          f"rate: {rate_limiter.rate:.1f}/s")
+
+            async def extract_and_save(url: str, category_path: str, max_retries: int = MAX_RETRIES):
+                """
+                Extract a single product with retry logic.
+
+                RETRY STRATEGY:
+                    ┌─────────────────────────────────────────────────────┐
+                    │  Attempt 1: Try extraction                         │
+                    │      ↓ fail                                        │
+                    │  Wait 1 second (backoff)                           │
+                    │      ↓                                             │
+                    │  Attempt 2: Try extraction                         │
+                    │      ↓ fail                                        │
+                    │  Wait 2 seconds (backoff)                          │
+                    │      ↓                                             │
+                    │  Attempt 3: Try extraction                         │
+                    │      ↓ fail                                        │
+                    │  Give up, log error                                │
+                    └─────────────────────────────────────────────────────┘
+
+                Each attempt:
+                1. Acquires rate limiter slot (respects concurrency limits)
+                2. Acquires fresh page from browser pool
+                3. Attempts extraction
+                4. On failure: releases resources, waits, retries
+                5. On success: saves product, done
+                """
+                last_error = None
+
+                progress["in_flight"] += 1
+
+                for attempt in range(max_retries):
+                    # Backoff before retry (not on first attempt)
+                    if attempt > 0:
+                        backoff = 2 ** (attempt - 1)  # 1s, 2s for attempts 2, 3
+                        await asyncio.sleep(backoff)
+                        with self._stats_lock:
+                            self.products_retried += 1
+
+                    # New rate limiter API: acquire() returns token context manager
+                    # token.record() reports outcome (triggers shared pause on 429)
+                    async with await rate_limiter.acquire() as token:
+                        try:
+                            # Acquire fresh page from pool for each attempt
+                            # (previous page might be in bad state after failure)
+                            async with browser_pool.acquire() as page:
+                                result = await extractor.extract_single_pooled(url, page, self.config)
+
+                            # Check if extraction succeeded
+                            if result.success and result.product:
+                                # SUCCESS - record good outcome, save product
+                                await token.record(200)
+
+                                with self._stats_lock:
+                                    self.products_extracted += 1
+                                    self.products_successful += 1
+
+                                progress["completed"] += 1
+                                progress["successful"] += 1
+                                progress["in_flight"] -= 1
+                                log_progress()
+
+                                product_dict = self._product_to_dict(result.product, url)
+                                save_product(self.domain, product_dict, category_path, source_url=url)
+                                return  # Done!
+
+                            else:
+                                # Extraction ran but didn't get product - might be transient
+                                last_error = result.error or "No product extracted"
+                                await token.record(500)
+                                # Continue to retry
+
+                        except Exception as e:
+                            # Exception during extraction - definitely retry
+                            last_error = str(e)
+                            await token.record(500)
+                            # Continue to retry
+
+                # All retries exhausted
+                progress["completed"] += 1
+                progress["failed"] += 1
+                progress["in_flight"] -= 1
+                log_progress()
+
+                with self._stats_lock:
+                    self.products_extracted += 1  # We tried
+                    self.errors.append(f"Product {url}: {last_error} (after {max_retries} attempts)")
+
+            # Process queue with TRUE async (non-blocking queue access)
+            # The key fix: use run_in_executor to avoid blocking the event loop
+            loop = asyncio.get_event_loop()
+
+            async def get_batch_async():
+                """Non-blocking queue get using executor."""
+                try:
+                    return await loop.run_in_executor(
+                        None,  # Default executor
+                        lambda: self.url_queue.get(timeout=0.5)
+                    )
+                except queue.Empty:
+                    return None
+
+            print(f"[Product Consumer] Starting extraction (streaming mode)...")
+
+            queue_exhausted = False
+            while not queue_exhausted or pending_tasks:
+                # Check for new batches (non-blocking)
+                if not queue_exhausted:
+                    batch = await get_batch_async()
+
+                    if batch is None:
+                        # No batch ready - let tasks run
+                        pass
+                    elif batch.is_sentinel:
+                        # URL producer is done
+                        queue_exhausted = True
+                        print(f"[Product Consumer] All URLs received. {progress['total_queued']} products to extract.")
+                        log_progress(force=True)
+                    else:
+                        # New batch arrived - queue up extractions
+                        progress["categories_received"] += 1
+                        new_urls = 0
+                        for url in batch.urls:
+                            if url not in processed_urls:
+                                processed_urls.add(url)
+                                progress["total_queued"] += 1
+                                new_urls += 1
+
+                                task = asyncio.create_task(
+                                    extract_and_save(url, batch.category_path)
+                                )
+                                pending_tasks.add(task)
+
+                        print(f"[Category] {batch.category_name}: +{new_urls} products (total queued: {progress['total_queued']})")
+
+                # Clean up completed tasks
+                done_tasks = {t for t in pending_tasks if t.done()}
+                pending_tasks -= done_tasks
+
+                # Let other tasks run
+                if pending_tasks or not queue_exhausted:
+                    await asyncio.sleep(0.1)
+
+            # Final progress
+            log_progress(force=True)
+            print(f"[Product Consumer] All extractions complete.")
+
+        finally:
+            # =================================================================
+            # CLEANUP
+            # =================================================================
+            # Always shut down browser pool, even if extraction failed.
+            # This closes all browser processes and frees memory.
+            # =================================================================
+            await browser_pool.shutdown()
+
+        # Print final stats
+        rate_stats = rate_limiter.stats
+        pool_stats = browser_pool.stats
+        failed_count = self.products_extracted - self.products_successful
+
+        print(f"\n[Product Consumer] Complete!")
+        print(f"    Products: {self.products_successful}/{self.products_extracted} succeeded")
+        if failed_count > 0:
+            print(f"    Failed: {failed_count} products (after {MAX_RETRIES} retries each)")
+        if self.products_retried > 0:
+            print(f"    Retries: {self.products_retried} total retry attempts")
+        print(f"    Rate limiter: final rate {rate_stats['rate']:.1f} req/s, {rate_stats['total_rate_limited']} rate limited")
+        print(f"    Browser pool: {pool_stats['total_pages_served']} pages, {pool_stats['total_recycles']} browser recycles")
 
     def _product_to_dict(self, product, source_url: str) -> dict:
         """Convert Product object to dictionary for saving."""
@@ -440,3 +657,43 @@ class StreamingOrchestrator:
                 for v in product.variants
             ],
         }
+
+    def _save_urls_json(self):
+        """
+        Save urls.json with category structure and deduped product URLs.
+
+        Format matches standard urls.json:
+        {
+            "category_tree": [
+                {"name": "...", "url": "...", "products": [...], "children": [...]},
+                ...
+            ],
+            "total_products": N,
+            "unique_products": M
+        }
+        """
+        from stages.storage import save_urls
+
+        # Build flat category list (we don't have tree hierarchy in streaming mode)
+        category_tree = []
+        all_urls = set()
+
+        for path, data in self.category_urls.items():
+            category_tree.append({
+                "name": data["name"],
+                "url": data["url"],
+                "path": data.get("path", path),
+                "products": data["products"],
+                "product_count": len(data["products"]),
+                "children": []
+            })
+            all_urls.update(data["products"])
+
+        urls_tree = {
+            "category_tree": category_tree,
+            "total_products": sum(len(d["products"]) for d in self.category_urls.values()),
+            "unique_products": len(all_urls)
+        }
+
+        json_path, txt_path = save_urls(self.domain, urls_tree)
+        print(f"[URL Producer] Saved urls.json: {json_path}")

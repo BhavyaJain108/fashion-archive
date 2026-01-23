@@ -549,6 +549,83 @@ class ProductExtractor:
             "No strategy succeeded"
         )
 
+    async def extract_single_pooled(
+        self,
+        url: str,
+        page: 'Page',
+        config: Optional[MultiStrategyConfig] = None
+    ) -> ExtractionResult:
+        """
+        Extract a single product using a pre-acquired page from BrowserPool.
+
+        DIFFERENCE FROM extract_single():
+            extract_single()        -> Creates new browser, loads page, closes browser
+            extract_single_pooled() -> Uses provided page, loads URL, returns result
+
+        This is more memory-efficient for batch extraction because:
+        1. Browser is already running (no startup cost)
+        2. Total browsers limited by pool size (bounded memory)
+        3. Pages are recycled, preventing memory leaks
+
+        Usage with BrowserPool:
+            pool = BrowserPool(size=10)
+            await pool.start()
+
+            async with pool.acquire() as page:
+                result = await extractor.extract_single_pooled(url, page, config)
+
+            await pool.shutdown()
+
+        Args:
+            url: Product URL to extract
+            page: Playwright Page from BrowserPool
+            config: Optional MultiStrategyConfig for this domain
+
+        Returns:
+            ExtractionResult with extracted product data
+        """
+        from page_loader import load_page_on_existing
+
+        domain = self._get_domain(url)
+
+        # Try to load config if not provided
+        if not config:
+            config = self._load_config(domain)
+
+        # Load page using the provided page object (doesn't create new browser)
+        page_data = await load_page_on_existing(page, url)
+        results = []
+
+        if config and config.verified:
+            # Run only strategies that contributed fields
+            active_strategies = config.get_active_strategies()
+
+            for strategy in self.strategies:
+                if strategy.strategy_type in active_strategies:
+                    result = await strategy.extract(url, page_data)
+                    results.append(result)
+        else:
+            # No config - run all strategies
+            for strategy in self.strategies:
+                result = await strategy.extract(url, page_data)
+                results.append(result)
+
+        # Merge results
+        merged_product = self._merge_products(results, url)
+
+        if merged_product.name:  # At least got a name
+            return ExtractionResult(
+                success=True,
+                product=merged_product,
+                strategy=ExtractionStrategy.SHOPIFY_JSON,  # placeholder
+                score=merged_product.completeness_score()
+            )
+
+        return ExtractionResult.failure(
+            ExtractionStrategy.SHOPIFY_JSON,
+            "No strategy succeeded"
+        )
+
     async def extract_batch(
         self,
         config: MultiStrategyConfig,

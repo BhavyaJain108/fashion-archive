@@ -2018,7 +2018,7 @@ def _scroll_using_pagination_element(page, pagination_selector, _pagination_trig
         scroll_count = 0
         last_pagination_position = None
         stable_count = 0
-        max_stable_attempts = 3  # Need 3 consecutive stable checks to confirm loading complete
+        max_stable_attempts = 2  # Need 2 consecutive stable checks to confirm loading complete
         
         _log(f"   🎯 Using pagination element as scroll target: {pagination_selector}")
         
