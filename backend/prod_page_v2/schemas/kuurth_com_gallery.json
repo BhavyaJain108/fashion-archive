@@ -1,0 +1,5 @@
+{
+  "image_selector": "ul[id^=\"media-list\"] .splide__slide img",
+  "url_attribute": "src",
+  "container_selector": "ul[id^=\"media-list\"]"
+}

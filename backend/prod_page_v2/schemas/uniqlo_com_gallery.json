@@ -1,0 +1,5 @@
+{
+  "image_selector": ".media-gallery--grid img[data-media-index]",
+  "url_attribute": "data-src",
+  "container_selector": ".media-gallery--grid"
+}

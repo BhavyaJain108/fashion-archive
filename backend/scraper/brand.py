@@ -8,7 +8,7 @@ Represents a fashion brand.
 import sys
 import os
 import json
-from typing import List, Optional
+from typing import Dict, List, Optional
 from queue import Queue
 import time
 import threading
@@ -140,6 +140,10 @@ class Brand:
         # Lineage memory for multi-page extraction optimization (global sets)
         self.approved_lineages = set()  # Global approved lineages across all categories
         self.rejected_lineages = set()  # Global rejected lineages across all categories
+
+        # Pagination cache: reuse pagination pattern across categories
+        self.pagination_pattern: Optional[Dict] = None  # {url_pattern, pagination_type} from first detection
+        self._pagination_lock = threading.Lock()
 
         # HTML processing pipeline
         self.html_queue = Queue()  # Queue of (html, source_url) tuples

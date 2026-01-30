@@ -58,7 +58,7 @@ class StreamingOrchestrator:
         domain: str,
         nav_tree: dict,
         max_url_workers: int = 4,
-        product_concurrency: int = 10
+        product_concurrency: int = 15
     ):
         """
         Initialize streaming orchestrator.
@@ -353,6 +353,7 @@ class StreamingOrchestrator:
         from prod_page_v2.browser_pool import BrowserPool
         from stages.storage import save_product
         from stages.rate_limiter import AdaptiveRateLimiter
+        from stages.dashboard import Dashboard
 
         print("[Product Consumer] Waiting for discovery URLs...")
 
@@ -378,7 +379,22 @@ class StreamingOrchestrator:
                 self.errors.append("Discovery failed")
             return
 
-        print(f"[Product Consumer] Discovery complete. Setting up extraction pipeline...")
+        print(f"[Product Consumer] Discovery complete. Calibrating wait time...")
+
+        # Calibrate wait time: find minimum ms that still extracts correctly
+        # This runs ONCE per domain and saves seconds per page for the entire run
+        calibration_url = discovery_url_list[0]
+        optimal_wait = await extractor.calibrate_wait_time(calibration_url, self.config)
+        print(f"[Product Consumer] Optimal wait time: {optimal_wait}ms")
+
+        # Discover gallery selector: LLM finds CSS selector for image carousel
+        # One LLM call, then pure DOM queries for all products
+        print(f"[Product Consumer] Discovering gallery selector...")
+        gallery_selector = await extractor.discover_gallery_selector(calibration_url)
+        if gallery_selector:
+            print(f"[Product Consumer] Gallery selector: {gallery_selector}")
+        else:
+            print(f"[Product Consumer] No gallery selector found, using strategy images")
 
         # Track which URLs we've already processed
         processed_urls: Set[str] = set()
@@ -414,11 +430,15 @@ class StreamingOrchestrator:
             initial_rate=float(self.product_concurrency),  # Start at N req/s
             max_rate=50.0,
             min_rate=2.0,  # Don't go below 2 req/s (prevents worker starvation)
-            burst_size=pool_size  # Allow all workers to start after pause
+            burst_size=pool_size,  # Allow all workers to start after pause
+            quiet=True,  # Dashboard handles display
         )
 
+        # These print before dashboard starts — keep them
         print(f"[Product Consumer] Browser pool: {pool_size} browsers")
         print(f"[Product Consumer] Rate limiter: starting at {rate_limiter.rate:.1f} req/s")
+        print(f"[Product Consumer] Wait time: {optimal_wait}ms (calibrated)")
+        print(f"[Product Consumer] Dashboard active — noisy logs suppressed")
 
         # Start browser pool
         await browser_pool.start()
@@ -449,47 +469,54 @@ class StreamingOrchestrator:
                 "failed": 0,
                 "in_flight": 0,
                 "last_log_time": time.time(),
+                "last_log_completed": 0,
                 "categories_received": 0,
+                "start_time": time.time(),
             }
-            PROGRESS_INTERVAL = 3  # Log progress every 3 seconds
+            # Dashboard replaces text progress logs
+            dashboard = Dashboard(
+                domain=self.domain,
+                progress=progress,
+                rate_limiter=rate_limiter,
+                browser_pool=browser_pool,
+            )
+            dashboard_task = asyncio.create_task(dashboard.run())
 
             def log_progress(force: bool = False):
-                """Log progress if enough time has passed."""
+                """Update progress timing (dashboard reads the progress dict directly)."""
                 now = time.time()
-                if force or (now - progress["last_log_time"]) >= PROGRESS_INTERVAL:
-                    progress["last_log_time"] = now
-                    pct = (progress["completed"] / progress["total_queued"] * 100) if progress["total_queued"] > 0 else 0
-                    print(f"[Progress] {progress['completed']}/{progress['total_queued']} ({pct:.0f}%) | "
-                          f"✓{progress['successful']} ✗{progress['failed']} | "
-                          f"in-flight: {progress['in_flight']} | "
-                          f"rate: {rate_limiter.rate:.1f}/s")
+                progress["last_log_time"] = now
+                progress["last_log_completed"] = progress["completed"]
+
+            # Wait time escalation for retries:
+            # attempt 0 → calibrated wait (e.g. 500ms)
+            # attempt 1 → 2x calibrated (e.g. 1000ms)
+            # attempt 2 → 4x calibrated, capped at 5000ms
+            RETRY_WAIT_MULTIPLIERS = [1, 2, 4]
+
+            # Track extracted product slugs to skip duplicates across categories
+            # e.g. /collections/rings/products/baco-ring and /collections/best-sellers/products/baco-ring
+            # are the same product — extract once, skip the rest
+            seen_product_slugs: set = set()
+
+            def _product_slug(product_url: str) -> str:
+                """Extract the product-identifying part of a URL (after /products/)."""
+                from urllib.parse import urlparse
+                path = urlparse(product_url).path
+                if "/products/" in path:
+                    return path.split("/products/")[-1].rstrip("/")
+                return path.rstrip("/")
 
             async def extract_and_save(url: str, category_path: str, max_retries: int = MAX_RETRIES):
-                """
-                Extract a single product with retry logic.
+                """Extract a single product with retry logic and escalating wait times."""
+                # Skip if we already extracted this product under a different category
+                slug = _product_slug(url)
+                if slug in seen_product_slugs:
+                    progress["completed"] += 1
+                    progress["successful"] += 1
+                    dashboard.record_skip(url)
+                    return
 
-                RETRY STRATEGY:
-                    ┌─────────────────────────────────────────────────────┐
-                    │  Attempt 1: Try extraction                         │
-                    │      ↓ fail                                        │
-                    │  Wait 1 second (backoff)                           │
-                    │      ↓                                             │
-                    │  Attempt 2: Try extraction                         │
-                    │      ↓ fail                                        │
-                    │  Wait 2 seconds (backoff)                          │
-                    │      ↓                                             │
-                    │  Attempt 3: Try extraction                         │
-                    │      ↓ fail                                        │
-                    │  Give up, log error                                │
-                    └─────────────────────────────────────────────────────┘
-
-                Each attempt:
-                1. Acquires rate limiter slot (respects concurrency limits)
-                2. Acquires fresh page from browser pool
-                3. Attempts extraction
-                4. On failure: releases resources, waits, retries
-                5. On success: saves product, done
-                """
                 last_error = None
 
                 progress["in_flight"] += 1
@@ -502,19 +529,27 @@ class StreamingOrchestrator:
                         with self._stats_lock:
                             self.products_retried += 1
 
-                    # New rate limiter API: acquire() returns token context manager
-                    # token.record() reports outcome (triggers shared pause on 429)
+                    # Escalate wait time on retries
+                    multiplier = RETRY_WAIT_MULTIPLIERS[min(attempt, len(RETRY_WAIT_MULTIPLIERS) - 1)]
+                    attempt_wait = min(optimal_wait * multiplier, 5000)
+
                     async with await rate_limiter.acquire() as token:
                         try:
-                            # Acquire fresh page from pool for each attempt
-                            # (previous page might be in bad state after failure)
                             async with browser_pool.acquire() as page:
-                                result = await extractor.extract_single_pooled(url, page, self.config)
+                                result = await extractor.extract_single_pooled(
+                                    url, page, self.config,
+                                    wait_time=attempt_wait,
+                                    gallery_selector=gallery_selector,
+                                )
+
+                            # Fix 4: Use real HTTP status for rate limiter
+                            actual_status = result.status_code or 200
 
                             # Check if extraction succeeded
                             if result.success and result.product:
-                                # SUCCESS - record good outcome, save product
-                                await token.record(200)
+                                # SUCCESS — mark slug as seen so we skip duplicates
+                                seen_product_slugs.add(slug)
+                                await token.record(actual_status)
 
                                 with self._stats_lock:
                                     self.products_extracted += 1
@@ -527,12 +562,17 @@ class StreamingOrchestrator:
 
                                 product_dict = self._product_to_dict(result.product, url)
                                 save_product(self.domain, product_dict, category_path, source_url=url)
+                                dashboard.record_outcome(url, success=True)
                                 return  # Done!
 
                             else:
-                                # Extraction ran but didn't get product - might be transient
+                                # Extraction failed
                                 last_error = result.error or "No product extracted"
-                                await token.record(500)
+                                # If error mentions rate limit, tell the rate limiter
+                                if last_error and "rate" in last_error.lower():
+                                    await token.record(429)
+                                else:
+                                    await token.record(actual_status if actual_status >= 400 else 500)
                                 # Continue to retry
 
                         except Exception as e:
@@ -550,6 +590,8 @@ class StreamingOrchestrator:
                 with self._stats_lock:
                     self.products_extracted += 1  # We tried
                     self.errors.append(f"Product {url}: {last_error} (after {max_retries} attempts)")
+
+                dashboard.record_outcome(url, success=False, error=last_error)
 
             # Process queue with TRUE async (non-blocking queue access)
             # The key fix: use run_in_executor to avoid blocking the event loop
@@ -618,6 +660,8 @@ class StreamingOrchestrator:
             # This closes all browser processes and frees memory.
             # =================================================================
             await browser_pool.shutdown()
+            dashboard.stop()
+            await dashboard_task
 
         # Print final stats
         rate_stats = rate_limiter.stats
@@ -633,13 +677,98 @@ class StreamingOrchestrator:
         print(f"    Rate limiter: final rate {rate_stats['rate']:.1f} req/s, {rate_stats['total_rate_limited']} rate limited")
         print(f"    Browser pool: {pool_stats['total_pages_served']} pages, {pool_stats['total_recycles']} browser recycles")
 
+    @staticmethod
+    def _filter_images(images: list, product_url: str) -> list:
+        """
+        Filter product images to remove junk:
+        - Tracking pixels (off-domain, known trackers)
+        - Site logos/icons (tiny images, logo/icon/favicon in path)
+        - Other products' images (doesn't match product slug)
+        - Thumbnail variants (140x140, width=20, etc.)
+        """
+        if not images:
+            return images
+
+        from urllib.parse import urlparse, parse_qs
+
+        product_domain = urlparse(product_url).netloc
+        # Extract product slug for matching (e.g. "bastion-earrings")
+        product_path = urlparse(product_url).path
+        product_slug = product_path.rstrip("/").split("/")[-1] if product_path else ""
+
+        # Known tracking/analytics domains
+        TRACKER_DOMAINS = {
+            "visualwebsiteoptimizer.com", "dev.visualwebsiteoptimizer.com",
+            "ct.pinterest.com", "pinterest.com",
+            "google-analytics.com", "googletagmanager.com",
+            "facebook.com", "facebook.net", "fbcdn.net",
+            "doubleclick.net", "googlesyndication.com",
+            "hotjar.com", "clarity.ms", "segment.io",
+            "amplitude.com", "mixpanel.com", "heapanalytics.com",
+        }
+
+        # Junk path patterns
+        JUNK_PATTERNS = [
+            "/favicon", "/icon", "/logo", "/sprite",
+            "/footer/", "/header/", "/nav/",
+            "/badge", "/payment", "/trust",
+            "/v.gif", "/pixel", "/track",
+        ]
+
+        MIN_WIDTH = 200  # Skip images smaller than this
+
+        filtered = []
+        for img_url in images:
+            if not img_url or not isinstance(img_url, str):
+                continue
+
+            parsed = urlparse(img_url)
+            domain = parsed.netloc.lower()
+            path_lower = parsed.path.lower()
+
+            # Skip tracking domains
+            if any(t in domain for t in TRACKER_DOMAINS):
+                continue
+
+            # Skip off-domain non-CDN images (allow cdn.shopify.com etc.)
+            if domain and product_domain:
+                is_same_domain = product_domain in domain or domain in product_domain
+                is_cdn = "cdn" in domain or "shopify" in domain
+                if not is_same_domain and not is_cdn:
+                    continue
+
+            # Skip junk paths
+            if any(p in path_lower for p in JUNK_PATTERNS):
+                continue
+
+            # Skip .gif and .svg (usually icons/animations, not product photos)
+            if path_lower.endswith((".gif", ".svg")):
+                continue
+
+            # Skip tiny images by checking URL hints
+            # width=20, width=100, 140x140, x320, etc.
+            url_str = img_url.lower()
+            if "width=" in url_str:
+                try:
+                    w = int(url_str.split("width=")[1].split("&")[0])
+                    if w < MIN_WIDTH:
+                        continue
+                except (ValueError, IndexError):
+                    pass
+            if "_140x140" in url_str or "_100x100" in url_str or "_50x50" in url_str:
+                continue
+
+            filtered.append(img_url)
+
+        return filtered
+
     def _product_to_dict(self, product, source_url: str) -> dict:
         """Convert Product object to dictionary for saving."""
         return {
             "name": product.name,
             "price": product.price,
             "currency": product.currency,
-            "images": product.images,
+            "images": self._filter_images(product.images, source_url),
             "description": product.description,
             "url": product.url,
             "source_url": source_url,

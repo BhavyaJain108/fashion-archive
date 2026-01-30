@@ -16,6 +16,8 @@ class PageData:
     request_headers: Dict[str, Dict[str, str]] = field(default_factory=dict)
     aria: Optional[dict] = None
     image_urls: List[str] = field(default_factory=list)
+    loaded: bool = True  # False if page failed to load or is an error page
+    status_code: int = 0  # HTTP status from navigation response
 
 
 class ExtractionStrategy(Enum):
@@ -131,6 +133,7 @@ class ExtractionResult:
     strategy: Optional[ExtractionStrategy] = None
     error: Optional[str] = None
     score: int = 0  # completeness score
+    status_code: int = 0  # HTTP status from page load
 
     @classmethod
     def failure(cls, strategy: ExtractionStrategy, error: str) -> 'ExtractionResult':

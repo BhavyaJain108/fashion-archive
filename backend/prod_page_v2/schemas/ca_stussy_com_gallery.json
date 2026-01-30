@@ -1,0 +1,5 @@
+{
+  "image_selector": ".product-media__container .product-media__slide img",
+  "url_attribute": "src",
+  "container_selector": ".product-media__container"
+}

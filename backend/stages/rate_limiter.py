@@ -43,9 +43,15 @@ TOKEN BUCKET ALGORITHM:
 import asyncio
 import time
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Optional, Dict, List, Callable, Any
 from collections import deque
 from enum import Enum
+
+
+def _ts() -> str:
+    """Timestamp prefix for log messages."""
+    return datetime.now().strftime("%H:%M:%S")
 
 
 class RateLimitState(Enum):
@@ -103,10 +109,12 @@ class AdaptiveRateLimiter:
         max_rate: float = 100.0,
         min_rate: float = 1.0,
         burst_size: int = 5,  # Allow small bursts
+        quiet: bool = False,  # Suppress print output (for dashboard mode)
     ):
         self.initial_rate = initial_rate
         self.max_rate = max_rate
         self.min_rate = min_rate
+        self.quiet = quiet
         self.burst_size = burst_size
 
         # Token bucket state
@@ -125,6 +133,13 @@ class AdaptiveRateLimiter:
         self._window_failures = 0
         self._recent_outcomes: deque = deque(maxlen=100)
 
+        # Ramp-up state
+        self._last_ramp_time = time.time()  # When we last increased rate
+        self._last_429_time: Optional[float] = None  # When we last got blocked
+        self._ramp_interval = 10.0  # Try ramping every 10 seconds
+        self._ramp_factor = 1.20  # Increase by 20% each ramp
+        self._ramp_cooldown = 30.0  # Wait 30s after a 429 before ramping again
+
         # Lock for thread-safe updates
         self._lock = asyncio.Lock()
 
@@ -132,6 +147,11 @@ class AdaptiveRateLimiter:
         self._total_requests = 0
         self._total_rate_limited = 0
         self._rate_adjustments: List[Dict] = []  # History of rate changes
+
+    def _log(self, msg: str):
+        """Print unless in quiet mode (dashboard active)."""
+        if not self.quiet:
+            print(msg)
 
     @property
     def rate(self) -> float:
@@ -194,14 +214,14 @@ class AdaptiveRateLimiter:
             # Timeout check - prevent infinite waits
             elapsed_wait = time.time() - start_wait
             if elapsed_wait > timeout:
-                print(f"[RateLimiter] WARNING: Token wait timeout ({timeout}s), forcing through")
-                print(f"    State: rate={self._rate:.2f}/s, tokens={self._tokens:.2f}, paused={self._paused_until is not None}")
+                self._log(f"[{_ts()}] [RateLimiter] WARNING: Token wait timeout ({timeout}s), forcing through")
+                self._log(f"    State: rate={self._rate:.2f}/s, tokens={self._tokens:.2f}, paused={self._paused_until is not None}")
                 self._total_requests += 1
                 return
 
             # Periodic warning for long waits
             if elapsed_wait > 30 and int(elapsed_wait) % 10 == 0:
-                print(f"[RateLimiter] Long wait: {elapsed_wait:.0f}s, rate={self._rate:.2f}/s, tokens={self._tokens:.2f}")
+                self._log(f"[{_ts()}] [RateLimiter] Long wait: {elapsed_wait:.0f}s, rate={self._rate:.2f}/s, tokens={self._tokens:.2f}")
 
             async with self._lock:
                 # First check: are we paused?
@@ -274,6 +294,7 @@ class AdaptiveRateLimiter:
 
             if outcome.success:
                 self._window_successes += 1
+                self._try_ramp_up()
             else:
                 self._window_failures += 1
 
@@ -316,22 +337,22 @@ class AdaptiveRateLimiter:
                 "retry_after": outcome.retry_after
             })
 
-            print(f"\n[RateLimiter] 429 detected!")
-            print(f"    Measured rate: {measured_rate:.1f} req/s")
-            print(f"    New safe rate: {new_rate:.1f} req/s")
+            self._log(f"\n[{_ts()}] [RateLimiter] 429 detected!")
+            self._log(f"    Measured rate: {measured_rate:.1f} req/s")
+            self._log(f"    New safe rate: {new_rate:.1f} req/s")
 
             self._rate = new_rate
         else:
             # Not enough data - reduce by 50%
             new_rate = max(self.min_rate, self._rate * 0.5)
-            print(f"\n[RateLimiter] 429 detected! Reducing rate {self._rate:.1f} → {new_rate:.1f}")
+            self._log(f"\n[{_ts()}] [RateLimiter] 429 detected! Reducing rate {self._rate:.1f} → {new_rate:.1f}")
             self._rate = new_rate
 
         # Determine pause duration
         if outcome.retry_after:
             # Server told us exactly how long to wait
             pause_duration = outcome.retry_after
-            print(f"    Retry-After: {pause_duration}s")
+            self._log(f"    Retry-After: {pause_duration}s")
         else:
             # Default: pause for 1 second
             pause_duration = 1.0
@@ -339,6 +360,7 @@ class AdaptiveRateLimiter:
         # Pause all workers
         self._paused_until = time.time() + pause_duration
         self._state = RateLimitState.PAUSED
+        self._last_429_time = time.time()  # Track for ramp-up cooldown
 
         # Reset tracking window
         self._window_start = time.time()
@@ -350,34 +372,49 @@ class AdaptiveRateLimiter:
         self._tokens = min(3, self.burst_size)  # Small burst to get going
         self._last_refill = time.time()
 
-    async def probe_increase(self):
+    def _try_ramp_up(self):
         """
-        Attempt to increase rate if we've been stable.
+        Try to increase rate if things have been smooth.
 
-        Call this periodically to find the actual limit.
-        If we haven't hit 429 in a while, try increasing rate slightly.
+        Called on every success (while holding lock).
+        Only ramps if:
+        - Enough time since last ramp attempt
+        - Enough time since last 429
+        - We have enough successes to be confident
+        - We haven't hit max rate
         """
-        async with self._lock:
-            if self._state != RateLimitState.RUNNING:
-                return
+        now = time.time()
 
-            # Only probe if we've had enough successes without issues
-            if self._window_successes < 50:
-                return
+        # Don't ramp too frequently
+        if now - self._last_ramp_time < self._ramp_interval:
+            return
 
-            # Only probe if no recent 429s
-            recent_429s = sum(
-                1 for o in self._recent_outcomes
-                if o.status_code == 429 and time.time() - o.timestamp < 30
-            )
-            if recent_429s > 0:
-                return
+        # Don't ramp if we recently got blocked
+        if self._last_429_time and now - self._last_429_time < self._ramp_cooldown:
+            return
 
-            # Increase rate by 10%
-            new_rate = min(self.max_rate, self._rate * 1.10)
-            if new_rate > self._rate:
-                print(f"[RateLimiter] Probing higher rate: {self._rate:.1f} → {new_rate:.1f}")
-                self._rate = new_rate
+        # Need at least 10 successes to be confident
+        if self._window_successes < 10:
+            return
+
+        # Already at max
+        if self._rate >= self.max_rate:
+            return
+
+        # Ramp up!
+        old_rate = self._rate
+        successes_at_ramp = self._window_successes
+        self._rate = min(self.max_rate, self._rate * self._ramp_factor)
+        self._max_tokens = max(self._max_tokens, self._rate)  # Grow bucket with rate
+        self._last_ramp_time = now
+
+        self._log(f"[{_ts()}] [RateLimiter] Ramping up: {old_rate:.1f} → {self._rate:.1f} req/s "
+                 f"({successes_at_ramp} successes, 0 rejections)")
+
+        # Reset window to measure at new rate
+        self._window_start = now
+        self._window_successes = 0
+        self._window_failures = 0
 
 
 class RateLimitToken:

@@ -553,38 +553,24 @@ class ProductExtractor:
         self,
         url: str,
         page: 'Page',
-        config: Optional[MultiStrategyConfig] = None
+        config: Optional[MultiStrategyConfig] = None,
+        wait_time: int = 500,
+        gallery_selector=None,
     ) -> ExtractionResult:
         """
         Extract a single product using a pre-acquired page from BrowserPool.
-
-        DIFFERENCE FROM extract_single():
-            extract_single()        -> Creates new browser, loads page, closes browser
-            extract_single_pooled() -> Uses provided page, loads URL, returns result
-
-        This is more memory-efficient for batch extraction because:
-        1. Browser is already running (no startup cost)
-        2. Total browsers limited by pool size (bounded memory)
-        3. Pages are recycled, preventing memory leaks
-
-        Usage with BrowserPool:
-            pool = BrowserPool(size=10)
-            await pool.start()
-
-            async with pool.acquire() as page:
-                result = await extractor.extract_single_pooled(url, page, config)
-
-            await pool.shutdown()
 
         Args:
             url: Product URL to extract
             page: Playwright Page from BrowserPool
             config: Optional MultiStrategyConfig for this domain
+            wait_time: ms to wait for dynamic content (default 500, calibrated during discovery)
+            gallery_selector: CSS selector for product gallery (discovered once per domain)
 
         Returns:
             ExtractionResult with extracted product data
         """
-        from page_loader import load_page_on_existing
+        from page_loader import load_page_on_existing, extract_gallery_images
 
         domain = self._get_domain(url)
 
@@ -592,20 +578,27 @@ class ProductExtractor:
         if not config:
             config = self._load_config(domain)
 
-        # Load page using the provided page object (doesn't create new browser)
-        page_data = await load_page_on_existing(page, url)
+        # Load page using the provided page object
+        page_data = await load_page_on_existing(page, url, wait_time=wait_time)
+
+        # Fix 2: Don't run extraction on failed/error pages
+        if not page_data.loaded:
+            return ExtractionResult(
+                success=False,
+                error=f"Page load failed (status={page_data.status_code})",
+                strategy=ExtractionStrategy.SHOPIFY_JSON,
+                status_code=page_data.status_code,
+            )
+
         results = []
 
         if config and config.verified:
-            # Run only strategies that contributed fields
             active_strategies = config.get_active_strategies()
-
             for strategy in self.strategies:
                 if strategy.strategy_type in active_strategies:
                     result = await strategy.extract(url, page_data)
                     results.append(result)
         else:
-            # No config - run all strategies
             for strategy in self.strategies:
                 result = await strategy.extract(url, page_data)
                 results.append(result)
@@ -613,18 +606,382 @@ class ProductExtractor:
         # Merge results
         merged_product = self._merge_products(results, url)
 
-        if merged_product.name:  # At least got a name
+        # Fix 3: Stronger success criteria
+        # Require a real name + at least one substantive field (price, images, or description)
+        GARBAGE_NAMES = {
+            "access denied", "too many requests", "page not found", "404",
+            "error", "not found", "forbidden", "blocked", "please try again",
+            "just a moment", "attention required", "checking your browser",
+            "service unavailable", "temporarily unavailable",
+        }
+
+        has_real_name = (
+            merged_product.name
+            and len(merged_product.name.strip()) > 1
+            and merged_product.name.strip().lower() not in GARBAGE_NAMES
+        )
+        has_substance = (
+            merged_product.price
+            or (merged_product.images and len(merged_product.images) > 0)
+            or (merged_product.description and len(merged_product.description) > 10)
+        )
+
+        if has_real_name and has_substance:
+            # Override images with gallery-extracted images if selector available
+            if gallery_selector:
+                gallery_images = await extract_gallery_images(page, gallery_selector)
+                if gallery_images:
+                    merged_product.images = gallery_images
+
             return ExtractionResult(
                 success=True,
                 product=merged_product,
                 strategy=ExtractionStrategy.SHOPIFY_JSON,  # placeholder
-                score=merged_product.completeness_score()
+                score=merged_product.completeness_score(),
+                status_code=page_data.status_code,
             )
 
-        return ExtractionResult.failure(
-            ExtractionStrategy.SHOPIFY_JSON,
-            "No strategy succeeded"
+        reason = "No product name" if not has_real_name else "Name only, no price/images/description"
+        return ExtractionResult(
+            success=False,
+            error=reason,
+            strategy=ExtractionStrategy.SHOPIFY_JSON,
+            status_code=page_data.status_code,
         )
+
+    async def calibrate_wait_time(
+        self,
+        url: str,
+        config: Optional[MultiStrategyConfig] = None,
+    ) -> int:
+        """
+        Find the minimum wait time that produces a good extraction.
+
+        Tests progressively: 500ms → 1000ms → 2000ms → 3000ms → 5000ms
+        Returns the first wait time that yields a product with name + price.
+
+        Called during discovery phase so we only pay this cost once per domain.
+        """
+        from page_loader import load_page_on_existing
+        from browser_pool import BrowserPool
+
+        WAIT_TIMES = [500, 1000, 2000, 3000, 5000]
+
+        pool = BrowserPool(size=1, pages_per_recycle=100, headless=True)
+        await pool.start()
+
+        try:
+            for wait_ms in WAIT_TIMES:
+                async with pool.acquire() as page:
+                    page_data = await load_page_on_existing(page, url, wait_time=wait_ms)
+
+                results = []
+                if config and config.verified:
+                    active = config.get_active_strategies()
+                    for strategy in self.strategies:
+                        if strategy.strategy_type in active:
+                            result = await strategy.extract(url, page_data)
+                            results.append(result)
+                else:
+                    for strategy in self.strategies:
+                        result = await strategy.extract(url, page_data)
+                        results.append(result)
+
+                merged = self._merge_products(results, url)
+
+                has_name = bool(merged.name and len(merged.name) > 1)
+                has_price = bool(merged.price and merged.price != "0")
+
+                if has_name and has_price:
+                    print(f"[Calibration] {wait_ms}ms → ✓ name + price found")
+                    return wait_ms
+                else:
+                    print(f"[Calibration] {wait_ms}ms → ✗ missing {'name' if not has_name else 'price'}")
+
+            print(f"[Calibration] Falling back to 5000ms")
+            return 5000
+        finally:
+            await pool.shutdown()
+
+    def _gallery_schema_path(self, domain: str) -> Path:
+        """Path to the gallery selector file for a domain."""
+        schema_dir = Path(__file__).parent / "schemas"
+        schema_dir.mkdir(exist_ok=True)
+        return schema_dir / f"{domain.replace('.', '_')}_gallery.json"
+
+    def load_gallery_selector(self, domain: str) -> Optional[dict]:
+        """Load saved gallery config for a domain."""
+        path = self._gallery_schema_path(domain)
+        if path.exists():
+            try:
+                data = json.loads(path.read_text())
+                # Migrate old format: {"gallery_selector": "..."} -> new dict format
+                if "gallery_selector" in data and "image_selector" not in data:
+                    old = data["gallery_selector"]
+                    data = {"image_selector": "", "url_attribute": "src", "container_selector": old}
+                    path.write_text(json.dumps(data, indent=2))
+                return data
+            except Exception:
+                pass
+        return None
+
+    def save_gallery_selector(self, domain: str, config: dict):
+        """Save gallery config for a domain."""
+        path = self._gallery_schema_path(domain)
+        path.write_text(json.dumps(config, indent=2))
+        print(f"[GalleryDiscovery] Saved config for {domain}: {config}")
+
+    async def discover_gallery_selector(self, url: str, page=None) -> Optional[dict]:
+        """
+        Use LLM to find how to extract product images from the gallery.
+
+        Called once during discovery. Returns a config dict with:
+        - "image_selector": CSS selector targeting image elements directly
+        - "url_attribute": which attribute holds the image URL (src, data-src, etc.)
+        - "container_selector": the gallery container (for context)
+
+        Args:
+            url: A product page URL
+            page: Optional Playwright page (already loaded). If None, loads one.
+
+        Returns:
+            Gallery config dict or None
+        """
+        domain = self._get_domain(url)
+
+        # Check saved config first
+        saved = self.load_gallery_selector(domain)
+        if saved:
+            print(f"[GalleryDiscovery] Using saved config for {domain}")
+            return saved
+        from page_loader import load_page_on_existing, extract_gallery_images
+        from browser_pool import BrowserPool
+
+        try:
+            from scraper.llm_handler import LLMHandler
+        except ImportError:
+            try:
+                from backend.scraper.llm_handler import LLMHandler
+            except ImportError:
+                print("[GalleryDiscovery] LLM not available, trying common selectors")
+                return await self._try_common_gallery_selectors(url)
+
+        llm = LLMHandler()
+
+        # Load the page if not provided
+        own_pool = None
+        if page is None:
+            own_pool = BrowserPool(size=1, pages_per_recycle=10, headless=True)
+            await own_pool.start()
+
+        try:
+            if own_pool:
+                async with own_pool.acquire() as p:
+                    page_data = await load_page_on_existing(p, url, wait_time=2000)
+                    html = page_data.html
+                    test_page = p
+                    return await self._discover_gallery_with_llm(llm, html, url, test_page)
+            else:
+                html = await page.content()
+                return await self._discover_gallery_with_llm(llm, html, url, page)
+        finally:
+            if own_pool:
+                await own_pool.shutdown()
+
+    async def _discover_gallery_with_llm(self, llm, html: str, url: str, page) -> Optional[dict]:
+        """Extract image DOM context from the live page, send to LLM, verify result."""
+
+        # Use Playwright to grab every image element + its ancestor chain
+        # This gives the LLM a focused view: just images and their structural context
+        image_snapshot = await page.evaluate("""() => {
+            const results = [];
+            const imgs = document.querySelectorAll('img, source, [style*="background-image"]');
+            for (const el of imgs) {
+                // Get the image's own attributes
+                const attrs = {};
+                for (const attr of el.attributes) {
+                    attrs[attr.name] = attr.value.length > 200 ? attr.value.slice(0, 200) + '...' : attr.value;
+                }
+
+                // Walk up the ancestor chain (up to 4 levels) to capture structural context
+                const ancestors = [];
+                let node = el.parentElement;
+                for (let i = 0; i < 4 && node && node !== document.body; i++) {
+                    const a = {};
+                    for (const attr of node.attributes) {
+                        // Only keep structural attrs, skip long values
+                        if (['class', 'id', 'role', 'data-component', 'data-testid',
+                             'data-section', 'data-product-media', 'data-product-media-container',
+                             'data-media-type', 'aria-label', 'data-gallery', 'data-carousel',
+                             'data-slider', 'data-swiper'].includes(attr.name) ||
+                            attr.name.startsWith('data-')) {
+                            a[attr.name] = attr.value.length > 100 ? attr.value.slice(0, 100) + '...' : attr.value;
+                        }
+                    }
+                    ancestors.push({ tag: node.tagName.toLowerCase(), attrs: a });
+                    node = node.parentElement;
+                }
+
+                results.push({
+                    tag: el.tagName.toLowerCase(),
+                    attrs: attrs,
+                    ancestors: ancestors,
+                });
+            }
+            return results;
+        }""")
+
+        if not image_snapshot:
+            print("[GalleryDiscovery] No image elements found on page")
+            return None
+
+        # If too many images, keep only the first 50 — product galleries are near
+        # the top of the page, the rest are recommendations/footer/etc.
+        if len(image_snapshot) > 50:
+            image_snapshot = image_snapshot[:50]
+
+        # Format the snapshot for the LLM
+        snapshot_text = f"Found {len(image_snapshot)} image elements on {url}:\n\n"
+        for i, img in enumerate(image_snapshot):
+            snapshot_text += f"[{i}] <{img['tag']}"
+            for k, v in img['attrs'].items():
+                snapshot_text += f' {k}="{v}"'
+            snapshot_text += ">\n"
+            for j, anc in enumerate(img['ancestors']):
+                indent = "  " * (j + 1)
+                attr_str = " ".join(f'{k}="{v}"' for k, v in anc['attrs'].items())
+                snapshot_text += f"{indent}parent: <{anc['tag']} {attr_str}>\n"
+            snapshot_text += "\n"
+
+        print(f"[GalleryDiscovery] Snapshot: {len(image_snapshot)} images, {len(snapshot_text)} chars")
+
+        prompt = f"""Here are all the image elements on a product page, with their parent elements for context.
+
+{snapshot_text}
+
+Which of these images are the MAIN PRODUCT GALLERY photos?
+
+Tell me:
+1. A CSS selector that targets ONLY these product gallery image elements (not logos, not recommended products, not thumbnails)
+2. Which attribute holds the best image URL (src, data-src, srcset, etc.)
+
+Return a JSON object with:
+- "image_selector": CSS selector targeting the product gallery image elements
+- "url_attribute": which attribute has the image URL ("src", "data-src", "srcset", etc.)
+- "container_selector": the gallery container selector (for context)
+- "notes": brief explanation"""
+
+        from pydantic import BaseModel, Field
+
+        class GalleryConfig(BaseModel):
+            image_selector: str = Field(description="CSS selector targeting image elements directly")
+            url_attribute: str = Field(default="src", description="Attribute holding the image URL")
+            container_selector: str = Field(default="", description="Gallery container selector")
+            notes: str = Field(default="", description="Brief explanation of gallery structure")
+
+        result = llm.call(
+            prompt=prompt,
+            expected_format="json",
+            response_model=GalleryConfig,
+            max_tokens=400,
+        )
+
+        if not result.get("success") or not result.get("data"):
+            print("[GalleryDiscovery] LLM call failed")
+            return None
+
+        data = result["data"]
+        image_selector = data.get("image_selector", "")
+        url_attribute = data.get("url_attribute", "src")
+        notes = data.get("notes", "")
+        print(f"[GalleryDiscovery] LLM returned:")
+        print(f"  image_selector: '{image_selector}'")
+        print(f"  url_attribute: '{url_attribute}'")
+        print(f"  notes: {notes}")
+
+        # Validate selector looks like CSS
+        if not image_selector or image_selector.startswith("<") or len(image_selector) > 200:
+            print(f"[GalleryDiscovery] Invalid selector: '{image_selector}'")
+            return None
+
+        # Verify on the live page
+        try:
+            elements = await page.query_selector_all(image_selector)
+        except Exception as e:
+            print(f"[GalleryDiscovery] Selector error: {e}")
+            return None
+
+        if not elements:
+            print(f"[GalleryDiscovery] Selector '{image_selector}' matched 0 elements")
+            return None
+
+        # Try to get a URL from the first element
+        sample_url = None
+        for attr in [url_attribute, "src", "data-src", "srcset"]:
+            sample_url = await elements[0].get_attribute(attr)
+            if sample_url:
+                break
+
+        if not sample_url:
+            print(f"[GalleryDiscovery] Selector matched {len(elements)} elements but no URLs found")
+            return None
+
+        config = {
+            "image_selector": image_selector,
+            "url_attribute": url_attribute,
+            "container_selector": data.get("container_selector", ""),
+        }
+        print(f"[GalleryDiscovery] Verified: {len(elements)} elements, sample: {sample_url[:80]}")
+        domain = self._get_domain(url)
+        self.save_gallery_selector(domain, config)
+        return config
+
+    async def _try_common_gallery_selectors_on_page(self, page) -> Optional[dict]:
+        """Try common gallery selectors as fallback."""
+        from page_loader import extract_gallery_images
+
+        COMMON_SELECTORS = [
+            "[data-product-media-container]",
+            "[data-product-media]",
+            ".product-gallery",
+            ".product-images",
+            ".product__media",
+            ".product-media",
+            ".gallery",
+            ".product-photos",
+            ".swiper-wrapper",
+            ".slider",
+            ".carousel",
+        ]
+
+        for selector in COMMON_SELECTORS:
+            config = {"image_selector": "", "url_attribute": "src", "container_selector": selector}
+            images = await extract_gallery_images(page, config)
+            if len(images) >= 1:
+                print(f"[GalleryDiscovery] Fallback found: '{selector}' ({len(images)} images)")
+                try:
+                    domain = urlparse(page.url).netloc.replace("www.", "")
+                    self.save_gallery_selector(domain, config)
+                except Exception:
+                    pass
+                return config
+
+        print("[GalleryDiscovery] No gallery selector found")
+        return None
+
+    async def _try_common_gallery_selectors(self, url: str) -> Optional[dict]:
+        """Try common selectors by loading a page (no LLM available)."""
+        from browser_pool import BrowserPool
+        from page_loader import load_page_on_existing
+
+        pool = BrowserPool(size=1, pages_per_recycle=10, headless=True)
+        await pool.start()
+        try:
+            async with pool.acquire() as page:
+                await load_page_on_existing(page, url, wait_time=2000)
+                return await self._try_common_gallery_selectors_on_page(page)
+        finally:
+            await pool.shutdown()
 
     async def extract_batch(
         self,

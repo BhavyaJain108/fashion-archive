@@ -1,0 +1,5 @@
+{
+  "image_selector": ".c-productcarousel__slide .c-product__image",
+  "url_attribute": "data-src",
+  "container_selector": ".c-productcarousel"
+}

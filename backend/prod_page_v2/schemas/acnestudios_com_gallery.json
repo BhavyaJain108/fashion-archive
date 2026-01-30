@@ -1,0 +1,5 @@
+{
+  "image_selector": "#productGallery .horizontal-slider__item img",
+  "url_attribute": "data-src",
+  "container_selector": "#productGallery"
+}
