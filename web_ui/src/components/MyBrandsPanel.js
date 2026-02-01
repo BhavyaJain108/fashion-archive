@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { FashionArchiveAPI } from '../services/api';
+import ProductDetailPanel from './ProductDetailPanel';
 
 function MyBrandsPanel() {
   const [brands, setBrands] = useState([]);
@@ -7,10 +8,15 @@ function MyBrandsPanel() {
   const [expandedBrands, setExpandedBrands] = useState({});
   const [expandedCategories, setExpandedCategories] = useState({});
   const [selectedLeaves, setSelectedLeaves] = useState(new Set());
+  const selectedLeavesRef = useRef(new Set());
   const [products, setProducts] = useState([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [scrapingBrands, setScrapingBrands] = useState(new Set());
   const [productCounts, setProductCounts] = useState({});
+  const [selectedProduct, setSelectedProduct] = useState(null);
+
+  // Streaming state
+  const [streamingBrandId, setStreamingBrandId] = useState(null); // which brand is being streamed
 
   // Add brand modal state
   const [showAddBrandModal, setShowAddBrandModal] = useState(false);
@@ -18,10 +24,9 @@ function MyBrandsPanel() {
   const [validating, setValidating] = useState(false);
   const [error, setError] = useState('');
 
-  // Long-press state for re-scraping
-  const [longPressTimer, setLongPressTimer] = useState(null);
-  const [longPressingBrand, setLongPressingBrand] = useState(null);
-  const [longPressProgress, setLongPressProgress] = useState(0);
+  // Click-count state for re-scraping (double-click = products only, triple-click = full)
+  const clickCountRef = useRef({});
+  const clickTimerRef = useRef({});
 
   // Load brands on mount
   useEffect(() => {
@@ -144,6 +149,75 @@ function MyBrandsPanel() {
     checkStatus();
   };
 
+  // Stream products via SSE as they're extracted
+  const streamProducts = (brandId) => {
+    setStreamingBrandId(brandId);
+    const source = new EventSource(`http://localhost:8081/api/brands/${brandId}/scrape/stream`);
+
+    source.onmessage = (event) => {
+      try {
+        const product = JSON.parse(event.data);
+        const categoryUrl = product._category_url || '';
+
+        // Update live category counter (keyed by brandId::categoryUrl to match sidebar tree)
+        if (categoryUrl) {
+          const leafKey = `${brandId}::${categoryUrl}`;
+          setProductCounts(prev => ({
+            ...prev,
+            [leafKey]: (prev[leafKey] || 0) + 1
+          }));
+        }
+
+        // Only add to product grid if this product's category is currently selected
+        if (categoryUrl) {
+          const leafKey = `${brandId}::${categoryUrl}`;
+          if (selectedLeavesRef.current.has(leafKey)) {
+            setProducts(prev => [product, ...prev]);
+          }
+        }
+      } catch (e) {
+        console.error('Error parsing streamed product:', e);
+      }
+    };
+
+    source.addEventListener('nav_ready', async () => {
+      // Navigation tree is ready — re-fetch hierarchy and update the brand's tree
+      try {
+        const navResponse = await fetch(
+          `http://localhost:8081/api/brands/${brandId}/categories/hierarchy`
+        );
+        if (navResponse.ok) {
+          const navData = await navResponse.json();
+          const hierarchy = navData.hierarchy || [];
+          setBrands(prev => prev.map(b =>
+            b.brand_id === brandId ? { ...b, navigation: hierarchy } : b
+          ));
+          // Auto-expand the brand so user sees categories appear
+          setExpandedBrands(prev => ({ ...prev, [brandId]: true }));
+        }
+      } catch (e) {
+        console.warn('Failed to reload navigation after nav_ready:', e);
+      }
+    });
+
+    source.addEventListener('done', () => {
+      source.close();
+      setScrapingBrands(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(brandId);
+        return newSet;
+      });
+      setStreamingBrandId(null);
+      loadBrands();
+    });
+
+    source.onerror = () => {
+      source.close();
+    };
+
+    return source;
+  };
+
   // Toggle brand expansion
   const toggleBrand = (brandId) => {
     setExpandedBrands(prev => ({
@@ -152,38 +226,44 @@ function MyBrandsPanel() {
     }));
   };
 
-  // Handle long-press to re-scrape brand
-  const handleBrandMouseDown = (brandId) => {
-    setLongPressingBrand(brandId);
-    setLongPressProgress(0);
+  // Handle click counting: single=expand, double=rescrape products, triple=full rescrape
+  const handleBrandClick = (brandId) => {
+    if (!clickCountRef.current[brandId]) clickCountRef.current[brandId] = 0;
+    clickCountRef.current[brandId]++;
 
-    let progress = 0;
-    const interval = setInterval(() => {
-      progress += 2;
-      setLongPressProgress(progress);
-      if (progress >= 100) {
-        clearInterval(interval);
-        handleRescrape(brandId);
+    if (clickTimerRef.current[brandId]) clearTimeout(clickTimerRef.current[brandId]);
+
+    clickTimerRef.current[brandId] = setTimeout(() => {
+      const clicks = clickCountRef.current[brandId];
+      clickCountRef.current[brandId] = 0;
+
+      if (clicks === 1) {
+        toggleBrand(brandId);
+      } else if (clicks === 2) {
+        handleRescrape(brandId, 'products_only');
+      } else if (clicks >= 3) {
+        handleRescrape(brandId, 'full');
       }
-    }, 30); // 1.5 seconds total (50 * 30ms)
-
-    setLongPressTimer(interval);
+    }, 350);
   };
 
-  const handleBrandMouseUp = () => {
-    if (longPressTimer) {
-      clearInterval(longPressTimer);
-      setLongPressTimer(null);
-    }
-    setLongPressingBrand(null);
-    setLongPressProgress(0);
-  };
-
-  const handleRescrape = async (brandId) => {
+  const handleRescrape = async (brandId, mode = 'full') => {
     setScrapingBrands(prev => new Set(prev).add(brandId));
+    setProducts([]);
+    setStreamingBrandId(brandId);
+    // Clear product counts for this brand so categories show 0 until products stream in
+    setProductCounts(prev => {
+      const cleared = { ...prev };
+      Object.keys(cleared).forEach(key => {
+        if (key.startsWith(`${brandId}::`)) delete cleared[key];
+      });
+      return cleared;
+    });
+    // Expand the brand tree so user can see categories reappearing
+    setExpandedBrands(prev => ({ ...prev, [brandId]: true }));
     try {
-      await FashionArchiveAPI.startBrandScraping(brandId);
-      pollScrapingStatus(brandId);
+      await FashionArchiveAPI.startBrandScraping(brandId, mode);
+      streamProducts(brandId);
     } catch (error) {
       console.error('Error starting re-scrape:', error);
       setScrapingBrands(prev => {
@@ -222,6 +302,7 @@ function MyBrandsPanel() {
     }
 
     setSelectedLeaves(newSelected);
+    selectedLeavesRef.current = newSelected;
 
     // Load products for all selected leaves
     if (newSelected.size > 0) {
@@ -350,10 +431,12 @@ function MyBrandsPanel() {
       const newBrand = createResult.brand;
       await FashionArchiveAPI.followBrand(newBrand.brand_id, newBrand.name);
 
-      // Start scraping
+      // Start scraping with live streaming
       setScrapingBrands(prev => new Set(prev).add(newBrand.brand_id));
+      setProducts([]);
+      setStreamingBrandId(newBrand.brand_id);
       FashionArchiveAPI.startBrandScraping(newBrand.brand_id).then(() => {
-        pollScrapingStatus(newBrand.brand_id);
+        streamProducts(newBrand.brand_id);
       });
 
       setShowAddBrandModal(false);
@@ -368,9 +451,23 @@ function MyBrandsPanel() {
     }
   };
 
+  // Check if a category subtree has any products (for filtering during scraping)
+  const hasProductsInSubtree = (brand, category) => {
+    const hasChildren = category.children && category.children.length > 0;
+    if (!hasChildren) {
+      // Leaf: check product count
+      const leafKey = `${brand.brand_id}::${category.url}`;
+      return (productCounts[leafKey] || 0) > 0;
+    }
+    // Parent: check if any child has products
+    return category.children.some(child => hasProductsInSubtree(brand, child));
+  };
+
   // Render category tree recursively
   const renderCategoryTree = (brand, categories, level = 0) => {
     if (!categories || categories.length === 0) return null;
+
+    const isScraping = scrapingBrands.has(brand.brand_id);
 
     // Sort categories: parents with children first, then leaf categories
     const sortedCategories = [...categories].sort((a, b) => {
@@ -382,7 +479,12 @@ function MyBrandsPanel() {
       return 0;
     });
 
-    return sortedCategories.map((category, idx) => {
+    // During scraping, filter to only categories with products
+    const visibleCategories = isScraping
+      ? sortedCategories.filter(cat => hasProductsInSubtree(brand, cat))
+      : sortedCategories;
+
+    return visibleCategories.map((category, idx) => {
       const hasChildren = category.children && category.children.length > 0;
       const isLeaf = !hasChildren;
       const leafKey = `${brand.brand_id}::${category.url}`;
@@ -441,29 +543,21 @@ function MyBrandsPanel() {
             const isExpanded = expandedBrands[brand.brand_id];
             const isScraping = scrapingBrands.has(brand.brand_id);
 
-            const isLongPressing = longPressingBrand === brand.brand_id;
-
             return (
               <div key={brand.brand_id} className="brand-section">
                 <div
-                  className={`brand-name ${isScraping ? 'brand-loading' : ''} ${isLongPressing ? 'brand-long-pressing' : ''}`}
-                  onClick={() => !isLongPressing && !isScraping && toggleBrand(brand.brand_id)}
-                  onMouseDown={() => !isScraping && handleBrandMouseDown(brand.brand_id)}
-                  onMouseUp={handleBrandMouseUp}
-                  onMouseLeave={handleBrandMouseUp}
+                  className={`brand-name ${isScraping ? 'brand-loading' : ''}`}
+                  onClick={() => !isScraping && handleBrandClick(brand.brand_id)}
                   style={{
                     position: 'relative',
                     cursor: isScraping ? 'not-allowed' : undefined,
-                    background: isLongPressing
-                      ? `linear-gradient(to right, rgba(0, 122, 255, 0.1) ${longPressProgress}%, transparent ${longPressProgress}%)`
-                      : undefined
                   }}
                 >
                   <span className="brand-name-text">{(brand.name || brand.brand_id || 'Unknown').toUpperCase()}</span>
                   {isScraping && <span className="brand-loading-text"> loading...</span>}
                 </div>
 
-                {isExpanded && !isScraping && (
+                {isExpanded && (
                   <div className="brand-categories">
                     {renderCategoryTree(brand, brand.navigation)}
                   </div>
@@ -485,50 +579,41 @@ function MyBrandsPanel() {
       </div>
 
       {/* Right Panel - Product Gallery */}
-      <div className="product-gallery">
+      <div className={`product-gallery ${selectedProduct ? 'with-detail' : ''}`}>
         {loadingProducts ? (
           <div className="gallery-loading">Loading products...</div>
         ) : products.length > 0 ? (
           <div className="product-grid">
             {products.map((product, idx) => {
-              // Extract brand name from brand_id or brand field
               const brandName = product.brand
                 ? product.brand.toUpperCase()
                 : (product.brand_id ? product.brand_id.replace(/_/g, ' ').toUpperCase() : '');
-
-              // Handle both old (product_name) and new (name) field names
               const productName = product.name || product.product_name || 'Unknown Product';
               const productUrl = product.url || product.product_url || '';
-
-              // Handle both old (images[].src) and new (images[] as URLs) formats
               let imageUrl = null;
               if (product.images && product.images.length > 0) {
                 const firstImage = product.images[0];
                 imageUrl = typeof firstImage === 'string' ? firstImage : firstImage.src;
               }
-
-              // Handle both old (attributes.price) and new (price + currency) formats
               const priceDisplay = product.price
                 ? `${product.currency || ''} ${product.price}`.trim()
                 : product.attributes?.price;
 
               return (
-                <div key={`${productUrl}-${idx}`} className="product-card">
+                <div
+                  key={`${productUrl}-${idx}`}
+                  className={`product-card ${selectedProduct && (selectedProduct.url || selectedProduct.product_url) === productUrl ? 'selected' : ''}`}
+                  onClick={() => setSelectedProduct(product)}
+                >
                   {imageUrl && (
                     <div className="product-image">
-                      <img
-                        src={imageUrl}
-                        alt={productName}
-                        loading="lazy"
-                      />
+                      <img src={imageUrl} alt={productName} loading="lazy" />
                     </div>
                   )}
                   <div className="product-info">
                     <div className="product-brand">{brandName}</div>
                     <div className="product-name">{productName}</div>
-                    {priceDisplay && (
-                      <div className="product-price">{priceDisplay}</div>
-                    )}
+                    {priceDisplay && <div className="product-price">{priceDisplay}</div>}
                   </div>
                 </div>
               );
@@ -536,6 +621,14 @@ function MyBrandsPanel() {
           </div>
         ) : null}
       </div>
+
+      {/* Product Detail Panel */}
+      {selectedProduct && (
+        <ProductDetailPanel
+          product={selectedProduct}
+          onClose={() => setSelectedProduct(null)}
+        />
+      )}
 
       {/* Add Brand Modal */}
       {showAddBrandModal && (

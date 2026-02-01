@@ -26,13 +26,25 @@ class Storage:
         return self.extraction_manager.read_brand(brand_id)
 
     def create_brand(self, brand_id: str, brand_data: Dict) -> bool:
-        """Stub - brands are created by running the pipeline."""
-        # New pipeline creates folders directly in extractions/
-        return True
+        """Create brand by saving brand.json to the extraction directory."""
+        try:
+            domain = brand_data.get("domain", "")
+            domain_folder = domain.replace('.', '_') if domain else f"{brand_id}_com"
+            domain_path = self.extraction_manager.base_path / domain_folder
+            domain_path.mkdir(parents=True, exist_ok=True)
+
+            brand_json_path = domain_path / "brand.json"
+            import json
+            with open(brand_json_path, 'w') as f:
+                json.dump(brand_data, f, indent=2)
+            return True
+        except Exception as e:
+            print(f"Error creating brand {brand_id}: {e}")
+            return False
 
     def update_brand(self, brand_id: str, brand_data: Dict):
-        """Stub - brand data comes from extraction files."""
-        pass
+        """Update brand.json."""
+        self.create_brand(brand_id, brand_data)
 
     def delete_brand(self, brand_id: str) -> bool:
         """Stub - would need to delete extraction folder."""

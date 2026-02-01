@@ -10,6 +10,8 @@ from flask import jsonify, request, send_file, Response
 from typing import Dict, Any, Tuple
 import os
 import sys
+import json
+import queue
 import threading
 import time
 from urllib.parse import unquote
@@ -108,7 +110,7 @@ def validate_brand():
         normalized_url, domain = normalize_url(homepage_url)
 
         # Check if brand already exists by domain
-        brand_id = domain.split('.')[0].lower().replace('-', '_')
+        brand_id = domain.replace('.', '_')
         existing_brand = storage.get_brand(brand_id)
 
         if existing_brand:
@@ -199,8 +201,9 @@ def create_brand():
         # Normalize URL and extract domain
         normalized_url, domain = normalize_url(homepage_url)
 
-        # Generate brand_id from domain
-        brand_id = domain.split('.')[0].lower().replace('-', '_')
+        # Generate brand_id from domain — use full domain with dots replaced by underscores
+        # e.g. devi-clothing.com -> devi-clothing_com (matches extraction folder name)
+        brand_id = domain.replace('.', '_')
 
         # Check if brand already exists
         existing_brand = storage.get_brand(brand_id)
@@ -504,6 +507,51 @@ def get_classifications(brand_id):
         return jsonify({"error": str(e)}), 500
 
 
+def _prune_empty_leaves(tree, product_urls):
+    """Remove leaf nodes that have no products (URL not in product_urls) and
+    are not parent categories with children that have products."""
+    if not tree:
+        return []
+
+    pruned = []
+    for node in tree:
+        children = node.get("children", [])
+        if children:
+            # Recurse into children first
+            node["children"] = _prune_empty_leaves(children, product_urls)
+            # Keep parent if it still has children after pruning
+            if node["children"]:
+                pruned.append(node)
+        else:
+            # Leaf node — keep only if it has products
+            url = node.get("url")
+            if url and url in product_urls:
+                pruned.append(node)
+
+    return pruned
+
+
+def _collapse_single_child_nodes(tree):
+    """Collapse nodes that are the sole child of their parent.
+
+    E.g. Brand → Shop → [Tops, Bottoms] becomes Brand → [Tops, Bottoms]
+    when Shop either has no URL or is a pass-through.
+    """
+    if not tree:
+        return tree
+
+    # If there's exactly one node and it has children, promote the children
+    while (len(tree) == 1 and tree[0].get("children")):
+        tree = tree[0]["children"]
+
+    # Recurse into each node's children
+    for node in tree:
+        if node.get("children"):
+            node["children"] = _collapse_single_child_nodes(node["children"])
+
+    return tree
+
+
 def get_category_hierarchy(brand_id):
     """GET /api/brands/{brand_id}/categories/hierarchy - Get category tree"""
     try:
@@ -512,13 +560,20 @@ def get_category_hierarchy(brand_id):
         if not navigation:
             return jsonify({"error": "Brand not found or no navigation data"}), 404
 
-        # Get product counts for each category
-        # (This would require traversing products and counting)
-        # For now, return the navigation tree as-is
+        hierarchy = navigation.get("category_tree", [])
+
+        # Get product counts so we can prune empty categories
+        product_counts = storage.get_product_counts_by_url(brand_id)
+
+        # 1. Prune leaves with zero products
+        hierarchy = _prune_empty_leaves(hierarchy, set(product_counts.keys()))
+
+        # 2. Collapse single-child wrapper nodes
+        hierarchy = _collapse_single_child_nodes(hierarchy)
 
         return jsonify({
             "brand_id": brand_id,
-            "hierarchy": navigation.get("category_tree", [])
+            "hierarchy": hierarchy
         })
 
     except Exception as e:
@@ -583,13 +638,24 @@ def get_attribute_values(brand_id, attribute_key):
 scraping_jobs = {}
 job_lock = threading.Lock()
 
+# Shared product stream queues: brand_id -> list of Queue objects (one per SSE listener)
+product_stream_listeners: Dict[str, list] = {}
+product_stream_lock = threading.Lock()
+
 
 def start_scrape(brand_id):
-    """POST /api/brands/{brand_id}/scrape - Start scraping job"""
+    """POST /api/brands/{brand_id}/scrape - Start scraping job
+
+    Query params:
+        mode: 'full' (default) - re-scrape nav + products
+              'products_only' - skip nav, re-extract products from existing urls.json
+    """
     try:
         brand = storage.get_brand(brand_id)
         if not brand:
             return jsonify({"error": "Brand not found"}), 404
+
+        mode = request.args.get('mode', 'full')
 
         # Create job ID
         job_id = f"scrape_{int(time.time() * 1000)}"
@@ -608,40 +674,57 @@ def start_scrape(brand_id):
         # Start scrape in background thread
         def run_scrape():
             try:
-                # Import pipeline stages
                 from backend.stages.navigation import extract_navigation
-                from backend.stages.urls import extract_urls
-                from backend.stages.products import run_extract_products
-                from backend.stages.storage import get_domain
+                from backend.stages.storage import get_domain, load_navigation
+                from backend.stages.streaming import StreamingOrchestrator
 
                 homepage_url = brand['homepage_url']
                 domain = get_domain(homepage_url).replace('.', '_')
 
-                # Stage 1: Navigation
+                if mode == 'products_only':
+                    # Skip navigation, use existing nav tree
+                    nav_tree = load_navigation(domain)
+                    if not nav_tree:
+                        raise Exception("No existing navigation tree found — run a full scrape first")
+
+                    with job_lock:
+                        scraping_jobs[job_id]["current_action"] = "Re-extracting products from existing URLs..."
+                        scraping_jobs[job_id]["progress"] = 30
+
+                    # Notify frontend nav is already ready
+                    broadcast_event(brand_id, "nav_ready")
+                else:
+                    # Stage 1: Navigation
+                    with job_lock:
+                        scraping_jobs[job_id]["current_action"] = "Stage 1: Extracting navigation..."
+                        scraping_jobs[job_id]["progress"] = 10
+
+                    nav_result = extract_navigation(homepage_url)
+                    if not nav_result:
+                        raise Exception("Navigation extraction failed")
+
+                    nav_tree = load_navigation(domain)
+                    if not nav_tree:
+                        raise Exception("Failed to load navigation tree")
+
+                    # Notify frontend that navigation is ready
+                    broadcast_event(brand_id, "nav_ready")
+
+                # Stages 2+3: Streaming URL + Product extraction
                 with job_lock:
-                    scraping_jobs[job_id]["current_action"] = "Stage 1: Extracting navigation..."
-                    scraping_jobs[job_id]["progress"] = 10
+                    scraping_jobs[job_id]["current_action"] = "Stage 2+3: Extracting products..."
+                    scraping_jobs[job_id]["progress"] = 30
 
-                nav_result = extract_navigation(homepage_url)
-                if not nav_result:
-                    raise Exception("Navigation extraction failed")
+                def on_product(product_dict, category_path="", category_url=""):
+                    broadcast_product(brand_id, product_dict, category_path, category_url)
 
-                # Stage 2: URLs
-                with job_lock:
-                    scraping_jobs[job_id]["current_action"] = "Stage 2: Extracting product URLs..."
-                    scraping_jobs[job_id]["progress"] = 40
+                orchestrator = StreamingOrchestrator(
+                    domain, nav_tree,
+                    product_callback=on_product,
+                )
+                result = orchestrator.run()
 
-                urls_result = extract_urls(domain)
-                if not urls_result:
-                    raise Exception("URL extraction failed")
-
-                # Stage 3: Products
-                with job_lock:
-                    scraping_jobs[job_id]["current_action"] = "Stage 3: Extracting product details..."
-                    scraping_jobs[job_id]["progress"] = 70
-
-                products_result = run_extract_products(domain)
-                if not products_result or not products_result.get("success"):
+                if not result.success:
                     raise Exception("Product extraction failed")
 
                 # Update job status
@@ -658,6 +741,8 @@ def start_scrape(brand_id):
                 with job_lock:
                     scraping_jobs[job_id]["status"] = "failed"
                     scraping_jobs[job_id]["error"] = str(e)
+            finally:
+                broadcast_done(brand_id)
 
         thread = threading.Thread(target=run_scrape, daemon=True)
         thread.start()
@@ -711,6 +796,74 @@ def get_scrape_history(brand_id):
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+def broadcast_product(brand_id: str, product_dict: dict, category_path: str = "", category_url: str = ""):
+    """Push a product to all SSE listeners for this brand. Called from streaming pipeline."""
+    # Include category info in the streamed data so frontend can update tree counters
+    enriched = {**product_dict, "_category_path": category_path, "_category_url": category_url}
+    with product_stream_lock:
+        listeners = product_stream_listeners.get(brand_id, [])
+        for q in listeners:
+            q.put(enriched)
+
+
+def broadcast_event(brand_id: str, event_name: str, data: dict = None):
+    """Send a named SSE event to all listeners for this brand."""
+    with product_stream_lock:
+        listeners = product_stream_listeners.get(brand_id, [])
+        for q in listeners:
+            q.put({"_event": event_name, "_data": data or {}})
+
+
+def broadcast_done(brand_id: str):
+    """Signal all SSE listeners that scraping is complete."""
+    with product_stream_lock:
+        listeners = product_stream_listeners.get(brand_id, [])
+        for q in listeners:
+            q.put(None)  # None = done sentinel
+
+
+def stream_products(brand_id):
+    """GET /api/brands/{brand_id}/scrape/stream - SSE stream of extracted products"""
+    q = queue.Queue()
+
+    with product_stream_lock:
+        if brand_id not in product_stream_listeners:
+            product_stream_listeners[brand_id] = []
+        product_stream_listeners[brand_id].append(q)
+
+    def generate():
+        try:
+            while True:
+                try:
+                    product = q.get(timeout=120)  # 2 min timeout
+                except queue.Empty:
+                    # Keep-alive
+                    yield ": keepalive\n\n"
+                    continue
+
+                if product is None:
+                    # Done
+                    yield "event: done\ndata: {}\n\n"
+                    break
+
+                # Named events (e.g. nav_ready)
+                if isinstance(product, dict) and "_event" in product:
+                    event_name = product["_event"]
+                    event_data = product.get("_data", {})
+                    yield f"event: {event_name}\ndata: {json.dumps(event_data)}\n\n"
+                    continue
+
+                yield f"data: {json.dumps(product)}\n\n"
+        finally:
+            with product_stream_lock:
+                listeners = product_stream_listeners.get(brand_id, [])
+                if q in listeners:
+                    listeners.remove(q)
+
+    return Response(generate(), mimetype='text/event-stream',
+                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
 
 def get_scraping_intelligence(brand_id):
@@ -834,6 +987,7 @@ def register_routes(app):
     app.add_url_rule('/api/brands/<brand_id>/scrape', 'start_scrape', start_scrape, methods=['POST'])
     app.add_url_rule('/api/brands/<brand_id>/scrape/status', 'get_scrape_status', get_scrape_status, methods=['GET'])
     app.add_url_rule('/api/brands/<brand_id>/scrape/history', 'get_scrape_history', get_scrape_history, methods=['GET'])
+    app.add_url_rule('/api/brands/<brand_id>/scrape/stream', 'stream_products', stream_products, methods=['GET'])
     app.add_url_rule('/api/brands/<brand_id>/scraping-intelligence', 'get_scraping_intelligence', get_scraping_intelligence, methods=['GET'])
     app.add_url_rule('/api/brands/analyze', 'analyze_brand', analyze_brand, methods=['POST'])
 

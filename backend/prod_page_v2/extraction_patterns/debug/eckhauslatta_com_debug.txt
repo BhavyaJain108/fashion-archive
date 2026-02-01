@@ -1,64 +1,66 @@
 ================================================================================
 DOM_FALLBACK DEBUG OUTPUT
 Domain: eckhauslatta.com
-Slug: eckhaus-latta-x-dieux-solar-return-forever-eye-mask
-Matching scripts: 0
-Total filtered size: 168 chars
+Slug: el-buttondown
+Matching scripts: 2
+Total filtered size: 5,627 chars
 ================================================================================
 
 ================================================================================
 SECTION 1: LLM RESPONSE (what the LLM identified)
 ================================================================================
+Looking at this data, I can see this is a Next.js application with loading states and routing information, but it appears to be showing skeleton/loading components rather than actual product data.
+
 PRODUCT_NAME: NOT_FOUND
 PRODUCT_NAME_PATTERN: NOT_FOUND
-PRODUCT_NAME_REASONING: No product data available - page shows "Too Many Requests" error
+PRODUCT_NAME_REASONING: Only skeleton loading elements with animate-pulse classes are present, no actual product title data
 
 PRICE: NOT_FOUND
 PRICE_PATTERN: NOT_FOUND
-PRICE_REASONING: No product data available - page shows "Too Many Requests" error
+PRICE_REASONING: Only skeleton loading elements with animate-pulse classes are present, no actual price data
 
 DESCRIPTION: NOT_FOUND
 DESCRIPTION_PATTERN: NOT_FOUND
-DESCRIPTION_REASONING: No product data available - page shows "Too Many Requests" error
+DESCRIPTION_REASONING: Only skeleton loading elements with animate-pulse classes are present, no actual description data
 
 CATEGORY: NOT_FOUND
 CATEGORY_PATTERN: NOT_FOUND
-CATEGORY_REASONING: No product data available - page shows "Too Many Requests" error
+CATEGORY_REASONING: Only skeleton loading elements with animate-pulse classes are present, no actual category data
 
 VARIANTS: NOT_FOUND
 VARIANTS_PATTERN: NOT_FOUND
-VARIANTS_REASONING: No product data available - page shows "Too Many Requests" error
+VARIANTS_REASONING: Only skeleton loading elements with animate-pulse classes are present, no actual variant/size data
 
 IMAGE: NOT_FOUND
 IMAGE_PATTERN: NOT_FOUND
-IMAGE_REASONING: No product data available - page shows "Too Many Requests" error
+IMAGE_REASONING: Only skeleton loading elements with animate-pulse classes are present, no actual image URLs
 
 ================================================================================
 SECTION 2: PARSED IDENTIFICATIONS (highlighted in scripts)
 ================================================================================
 
 --- PRODUCT_NAME_REASONING ---
-LLM returned: No product data available - page shows "Too Many Requests" error
+LLM returned: Only skeleton loading elements with animate-pulse classes are present, no actual product title data
 NOT FOUND in filtered scripts!
 
 --- PRICE_REASONING ---
-LLM returned: No product data available - page shows "Too Many Requests" error
+LLM returned: Only skeleton loading elements with animate-pulse classes are present, no actual price data
 NOT FOUND in filtered scripts!
 
 --- DESCRIPTION_REASONING ---
-LLM returned: No product data available - page shows "Too Many Requests" error
+LLM returned: Only skeleton loading elements with animate-pulse classes are present, no actual description data
 NOT FOUND in filtered scripts!
 
 --- CATEGORY_REASONING ---
-LLM returned: No product data available - page shows "Too Many Requests" error
+LLM returned: Only skeleton loading elements with animate-pulse classes are present, no actual category data
 NOT FOUND in filtered scripts!
 
 --- VARIANTS_REASONING ---
-LLM returned: No product data available - page shows "Too Many Requests" error
+LLM returned: Only skeleton loading elements with animate-pulse classes are present, no actual variant/size data
 NOT FOUND in filtered scripts!
 
 --- IMAGE_REASONING ---
-LLM returned: No product data available - page shows "Too Many Requests" error
+LLM returned: Only skeleton loading elements with animate-pulse classes are present, no actual image URLs
 NOT FOUND in filtered scripts!
 
 ================================================================================
@@ -68,6 +70,12 @@ SECTION 3: GENERATED REGEX PATTERNS (ALL MATCHES)
 
 ================================================================================
 SECTION 4: FILTERED SCRIPTS (sent to LLM)
-Number of scripts: 0
-Total length: 168 chars
+Number of scripts: 2
+Total length: 5,627 chars
 ================================================================================
+
+--- SCRIPT 1 (450 chars) ---
+self.__next_f.push([1,"c:I[12846,[],\"\"]\nf:I[4707,[],\"\"]\n11:I[37226,[\"826\",\"static/chunks/app/(app)/products/%5Bslug%5D/error-dfaf710cb585953a.js?dpl=dpl_7SPmLhqUXB2hTP94e2LfP3Crh7ip\"],\"default\"]\n12:I[36423,[],\"\"]\n13:I[97296,[\"7165\",\"static/chunks/app/(app)/products/%5Bslug%5D/not-found-9190a0999e30a587.js?dpl=dpl_7SPmLhqUXB2hTP94e2LfP3Crh7ip\"],\"default\"]\n16:I[61060,[],\"\"]\n10:[\"slug\",\">>>el-buttondown<<<\",\"d\"]\n17:[]\n"])
+
+--- SCRIPT 2 (5,828 chars) ---
+self.__next_f.push([1,"0:[\"$\",\"$Lc\",null,{\"buildId\":\"uY8eV_JUHs2vMlOg84_3S\",\"assetPrefix\":\"\",\"urlParts\":[\"\",\"products\",\">>>el-buttondown<<<\"],\"initialTree\":[\"\",{\"children\":[\"(app)\",{\"children\":[\"products\",{\"children\":[[\"slug\",\">>>el-buttondown<<<\",\"d\"],{\"children\":[\"__PAGE__\",{}]}]}]},\"$undefined\",\"$undefined\",true]}],\"initialSeedData\":[\"\",{\"children\":[\"(app)\",{\"children\":[\"products\",{\"children\":[[\"slug\",\">>>el-buttondown<<<\",\"d\"],{\"children\":[\"__PAGE__\",{},[[\"$Ld\",\"$Le\",null],null],null]},[[[[\"$\",\"link\",\"0\",{\"rel\":\"stylesheet\",\"href\":\"/_next/static/css/5fa41d23809e2169.css?dpl=dpl_7SPmLhqUXB2hTP94e2LfP3Crh7ip\",\"precedence\":\"next\",\"crossOrigin\":\"$undefined\"}]],[\"$\",\"div\",null,{\"className\":\"product-layout w-full mx-auto pt-5 md:pt-0 pb-16 md:pb-0 md:pr-24 lg:container\",\"children\":[\"$\",\"$Lf\",null,{\"parallelRouterKey\":\"children\",\"segmentPath\":[\"children\",\"(app)\",\"children\",\"products\",\"children\",\"$10\",\"children\"],\"error\":\"$11\",\"errorStyles\":[],\"errorScripts\":[],\"template\":[\"$\",\"$L12\",null,{}],\"templateStyles\":\"$undefined\",\"templateScripts\":\"$undefined\",\"notFound\":[\"$\",\"$L13\",null,{}],\"notFoundStyles\":[]}]}]],null],[[\"$\",\"div\",null,{\"className\":\"product-content relative\",\"children\":[[\"$\",\"div\",null,{\"className\":\"border-t border-primary md:border-none md:hidden fixed flex gap-x-2 justify-between items-baseline top-11 left-0 right-0 z-10 mx-4 py-2\",\"children\":[[\"$\",\"div\",null,{\"className\":\"animate-pulse rounded-md bg-primary/10 h-4 w-20\"}],[\"$\",\"div\",null,{\"className\":\"animate-pulse rounded-md bg-primary/10 h-4 w-32\"}]]}],[\"$\",\"div\",null,{\"className\":\"md:grid md:grid-cols-[1fr_300px] md:gap-x-6\",\"children\":[[\"$\",\"div\",null,{\"className\":\"mt-16 md:mt-0\",\"children\":[[\"$\",\"div\",null,{\"className\":\"block md:hidden\",\"children\":[\"$\",\"div\",null,{\"className\":\"animate-pulse rounded-md bg-primary/10 w-full aspect-[3/4]\"}]}],[\"$\",\"div\",null,{\"className\":\"hidden md:block space-y-4\",\"children\":[[\"$\",\"div\",null,{\"className\":\"animate-pulse rounded-md w-full aspect-[3/4] bg-transparent\"}],[\"$\",\"div\",null,{\"className\":\"animate-pulse rounded-md w-full aspect-[3/4] bg-transparent\"}]]}]]}],[\"$\",\"div\",null,{\"className\":\"product-details md:sticky md:top-64 md:h-fit md:self-start\",\"children\":[\"$\",\"div\",null,{\"className\":\"md:min-h-[calc(100vh-64px)] space-y-4\",\"children\":[[\"$\",\"div\",null,{\"className\":\"hidden md:block space-y-2\",\"children\":[[\"$\",\"div\",null,{\"className\":\"animate-pulse rounded-md bg-primary/10 h-6 w-48\"}],[\"$\",\"div\",null,{\"className\":\"animate-pulse rounded-md bg-primary/10 h-4 w-24\"}]]}],[\"$\",\"div\",null,{\"className\":\"mt-6 space-y-3\",\"children\":[[\"$\",\"div\",null,{\"className\":\"grid grid-cols-2 gap-2\",\"children\":[[\"$\",\"div\",null,{\"className\":\"animate-pulse rounded-md bg-primary/10 h-10\"}],[\"$\",\"div\",null,{\"className\":\"animate-pulse rounded-md bg-primary/10 h-10\"}]]}],[\"$\",\"div\",null,{\"className\":\"animate-pulse rounded-md bg-primary/10 h-12 w-full\"}],[\"$\",\"div\",null,{\"className\":\"animate-pulse rounded-md bg-primary/10 h-20 w-full\"}]]}]]}]}]]}]]}],[],[]]]},[null,[\"$\",\"$Lf\",null,{\"parallelRouterKey\":\"children\",\"segmentPath\":[\"children\",\"(app)\",\"children\",\"products\",\"children\"],\"error\":\"$undefined\",\"errorStyles\":\"$undefined\",\"errorScripts\":\"$undefined\",\"template\":[\"$\",\"$L12\",null,{}],\"templateStyles\":\"$undefined\",\"templateScripts\":\"$undefined\",\"notFound\":\"$undefined\",\"notFoundStyles\":\"$undefined\"}]],null]},[[[[\"$\",\"link\",\"0\",{\"rel\":\"stylesheet\",\"href\":\"/_next/static/css/ef46db3751d8e999.css?dpl=dpl_7SPmLhqUXB2hTP94e2LfP3Crh7ip\",\"precedence\":\"next\",\"crossOrigin\":\"$undefined\"}],[\"$\",\"link\",\"1\",{\"rel\":\"stylesheet\",\"href\":\"/_next/static/css/4b5097b2c3e5d57b.css?dpl=dpl_7SPmLhqUXB2hTP94e2LfP3Crh7ip\",\"precedence\":\"next\",\"crossOrigin\":\"$undefined\"}]],\"$L14\"],null],null]},[null,[\"$\",\"$Lf\",null,{\"parallelRouterKey\":\"children\",\"segmentPath\":[\"children\"],\"error\":\"$undefined\",\"errorStyles\":\"$undefined\",\"errorScripts\":\"$undefined\",\"template\":[\"$\",\"$L12\",null,{}],\"templateStyles\":\"$undefined\",\"templateScripts\":\"$undefined\",\"notFound\":[[\"$\",\"title\",null,{\"children\":\"404: This page could not be found.\"}],[\"$\",\"div\",null,{\"style\":{\"fontFamily\":\"system-ui,\\\"Segoe UI\\\",Roboto,Helvetica,Arial,sans-serif,\\\"Apple Color Emoji\\\",\\\"Segoe UI Emoji\\\"\",\"height\":\"100vh\",\"textAlign\":\"center\",\"display\":\"flex\",\"flexDirection\":\"column\",\"alignItems\":\"center\",\"justifyContent\":\"center\"},\"children\":[\"$\",\"div\",null,{\"children\":[[\"$\",\"style\",null,{\"dangerouslySetInnerHTML\":{\"__html\":\"body{color:#000;background:#fff;margin:0}.next-error-h1{border-right:1px solid rgba(0,0,0,.3)}@media (prefers-color-scheme:dark){body{color:#fff;background:#000}.next-error-h1{border-right:1px solid rgba(255,255,255,.3)}}\"}}],[\"$\",\"h1\",null,{\"className\":\"next-error-h1\",\"style\":{\"display\":\"inline-block\",\"margin\":\"0 20px 0 0\",\"padding\":\"0 23px 0 0\",\"fontSize\":24,\"fontWeight\":500,\"verticalAlign\":\"top\",\"lineHeight\":\"49px\"},\"children\":\"404\"}],[\"$\",\"div\",null,{\"style\":{\"display\":\"inline-block\"},\"children\":[\"$\",\"h2\",null,{\"style\":{\"fontSize\":14,\"fontWeight\":400,\"lineHeight\":\"49px\",\"margin\":0},\"children\":\"This page could not be found.\"}]}]]}]}]],\"notFoundStyles\":[]}]],null],\"couldBeIntercepted\":false,\"initialHead\":[null,\"$L15\"],\"globalErrorComponent\":\"$16\",\"missingSlots\":\"$W17\"}]\n"])

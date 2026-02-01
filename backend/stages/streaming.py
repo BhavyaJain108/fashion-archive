@@ -58,7 +58,8 @@ class StreamingOrchestrator:
         domain: str,
         nav_tree: dict,
         max_url_workers: int = 4,
-        product_concurrency: int = 15
+        product_concurrency: int = 15,
+        product_callback=None,
     ):
         """
         Initialize streaming orchestrator.
@@ -68,11 +69,13 @@ class StreamingOrchestrator:
             nav_tree: Navigation tree from Stage 1 (nav.json content)
             max_url_workers: Max parallel URL extraction workers
             product_concurrency: Max concurrent product extractions
+            product_callback: Optional callable(product_dict, category_path) called after each product is saved
         """
         self.domain = domain
         self.nav_tree = nav_tree
         self.max_url_workers = max_url_workers
         self.product_concurrency = product_concurrency
+        self.product_callback = product_callback
 
         # Shared queue (thread-safe)
         self.url_queue: queue.Queue[URLBatch] = queue.Queue()
@@ -243,7 +246,16 @@ class StreamingOrchestrator:
                     print(f"  [{completed}/{len(leaves)}] {leaf['name']}: {len(urls)} URLs{dedup_note}")
 
                     # Convert path to filesystem-safe format
-                    category_path = leaf["path"].lower().replace(" ", "-")
+                    # Fix doubled nav names ("Best sellers Best sellers" → "Best sellers")
+                    path_parts = leaf["path"].split("/")
+                    clean_parts = []
+                    for part in path_parts:
+                        words = part.split()
+                        half = len(words) // 2
+                        if half > 0 and words[:half] == words[half:]:
+                            part = " ".join(words[:half])
+                        clean_parts.append(part)
+                    category_path = "/".join(clean_parts).lower().replace(" ", "-")
                     category_path = ''.join(c for c in category_path if c.isalnum() or c in '-/')
 
                     # Discovery phase: collect first 2 URLs
@@ -452,6 +464,8 @@ class StreamingOrchestrator:
                 if result.success and result.product:
                     product_dict = self._product_to_dict(result.product, url)
                     save_product(self.domain, product_dict, category_path, source_url=url)
+                    if self.product_callback:
+                        self.product_callback(product_dict, category_path, "")
                     with self._stats_lock:
                         self.products_successful += 1
                 processed_urls.add(url)
@@ -507,7 +521,7 @@ class StreamingOrchestrator:
                     return path.split("/products/")[-1].rstrip("/")
                 return path.rstrip("/")
 
-            async def extract_and_save(url: str, category_path: str, max_retries: int = MAX_RETRIES):
+            async def extract_and_save(url: str, category_path: str, category_url: str = "", max_retries: int = MAX_RETRIES):
                 """Extract a single product with retry logic and escalating wait times."""
                 # Skip if we already extracted this product under a different category
                 slug = _product_slug(url)
@@ -562,6 +576,8 @@ class StreamingOrchestrator:
 
                                 product_dict = self._product_to_dict(result.product, url)
                                 save_product(self.domain, product_dict, category_path, source_url=url)
+                                if self.product_callback:
+                                    self.product_callback(product_dict, category_path, category_url)
                                 dashboard.record_outcome(url, success=True)
                                 return  # Done!
 
@@ -634,7 +650,7 @@ class StreamingOrchestrator:
                                 new_urls += 1
 
                                 task = asyncio.create_task(
-                                    extract_and_save(url, batch.category_path)
+                                    extract_and_save(url, batch.category_path, batch.category_url)
                                 )
                                 pending_tasks.add(task)
 
@@ -730,12 +746,9 @@ class StreamingOrchestrator:
             if any(t in domain for t in TRACKER_DOMAINS):
                 continue
 
-            # Skip off-domain non-CDN images (allow cdn.shopify.com etc.)
-            if domain and product_domain:
-                is_same_domain = product_domain in domain or domain in product_domain
-                is_cdn = "cdn" in domain or "shopify" in domain
-                if not is_same_domain and not is_cdn:
-                    continue
+            # Skip known tracking domains only (don't filter by product domain —
+            # many brands use third-party CDNs like kering.com, akamaized.net, etc.)
+            # The tracker list above already handles junk domains.
 
             # Skip junk paths
             if any(p in path_lower for p in JUNK_PATTERNS):

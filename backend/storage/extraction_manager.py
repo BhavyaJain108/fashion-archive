@@ -52,14 +52,43 @@ class ExtractionManager:
         return self.base_path / clean_domain
 
     def _domain_to_brand_id(self, domain: str) -> str:
-        """Convert domain folder name to brand_id format"""
-        # eckhauslatta_com -> eckhauslatta
-        return domain.replace('_com', '').replace('_', '')
+        """Convert domain folder name to brand_id.
+
+        The brand_id IS the folder name (e.g. devi-clothing_com).
+        This avoids lossy conversions that strip hyphens or TLDs.
+        """
+        return domain
 
     def _brand_id_to_domain(self, brand_id: str) -> str:
-        """Convert brand_id to domain folder name"""
-        # eckhauslatta -> eckhauslatta_com
-        return f"{brand_id}_com"
+        """Convert brand_id to domain folder name.
+
+        First checks for an exact match, then does a fuzzy search
+        to stay compatible with old brand_ids that stripped the TLD.
+        """
+        if not self.base_path.exists():
+            return brand_id
+
+        # Exact match (brand_id IS the folder name in the new scheme)
+        if (self.base_path / brand_id).is_dir():
+            return brand_id
+
+        # Fuzzy fallback: support old-style brand_ids that dropped TLD/hyphens
+        normalized = brand_id.replace('-', '').replace('_', '').lower()
+
+        for d in self.base_path.iterdir():
+            if not d.is_dir():
+                continue
+            folder_normalized = d.name.replace('-', '').replace('_', '').lower()
+            if folder_normalized == normalized:
+                return d.name
+            # Also try stripping TLD from folder for matching
+            parts = d.name.rsplit('_', 1)
+            if len(parts) == 2:
+                base_normalized = parts[0].replace('-', '').replace('_', '').lower()
+                if base_normalized == normalized:
+                    return d.name
+
+        return brand_id  # fallback: return as-is
 
     # =========================================================================
     # BRAND OPERATIONS
@@ -72,7 +101,7 @@ class ExtractionManager:
 
         domains = []
         for d in self.base_path.iterdir():
-            if d.is_dir() and (d / "nav.json").exists():
+            if d.is_dir() and ((d / "nav.json").exists() or (d / "brand.json").exists()):
                 domains.append(d.name)
 
         return domains
@@ -102,12 +131,18 @@ class ExtractionManager:
         metrics_data = self._read_json(domain_path / "metrics.json")
         config_data = self._read_json(domain_path / "config.json")
 
+        # If no extraction data yet, check for brand.json (newly created brand)
         if not nav_data and not urls_data:
+            brand_json = self._read_json(domain_path / "brand.json")
+            if brand_json:
+                return brand_json
             return None
 
         # Build brand object
         domain = domain_path.name.replace('_', '.')
-        brand_name = brand_id.replace('_', ' ').title()
+        # Derive display name: strip TLD, replace separators with spaces
+        name_base = domain_path.name.rsplit('_', 1)[0]  # e.g. "devi-clothing"
+        brand_name = name_base.replace('-', ' ').replace('_', ' ').title()
 
         # Get stats
         category_count = nav_data.get("category_count", 0) if nav_data else 0
@@ -226,7 +261,8 @@ class ExtractionManager:
             # Maybe products aren't extracted yet, return empty
             return {"products": [], "total_products": 0}
 
-        products = []
+        # Deduplicate by product URL, keeping the most recently modified file
+        seen = {}  # product_url -> (mtime, product_data)
 
         # Walk through category folders
         for category_path in products_dir.rglob("*.json"):
@@ -245,7 +281,17 @@ class ExtractionManager:
                     "hierarchy": category_parts
                 }]
 
-                products.append(product_data)
+                product_url = product_data.get("url") or product_data.get("source_url") or ""
+                mtime = category_path.stat().st_mtime if category_path.exists() else 0
+
+                if product_url and product_url in seen:
+                    # Keep the newer file
+                    if mtime > seen[product_url][0]:
+                        seen[product_url] = (mtime, product_data)
+                else:
+                    seen[product_url or str(category_path)] = (mtime, product_data)
+
+        products = [entry[1] for entry in seen.values()]
 
         return {
             "products": products,

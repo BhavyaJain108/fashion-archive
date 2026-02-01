@@ -64,13 +64,25 @@ class FashionArchiveAPI {
     };
   }
 
-  // Download video for a collection (matches tkinter video download)
-  static async downloadVideo(collection) {
+  // Search for a fashion show video (matches tkinter video download)
+  static async downloadVideo(designerName, seasonName) {
     try {
-      const response = await this.callPython('/api/download-video', { collection });
-      return response.videoPath || null;
+      const response = await this.callPython('/api/download-video', {
+        designerName,
+        seasonName
+      });
+      if (response.success) {
+        return {
+          videoId: response.videoId,
+          youtubeUrl: response.youtubeUrl,
+          embedUrl: response.embedUrl,
+          title: response.title,
+          thumbnail: response.thumbnail
+        };
+      }
+      return null;
     } catch (error) {
-      console.error('Video download error:', error);
+      console.error('Video search error:', error);
       return null;
     }
   }
@@ -576,9 +588,9 @@ class FashionArchiveAPI {
     }
   }
 
-  static async startBrandScraping(brandId) {
+  static async startBrandScraping(brandId, mode = 'full') {
     try {
-      const response = await fetch(`${this.BASE_URL}/api/brands/${brandId}/scrape`, {
+      const response = await fetch(`${this.BASE_URL}/api/brands/${brandId}/scrape?mode=${mode}`, {
         method: 'POST'
       });
 

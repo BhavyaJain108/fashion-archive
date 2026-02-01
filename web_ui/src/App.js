@@ -289,21 +289,23 @@ function App() {
     setZoomMode((zoomMode + 1) % 3);
   };
 
-  // Handle video button click - download or toggle video
+  // Handle video button click - search or toggle video
   const handleVideoButton = async () => {
     if (videoDownloadState === 'ready') {
-      // Start download
+      // Start search
       setVideoDownloadState('loading');
       try {
-        const videoPath = await FashionArchiveAPI.downloadVideo(selectedCollection);
-        if (videoPath) {
-          setCurrentVideoPath(videoPath);
+        const designerName = selectedCollection?.designer || '';
+        const seasonName = selectedSeason?.name || '';
+        const videoInfo = await FashionArchiveAPI.downloadVideo(designerName, seasonName);
+        if (videoInfo) {
+          setCurrentVideoPath(videoInfo);
           setVideoDownloadState('downloaded');
         } else {
           setVideoDownloadState('ready'); // Reset on failure
         }
       } catch (error) {
-        console.error('Video download failed:', error);
+        console.error('Video search failed:', error);
         setVideoDownloadState('ready'); // Reset on failure
       }
     } else if (videoDownloadState === 'downloaded') {
@@ -387,7 +389,7 @@ function App() {
         <div style={{ display: 'flex', width: '100%', height: '100vh', paddingTop: '40px' }}>
           
           {/* Column 1: Seasons (Always visible) */}
-          <div className="column" style={{ width: '300px' }}>
+          <div className="column" style={{ width: '300px', flexShrink: 0 }}>
             <SeasonsPanel 
               seasons={seasons}
               selectedSeason={selectedSeason}
@@ -397,7 +399,7 @@ function App() {
 
           {/* Column 2: Collections (Visible after season selection) */}
           {column2Activated && (
-            <div className="column" style={{ width: '400px' }}>
+            <div className="column" style={{ width: '400px', flexShrink: 0 }}>
               <CollectionsPanel 
                 collections={collections}
                 selectedCollection={selectedCollection}

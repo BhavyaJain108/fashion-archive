@@ -756,19 +756,13 @@ class EmbeddedJsonStrategy(BaseStrategy):
         """Find image URLs in HTML."""
         images = []
 
-        # Common CDN patterns for product images
-        patterns = [
-            r'https://cdn\.sanity\.io/images/[^\s"\'<>]+\.(?:jpg|jpeg|png|webp|gif)[^\s"\'<>]*',
-            r'https://cdn\.shopify\.com/[^\s"\'<>]+\.(?:jpg|jpeg|png|webp|gif)[^\s"\'<>]*',
-            r'https://[^\s"\'<>]+/products/[^\s"\'<>]+\.(?:jpg|jpeg|png|webp|gif)[^\s"\'<>]*',
-        ]
-
-        for pattern in patterns:
-            matches = re.findall(pattern, html, re.IGNORECASE)
-            for url in matches:
-                url = url.rstrip('",\\')
-                if url not in images:
-                    images.append(url)
+        # Match any https image URL
+        pattern = r'https://[^\s"\'<>]+\.(?:jpg|jpeg|png|webp)(?:\?[^\s"\'<>]*)?'
+        matches = re.findall(pattern, html, re.IGNORECASE)
+        for url in matches:
+            url = url.rstrip('",\\')
+            if url not in images:
+                images.append(url)
 
         # Deduplicate while preserving order
         seen = set()
@@ -823,6 +817,34 @@ class EmbeddedJsonStrategy(BaseStrategy):
             network_images = self._filter_product_images(page_data.image_urls, url)
             if len(network_images) > len(images):
                 images = network_images
+
+        # LLM fallback: if no images found, ask LLM to pick from all captured URLs
+        if not images and page_data and page_data.image_urls and self.llm:
+            all_urls = page_data.image_urls[:50]  # cap to avoid huge prompts
+            if all_urls:
+                product_name = data.get('title') or data.get('name') or ''
+                llm_result = self.llm.call(
+                    prompt=(
+                        f"Product: {product_name}\n"
+                        f"Page: {url}\n\n"
+                        f"These image URLs were loaded on this product page. "
+                        f"Return ONLY the URLs that are actual product photos (not icons, logos, tracking pixels, UI elements, or banners). "
+                        f"Return one URL per line, nothing else.\n\n"
+                        + "\n".join(all_urls)
+                    ),
+                    expected_format="text",
+                    max_tokens=2000,
+                )
+                if llm_result.get("success") and llm_result.get("data"):
+                    llm_text = llm_result["data"] if isinstance(llm_result["data"], str) else str(llm_result["data"])
+                    images = [line.strip() for line in llm_text.strip().split('\n')
+                              if line.strip().startswith('http')]
+                    if images:
+                        print(f"    [dom_fallback] LLM image fallback found {len(images)} images")
+
+        # Also try HTML if still no images and we have the page HTML
+        if not images and page_data and page_data.html:
+            images = self._find_images(page_data.html)
 
         return self._create_product(
             name=data.get('title') or data.get('name'),

@@ -312,6 +312,23 @@ async def load_page_on_existing(
         # Wait for dynamic content (JS-rendered products, lazy loading, etc.)
         await page.wait_for_timeout(wait_time)
 
+        # Force-load lazy images without scrolling
+        try:
+            await page.evaluate("""() => {
+                document.querySelectorAll('img[loading="lazy"]').forEach(img => {
+                    img.loading = 'eager';
+                });
+                document.querySelectorAll('img[data-src]').forEach(img => {
+                    if (!img.src || img.src.includes('data:')) img.src = img.dataset.src;
+                });
+                document.querySelectorAll('img[data-srcset]').forEach(img => {
+                    if (!img.srcset) img.srcset = img.dataset.srcset;
+                });
+            }""")
+            await page.wait_for_timeout(500)
+        except Exception:
+            pass
+
         # Check for redirect to different domain (error page redirect)
         from urllib.parse import urlparse
         requested_domain = urlparse(url).netloc

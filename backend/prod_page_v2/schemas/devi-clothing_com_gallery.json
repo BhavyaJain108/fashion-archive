@@ -1,0 +1,5 @@
+{
+  "image_selector": ".product__primary-image-wrapper .product__media img.responsive-image__image",
+  "url_attribute": "data-src",
+  "container_selector": ".product__primary-image-wrapper"
+}

@@ -1243,20 +1243,23 @@ async def explore_toggle_menu(page: Page, menu_structure: dict, states: list, st
             sub_type = sub_item['type']
             print(f"\n  [{step}] {tl_name} > {sub_name}")
 
-            # Ensure menu is open and re-click top-level
-            await ensure_menu_open()
-            await click_button(page, tl_name, prefer_tab=prefer_tab)
-            await page.wait_for_timeout(300)
-
             # Track URL before click to detect navigation
             url_before = page.url
 
-            # Click the subcategory using the type identified by LLM
+            # Try clicking the subcategory directly first
             prefer_tab_for_sub = (sub_type == 'tab')
             sub_clicked = await click_button(page, sub_name, prefer_tab=prefer_tab_for_sub)
+
+            # Only reset menu if the click failed (element not found/visible)
             if not sub_clicked:
-                print(f"      Failed to click {sub_name}, skipping...")
-                continue
+                print(f"      {sub_name} not found, re-opening menu...")
+                await ensure_menu_open()
+                await click_button(page, tl_name, prefer_tab=prefer_tab)
+                await page.wait_for_timeout(300)
+                sub_clicked = await click_button(page, sub_name, prefer_tab=prefer_tab_for_sub)
+                if not sub_clicked:
+                    print(f"      Failed to click {sub_name} after reset, skipping...")
+                    continue
 
             await page.wait_for_timeout(500)
 
@@ -1400,15 +1403,17 @@ async def explore(url: str, max_depth: int = 3) -> tuple:
             print(f"\n[5] Detected toggle menu: {toggle_item['name']}")
             print("    Opening menu and analyzing structure...")
 
-            # Click to open the menu
+            # Dismiss popups first, then open menu (popup dismissal can close menus)
+            await dismiss_popups_with_llm(page)
+            await page.wait_for_timeout(300)
+
+            # Now open the menu
             clicked = await click_button(page, toggle_item['name'])
             if not clicked:
                 print("    ERROR: Could not open toggle menu")
                 return states, _llm_usage
 
             await page.wait_for_timeout(1000)
-            await dismiss_popups_with_llm(page)
-            await page.wait_for_timeout(300)
 
             # Get ARIA and ask LLM to identify structure
             aria = await page.locator('body').aria_snapshot()

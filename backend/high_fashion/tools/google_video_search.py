@@ -162,10 +162,18 @@ class GoogleVideoSearch:
                 print("❌ No video URLs found in search results")
                 return None
             
-            # Create prompt with the actual URLs found
-            urls_list = "\n".join([f"{i+1}. {url}" for i, url in enumerate(available_urls)])
-            
-            prompt = f"""For the query "{query}", analyze these video URLs from Google search results and select the BEST one that seems most relevant.
+            # Fetch titles for each URL so the LLM can judge quality and relevance
+            max_urls_to_check = min(8, len(available_urls))
+            urls_with_titles = []
+            print(f"📊 Fetching titles for {max_urls_to_check} of {len(available_urls)} URLs...")
+            for i, url in enumerate(available_urls[:max_urls_to_check]):
+                title = self._get_video_title(url) or f"(unknown title)"
+                urls_with_titles.append((url, title))
+                print(f"  {i+1}. {title} — {url}")
+
+            urls_list = "\n".join([f"{i+1}. TITLE: {title}\n   URL: {url}" for i, (url, title) in enumerate(urls_with_titles)])
+
+            prompt = f"""For the query "{query}", analyze these video URLs and their titles from Google search results and select the BEST one.
 
 You must select from one of these EXACT URLs found on the page:
 
@@ -175,11 +183,14 @@ CRITICAL RULE: DO NOT ANALYZE DATES OR TIMING. Do not say anything about "future
 
 IMPORTANT: Your job is to pick the MOST LIKELY match from the available URLs, even if it's not perfect. The verification system will check it properly later.
 
-Basic guidelines (be flexible):
-- Avoid Style.com and Elle if possible (they're usually short clips)
-- Prefer videos that mention the same brand
-- Try to match year, season, or collection type when possible
-- But if no perfect match exists, pick the CLOSEST one available
+QUALITY AND RELEVANCE GUIDELINES (in priority order):
+1. CORRECT MATCH FIRST: The video must match the brand, season, year, and collection type
+2. PREFER HIGH QUALITY: Among correct matches, strongly prefer videos with titles containing "Full Show", "Full Runway", "HD", "1080", "4K", or "Complete Show"
+3. PREFER OFFICIAL CHANNELS: Prefer uploads from official fashion channels (e.g. containing the brand name in the channel) over random reuploads
+4. PREFER LONGER VIDEOS: Full runway shows are typically 8-20+ minutes. Avoid short clips, highlights, backstage, or review content
+5. Avoid Style.com and Elle (they're usually short low-quality clips)
+6. Prefer videos that mention the same brand
+7. Try to match year, season, or collection type when possible
 
 You MUST ALWAYS select exactly one URL from the list above. Even if none are perfect matches, pick the MOST RELEVANT one. DO NOT return "found_match": false unless the list is completely empty or contains zero fashion-related content.
 
@@ -201,7 +212,7 @@ OR if no match:
     "evidence": ""
 }}
 
-CRITICAL: 
+CRITICAL:
 - Your response must be valid JSON that can be parsed by json.loads()
 - Do NOT use newlines, line breaks, or \\n inside JSON string values
 - Keep all text on single lines within the JSON strings

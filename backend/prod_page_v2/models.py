@@ -2,9 +2,51 @@
 Data models for product extraction.
 """
 
+import re
 from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Any
 from enum import Enum
+
+
+def clean_image_url(url: str) -> str:
+    """Fix Shopify template placeholders like {width}x in image URLs."""
+    return re.sub(r'\{width\}', '1024', url)
+
+
+def clean_description(text: str) -> str:
+    """Clean raw product description: decode entities, strip HTML, normalize whitespace."""
+    if not text:
+        return text
+
+    # 1. Decode double-escaped unicode (\\u003cp\\u003e -> <p>)
+    #    May need multiple passes for double-escaping
+    for _ in range(2):
+        text = text.replace('\\\\', '\\')
+        try:
+            text = text.encode('utf-8').decode('unicode_escape', errors='ignore')
+        except (UnicodeDecodeError, UnicodeEncodeError):
+            break
+
+    # 2. Strip HTML tags
+    text = re.sub(r'<[^>]+>', ' ', text)
+
+    # 3. Decode HTML entities (&amp; &nbsp; etc.)
+    import html as html_mod
+    text = html_mod.unescape(text)
+
+    # 4. Replace non-breaking spaces and other unicode whitespace
+    text = text.replace('\xa0', ' ').replace('\u200b', '')
+
+    # 5. Collapse whitespace: multiple spaces -> single, multiple newlines -> double
+    text = re.sub(r'[^\S\n]+', ' ', text)        # collapse horizontal whitespace
+    text = re.sub(r'\n\s*\n(\s*\n)*', '\n\n', text)  # collapse 3+ newlines to 2
+    text = re.sub(r'^\s+|\s+$', '', text, flags=re.MULTILINE)  # strip each line
+
+    # 6. Remove junk fragments (meta charset remnants, $$$, etc.)
+    text = re.sub(r'meta charset=[^\s]*', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'\${2,}', '', text)
+
+    return text.strip()
 
 
 @dataclass
@@ -93,6 +135,12 @@ class Product:
     # Extraction metadata
     extraction_strategy: Optional[ExtractionStrategy] = None
     missing_fields: MissingFields = field(default_factory=MissingFields)
+
+    def __post_init__(self):
+        if self.images:
+            self.images = [clean_image_url(url) for url in self.images]
+        if self.description:
+            self.description = clean_description(self.description)
 
     def is_complete(self) -> bool:
         """Check if all required fields are present."""
