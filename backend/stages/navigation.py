@@ -271,13 +271,19 @@ def extract_navigation(url: str, timeout: int = 120, mode: str = "both") -> dict
                 print(f"  Dynamic: error - {e}")
 
     # Pick better result
+    # Prefer static when it found results — its LLM pass with screenshot filters
+    # out non-product links (e.g. social media, music, video) more reliably than
+    # dynamic which just DFS-clicks everything.
     if static_result and dynamic_result:
-        if static_result["category_count"] >= dynamic_result["category_count"]:
+        if static_result["category_count"] > 0:
             result = static_result
-            print(f"\nUsing static result ({result['category_count']} categories)")
-        else:
+            print(f"\nUsing static result ({result['category_count']} categories) — LLM-curated")
+        elif dynamic_result["category_count"] > 0:
             result = dynamic_result
-            print(f"\nUsing dynamic result ({result['category_count']} categories)")
+            print(f"\nUsing dynamic result ({result['category_count']} categories) — static empty")
+        else:
+            result = static_result
+            print(f"\nUsing static result (both empty)")
     elif static_result:
         result = static_result
         print(f"\nUsing static result" + (" (dynamic failed)" if mode == "both" else ""))

@@ -1,0 +1,6 @@
+{
+  "title_pattern": "<dd\\ class=\"release\\-title\"\\ itemprop=\"name\">([^\"]+)</dd>",
+  "price_pattern": "<meta\\ itemprop=\"price\"\\ content=\"([0-9.]+)\">",
+  "variants_pattern": "<input\\ type=\"radio\"\\ name=\"variant\\-568429\"\\ id=\"variant\\-([^\"]+)\"\\ class=\"js\\-toggle\\-variants\"",
+  "image_pattern": "<img\\ src=\"([^\"]+)\"\\ alt=\"BOOTLEG\\ TEE\"\\ itemprop=\"image\"\\ class=\"resized\""
+}

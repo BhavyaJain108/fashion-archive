@@ -355,7 +355,7 @@ function App() {
     return (
       <div className="columns-container">
         <div className="loading">
-          <div className="mac-label">Loading Fashion Week Archive...</div>
+          <div className="mac-label">Loading Fashion Archive...</div>
         </div>
       </div>
     );
@@ -373,20 +373,26 @@ function App() {
         onLogout={handleLogout}
       />
       
-      {/* Title Bar - matches tkinter window title */}
-      <div className="mac-title-bar" style={{ 
-        position: 'fixed', 
-        top: '20px', 
-        left: 0, 
-        right: 0, 
-        zIndex: 100 
+      {/* Title Bar - scrolling marquee */}
+      <div className="mac-title-bar" style={{
+        position: 'fixed',
+        top: '42px',
+        left: 0,
+        right: 0,
+        zIndex: 100,
+        overflow: 'hidden',
+        whiteSpace: 'nowrap',
       }}>
-        Fashion Week Archive Browser
+        <div className="marquee-track">
+          {Array.from({ length: 20 }, (_, i) => (
+            <span key={i} className="marquee-item">Fashion Archive Browser</span>
+          ))}
+        </div>
       </div>
 
       {/* Main Content - offset by menu and title bars */}
       {currentPage === 'high-fashion' ? (
-        <div style={{ display: 'flex', width: '100%', height: '100vh', paddingTop: '40px' }}>
+        <div style={{ display: 'flex', width: '100%', height: '100vh', paddingTop: '75px' }}>
           
           {/* Column 1: Seasons (Always visible) */}
           <div className="column" style={{ width: '300px', flexShrink: 0 }}>
@@ -399,7 +405,7 @@ function App() {
 
           {/* Column 2: Collections (Visible after season selection) */}
           {column2Activated && (
-            <div className="column" style={{ width: '400px', flexShrink: 0 }}>
+            <div className="column" style={{ width: '30vw', minWidth: '300px', maxWidth: '500px', flexShrink: 0 }}>
               <CollectionsPanel 
                 collections={collections}
                 selectedCollection={selectedCollection}

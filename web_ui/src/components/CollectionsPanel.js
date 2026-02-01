@@ -2,7 +2,7 @@ import React from 'react';
 
 function CollectionsPanel({ collections, selectedCollection, onCollectionSelect, seasonTitle, isLoading, loadingProgress }) {
   return (
-    <div className="mac-panel" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <div className="mac-panel collections-panel" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       {/* Dynamic Title - matches tkinter behavior */}
       <div className="mac-label title">
         {seasonTitle || 'Collections'}

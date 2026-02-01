@@ -581,8 +581,8 @@ class ProductExtractor:
         # Load page using the provided page object
         page_data = await load_page_on_existing(page, url, wait_time=wait_time)
 
-        # Fix 2: Don't run extraction on failed/error pages
-        if not page_data.loaded:
+        # Fix 2: Don't run extraction on failed/error pages (including 404s)
+        if not page_data.loaded or page_data.status_code in (404, 403, 410, 429, 500, 502, 503):
             return ExtractionResult(
                 success=False,
                 error=f"Page load failed (status={page_data.status_code})",

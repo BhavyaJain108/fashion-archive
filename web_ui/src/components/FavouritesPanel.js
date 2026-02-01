@@ -157,7 +157,7 @@ function FavouritesPanel({ currentView }) {
         <div style={{ 
           display: 'flex', 
           height: '100vh', 
-          paddingTop: '40px',
+          paddingTop: '75px',
           alignItems: 'center',
           justifyContent: 'center'
         }}>
@@ -175,7 +175,7 @@ function FavouritesPanel({ currentView }) {
         <div style={{ 
           display: 'flex', 
           height: '100vh', 
-          paddingTop: '40px',
+          paddingTop: '75px',
           alignItems: 'center',
           justifyContent: 'center',
           flexDirection: 'column',
@@ -205,17 +205,17 @@ function FavouritesPanel({ currentView }) {
     <div className="columns-container">
       {/* Title Bar */}
       <div className="mac-title-bar" style={{ 
-        position: 'fixed', 
-        top: '20px', 
-        left: 0, 
-        right: 0, 
-        zIndex: 100 
+        position: 'fixed',
+        top: '42px',
+        left: 0,
+        right: 0,
+        zIndex: 100
       }}>
         My Favourites - {stats.total_favourites || 0} looks from {stats.unique_designers || 0} designers
       </div>
 
       {/* Split Layout */}
-      <div style={{ display: 'flex', height: '100vh', paddingTop: '40px' }}>
+      <div style={{ display: 'flex', height: '100vh', paddingTop: '75px' }}>
         
         {/* Left: Gallery */}
         <div className="column" style={{ width: '50%' }}>

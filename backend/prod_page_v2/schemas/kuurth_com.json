@@ -1,7 +1,7 @@
 {
   "name": null,
   "price": null,
-  "currency": "[2].geolocation.currency",
+  "currency": "USD",
   "description": null,
   "brand": null,
   "category": null,

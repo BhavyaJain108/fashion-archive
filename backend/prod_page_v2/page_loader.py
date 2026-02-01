@@ -466,6 +466,7 @@ async def extract_gallery_images(page, gallery_config) -> List[str]:
 
 def _dedupe_and_clean(raw_urls: List[str]) -> List[str]:
     """Deduplicate and strip size suffixes from image URLs."""
+    import re
     from urllib.parse import urlparse, parse_qs, unquote
 
     seen = set()
@@ -479,6 +480,9 @@ def _dedupe_and_clean(raw_urls: List[str]) -> List[str]:
                 url = unquote(params['url'][0])
 
         clean = _strip_size_suffix(url)
+        # Upgrade CDN path-based size variants to largest available
+        # e.g. cloudfront.net/r/s/123.jpg or /r/g/123.jpg → /r/b/123.jpg
+        clean = re.sub(r'/r/[sgtm]/', '/r/b/', clean)
         identity = clean.split("?")[0].split("/")[-1]  # filename as identity
         if identity not in seen:
             seen.add(identity)

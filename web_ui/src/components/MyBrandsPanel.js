@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import Fuse from 'fuse.js';
 import { FashionArchiveAPI } from '../services/api';
 import ProductDetailPanel from './ProductDetailPanel';
 
@@ -14,6 +15,20 @@ function MyBrandsPanel() {
   const [scrapingBrands, setScrapingBrands] = useState(new Set());
   const [productCounts, setProductCounts] = useState({});
   const [selectedProduct, setSelectedProduct] = useState(null);
+
+  // Search + sort state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState('');
+  const [searchResults, setSearchResults] = useState(null);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [selectedDropdownIdx, setSelectedDropdownIdx] = useState(-1);
+  const searchTimerRef = useRef(null);
+  const searchInputRef = useRef(null);
+
+  // Resizable detail panel
+  const [detailPanelWidth, setDetailPanelWidth] = useState(400);
+  const isResizing = useRef(false);
 
   // Streaming state
   const [streamingBrandId, setStreamingBrandId] = useState(null); // which brand is being streamed
@@ -319,7 +334,7 @@ function MyBrandsPanel() {
     try {
       setLoadingProducts(true);
 
-      // Track seen products by URL to avoid duplicates
+      // Track seen products by URL and by brand+name (cross-category only)
       const seenProductUrls = new Set();
       const deduplicatedProducts = [];
 
@@ -327,6 +342,11 @@ function MyBrandsPanel() {
       const getProductUrl = (product) => {
         return product.url || product.product_url || '';
       };
+
+      // For cross-category dedup: track brand+name from first batch (new category)
+      // so duplicates from OTHER categories get removed, but same-category dupes stay
+      const newCategoryNames = new Set();
+      const existingCategoryNames = new Set();
 
       // If there's a newly selected key, load it first (prepend)
       let newProducts = [];
@@ -361,21 +381,32 @@ function MyBrandsPanel() {
         }
       }
 
-      // Deduplicate: prioritize new products, then add existing ones if not already seen
+      // Deduplicate: prioritize new products, then add existing ones
+      // Cross-category dedup by brand+name; same-category dupes are kept
       for (const product of newProducts) {
         const url = getProductUrl(product);
-        if (url && !seenProductUrls.has(url)) {
-          seenProductUrls.add(url);
-          deduplicatedProducts.push(product);
-        }
+        if (url && seenProductUrls.has(url)) continue;
+        if (url) seenProductUrls.add(url);
+        const brand = (product.brand || product.brand_id || '').toLowerCase();
+        const name = (product.name || product.product_name || '').toLowerCase();
+        if (brand && name) newCategoryNames.add(`${brand}::${name}`);
+        deduplicatedProducts.push(product);
       }
 
       for (const product of existingProductsWithCategory) {
         const url = getProductUrl(product);
-        if (url && !seenProductUrls.has(url)) {
-          seenProductUrls.add(url);
-          deduplicatedProducts.push(product);
+        if (url && seenProductUrls.has(url)) continue;
+        if (url) seenProductUrls.add(url);
+        // Skip if same brand+name already in the new category batch
+        const brand = (product.brand || product.brand_id || '').toLowerCase();
+        const name = (product.name || product.product_name || '').toLowerCase();
+        if (brand && name) {
+          const key = `${brand}::${name}`;
+          if (newCategoryNames.has(key)) continue;
+          if (existingCategoryNames.has(key)) continue;
+          existingCategoryNames.add(key);
         }
+        deduplicatedProducts.push(product);
       }
 
       setProducts(deduplicatedProducts);
@@ -526,6 +557,294 @@ function MyBrandsPanel() {
     });
   };
 
+  // Flatten all categories with full paths + build trigram index for O(1) lookup
+  const { allCategories, trigramIndex } = useMemo(() => {
+    const leaves = [];
+    const collect = (brand, cats, path) => {
+      if (!cats) return;
+      for (const cat of cats) {
+        const currentPath = [...path, cat.name || ''];
+        if (cat.children && cat.children.length > 0) {
+          collect(brand, cat.children, currentPath);
+        } else {
+          const fullPath = [(brand.name || brand.brand_id || ''), ...currentPath].join(' / ');
+          leaves.push({
+            fullPath,
+            fullPathLower: fullPath.toLowerCase(),
+            name: cat.name || '',
+            url: cat.url,
+            brandId: brand.brand_id,
+            leafKeys: [`${brand.brand_id}::${cat.url}`],
+          });
+        }
+      }
+    };
+    for (const brand of brands) {
+      collect(brand, brand.navigation, []);
+    }
+    leaves.sort((a, b) => a.fullPathLower.localeCompare(b.fullPathLower));
+
+    // Build trigram index: map each 3-char substring → Set of category indices
+    const idx = {};
+    for (let i = 0; i < leaves.length; i++) {
+      const s = leaves[i].fullPathLower;
+      for (let j = 0; j <= s.length - 3; j++) {
+        const tri = s.slice(j, j + 3);
+        if (!idx[tri]) idx[tri] = new Set();
+        idx[tri].add(i);
+      }
+      // Also index bigrams for short queries
+      for (let j = 0; j <= s.length - 2; j++) {
+        const bi = s.slice(j, j + 2);
+        const key = `_bi_${bi}`;
+        if (!idx[key]) idx[key] = new Set();
+        idx[key].add(i);
+      }
+    }
+
+    return { allCategories: leaves, trigramIndex: idx };
+  }, [brands]);
+
+  // Categories matching search query via trigram index intersection, then verify
+  const matchingCategories = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return [];
+
+    // For very short queries (1 char), fall back to linear scan
+    if (q.length === 1) {
+      return allCategories.filter(cat => cat.fullPathLower.includes(q));
+    }
+
+    // Get candidate set via trigram/bigram index intersection
+    let candidates = null;
+    if (q.length === 2) {
+      candidates = trigramIndex[`_bi_${q}`];
+    } else {
+      // Intersect trigram sets for each trigram in query
+      for (let i = 0; i <= q.length - 3; i++) {
+        const tri = q.slice(i, i + 3);
+        const set = trigramIndex[tri];
+        if (!set) return []; // trigram not found = no matches
+        if (candidates === null) {
+          candidates = new Set(set);
+        } else {
+          for (const idx of candidates) {
+            if (!set.has(idx)) candidates.delete(idx);
+          }
+        }
+        if (candidates.size === 0) return [];
+      }
+    }
+
+    if (!candidates) return [];
+
+    // Verify candidates with full substring check (hash narrowed the set)
+    const results = [];
+    for (const idx of candidates) {
+      if (allCategories[idx].fullPathLower.includes(q)) {
+        results.push(allCategories[idx]);
+      }
+    }
+    return results.sort((a, b) => a.fullPathLower.localeCompare(b.fullPathLower));
+  }, [searchQuery, allCategories, trigramIndex]);
+
+  // Deduplicate products by URL, then by name across different categories (not within same category)
+  const deduplicateProducts = useCallback((productArrays) => {
+    const seenUrl = new Set();
+    // Track which brand+name combos we've seen AND which array index they came from
+    const brandNameSource = new Map(); // "brand::name" → array index
+    const results = [];
+    for (let i = 0; i < productArrays.length; i++) {
+      for (const p of productArrays[i]) {
+        const url = p.url || p.product_url || '';
+        if (url && seenUrl.has(url)) continue;
+        if (url) seenUrl.add(url);
+
+        // Cross-category name dedup: skip if same brand+name from a DIFFERENT array
+        const brand = (p.brand || p.brand_id || '').toLowerCase();
+        const name = (p.name || p.product_name || '').toLowerCase();
+        if (brand && name) {
+          const key = `${brand}::${name}`;
+          if (brandNameSource.has(key) && brandNameSource.get(key) !== i) continue;
+          brandNameSource.set(key, i);
+        }
+
+        results.push(p);
+      }
+    }
+    return results;
+  }, []);
+
+  // Load products for a specific dropdown category
+  const loadCategoryProducts = useCallback(async (category) => {
+    setSearchLoading(true);
+    try {
+      // Fire all leaf key fetches in parallel
+      const fetches = category.leafKeys.map(async (leafKey) => {
+        const [brandId, categoryUrl] = leafKey.split('::');
+        const response = await fetch(
+          `http://localhost:8081/api/products?brand_id=${brandId}&classification_url=${encodeURIComponent(categoryUrl)}&limit=1000`
+        );
+        if (response.ok) {
+          const data = await response.json();
+          return data.products || [];
+        }
+        return [];
+      });
+      const results = await Promise.all(fetches);
+      setSearchResults(deduplicateProducts(results));
+    } catch (e) {
+      console.error('Category load failed:', e);
+    } finally {
+      setSearchLoading(false);
+    }
+  }, [deduplicateProducts]);
+
+  // Concurrent search: fires backend product search + matching category product fetches in parallel
+  const executeSearch = useCallback(async (query) => {
+    const q = query.trim();
+    if (!q) {
+      setSearchResults(null);
+      return;
+    }
+    setSearchLoading(true);
+    try {
+      // 1) Backend full-text search
+      const textSearchPromise = fetch(
+        `http://localhost:8081/api/products/search?q=${encodeURIComponent(q)}&limit=200`
+      ).then(r => r.ok ? r.json().then(d => d.products || []) : []).catch(() => []);
+
+      // 2) Fetch products from all matching categories in parallel
+      const catFetches = matchingCategories.flatMap(cat =>
+        cat.leafKeys.map(leafKey => {
+          const [brandId, categoryUrl] = leafKey.split('::');
+          return fetch(
+            `http://localhost:8081/api/products?brand_id=${brandId}&classification_url=${encodeURIComponent(categoryUrl)}&limit=500`
+          ).then(r => r.ok ? r.json().then(d => d.products || []) : []).catch(() => []);
+        })
+      );
+
+      // Await all concurrently
+      const [textResults, ...catResults] = await Promise.all([textSearchPromise, ...catFetches]);
+
+      // Deduplicate: text search results first (higher relevance), then category products
+      const merged = deduplicateProducts([textResults, ...catResults]);
+
+      // Fuzzy re-rank the merged set
+      const fuse = new Fuse(merged, {
+        keys: ['name', 'product_name', 'brand', 'brand_id', 'description', 'category'],
+        threshold: 0.5,
+        ignoreLocation: true,
+        minMatchCharLength: 2,
+      });
+      const fuzzyResults = fuse.search(q).map(r => r.item);
+      setSearchResults(fuzzyResults.length > 0 ? fuzzyResults : merged);
+    } catch (e) {
+      console.error('Search failed:', e);
+    } finally {
+      setSearchLoading(false);
+    }
+  }, [matchingCategories, deduplicateProducts]);
+
+  // Handle search input — show dropdown + debounced auto-search for products simultaneously
+  const handleSearchChange = useCallback((query) => {
+    setSearchQuery(query);
+    setSelectedDropdownIdx(-1);
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+
+    if (!query.trim()) {
+      setSearchResults(null);
+      setShowDropdown(false);
+      return;
+    }
+
+    setShowDropdown(true);
+
+    // Debounced product search fires simultaneously with instant category dropdown
+    searchTimerRef.current = setTimeout(() => {
+      executeSearch(query);
+    }, 300);
+  }, [executeSearch]);
+
+  // Handle keyboard in search input
+  const handleSearchKeyDown = useCallback((e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+      if (selectedDropdownIdx >= 0 && selectedDropdownIdx < matchingCategories.length) {
+        loadCategoryProducts(matchingCategories[selectedDropdownIdx]);
+      } else {
+        executeSearch(searchQuery);
+      }
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setShowDropdown(true);
+      setSelectedDropdownIdx(prev => Math.min(prev + 1, matchingCategories.length - 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setSelectedDropdownIdx(prev => Math.max(prev - 1, -1));
+    } else if (e.key === 'Escape') {
+      setShowDropdown(false);
+    }
+  }, [searchQuery, selectedDropdownIdx, matchingCategories, loadCategoryProducts, executeSearch]);
+
+  // Parse price to number for sorting
+  const parsePrice = useCallback((product) => {
+    const raw = product.price || product.attributes?.price || '';
+    const num = parseFloat(String(raw).replace(/[^0-9.]/g, ''));
+    return isNaN(num) ? 0 : num;
+  }, []);
+
+  // Compute displayed products: use search results when searching, else category products
+  const displayProducts = useMemo(() => {
+    let result = searchResults !== null ? searchResults : products;
+
+    // Sort
+    if (sortBy) {
+      result = [...result].sort((a, b) => {
+        const nameA = (a.name || a.product_name || '').toLowerCase();
+        const nameB = (b.name || b.product_name || '').toLowerCase();
+        switch (sortBy) {
+          case 'name-asc': return nameA.localeCompare(nameB);
+          case 'name-desc': return nameB.localeCompare(nameA);
+          case 'price-asc': return parsePrice(a) - parsePrice(b);
+          case 'price-desc': return parsePrice(b) - parsePrice(a);
+          default: return 0;
+        }
+      });
+    }
+
+    return result;
+  }, [products, searchResults, sortBy, parsePrice]);
+
+  // Drag resize handlers for detail panel
+  const handleResizeMouseDown = useCallback((e) => {
+    e.preventDefault();
+    isResizing.current = true;
+    const startX = e.clientX;
+    const startWidth = detailPanelWidth;
+
+    const onMouseMove = (e) => {
+      if (!isResizing.current) return;
+      const delta = startX - e.clientX; // dragging left = wider
+      const newWidth = Math.min(window.innerWidth * 0.5, Math.max(300, startWidth + delta));
+      setDetailPanelWidth(newWidth);
+    };
+
+    const onMouseUp = () => {
+      isResizing.current = false;
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }, [detailPanelWidth]);
+
   if (loading) {
     return (
       <div className="my-brands-container">
@@ -579,12 +898,63 @@ function MyBrandsPanel() {
       </div>
 
       {/* Right Panel - Product Gallery */}
-      <div className={`product-gallery ${selectedProduct ? 'with-detail' : ''}`}>
-        {loadingProducts ? (
+      <div className="product-gallery">
+        {/* Search + Sort Toolbar */}
+        <div className="product-toolbar">
+            <div className="search-wrapper">
+              <input
+                ref={searchInputRef}
+                type="text"
+                className="product-search-input"
+                placeholder="Search products..."
+                value={searchQuery}
+                onChange={(e) => handleSearchChange(e.target.value)}
+                onKeyDown={handleSearchKeyDown}
+                onFocus={() => { if (searchQuery.trim()) setShowDropdown(true); }}
+                onBlur={() => {}}
+              />
+              {showDropdown && matchingCategories.length > 0 && (
+                <div className="search-dropdown">
+                  {matchingCategories.map((cat, idx) => {
+                    const q = searchQuery.trim().toLowerCase();
+                    const pathLower = cat.fullPath.toLowerCase();
+                    const matchIdx = pathLower.indexOf(q);
+                    const before = cat.fullPath.slice(0, matchIdx);
+                    const match = cat.fullPath.slice(matchIdx, matchIdx + q.length);
+                    const after = cat.fullPath.slice(matchIdx + q.length);
+                    return (
+                      <div
+                        key={`${cat.brandId}-${cat.url}`}
+                        className={`search-dropdown-item ${idx === selectedDropdownIdx ? 'highlighted' : ''}`}
+                        onMouseDown={() => loadCategoryProducts(cat)}
+                      >
+                        <span className="dropdown-cat-name">
+                          {before}<strong>{match}</strong>{after}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            <select
+              className="product-sort-select"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+            >
+              <option value="">Sort by...</option>
+              <option value="name-asc">Name A → Z</option>
+              <option value="name-desc">Name Z → A</option>
+              <option value="price-asc">Price Low → High</option>
+              <option value="price-desc">Price High → Low</option>
+            </select>
+          </div>
+
+        {(searchLoading || loadingProducts) ? (
           <div className="gallery-loading">Loading products...</div>
-        ) : products.length > 0 ? (
+        ) : displayProducts.length > 0 ? (
           <div className="product-grid">
-            {products.map((product, idx) => {
+            {displayProducts.map((product, idx) => {
               const brandName = product.brand
                 ? product.brand.toUpperCase()
                 : (product.brand_id ? product.brand_id.replace(/_/g, ' ').toUpperCase() : '');
@@ -622,12 +992,15 @@ function MyBrandsPanel() {
         ) : null}
       </div>
 
-      {/* Product Detail Panel */}
+      {/* Product Detail Panel with drag handle */}
       {selectedProduct && (
-        <ProductDetailPanel
-          product={selectedProduct}
-          onClose={() => setSelectedProduct(null)}
-        />
+        <div className="detail-panel-wrapper" style={{ width: detailPanelWidth, minWidth: 300 }}>
+          <div className="detail-resize-handle" onMouseDown={handleResizeMouseDown} />
+          <ProductDetailPanel
+            product={selectedProduct}
+            onClose={() => setSelectedProduct(null)}
+          />
+        </div>
       )}
 
       {/* Add Brand Modal */}

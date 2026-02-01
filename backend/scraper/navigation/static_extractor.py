@@ -36,11 +36,47 @@ async def get_nav_links_with_structure(page) -> str:
                     document.querySelector('[role="navigation"]') ||
                     document.querySelector('header');
 
-        if (!nav) return 'No nav found';
+        if (!nav) {
+            // Fallback: grab ALL links from the page so the LLM can decide
+            const allLinks = document.querySelectorAll('a[href]');
+            const fallbackLinks = [];
+            const seen = new Set();
+            allLinks.forEach(link => {
+                const href = link.getAttribute('href') || '';
+                const text = link.innerText.trim().replace(/\\n/g, ' ').replace(/\\s+/g, ' ').substring(0, 80);
+                if (!text || !href || href === '#' || href.startsWith('javascript:')) return;
+                const key = href + '|' + text;
+                if (seen.has(key)) return;
+                seen.add(key);
+                fallbackLinks.push(text + ' | ' + href);
+            });
+            if (fallbackLinks.length > 0) {
+                return '=== All Page Links (no nav element found) ===\\n' + fallbackLinks.join('\\n');
+            }
+            return 'No nav found';
+        }
 
         // Find the main list (direct ul child of nav, or within nav)
         const mainList = nav.querySelector('ul');
-        if (!mainList) return 'No nav list found';
+        if (!mainList) {
+            // Fallback: grab all links from the nav/header even without a <ul>
+            const navLinks = nav.querySelectorAll('a[href]');
+            const flatLinks = [];
+            const seen = new Set();
+            navLinks.forEach(link => {
+                const href = link.getAttribute('href') || '';
+                const text = link.innerText.trim().replace(/\\n/g, ' ').replace(/\\s+/g, ' ').substring(0, 80);
+                if (!text || !href || href === '#' || href.startsWith('javascript:')) return;
+                const key = href + '|' + text;
+                if (seen.has(key)) return;
+                seen.add(key);
+                flatLinks.push(text + ' | ' + href);
+            });
+            if (flatLinks.length > 0) {
+                return '=== Navigation Links (flat) ===\\n' + flatLinks.join('\\n');
+            }
+            return 'No nav list found';
+        }
 
         // Get top-level list items
         const topLevelItems = mainList.querySelectorAll(':scope > li');
@@ -231,7 +267,9 @@ SCHEMA (follow exactly):
 RULES:
 - Return a JSON array (not object)
 - Only include product categories (Women, Men, Clothing, Shoes, Bags, Accessories, etc.)
-- EXCLUDE: Campaigns, Playlists, Artists, Collaborations, About pages, Sustainability, FAQ, Legal
+- If the site has a single "Store" or "Shop" link (even to a subdomain), include it as a top-level category
+- If no structured categories exist but there IS a store/shop link, return it as: [{{"name": "Store", "url": "https://...", "children": []}}]
+- EXCLUDE: Campaigns, Playlists, Artists, Collaborations, About pages, Sustainability, FAQ, Legal, Social media links, Music/Video links
 - Use section headers (=== NAME ===) as top-level categories
 - Use indentation within sections to determine children
 - Every node MUST have: "name" (string), "url" (string or null), "children" (array, can be empty)
