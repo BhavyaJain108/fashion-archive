@@ -136,9 +136,9 @@ class AdaptiveRateLimiter:
         # Ramp-up state
         self._last_ramp_time = time.time()  # When we last increased rate
         self._last_429_time: Optional[float] = None  # When we last got blocked
-        self._ramp_interval = 10.0  # Try ramping every 10 seconds
-        self._ramp_factor = 1.20  # Increase by 20% each ramp
-        self._ramp_cooldown = 30.0  # Wait 30s after a 429 before ramping again
+        self._ramp_interval = 5.0  # Try ramping every 5 seconds
+        self._ramp_factor = 1.30  # Increase by 30% each ramp
+        self._ramp_cooldown = 10.0  # Wait 10s after a 429 before ramping again
 
         # Lock for thread-safe updates
         self._lock = asyncio.Lock()

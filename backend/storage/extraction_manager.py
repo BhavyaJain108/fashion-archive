@@ -261,8 +261,23 @@ class ExtractionManager:
             # Maybe products aren't extracted yet, return empty
             return {"products": [], "total_products": 0}
 
-        # Deduplicate by product URL, keeping the most recently modified file
-        seen = {}  # product_url -> (mtime, product_data)
+        # Canonicalize product URLs: strip /collections/{slug}/ prefix so
+        # the same product extracted from different category pages deduplicates.
+        import re
+        _collection_re = re.compile(r'/collections/[^/]+/products/')
+
+        def canonical_url(url: str) -> str:
+            """Normalize URL to canonical product path for dedup."""
+            if not url:
+                return url
+            # Strip query string and trailing slash
+            clean = url.split('?')[0].rstrip('/')
+            # Collapse /collections/{anything}/products/ → /products/
+            clean = _collection_re.sub('/products/', clean)
+            return clean
+
+        # Deduplicate by canonical product URL, keeping the most recently modified file
+        seen = {}  # canonical_url -> (mtime, product_data)
 
         # Walk through category folders
         for category_path in products_dir.rglob("*.json"):
@@ -282,14 +297,15 @@ class ExtractionManager:
                 }]
 
                 product_url = product_data.get("url") or product_data.get("source_url") or ""
+                canon = canonical_url(product_url)
                 mtime = category_path.stat().st_mtime if category_path.exists() else 0
 
-                if product_url and product_url in seen:
+                if canon and canon in seen:
                     # Keep the newer file
-                    if mtime > seen[product_url][0]:
-                        seen[product_url] = (mtime, product_data)
+                    if mtime > seen[canon][0]:
+                        seen[canon] = (mtime, product_data)
                 else:
-                    seen[product_url or str(category_path)] = (mtime, product_data)
+                    seen[canon or str(category_path)] = (mtime, product_data)
 
         products = [entry[1] for entry in seen.values()]
 
@@ -465,26 +481,50 @@ class ExtractionManager:
 
     def get_product_counts_by_url(self, brand_id: str) -> Dict[str, int]:
         """
-        Get product counts grouped by category URL from urls.json tree.
+        Get product counts grouped by category URL.
+
+        Only counts products that actually exist on disk (have been extracted),
+        not just URLs discovered during URL extraction. This ensures sidebar
+        counts match what query_products would return.
 
         Returns:
-            Dict mapping category URL to product count
+            Dict mapping category URL to extracted product count
         """
-        urls_data = self.read_urls(brand_id)
+        import re
 
+        urls_data = self.read_urls(brand_id)
         if not urls_data:
             return {}
+
+        # Build set of canonical URLs for all extracted products
+        products_data = self.read_products(brand_id)
+        extracted_canonical = set()
+        if products_data:
+            _coll_re = re.compile(r'/collections/[^/]+/products/')
+            def _canon(url):
+                if not url: return ''
+                return _coll_re.sub('/products/', url.split('?')[0].rstrip('/'))
+
+            for p in products_data.get("products", []):
+                purl = p.get("url") or p.get("source_url") or ""
+                canon = _canon(purl)
+                if canon:
+                    extracted_canonical.add(canon)
 
         url_counts = {}
 
         def count_from_tree(nodes):
             for node in nodes:
-                url = node.get("url")
-                products = node.get("products", [])
-                if url and products:
-                    url_counts[url] = len(products)
+                cat_url = node.get("url")
+                product_urls = node.get("products", [])
+                if cat_url and product_urls:
+                    count = sum(
+                        1 for pu in product_urls
+                        if _canon(pu) in extracted_canonical
+                    )
+                    if count > 0:
+                        url_counts[cat_url] = count
 
-                # Recurse into children
                 children = node.get("children", [])
                 if children:
                     count_from_tree(children)

@@ -59,7 +59,10 @@ class Dashboard:
         self._running = True
         # Suppress other modules' stdout — dashboard writes directly to terminal fd
         self._real_stdout = sys.stdout
-        self._tty = open("/dev/tty", "w") if os.path.exists("/dev/tty") else sys.stdout
+        try:
+            self._tty = open("/dev/tty", "w") if os.path.exists("/dev/tty") else sys.stdout
+        except OSError:
+            self._tty = sys.stdout
         sys.stdout = io.StringIO()  # Swallow all other prints
 
         # Clear screen once at start

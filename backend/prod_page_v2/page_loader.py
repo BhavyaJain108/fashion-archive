@@ -101,16 +101,13 @@ async def _load_page_stealth(page_data: PageData, url: str, wait_time: int, head
 
         try:
             await page.goto(url, wait_until='domcontentloaded', timeout=30000)
-            await page.wait_for_timeout(wait_time)
+            try:
+                await page.wait_for_load_state('networkidle', timeout=wait_time)
+            except Exception:
+                pass
 
             # Capture HTML
             page_data.html = await page.content()
-
-            # Capture ARIA snapshot
-            try:
-                page_data.aria = await page.accessibility.snapshot(interesting_only=False)
-            except Exception:
-                pass
 
         except Exception as e:
             print(f"Error loading page: {e}")
@@ -155,16 +152,13 @@ async def _load_page_vanilla(page_data: PageData, url: str, wait_time: int, head
 
         try:
             await page.goto(url, wait_until='domcontentloaded', timeout=30000)
-            await page.wait_for_timeout(wait_time)
+            try:
+                await page.wait_for_load_state('networkidle', timeout=wait_time)
+            except Exception:
+                pass
 
             # Capture HTML
             page_data.html = await page.content()
-
-            # Capture ARIA snapshot
-            try:
-                page_data.aria = await page.accessibility.snapshot(interesting_only=False)
-            except Exception:
-                pass
 
         except Exception as e:
             print(f"Error loading page: {e}")
@@ -297,9 +291,13 @@ async def load_page_on_existing(
     # memory leaks from accumulated handlers on reused pages
     page.on('response', capture_response)
 
+    import time as _time
+
     try:
         # Navigate to URL and capture the HTTP response
+        t0 = _time.monotonic()
         response = await page.goto(url, wait_until='domcontentloaded', timeout=30000)
+        t_goto = _time.monotonic()
 
         # Capture HTTP status
         if response:
@@ -309,8 +307,12 @@ async def load_page_on_existing(
                 print(f"[PageLoader] HTTP {response.status} for {url}")
                 return page_data
 
-        # Wait for dynamic content (JS-rendered products, lazy loading, etc.)
-        await page.wait_for_timeout(wait_time)
+        # Wait for dynamic content — use networkidle instead of fixed delay
+        try:
+            await page.wait_for_load_state('networkidle', timeout=wait_time)
+        except Exception:
+            pass  # Timeout is fine — we waited the max allowed time
+        t_idle = _time.monotonic()
 
         # Force-load lazy images without scrolling
         try:
@@ -325,9 +327,10 @@ async def load_page_on_existing(
                     if (!img.srcset) img.srcset = img.dataset.srcset;
                 });
             }""")
-            await page.wait_for_timeout(500)
+            await page.wait_for_timeout(200)
         except Exception:
             pass
+        t_lazy = _time.monotonic()
 
         # Check for redirect to different domain (error page redirect)
         from urllib.parse import urlparse
@@ -340,6 +343,7 @@ async def load_page_on_existing(
 
         # Capture final HTML
         page_data.html = await page.content()
+        t_html = _time.monotonic()
 
         # Detect soft error/rate-limit pages by scanning HTML content
         if page_data.html:
@@ -353,11 +357,12 @@ async def load_page_on_existing(
                         print(f"[PageLoader] Soft rate limit detected ('{pattern}') for {url}")
                         return page_data
 
-        # Capture ARIA snapshot (accessibility tree - useful for some strategies)
-        try:
-            page_data.aria = await page.accessibility.snapshot(interesting_only=False)
-        except Exception:
-            pass  # ARIA snapshot not always available
+        # Log timing breakdown for slow pages (> 3s total)
+        total = t_html - t0
+        if total > 3.0:
+            import sys as _sys
+            slug = url.split('/')[-1][:30]
+            print(f"[PageLoader SLOW] {slug}: goto={t_goto-t0:.1f}s idle={t_idle-t_goto:.1f}s lazy={t_lazy-t_idle:.1f}s html={t_html-t_lazy:.1f}s TOTAL={total:.1f}s", file=_sys.stderr)
 
     except Exception as e:
         page_data.loaded = False

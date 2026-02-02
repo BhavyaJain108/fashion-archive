@@ -571,6 +571,7 @@ class ProductExtractor:
             ExtractionResult with extracted product data
         """
         from page_loader import load_page_on_existing, extract_gallery_images
+        import time as _time
 
         domain = self._get_domain(url)
 
@@ -579,7 +580,9 @@ class ProductExtractor:
             config = self._load_config(domain)
 
         # Load page using the provided page object
+        t0 = _time.monotonic()
         page_data = await load_page_on_existing(page, url, wait_time=wait_time)
+        t_load = _time.monotonic()
 
         # Fix 2: Don't run extraction on failed/error pages (including 404s)
         if not page_data.loaded or page_data.status_code in (404, 403, 410, 429, 500, 502, 503):
@@ -590,21 +593,19 @@ class ProductExtractor:
                 status_code=page_data.status_code,
             )
 
-        results = []
+        import asyncio as _asyncio
 
         if config and config.verified:
             active_strategies = config.get_active_strategies()
-            for strategy in self.strategies:
-                if strategy.strategy_type in active_strategies:
-                    result = await strategy.extract(url, page_data)
-                    results.append(result)
+            tasks = [s.extract(url, page_data) for s in self.strategies if s.strategy_type in active_strategies]
         else:
-            for strategy in self.strategies:
-                result = await strategy.extract(url, page_data)
-                results.append(result)
+            tasks = [s.extract(url, page_data) for s in self.strategies]
+
+        results = await _asyncio.gather(*tasks) if tasks else []
+        t_strat = _time.monotonic()
 
         # Merge results
-        merged_product = self._merge_products(results, url)
+        merged_product = self._merge_products(list(results), url)
 
         # Fix 3: Stronger success criteria
         # Require a real name + at least one substantive field (price, images, or description)
@@ -632,6 +633,13 @@ class ProductExtractor:
                 gallery_images = await extract_gallery_images(page, gallery_selector)
                 if gallery_images:
                     merged_product.images = gallery_images
+            t_gallery = _time.monotonic()
+
+            total = t_gallery - t0
+            if total > 3.0:
+                import sys as _sys
+                slug = url.split('/')[-1][:30]
+                print(f"[Extractor SLOW] {slug}: load={t_load-t0:.1f}s strat={t_strat-t_load:.1f}s gallery={t_gallery-t_strat:.1f}s TOTAL={total:.1f}s", file=_sys.stderr)
 
             return ExtractionResult(
                 success=True,
@@ -657,15 +665,16 @@ class ProductExtractor:
         """
         Find the minimum wait time that produces a good extraction.
 
-        Tests progressively: 500ms → 1000ms → 2000ms → 3000ms → 5000ms
+        Tests progressively: 300ms → 800ms → 2000ms
         Returns the first wait time that yields a product with name + price.
+        Uses networkidle so actual waits are often shorter than the ceiling.
 
         Called during discovery phase so we only pay this cost once per domain.
         """
         from page_loader import load_page_on_existing
         from browser_pool import BrowserPool
 
-        WAIT_TIMES = [500, 1000, 2000, 3000, 5000]
+        WAIT_TIMES = [300, 800, 2000]
 
         pool = BrowserPool(size=1, pages_per_recycle=100, headless=True)
         await pool.start()
@@ -675,19 +684,15 @@ class ProductExtractor:
                 async with pool.acquire() as page:
                     page_data = await load_page_on_existing(page, url, wait_time=wait_ms)
 
-                results = []
+                import asyncio as _asyncio
                 if config and config.verified:
                     active = config.get_active_strategies()
-                    for strategy in self.strategies:
-                        if strategy.strategy_type in active:
-                            result = await strategy.extract(url, page_data)
-                            results.append(result)
+                    tasks = [s.extract(url, page_data) for s in self.strategies if s.strategy_type in active]
                 else:
-                    for strategy in self.strategies:
-                        result = await strategy.extract(url, page_data)
-                        results.append(result)
+                    tasks = [s.extract(url, page_data) for s in self.strategies]
+                results = await _asyncio.gather(*tasks) if tasks else []
 
-                merged = self._merge_products(results, url)
+                merged = self._merge_products(list(results), url)
 
                 has_name = bool(merged.name and len(merged.name) > 1)
                 has_price = bool(merged.price and merged.price != "0")

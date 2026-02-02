@@ -330,86 +330,44 @@ function MyBrandsPanel() {
   };
 
   // Load products for selected categories
+  // Cross-category dedup: if the same product (by brand+name) appears in multiple
+  // selected categories, only show it once. But within a single category, duplicates
+  // are kept (they're genuinely different listings). Category counts in the sidebar
+  // always show the raw per-category total (not affected by dedup).
   const loadProductsForSelection = async (selectedSet, newlySelectedKey = null) => {
     try {
       setLoadingProducts(true);
 
-      // Track seen products by URL and by brand+name (cross-category only)
-      const seenProductUrls = new Set();
-      const deduplicatedProducts = [];
+      // Load each selected category separately (preserving per-category grouping)
+      const categoryArrays = []; // array of { leafKey, products[] }
 
-      // Helper function to get product URL (handles both old and new formats)
-      const getProductUrl = (product) => {
-        return product.url || product.product_url || '';
-      };
-
-      // For cross-category dedup: track brand+name from first batch (new category)
-      // so duplicates from OTHER categories get removed, but same-category dupes stay
-      const newCategoryNames = new Set();
-      const existingCategoryNames = new Set();
-
-      // If there's a newly selected key, load it first (prepend)
-      let newProducts = [];
-      let existingProductsWithCategory = [];
-
+      // Load newly selected category first so it appears at the top
+      const orderedKeys = [];
       if (newlySelectedKey && selectedSet.has(newlySelectedKey)) {
-        // Load the newly selected category first
-        const [brandId, categoryIdentifier] = newlySelectedKey.split('::');
-        // Try both classification_url and classification_name for compatibility
-        let response = await fetch(
-          `http://localhost:8081/api/products?brand_id=${brandId}&classification_url=${encodeURIComponent(categoryIdentifier)}&limit=1000`
-        );
-        if (response.ok) {
-          const data = await response.json();
-          newProducts = (data.products || []).map(p => ({ ...p, _category: categoryIdentifier }));
-        }
+        orderedKeys.push(newlySelectedKey);
+      }
+      for (const leafKey of selectedSet) {
+        if (leafKey !== newlySelectedKey) orderedKeys.push(leafKey);
       }
 
-      // Load all other selected categories
-      for (const leafKey of selectedSet) {
-        if (leafKey === newlySelectedKey) continue; // Skip the newly added one
-
+      await Promise.all(orderedKeys.map(async (leafKey, idx) => {
         const [brandId, categoryIdentifier] = leafKey.split('::');
         const response = await fetch(
           `http://localhost:8081/api/products?brand_id=${brandId}&classification_url=${encodeURIComponent(categoryIdentifier)}&limit=1000`
         );
-
         if (response.ok) {
           const data = await response.json();
-          const productsWithCategory = (data.products || []).map(p => ({ ...p, _category: categoryIdentifier }));
-          existingProductsWithCategory.push(...productsWithCategory);
+          categoryArrays[idx] = data.products || [];
+        } else {
+          categoryArrays[idx] = [];
         }
-      }
+      }));
 
-      // Deduplicate: prioritize new products, then add existing ones
-      // Cross-category dedup by brand+name; same-category dupes are kept
-      for (const product of newProducts) {
-        const url = getProductUrl(product);
-        if (url && seenProductUrls.has(url)) continue;
-        if (url) seenProductUrls.add(url);
-        const brand = (product.brand || product.brand_id || '').toLowerCase();
-        const name = (product.name || product.product_name || '').toLowerCase();
-        if (brand && name) newCategoryNames.add(`${brand}::${name}`);
-        deduplicatedProducts.push(product);
-      }
-
-      for (const product of existingProductsWithCategory) {
-        const url = getProductUrl(product);
-        if (url && seenProductUrls.has(url)) continue;
-        if (url) seenProductUrls.add(url);
-        // Skip if same brand+name already in the new category batch
-        const brand = (product.brand || product.brand_id || '').toLowerCase();
-        const name = (product.name || product.product_name || '').toLowerCase();
-        if (brand && name) {
-          const key = `${brand}::${name}`;
-          if (newCategoryNames.has(key)) continue;
-          if (existingCategoryNames.has(key)) continue;
-          existingCategoryNames.add(key);
-        }
-        deduplicatedProducts.push(product);
-      }
-
-      setProducts(deduplicatedProducts);
+      // Cross-category dedup using the shared deduplicateProducts function
+      // Each element in categoryArrays is one category's products.
+      // deduplicateProducts removes brand+name dupes across arrays but keeps them within.
+      const deduped = deduplicateProducts(categoryArrays);
+      setProducts(deduped);
     } catch (error) {
       console.error('Error loading products:', error);
     } finally {

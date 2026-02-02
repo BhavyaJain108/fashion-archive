@@ -171,7 +171,12 @@ class StreamingOrchestrator:
         """
         from stages.urls import get_leaf_categories_with_stats, extract_urls_from_category, clean_redundant_parent_urls, dedupe_urls_by_path
         from stages.storage import ensure_domain_dir
+        from stages.metrics import update_stage_metrics, calculate_cost
+        from scraper.llm_handler import LLMHandler
         from brand import Brand
+
+        url_stage_start = time.time()
+        LLMHandler.reset_usage()
 
         # Clean redundant parent URLs (where parent URL = child URL)
         tree = self.nav_tree.get("category_tree", [])
@@ -311,6 +316,45 @@ class StreamingOrchestrator:
                 print(f"\n  ⚠️  WARNING: {removal_pct:.1f}% of URLs removed by dedup ({dedup_stats['total_removed']}/{dedup_stats['total_raw']})")
                 print(f"     This may indicate an issue with URL structure or excessive variants.")
 
+        # Save Stage 2 metrics
+        url_stage_duration = time.time() - url_stage_start
+        llm_usage = LLMHandler.get_total_usage()
+        llm_input = llm_usage.get("input_tokens", 0)
+        llm_output = llm_usage.get("output_tokens", 0)
+        llm_calls = llm_usage.get("call_count", 0)
+        llm_cost = calculate_cost(llm_input, llm_output)
+
+        stage_2_data = {
+            "run_time": datetime.now().isoformat(),
+            "duration": url_stage_duration,
+            "extra_fields": {
+                "Categories": len(leaves),
+                "URLs Produced": self.urls_produced,
+                "Raw URLs": dedup_stats["total_raw"],
+                "After Dedup": dedup_stats["total_deduped"],
+            },
+            "operations": [{
+                "name": "url_extraction",
+                "calls": llm_calls,
+                "input_tokens": llm_input,
+                "output_tokens": llm_output,
+                "cost": llm_cost
+            }],
+            "summary": {
+                "calls": llm_calls,
+                "input_tokens": llm_input,
+                "output_tokens": llm_output,
+                "cost": llm_cost
+            },
+            "products": self.urls_produced
+        }
+
+        try:
+            metrics_path = update_stage_metrics(self.domain, "stage_2", stage_2_data)
+            print(f"[URL Producer] Metrics saved: {metrics_path}")
+        except Exception as e:
+            print(f"[URL Producer] Warning: Failed to save metrics: {e}")
+
         # Signal completion
         print(f"\n[URL Producer] Complete. Raw: {dedup_stats['total_raw']}, After dedup: {self.urls_produced}")
         self.url_queue.put(URLBatch(
@@ -366,12 +410,18 @@ class StreamingOrchestrator:
         from stages.storage import save_product
         from stages.rate_limiter import AdaptiveRateLimiter
         from stages.dashboard import Dashboard
+        from stages.metrics import update_stage_metrics, calculate_cost
+        from scraper.llm_handler import LLMHandler
+
+        product_stage_start = time.time()
+        discovery_end_time = None
+        LLMHandler.reset_usage()
 
         print("[Product Consumer] Waiting for discovery URLs...")
 
         # Wait for discovery phase (first 2 URLs)
         while not self.discovery_complete.is_set():
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.01)
 
         if len(self.discovery_urls) < 2:
             print("[Product Consumer] Not enough URLs for discovery, exiting")
@@ -470,6 +520,7 @@ class StreamingOrchestrator:
                         self.products_successful += 1
                 processed_urls.add(url)
 
+            discovery_end_time = time.time()
             print(f"[Product Consumer] Discovery products saved. Processing queue...")
 
             pending_tasks: Set[asyncio.Task] = set()
@@ -618,7 +669,7 @@ class StreamingOrchestrator:
                 try:
                     return await loop.run_in_executor(
                         None,  # Default executor
-                        lambda: self.url_queue.get(timeout=0.5)
+                        lambda: self.url_queue.get(timeout=0.1)
                     )
                 except queue.Empty:
                     return None
@@ -662,7 +713,7 @@ class StreamingOrchestrator:
 
                 # Let other tasks run
                 if pending_tasks or not queue_exhausted:
-                    await asyncio.sleep(0.1)
+                    await asyncio.sleep(0.01)
 
             # Final progress
             log_progress(force=True)
@@ -677,7 +728,10 @@ class StreamingOrchestrator:
             # =================================================================
             await browser_pool.shutdown()
             dashboard.stop()
-            await dashboard_task
+            try:
+                await dashboard_task
+            except Exception:
+                pass  # Dashboard errors shouldn't block metrics/cleanup
 
         # Print final stats
         rate_stats = rate_limiter.stats
@@ -692,6 +746,58 @@ class StreamingOrchestrator:
             print(f"    Retries: {self.products_retried} total retry attempts")
         print(f"    Rate limiter: final rate {rate_stats['rate']:.1f} req/s, {rate_stats['total_rate_limited']} rate limited")
         print(f"    Browser pool: {pool_stats['total_pages_served']} pages, {pool_stats['total_recycles']} browser recycles")
+
+        # Save Stage 3 metrics
+        stage_duration = time.time() - product_stage_start
+        discovery_duration = (discovery_end_time - product_stage_start) if discovery_end_time else 0
+        batch_duration = stage_duration - discovery_duration
+
+        llm_usage = LLMHandler.get_total_usage()
+        llm_input = llm_usage.get("input_tokens", 0)
+        llm_output = llm_usage.get("output_tokens", 0)
+        llm_calls = llm_usage.get("call_count", 0)
+        llm_cost = calculate_cost(llm_input, llm_output)
+
+        avg_throughput = self.products_extracted / batch_duration if batch_duration > 0 else 0
+
+        stage_3_data = {
+            "run_time": datetime.now().isoformat(),
+            "duration": stage_duration,
+            "extra_fields": {
+                "Products Attempted": self.products_extracted,
+                "Products Successful": self.products_successful,
+                "Retries": self.products_retried,
+                "Rate Limited": rate_stats['total_rate_limited'],
+                "Final Rate": f"{rate_stats['rate']:.1f} req/s",
+                "Browser Pages Served": pool_stats['total_pages_served'],
+                "Browser Recycles": pool_stats['total_recycles'],
+                "Avg Throughput": f"{avg_throughput:.2f}/s",
+            },
+            "operations": [{
+                "name": "product_extraction",
+                "calls": llm_calls,
+                "input_tokens": llm_input,
+                "output_tokens": llm_output,
+                "cost": llm_cost
+            }],
+            "latency_breakdown": {
+                "Discovery + Calibration": discovery_duration,
+                "Batch Extraction": batch_duration,
+            },
+            "summary": {
+                "calls": llm_calls,
+                "input_tokens": llm_input,
+                "output_tokens": llm_output,
+                "cost": llm_cost
+            },
+            "products": self.products_successful
+        }
+
+        try:
+            metrics_path = update_stage_metrics(self.domain, "stage_3", stage_3_data)
+            print(f"    Metrics saved: {metrics_path}")
+        except Exception as e:
+            print(f"    Warning: Failed to save metrics: {e}")
 
     @staticmethod
     def _filter_images(images: list, product_url: str) -> list:
