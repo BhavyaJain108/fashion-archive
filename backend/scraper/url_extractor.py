@@ -169,13 +169,36 @@ def _extract_links_from_current_state(page, page_url: str) -> List[Dict]:
     Extract all links from current page state (after scrolling).
 
     Returns:
-        List of dicts with: url, lineage, link_text, position_index
+        List of dicts with: url, lineage, link_text, position_index, in_carousel
     """
     try:
         # JavaScript to extract all links with their metadata
         links_data = page.evaluate("""
             () => {
                 const links = Array.from(document.querySelectorAll('a[href]'));
+
+                // Patterns that indicate carousel/slider containers
+                const carouselPatterns = [
+                    'slider', 'carousel', 'swiper', 'slick', 'glide', 'splide',
+                    'slideshow', 'marquee', 'ticker'
+                ];
+
+                // Check if element has a carousel ancestor (walk up to 15 levels)
+                function isInCarousel(element) {
+                    let current = element;
+                    for (let i = 0; i < 15 && current && current !== document.body; i++) {
+                        const tagName = (current.tagName || '').toLowerCase();
+                        const className = (typeof current.className === 'string' ? current.className : '').toLowerCase();
+
+                        for (const pattern of carouselPatterns) {
+                            if (tagName.includes(pattern) || className.includes(pattern)) {
+                                return true;
+                            }
+                        }
+                        current = current.parentElement;
+                    }
+                    return false;
+                }
 
                 // Function to get DOM lineage (3 generations)
                 function getLineage(element) {
@@ -216,7 +239,8 @@ def _extract_links_from_current_state(page, page_url: str) -> List[Dict]:
                         url: href,
                         lineage: getLineage(link),
                         link_text: (link.textContent || '').trim().substring(0, 100),
-                        position_index: index
+                        position_index: index,
+                        in_carousel: isInCarousel(link)
                     });
                 });
 

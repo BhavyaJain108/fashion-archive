@@ -40,11 +40,12 @@ class ExtractionPatterns(BaseModel):
     variant_stock_pattern: Optional[str] = Field(default=None, description="Regex to capture variant stock counts")
 
 
-# Pydantic model for direct extraction (fallback)
+
+
 class ExtractedProduct(BaseModel):
     """Structured product data from LLM extraction."""
     title: str = Field(description="Product name/title")
-    price: Optional[float] = Field(description="Product price as number")
+    price: Optional[float] = Field(default=None, description="Product price as number")
     currency: str = Field(default="USD", description="Currency code")
     description: Optional[str] = Field(default="", description="Product description")
     brand: Optional[str] = Field(default=None, description="Brand name")
@@ -110,14 +111,28 @@ Data:
 {script_content}
 """
 
-EXTRACT_PROMPT = """Extract the product information from this script content.
+EXTRACT_PROMPT = """Extract the product information from this page data.
 
-Look for product data including: title, price, variants (with size, color, availability, stock count), images, description.
+Return ONLY a JSON object. No explanation, no markdown, no text before or after.
+
+{
+  "title": "exact product name",
+  "price": 0,
+  "currency": "USD",
+  "description": "full product description",
+  "brand": "brand name or null",
+  "sku": "product SKU or null",
+  "category": "product category or null",
+  "variants": [
+    {"size": "M", "color": "Black", "price": 0, "available": true}
+  ],
+  "images": ["url1", "url2"]
+}
 
 IMPORTANT: If a field is not found, use null (not strings like "unknown" or "N/A").
-Price must be a number or null.
+Price must be a number or null. Return actual image URLs, not placeholders.
 
-Script content:
+Page content:
 """
 
 
@@ -142,7 +157,20 @@ class EmbeddedJsonStrategy(BaseStrategy):
             self.debug_dir.mkdir(exist_ok=True)
 
     async def extract(self, url: str, page_data: Optional[PageData] = None) -> ExtractionResult:
-        """Extract product from embedded JSON in scripts."""
+        """Extract product using saved patterns only. NO LLM calls.
+
+        Pattern discovery happens during the discovery phase via _discover_patterns().
+        Ground truth extraction happens via extract_ground_truth().
+        This method only applies saved patterns - pure string matching.
+
+        Args:
+            url: Product page URL
+            page_data: Page data with HTML
+
+        Returns:
+            ExtractionResult with whatever fields the patterns could extract.
+            May be partial - that's OK, other strategies cover other fields.
+        """
         try:
             if not page_data or not page_data.html:
                 return ExtractionResult.failure(self.strategy_type, "No HTML provided")
@@ -150,72 +178,20 @@ class EmbeddedJsonStrategy(BaseStrategy):
             domain = self._get_domain(url)
             saved_patterns = self._load_patterns(domain)
 
-            if saved_patterns:
-                # Use saved patterns with string matching - NO LLM!
-                print(f"    [dom_fallback] Using saved patterns for {domain} (no LLM)")
-                # Filter to scripts containing slug (same as discovery)
-                filtered_content, slug, _ = self._filter_scripts_by_slug(page_data.html, url)
-                product_data = self._extract_with_patterns(filtered_content, saved_patterns, slug)
-                if product_data and product_data.get('title') and product_data.get('price'):
-                    print(f"    [dom_fallback] Pattern extraction SUCCESS")
-                    product = self._parse_product(product_data, url, page_data)
-                    return ExtractionResult.from_product(product, self.strategy_type)
-                else:
-                    extracted_fields = list(product_data.keys()) if product_data else []
-                    print(f"    [dom_fallback] Pattern extraction partial: got {extracted_fields}")
+            if not saved_patterns:
+                return ExtractionResult.failure(self.strategy_type, f"No patterns saved for {domain}")
 
-            # No saved patterns or extraction failed - use LLM
-            if not self.llm:
-                return ExtractionResult.failure(self.strategy_type, "LLMHandler not available")
+            # Use saved patterns with string matching - NO LLM!
+            filtered_content, slug, _ = self._filter_scripts_by_slug(page_data.html, url)
+            product_data = self._extract_with_patterns(filtered_content, saved_patterns, slug)
 
-            # Discovery mode with feedback loop
-            max_attempts = 2
-            for attempt in range(max_attempts):
-                print(f"    [dom_fallback] Discovering patterns for {domain} (attempt {attempt + 1})")
-
-                # If we have partial data from previous patterns, tell LLM what's missing
-                feedback = None
-                if saved_patterns and attempt == 0:
-                    filtered_content, slug_for_extract, _ = self._filter_scripts_by_slug(page_data.html, url)
-                    product_data = self._extract_with_patterns(filtered_content, saved_patterns, slug_for_extract)
-                    if product_data:
-                        missing = []
-                        if not product_data.get('title'):
-                            missing.append('title')
-                        if not product_data.get('price'):
-                            missing.append('price')
-                        if missing:
-                            feedback = f"Previous patterns failed to extract: {', '.join(missing)}. Find NEW patterns."
-
-                patterns = self._discover_patterns(page_data.html, url, feedback=feedback, domain=domain)
-
-                if patterns:
-                    # Merge with existing patterns (keep both old and new)
-                    if saved_patterns:
-                        merged_patterns = self._merge_patterns(saved_patterns, patterns)
-                    else:
-                        merged_patterns = patterns
-
-                    # Save merged patterns
-                    self._save_patterns(domain, merged_patterns)
-                    print(f"    [dom_fallback] Saved patterns for {domain}")
-
-                    # Try extracting with merged patterns (use filtered content)
-                    filtered_content, slug_for_extract, _ = self._filter_scripts_by_slug(page_data.html, url)
-                    product_data = self._extract_with_patterns(filtered_content, merged_patterns, slug_for_extract)
-                    if product_data and product_data.get('title') and product_data.get('price'):
-                        product = self._parse_product(product_data, url, page_data)
-                        return ExtractionResult.from_product(product, self.strategy_type)
-
-                    # Update saved_patterns for next iteration feedback
-                    saved_patterns = merged_patterns
-
-            # Fallback: direct LLM extraction
-            print(f"    [dom_fallback] Falling back to direct LLM extraction")
-            product_data = self._llm_extract_direct(page_data.html)
             if not product_data:
-                return ExtractionResult.failure(self.strategy_type, "LLM extraction failed")
+                return ExtractionResult.failure(self.strategy_type, "Pattern extraction returned no data")
 
+            extracted_fields = list(product_data.keys())
+            print(f"    [dom_fallback] Pattern extraction: got {extracted_fields}")
+
+            # Return whatever we got - may be partial, that's OK
             product = self._parse_product(product_data, url, page_data)
             return ExtractionResult.from_product(product, self.strategy_type)
 
@@ -370,16 +346,23 @@ class EmbeddedJsonStrategy(BaseStrategy):
                         llm_identified[f"{field_name}_PATTERN"] = value
                 elif line.startswith(f"{field_name}_REASONING:"):
                     llm_identified[f"{field_name}_REASONING"] = line.split(":", 1)[1].strip()
-                    # Convert pattern to regex and validate it matches
+                    # Convert pattern to regex and validate extracted value matches GT
                     if f"{field_name}_PATTERN" in llm_identified:
                         pattern = self._pattern_to_regex(llm_identified[f"{field_name}_PATTERN"], field_type)
                         if pattern:
-                            # Validate pattern actually matches the data
+                            # Apply pattern to HTML and compare extracted value to GT
                             test_pattern = pattern.replace('{{SLUG}}', re.escape(slug)) if slug else pattern
-                            if re.search(test_pattern, normalized):
-                                patterns[pattern_key] = pattern
+                            match = re.search(test_pattern, normalized)
+                            if match:
+                                extracted_value = match.group(1) if match.groups() else None
+                                gt_value = llm_identified.get(field_name)
+                                if extracted_value and gt_value and extracted_value.strip() == gt_value.strip():
+                                    patterns[pattern_key] = pattern
+                                    print(f"    [dom_fallback] Pattern for {field_name} verified: '{extracted_value}' matches GT")
+                                else:
+                                    print(f"    [dom_fallback] Pattern for {field_name} value mismatch: extracted '{extracted_value}' vs GT '{gt_value}'")
                             else:
-                                print(f"    [dom_fallback] Pattern for {field_name} doesn't match data, skipping")
+                                print(f"    [dom_fallback] Pattern for {field_name} doesn't match HTML, skipping")
 
         # Save debug file
         print(f"    [dom_fallback] About to save debug, patterns={list(patterns.keys())}")
@@ -775,22 +758,113 @@ class EmbeddedJsonStrategy(BaseStrategy):
 
         return unique[:50]
 
-    def _llm_extract_direct(self, script_content: str) -> Optional[dict]:
-        """Use LLM to extract product directly (fallback method)."""
-        if len(script_content) > 30000:
-            script_content = script_content[:30000] + "\n...[truncated]"
+    def _build_extraction_content(self, page_data: PageData) -> str:
+        """Build best-signal content from multiple page data sources for LLM extraction."""
+        html = page_data.html or ""
+        parts = []
 
-        prompt = EXTRACT_PROMPT + script_content
+        # 1. Visible text — what the user actually sees on the page (ctrl+a ctrl+v)
+        if page_data.visible_text and len(page_data.visible_text.strip()) > 50:
+            parts.append("=== Visible Page Text ===")
+            parts.append(page_data.visible_text.strip()[:5000])
 
+        # 2. LD+JSON blocks (structured, works for non-Shopify)
+        ld_json_blocks = re.findall(
+            r'<script[^>]*type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
+            html, re.DOTALL | re.IGNORECASE
+        )
+        if ld_json_blocks:
+            parts.append("=== LD+JSON ===")
+            for block in ld_json_blocks:
+                parts.append(block.strip()[:5000])
+
+        # 3. Microdata (itemprop) tags
+        microdata = re.findall(
+            r'<meta[^>]*itemprop=["\']([^"\']+)["\'][^>]*content=["\']([^"\']*)["\'][^>]*/?>',
+            html, re.IGNORECASE
+        )
+        if microdata:
+            parts.append("=== Microdata ===")
+            parts.append("\n".join(f"{k}: {v}" for k, v in microdata[:20]))
+
+        # 4. Shopify-style filtered scripts (only if actual matches found)
+        try:
+            if page_data.url:
+                filtered, slug, matches = self._filter_scripts_by_slug(html, page_data.url)
+                if matches:
+                    parts.append("=== Product Scripts ===")
+                    parts.append(filtered[:20000])
+        except Exception:
+            pass
+
+        # 5. API intercept data (if still little content)
+        if len("\n".join(parts)) < 500 and page_data.json_responses:
+            parts.append("=== API Responses ===")
+            for url, data in list(page_data.json_responses.items())[:3]:
+                snippet = json.dumps(data)[:5000] if not isinstance(data, str) else data[:5000]
+                parts.append(f"URL: {url}\n{snippet}")
+
+        # 6. Fall back to raw HTML only if nothing else worked
+        if not parts:
+            return html[:30000]
+
+        content = "\n\n".join(parts)
+        if len(content) > 30000:
+            content = content[:30000] + "\n...[truncated]"
+        return content
+
+    def extract_ground_truth(self, page_data: PageData) -> Optional[dict]:
+        """
+        Single LLM call to extract full product data from page.
+
+        Serves as both:
+        - Ground truth for validating which cheaper strategy is correct per field
+        - Dom fallback extraction result
+
+        Returns raw dict with product fields, or None if LLM fails.
+        """
+        if not self.llm:
+            return None
+
+        content = self._build_extraction_content(page_data)
+
+        # Use response_model for structured output (guarantees valid JSON)
         result = self.llm.call(
-            prompt=prompt,
+            prompt=EXTRACT_PROMPT + content,
             expected_format="json",
             response_model=ExtractedProduct,
-            max_tokens=2000
+            max_tokens=2000,
         )
 
-        if result.get("success") and result.get("data"):
-            return result["data"]
+        if not result.get("success"):
+            print(f"    [ground_truth] LLM call failed: {result.get('error', 'unknown')}")
+            return None
+
+        data = result.get("data") or result.get("response")
+        if not data:
+            return None
+
+        if hasattr(data, "model_dump"):
+            data = data.model_dump()
+        elif isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except (json.JSONDecodeError, ValueError):
+                print(f"    [ground_truth] Failed to parse JSON: {data[:200]}")
+                return None
+
+        if isinstance(data, dict):
+            # Normalize price
+            price = data.get("price")
+            if isinstance(price, str):
+                try:
+                    price = float(price)
+                except (ValueError, TypeError):
+                    price = None
+            elif not isinstance(price, (int, float)):
+                price = None
+            data["price"] = price
+            return data
         return None
 
     def _parse_product(self, data: dict, url: str, page_data: Optional[PageData] = None) -> Product:
