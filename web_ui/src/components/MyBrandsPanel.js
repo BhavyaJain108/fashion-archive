@@ -39,9 +39,19 @@ function MyBrandsPanel() {
   const [validating, setValidating] = useState(false);
   const [error, setError] = useState('');
 
+  // Remove brand state
+  const [removeMode, setRemoveMode] = useState(false);
+  const [selectedForRemoval, setSelectedForRemoval] = useState(new Set());
+  const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
+
   // Click-count state for re-scraping (double-click = products only, triple-click = full)
   const clickCountRef = useRef({});
   const clickTimerRef = useRef({});
+
+  // Image row height equalization
+  const [imageDimensions, setImageDimensions] = useState({});
+  const gridRef = useRef(null);
+  const [gridColWidth, setGridColWidth] = useState(0);
 
   // Load brands on mount
   useEffect(() => {
@@ -775,6 +785,49 @@ function MyBrandsPanel() {
     return result;
   }, [products, searchResults, sortBy, parsePrice]);
 
+  // Reset image dimensions when displayed products change
+  useEffect(() => {
+    setImageDimensions({});
+  }, [displayProducts]);
+
+  // Track column width via ResizeObserver
+  useEffect(() => {
+    const updateColWidth = () => {
+      if (gridRef.current) {
+        const firstCard = gridRef.current.querySelector('.product-card');
+        if (firstCard) {
+          setGridColWidth(firstCard.offsetWidth);
+        }
+      }
+    };
+    updateColWidth();
+    if (!gridRef.current) return;
+    const observer = new ResizeObserver(updateColWidth);
+    observer.observe(gridRef.current);
+    return () => observer.disconnect();
+  }, [displayProducts]);
+
+  // Calculate per-row image heights: each row's images match the tallest
+  const GRID_COLS = 4;
+  const rowImageHeights = useMemo(() => {
+    if (!gridColWidth) return {};
+    const heights = {};
+    displayProducts.forEach((_, idx) => {
+      const dims = imageDimensions[idx];
+      if (dims && dims.naturalWidth > 0) {
+        const row = Math.floor(idx / GRID_COLS);
+        const displayHeight = Math.ceil((dims.naturalHeight / dims.naturalWidth) * gridColWidth);
+        heights[row] = Math.max(heights[row] || 0, displayHeight);
+      }
+    });
+    return heights;
+  }, [imageDimensions, gridColWidth, displayProducts]);
+
+  const handleImageLoad = useCallback((idx, e) => {
+    const { naturalWidth, naturalHeight } = e.target;
+    setImageDimensions(prev => ({ ...prev, [idx]: { naturalWidth, naturalHeight } }));
+  }, []);
+
   // Drag resize handlers for detail panel
   const handleResizeMouseDown = useCallback((e) => {
     e.preventDefault();
@@ -823,18 +876,32 @@ function MyBrandsPanel() {
             return (
               <div key={brand.brand_id} className="brand-section">
                 <div
-                  className={`brand-name ${isScraping ? 'brand-loading' : ''}`}
-                  onClick={() => !isScraping && handleBrandClick(brand.brand_id)}
+                  className={`brand-name ${isScraping ? 'brand-loading' : ''} ${removeMode && selectedForRemoval.has(brand.brand_id) ? 'selected-for-removal' : ''}`}
+                  onClick={() => {
+                    if (removeMode) {
+                      setSelectedForRemoval(prev => {
+                        const next = new Set(prev);
+                        if (next.has(brand.brand_id)) {
+                          next.delete(brand.brand_id);
+                        } else {
+                          next.add(brand.brand_id);
+                        }
+                        return next;
+                      });
+                    } else if (!isScraping) {
+                      handleBrandClick(brand.brand_id);
+                    }
+                  }}
                   style={{
                     position: 'relative',
-                    cursor: isScraping ? 'not-allowed' : undefined,
+                    cursor: isScraping && !removeMode ? 'not-allowed' : undefined,
                   }}
                 >
                   <span className="brand-name-text">{(brand.name || brand.brand_id || 'Unknown').toUpperCase()}</span>
-                  {isScraping && <span className="brand-loading-text"> loading...</span>}
+                  {isScraping && !removeMode && <span className="brand-loading-text"> loading...</span>}
                 </div>
 
-                {isExpanded && (
+                {isExpanded && !removeMode && (
                   <div className="brand-categories">
                     {renderCategoryTree(brand, brand.navigation)}
                   </div>
@@ -844,14 +911,40 @@ function MyBrandsPanel() {
           })}
         </div>
 
-        {/* Add Brand Button */}
+        {/* Footer Buttons */}
         <div className="add-brand-footer">
-          <button
-            className="add-brand-button"
-            onClick={() => setShowAddBrandModal(true)}
-          >
-            + Add New Brand
-          </button>
+          {removeMode ? (
+            <button
+              className="remove-brand-button"
+              onClick={() => {
+                if (selectedForRemoval.size > 0) {
+                  setShowRemoveConfirm(true);
+                } else {
+                  setRemoveMode(false);
+                  setSelectedForRemoval(new Set());
+                }
+              }}
+            >
+              {selectedForRemoval.size > 0
+                ? `Remove ${selectedForRemoval.size} Brand${selectedForRemoval.size > 1 ? 's' : ''}`
+                : 'Cancel'}
+            </button>
+          ) : (
+            <>
+              <button
+                className="add-brand-button"
+                onClick={() => setShowAddBrandModal(true)}
+              >
+                + Add New Brand
+              </button>
+              <button
+                className="remove-brand-button-idle"
+                onClick={() => setRemoveMode(true)}
+              >
+                - Remove Brand
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -911,7 +1004,7 @@ function MyBrandsPanel() {
         {(searchLoading || loadingProducts) ? (
           <div className="gallery-loading">Loading products...</div>
         ) : displayProducts.length > 0 ? (
-          <div className="product-grid">
+          <div className="product-grid" ref={gridRef}>
             {displayProducts.map((product, idx) => {
               const brandName = product.brand
                 ? product.brand.toUpperCase()
@@ -927,6 +1020,9 @@ function MyBrandsPanel() {
                 ? `${product.currency || ''} ${product.price}`.trim()
                 : product.attributes?.price;
 
+              const rowIdx = Math.floor(idx / GRID_COLS);
+              const rowHeight = rowImageHeights[rowIdx];
+
               return (
                 <div
                   key={`${productUrl}-${idx}`}
@@ -934,8 +1030,13 @@ function MyBrandsPanel() {
                   onClick={() => setSelectedProduct(product)}
                 >
                   {imageUrl && (
-                    <div className="product-image">
-                      <img src={imageUrl} alt={productName} loading="lazy" />
+                    <div className="product-image" style={rowHeight ? { height: rowHeight } : undefined}>
+                      <img
+                        src={imageUrl}
+                        alt={productName}
+                        loading="lazy"
+                        onLoad={(e) => handleImageLoad(idx, e)}
+                      />
                     </div>
                   )}
                   <div className="product-info">
@@ -1009,6 +1110,47 @@ function MyBrandsPanel() {
                 disabled={validating || !brandUrlInput.trim()}
               >
                 {validating ? 'Validating...' : 'Add Brand'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Remove Brand Confirmation Modal */}
+      {showRemoveConfirm && (
+        <div className="modern-modal-overlay" onClick={() => setShowRemoveConfirm(false)}>
+          <div className="modern-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modern-modal-title">Remove Brands</div>
+            <div className="modern-modal-content">
+              Are you sure you want to remove the following brand{selectedForRemoval.size > 1 ? 's' : ''} from your list?
+              <ul className="remove-brand-list">
+                {brands
+                  .filter(b => selectedForRemoval.has(b.brand_id))
+                  .map(b => (
+                    <li key={b.brand_id}>{b.name || b.brand_id}</li>
+                  ))
+                }
+              </ul>
+            </div>
+            <div className="modern-modal-actions">
+              <button
+                className="modern-button modern-button-secondary"
+                onClick={() => setShowRemoveConfirm(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="modern-button modern-button-danger"
+                onClick={async () => {
+                  for (const brandId of selectedForRemoval) {
+                    await FashionArchiveAPI.unfollowBrand(brandId);
+                  }
+                  setShowRemoveConfirm(false);
+                  setRemoveMode(false);
+                  setSelectedForRemoval(new Set());
+                  loadBrands();
+                }}
+              >
+                Remove
               </button>
             </div>
           </div>
