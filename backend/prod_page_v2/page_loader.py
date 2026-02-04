@@ -106,8 +106,12 @@ async def _load_page_stealth(page_data: PageData, url: str, wait_time: int, head
             except Exception:
                 pass
 
-            # Capture HTML
+            # Capture HTML and visible text
             page_data.html = await page.content()
+            try:
+                page_data.visible_text = await page.inner_text('body')
+            except Exception:
+                pass
 
         except Exception as e:
             print(f"Error loading page: {e}")
@@ -157,8 +161,12 @@ async def _load_page_vanilla(page_data: PageData, url: str, wait_time: int, head
             except Exception:
                 pass
 
-            # Capture HTML
+            # Capture HTML and visible text
             page_data.html = await page.content()
+            try:
+                page_data.visible_text = await page.inner_text('body')
+            except Exception:
+                pass
 
         except Exception as e:
             print(f"Error loading page: {e}")
@@ -341,8 +349,12 @@ async def load_page_on_existing(
             print(f"[PageLoader] Domain redirect: {requested_domain} → {actual_domain} for {url}")
             return page_data
 
-        # Capture final HTML
+        # Capture final HTML and visible text
         page_data.html = await page.content()
+        try:
+            page_data.visible_text = await page.inner_text('body')
+        except Exception:
+            pass
         t_html = _time.monotonic()
 
         # Detect soft error/rate-limit pages by scanning HTML content

@@ -58,6 +58,7 @@ class PageData:
     request_headers: Dict[str, Dict[str, str]] = field(default_factory=dict)
     aria: Optional[dict] = None
     image_urls: List[str] = field(default_factory=list)
+    visible_text: str = ""  # document.body.innerText — what user sees on page
     loaded: bool = True  # False if page failed to load or is an error page
     status_code: int = 0  # HTTP status from navigation response
 

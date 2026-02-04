@@ -1,0 +1,4 @@
+{
+  "title_pattern": "\"product\":\\{\"title\":\"([^\"]+)\",\"vendor\":\"SATISFY\",\"id\":\"9171594674504\"",
+  "category_pattern": "\"product\":\\{\"title\":\"Pertex\u00ae\\ Modular\\ Thermal\\ Vest\",\"vendor\":\"SATISFY\",\"id\":\"9171594674504\",\"untranslatedTitle\":\"Pertex\u00ae\\ Modular\\ Thermal\\ Vest\",\"url\":\"\\\\/products\\\\/pertex\\-modular\\-thermal\\-vest\\-1\",\"type\":\"([^\"]+)\"\\}"
+}

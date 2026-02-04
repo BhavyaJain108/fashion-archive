@@ -171,11 +171,12 @@ class StreamingOrchestrator:
         """
         from stages.urls import get_leaf_categories_with_stats, extract_urls_from_category, clean_redundant_parent_urls, dedupe_urls_by_path
         from stages.storage import ensure_domain_dir
-        from stages.metrics import update_stage_metrics, calculate_cost
+        from stages.metrics import update_stage_metrics, calculate_cost, set_current_stage, get_stage_metrics_from_tracker
         from scraper.llm_handler import LLMHandler
         from brand import Brand
 
         url_stage_start = time.time()
+        set_current_stage("urls")
         LLMHandler.reset_usage()
 
         # Clean redundant parent URLs (where parent URL = child URL)
@@ -318,11 +319,32 @@ class StreamingOrchestrator:
 
         # Save Stage 2 metrics
         url_stage_duration = time.time() - url_stage_start
-        llm_usage = LLMHandler.get_total_usage()
-        llm_input = llm_usage.get("input_tokens", 0)
-        llm_output = llm_usage.get("output_tokens", 0)
-        llm_calls = llm_usage.get("call_count", 0)
-        llm_cost = calculate_cost(llm_input, llm_output)
+
+        # Get operation-level metrics from the unified tracker
+        tracker_data = get_stage_metrics_from_tracker("urls")
+        operations = tracker_data.get("operations", [])
+        summary = tracker_data.get("summary", {"calls": 0, "input_tokens": 0, "output_tokens": 0, "cost": 0.0})
+
+        # Fall back to legacy method if tracker has no data
+        if not operations:
+            llm_usage = LLMHandler.get_total_usage()
+            llm_input = llm_usage.get("input_tokens", 0)
+            llm_output = llm_usage.get("output_tokens", 0)
+            llm_calls = llm_usage.get("call_count", 0)
+            llm_cost = calculate_cost(llm_input, llm_output)
+            operations = [{
+                "name": "url_extraction",
+                "calls": llm_calls,
+                "input_tokens": llm_input,
+                "output_tokens": llm_output,
+                "cost": llm_cost
+            }]
+            summary = {
+                "calls": llm_calls,
+                "input_tokens": llm_input,
+                "output_tokens": llm_output,
+                "cost": llm_cost
+            }
 
         stage_2_data = {
             "run_time": datetime.now().isoformat(),
@@ -333,19 +355,8 @@ class StreamingOrchestrator:
                 "Raw URLs": dedup_stats["total_raw"],
                 "After Dedup": dedup_stats["total_deduped"],
             },
-            "operations": [{
-                "name": "url_extraction",
-                "calls": llm_calls,
-                "input_tokens": llm_input,
-                "output_tokens": llm_output,
-                "cost": llm_cost
-            }],
-            "summary": {
-                "calls": llm_calls,
-                "input_tokens": llm_input,
-                "output_tokens": llm_output,
-                "cost": llm_cost
-            },
+            "operations": operations,
+            "summary": summary,
             "products": self.urls_produced
         }
 
@@ -410,11 +421,12 @@ class StreamingOrchestrator:
         from stages.storage import save_product
         from stages.rate_limiter import AdaptiveRateLimiter
         from stages.dashboard import Dashboard
-        from stages.metrics import update_stage_metrics, calculate_cost
+        from stages.metrics import update_stage_metrics, calculate_cost, set_current_stage, get_stage_metrics_from_tracker
         from scraper.llm_handler import LLMHandler
 
         product_stage_start = time.time()
         discovery_end_time = None
+        set_current_stage("products")
         LLMHandler.reset_usage()
 
         print("[Product Consumer] Waiting for discovery URLs...")
@@ -752,11 +764,31 @@ class StreamingOrchestrator:
         discovery_duration = (discovery_end_time - product_stage_start) if discovery_end_time else 0
         batch_duration = stage_duration - discovery_duration
 
-        llm_usage = LLMHandler.get_total_usage()
-        llm_input = llm_usage.get("input_tokens", 0)
-        llm_output = llm_usage.get("output_tokens", 0)
-        llm_calls = llm_usage.get("call_count", 0)
-        llm_cost = calculate_cost(llm_input, llm_output)
+        # Get operation-level metrics from the unified tracker
+        tracker_data = get_stage_metrics_from_tracker("products")
+        operations = tracker_data.get("operations", [])
+        summary = tracker_data.get("summary", {"calls": 0, "input_tokens": 0, "output_tokens": 0, "cost": 0.0})
+
+        # Fall back to legacy method if tracker has no data
+        if not operations:
+            llm_usage = LLMHandler.get_total_usage()
+            llm_input = llm_usage.get("input_tokens", 0)
+            llm_output = llm_usage.get("output_tokens", 0)
+            llm_calls = llm_usage.get("call_count", 0)
+            llm_cost = calculate_cost(llm_input, llm_output)
+            operations = [{
+                "name": "product_extraction",
+                "calls": llm_calls,
+                "input_tokens": llm_input,
+                "output_tokens": llm_output,
+                "cost": llm_cost
+            }]
+            summary = {
+                "calls": llm_calls,
+                "input_tokens": llm_input,
+                "output_tokens": llm_output,
+                "cost": llm_cost
+            }
 
         avg_throughput = self.products_extracted / batch_duration if batch_duration > 0 else 0
 
@@ -773,23 +805,12 @@ class StreamingOrchestrator:
                 "Browser Recycles": pool_stats['total_recycles'],
                 "Avg Throughput": f"{avg_throughput:.2f}/s",
             },
-            "operations": [{
-                "name": "product_extraction",
-                "calls": llm_calls,
-                "input_tokens": llm_input,
-                "output_tokens": llm_output,
-                "cost": llm_cost
-            }],
+            "operations": operations,
             "latency_breakdown": {
                 "Discovery + Calibration": discovery_duration,
                 "Batch Extraction": batch_duration,
             },
-            "summary": {
-                "calls": llm_calls,
-                "input_tokens": llm_input,
-                "output_tokens": llm_output,
-                "cost": llm_cost
-            },
+            "summary": summary,
             "products": self.products_successful
         }
 

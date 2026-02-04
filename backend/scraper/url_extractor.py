@@ -273,6 +273,7 @@ def _detect_pagination_with_cached_pattern(page, page_url: str, cached_pattern: 
     result = {
         "pagination_found": False,
         "url_pattern": url_pattern,
+        "pagination_type": cached_pattern.get("pagination_type", "page_links"),
         "max_page_detected": None,
         "next_page_url": None,
         "reasoning": "Fast detection using cached pattern"
@@ -554,7 +555,8 @@ def classify_product_links(
         response = llm_handler.call(
             prompt,
             expected_format="json",
-            response_model=url_classification.get_response_model()
+            response_model=url_classification.get_response_model(),
+            operation="url_classification",
         )
 
         if response.get("success"):
@@ -791,10 +793,19 @@ def extract_multi_page_urls(
                     "error": str(e)
                 })
 
-    # Sequential discovery: if we had no max_page (only next_page_url), continue from
-    # the last page we processed. Only the LAST page needs pagination detection to find
-    # further pages — intermediate pages are wasteful to check.
-    if not pagination_result.get("max_page_detected") and pagination_result.get("next_page_url"):
+    # Sequential discovery: continue extracting pages beyond what we already processed.
+    # This handles:
+    # - next_page_url only (no max detected) - classic next/prev button case
+    # - pagination_type == "next_button" - LLM explicitly identified next button
+    # - max_page_detected <= 2 - likely only seeing adjacent page, not full numbered pagination
+    max_page = pagination_result.get("max_page_detected")
+    pagination_type = pagination_result.get("pagination_type", "page_links")
+    should_continue_sequential = (
+        (not max_page and pagination_result.get("next_page_url")) or
+        pagination_type == "next_button" or
+        (max_page is not None and max_page <= 2)
+    )
+    if should_continue_sequential and pagination_result.get("url_pattern"):
         url_pattern = pagination_result.get("url_pattern")
         if url_pattern:
             import re

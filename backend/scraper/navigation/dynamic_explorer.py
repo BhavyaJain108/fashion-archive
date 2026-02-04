@@ -18,37 +18,48 @@ from urllib.parse import urlparse
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent.parent.parent.parent / 'config' / '.env')
 
-from anthropic import Anthropic
 from playwright.async_api import async_playwright, Page
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from scraper.navigation.llm_popup_dismiss import dismiss_popups_with_llm
+from scraper.llm_handler import LLMHandler, LLMUsageTracker
 from utils.page_wait import wait_for_page_ready
-
-client = Anthropic(api_key=os.getenv('CLAUDE_API_KEY'))
 
 # Module-level LLM usage tracking (reset at start of explore())
 _llm_usage = {"input_tokens": 0, "output_tokens": 0}
 
-def _track_llm_response(response):
-    """Track LLM usage from a response."""
+# Shared LLMHandler instance for this module
+_llm_handler = None
+
+def _get_llm_handler():
+    """Get or create the module-level LLMHandler."""
+    global _llm_handler
+    if _llm_handler is None:
+        _llm_handler = LLMHandler()
+    return _llm_handler
+
+def _track_llm_result(result: dict):
+    """Track LLM usage from a call result."""
     global _llm_usage
-    if response.usage:
-        _llm_usage["input_tokens"] += response.usage.input_tokens
-        _llm_usage["output_tokens"] += response.usage.output_tokens
+    if result.get("usage"):
+        _llm_usage["input_tokens"] += result["usage"].get("input_tokens", 0)
+        _llm_usage["output_tokens"] += result["usage"].get("output_tokens", 0)
 
 
 # =============================================================================
 # LLM: Find top-level nav items
 # =============================================================================
 
-def prompt_top_level(aria: str) -> str:
+def prompt_top_level(header_aria: str, body_aria: str = None) -> str:
+    # Use header ARIA (focused, no popup/cookie/country junk) as primary source.
+    # Fall back to body ARIA only if header ARIA is empty.
+    aria = header_aria.strip() if header_aria and header_aria.strip() else (body_aria or "")[:15000]
     return f"""Look at this ARIA snapshot of a fashion website's navigation.
 
 List ALL top-level navigation categories (the main menu items).
 
 ARIA:
-{aria[:8000]}
+{aria[:15000]}
 
 RESPOND EXACTLY LIKE THIS:
 
@@ -1217,16 +1228,17 @@ async def explore_toggle_menu(page: Page, menu_structure: dict, states: list, st
         # Pass top-level names so LLM knows to exclude them (always visible nav)
         top_level_names = [item['name'] for item in top_level]
         print(f"    Asking LLM for subcategories...")
-        subcat_response = client.messages.create(
-            model="claude-sonnet-4-20250514",
+        llm = _get_llm_handler()
+        subcat_result = llm.call_text(
+            prompt=prompt_subcategories(aria, [tl_name], links),
             max_tokens=1000,
-            messages=[{
-                "role": "user",
-                "content": prompt_subcategories(aria, [tl_name], links)
-            }]
+            operation="nav_subcategories"
         )
-        _track_llm_response(subcat_response)
-        raw_response = subcat_response.content[0].text
+        _track_llm_result(subcat_result)
+        if not subcat_result.get("success"):
+            print(f"    LLM call failed: {subcat_result.get('error')}")
+            continue
+        raw_response = subcat_result.get("response", "")
         print(f"    LLM raw response:\n{raw_response[:500]}")
         expandable_items, leaf_links, is_product_listing = parse_subcategories(raw_response)
         if is_product_listing:
@@ -1338,25 +1350,30 @@ async def explore(url: str, max_depth: int = 3) -> tuple:
 
         # Get initial ARIA and find top-level items
         print("[4] Finding top-level items...")
-        aria = initial_state['aria']
+        # Use header-focused ARIA to avoid popup/cookie/country junk flooding the snapshot
+        try:
+            header_aria = await page.locator('header').aria_snapshot()
+        except Exception:
+            header_aria = None
+        body_aria = initial_state['aria']
 
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
+        llm = _get_llm_handler()
+        top_level_result = llm.call_with_image(
+            prompt=prompt_top_level(header_aria, body_aria),
+            image_b64=initial_state['screenshot_b64'],
+            media_type="image/png",
             max_tokens=1500,
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": initial_state['screenshot_b64']}},
-                    {"type": "text", "text": prompt_top_level(aria)}
-                ]
-            }]
+            operation="nav_top_level"
         )
-        _track_llm_response(response)
+        _track_llm_result(top_level_result)
 
-        top_level = parse_items(response.content[0].text)
+        if not top_level_result.get("success"):
+            print(f"    LLM call failed: {top_level_result.get('error')}")
+            return states, _llm_usage
 
-        # Filter out home page links (just "/")
-        top_level = [item for item in top_level if item.get('url') != '/']
+        llm_response_text = top_level_result.get("response", "")
+        print(f"    LLM raw response:\n{llm_response_text}")
+        top_level = parse_items(llm_response_text)
 
         # Filter to majority type - but keep items with URLs (they're valid nav destinations)
         # This removes stray utility buttons (no URL) when main nav is links
@@ -1419,17 +1436,18 @@ async def explore(url: str, max_depth: int = 3) -> tuple:
             aria = await page.locator('body').aria_snapshot()
             print("[6] Analyzing menu structure with LLM...")
 
-            response = client.messages.create(
-                model="claude-sonnet-4-20250514",
+            menu_result = llm.call_text(
+                prompt=prompt_menu_structure(aria),
                 max_tokens=1500,
-                messages=[{
-                    "role": "user",
-                    "content": prompt_menu_structure(aria)
-                }]
+                operation="nav_menu_structure"
             )
-            _track_llm_response(response)
+            _track_llm_result(menu_result)
 
-            menu_structure = parse_menu_structure(response.content[0].text)
+            if not menu_result.get("success"):
+                print(f"    LLM call failed: {menu_result.get('error')}")
+                return states, _llm_usage
+
+            menu_structure = parse_menu_structure(menu_result.get("response", ""))
             print(f"    LLM identified structure:")
             print(f"      Top-level: {[item['name'] for item in menu_structure['top_level']]}")
             print(f"      Subcategories: {[item['name'] for item in menu_structure['subcategories']]}")
@@ -1604,16 +1622,17 @@ async def explore(url: str, max_depth: int = 3) -> tuple:
             else:
                 # Ask LLM what subcategories are available
                 print(f"    Asking LLM for subcategories under '{path[-1]}'...")
-                subcat_response = client.messages.create(
-                    model="claude-sonnet-4-20250514",
+                subcat_result = llm.call_text(
+                    prompt=prompt_subcategories(aria, path, current_links),
                     max_tokens=1000,
-                    messages=[{
-                        "role": "user",
-                        "content": prompt_subcategories(aria, path, current_links)
-                    }]
+                    operation="nav_subcategories"
                 )
-                _track_llm_response(subcat_response)
-                raw_response = subcat_response.content[0].text
+                _track_llm_result(subcat_result)
+                if not subcat_result.get("success"):
+                    print(f"    LLM call failed: {subcat_result.get('error')}")
+                    raw_response = ""
+                else:
+                    raw_response = subcat_result.get("response", "")
                 print(f"    LLM raw response:\n{raw_response[:500]}")
                 expandable_items, leaf_links, is_product_listing = parse_subcategories(raw_response)
 
@@ -1754,11 +1773,10 @@ async def main():
     print(f"\nSaved state summary: {summary_file}")
 
     # Build and save tree
-    from build_tree import build_tree, find_cross_toplevel_urls, dedupe_parent_child_links, hoist_common_links
+    from build_tree import build_tree, find_cross_toplevel_urls, dedupe_parent_child_links
     base_url = states[0].get("url", url) if states else url
     cross_toplevel_urls = find_cross_toplevel_urls(states)
     tree = build_tree(states, base_url, filter_urls=cross_toplevel_urls)
-    hoist_common_links(tree)
     dedupe_parent_child_links(tree)
 
     tree_file = output_dir / 'navigation_tree.json'

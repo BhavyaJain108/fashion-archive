@@ -39,7 +39,8 @@ sys.path.insert(0, str(Path(__file__).parent / "stages"))
 sys.path.insert(0, str(Path(__file__).parent / "scraper"))
 sys.path.insert(0, str(Path(__file__).parent / "prod_page_v2"))
 
-from stages.storage import get_domain
+from stages.storage import get_domain, clean_previous_extraction
+from stages.metrics import reset_all_tracking
 
 
 def run_nav(url: str, mode: str = "both") -> bool:
@@ -164,6 +165,12 @@ def main():
         print(f"# Nav Mode: {nav_mode}")
     print(f"{'#'*60}\n")
 
+    # Reset all LLM tracking for this pipeline run
+    reset_all_tracking()
+
+    # Clean previous extraction artifacts to avoid stale data on rescrape
+    clean_previous_extraction(domain, stages)
+
     success = True
 
     # Run stages
@@ -187,10 +194,35 @@ def main():
                 print(f"\nStage '{stage}' failed. Stopping pipeline.")
                 sys.exit(1)
 
-    print(f"\n{'#'*60}")
-    print(f"# PIPELINE COMPLETE")
-    print(f"# Output: backend/extractions/{domain}/")
-    print(f"{'#'*60}\n")
+    # Print pipeline summary with total costs
+    from stages.metrics import load_metrics
+    metrics = load_metrics(domain)
+    if metrics:
+        total_duration = 0
+        total_cost = 0.0
+        total_products = 0
+
+        for stage_data in metrics.values():
+            total_duration += stage_data.get("duration", 0)
+            summary = stage_data.get("summary", {})
+            total_cost += summary.get("cost", 0)
+            total_products = max(total_products, stage_data.get("products", 0))
+
+        print(f"\n{'#'*60}")
+        print(f"# PIPELINE COMPLETE")
+        print(f"# Output: backend/extractions/{domain}/")
+        print(f"#")
+        print(f"# Total Duration: {total_duration:.1f}s ({total_duration/60:.1f} min)")
+        print(f"# Total LLM Cost: ${total_cost:.4f}")
+        if total_products > 0:
+            print(f"# Products: {total_products}")
+            print(f"# Cost per Product: ${total_cost/total_products:.4f}")
+        print(f"{'#'*60}\n")
+    else:
+        print(f"\n{'#'*60}")
+        print(f"# PIPELINE COMPLETE")
+        print(f"# Output: backend/extractions/{domain}/")
+        print(f"{'#'*60}\n")
 
 
 if __name__ == "__main__":

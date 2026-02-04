@@ -653,6 +653,33 @@ class FashionArchiveAPI {
     }
   }
 
+  static async unfollowBrand(brandId) {
+    try {
+      const token = localStorage.getItem('fashionArchiveToken');
+      const headers = {
+        'Content-Type': 'application/json',
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const response = await fetch(`${this.BASE_URL}/api/brands/unfollow`, {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({ brand_id: brandId }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`API call failed: ${response.statusText}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Unfollow brand API Error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
   static async getFollowedBrands() {
     try {
       const token = localStorage.getItem('fashionArchiveToken');

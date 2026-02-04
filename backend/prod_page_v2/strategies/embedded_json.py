@@ -307,7 +307,7 @@ class EmbeddedJsonStrategy(BaseStrategy):
 
         # Step 1: Ask LLM to identify the product data values
         prompt = IDENTIFY_DATA_PROMPT.format(script_content=normalized)
-        result = self.llm.call(prompt=prompt, expected_format="text", max_tokens=1500)
+        result = self.llm.call(prompt=prompt, expected_format="text", max_tokens=1500, operation="dom_pattern_discovery")
 
         if not result.get("success"):
             self._save_debug(domain, slug, normalized, "LLM CALL FAILED", {}, matching_scripts)
@@ -834,6 +834,7 @@ class EmbeddedJsonStrategy(BaseStrategy):
             expected_format="json",
             response_model=ExtractedProduct,
             max_tokens=2000,
+            operation="ground_truth_extraction",
         )
 
         if not result.get("success"):
@@ -908,6 +909,7 @@ class EmbeddedJsonStrategy(BaseStrategy):
                     ),
                     expected_format="text",
                     max_tokens=2000,
+                    operation="image_filter",
                 )
                 if llm_result.get("success") and llm_result.get("data"):
                     llm_text = llm_result["data"] if isinstance(llm_result["data"], str) else str(llm_result["data"])

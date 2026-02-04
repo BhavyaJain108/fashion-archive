@@ -21,7 +21,7 @@ from stages.storage import (
     get_domain, save_navigation, count_categories,
     load_brand_meta, save_brand_meta
 )
-from stages.metrics import update_stage_metrics, calculate_cost
+from stages.metrics import update_stage_metrics, calculate_cost, set_current_stage, get_stage_metrics_from_tracker
 
 
 def run_static_extractor(url: str) -> dict:
@@ -109,7 +109,7 @@ def convert_dynamic_to_standard(node: dict) -> list:
 def run_dynamic_extractor(url: str) -> dict:
     """Run dynamic extractor synchronously."""
     from dynamic_explorer import explore
-    from build_tree import build_tree, find_cross_toplevel_urls, dedupe_parent_child_links, hoist_common_links
+    from build_tree import build_tree, find_cross_toplevel_urls, dedupe_parent_child_links
 
     try:
         loop = asyncio.new_event_loop()
@@ -129,7 +129,6 @@ def run_dynamic_extractor(url: str) -> dict:
             base_url = states[0].get("url", url) if states else url
             cross_toplevel_urls = find_cross_toplevel_urls(states)
             tree = build_tree(states, base_url, filter_urls=cross_toplevel_urls)
-            hoist_common_links(tree)
             dedupe_parent_child_links(tree)
 
             # Convert to standard format (dynamic has {name, children, links})
@@ -187,6 +186,9 @@ def extract_navigation(url: str, timeout: int = 120, mode: str = "both") -> dict
     domain = get_domain(url)
     clean_domain = domain.replace('.', '_')
     stage_start_time = time.time()
+
+    # Set the current stage for LLM tracking
+    set_current_stage("navigation")
 
     # Check for cached brand metadata (only when mode is "both")
     cached_method = None
@@ -275,15 +277,14 @@ def extract_navigation(url: str, timeout: int = 120, mode: str = "both") -> dict
     # out non-product links (e.g. social media, music, video) more reliably than
     # dynamic which just DFS-clicks everything.
     if static_result and dynamic_result:
-        if static_result["category_count"] > 0:
+        s = static_result["category_count"]
+        d = dynamic_result["category_count"]
+        if s >= d:
             result = static_result
-            print(f"\nUsing static result ({result['category_count']} categories) — LLM-curated")
-        elif dynamic_result["category_count"] > 0:
-            result = dynamic_result
-            print(f"\nUsing dynamic result ({result['category_count']} categories) — static empty")
+            print(f"\nUsing static result ({s} categories) — LLM-curated")
         else:
-            result = static_result
-            print(f"\nUsing static result (both empty)")
+            result = dynamic_result
+            print(f"\nUsing dynamic result ({d} categories) — more than static ({s})")
     elif static_result:
         result = static_result
         print(f"\nUsing static result" + (" (dynamic failed)" if mode == "both" else ""))
@@ -293,6 +294,13 @@ def extract_navigation(url: str, timeout: int = 120, mode: str = "both") -> dict
     else:
         print("\nExtraction failed!")
         return None
+
+    # Strip homepage nodes from the final tree
+    from build_tree import strip_homepage_nodes
+    tree = result.get("category_tree", [])
+    if tree:
+        result["category_tree"] = strip_homepage_nodes(tree, url)
+        result["category_count"] = count_tree(result["category_tree"])
 
     # Save brand metadata for future runs (remember which method won)
     new_meta = {
@@ -307,34 +315,44 @@ def extract_navigation(url: str, timeout: int = 120, mode: str = "both") -> dict
     # Save results
     json_path, txt_path = save_navigation(domain, result)
 
-    # Calculate timing and LLM usage
+    # Calculate timing and get LLM usage from tracker
     stage_duration = time.time() - stage_start_time
-    llm_usage = result.get("llm_usage", {"input_tokens": 0, "output_tokens": 0})
-    llm_cost = calculate_cost(llm_usage.get("input_tokens", 0), llm_usage.get("output_tokens", 0))
 
-    # Build and save metrics
-    stage_data = {
-        "run_time": datetime.now(),
-        "duration": stage_duration,
-        "extra_fields": {
-            "Method": result.get("method", "unknown"),
-            "Categories": result.get("category_count", 0)
-        },
-        "operations": [
+    # Get operation-level metrics from the unified tracker
+    tracker_data = get_stage_metrics_from_tracker("navigation")
+    operations = tracker_data.get("operations", [])
+    summary = tracker_data.get("summary", {"calls": 0, "input_tokens": 0, "output_tokens": 0, "cost": 0.0})
+
+    # Fall back to llm_usage from result if tracker has no data (backwards compatibility)
+    if not operations:
+        llm_usage = result.get("llm_usage", {"input_tokens": 0, "output_tokens": 0})
+        llm_cost = calculate_cost(llm_usage.get("input_tokens", 0), llm_usage.get("output_tokens", 0))
+        operations = [
             {
                 "name": "navigation_extraction",
-                "calls": 1,  # Approximate - actual calls tracked internally
+                "calls": 1,
                 "input_tokens": llm_usage.get("input_tokens", 0),
                 "output_tokens": llm_usage.get("output_tokens", 0),
                 "cost": llm_cost
             }
-        ],
-        "summary": {
+        ]
+        summary = {
             "calls": 1,
             "input_tokens": llm_usage.get("input_tokens", 0),
             "output_tokens": llm_usage.get("output_tokens", 0),
             "cost": llm_cost
         }
+
+    # Build and save metrics
+    stage_data = {
+        "run_time": datetime.now().isoformat(),
+        "duration": stage_duration,
+        "extra_fields": {
+            "Method": result.get("method", "unknown"),
+            "Categories": result.get("category_count", 0)
+        },
+        "operations": operations,
+        "summary": summary
     }
 
     metrics_path = update_stage_metrics(domain, "stage_1", stage_data)
@@ -342,7 +360,7 @@ def extract_navigation(url: str, timeout: int = 120, mode: str = "both") -> dict
     print(f"\nSaved: {json_path}")
     print(f"Saved: {txt_path}")
     print(f"Duration: {stage_duration:.1f}s")
-    print(f"LLM Cost: ${llm_cost:.4f} ({llm_usage.get('input_tokens', 0) + llm_usage.get('output_tokens', 0):,} tokens)")
+    print(f"LLM Cost: ${summary.get('cost', 0):.4f} ({summary.get('input_tokens', 0) + summary.get('output_tokens', 0):,} tokens)")
     print(f"Metrics: {metrics_path}")
 
     return result

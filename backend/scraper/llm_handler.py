@@ -2,10 +2,11 @@
 LLM Handler Module
 ==================
 
-Generic LLM utility for handling:
-- Prompt execution
-- JSON response parsing
-- Latency measurement
+Unified LLM interface for the entire pipeline.
+All LLM calls should go through this module for:
+- Consistent token tracking by operation
+- Cost calculation
+- Centralized metrics reporting
 """
 
 import time
@@ -13,6 +14,7 @@ import json
 import re
 import sys
 import os
+from datetime import datetime
 from typing import Dict, Any, Optional, List
 from pydantic import BaseModel, Field
 
@@ -25,6 +27,18 @@ try:
     from high_fashion.tools.llm_interface import ClaudeInterface
 except ImportError:
     ClaudeInterface = None
+
+
+# Claude Sonnet 4 pricing (per 1M tokens)
+INPUT_COST_PER_M = 3.0   # $3 per 1M input tokens
+OUTPUT_COST_PER_M = 15.0  # $15 per 1M output tokens
+
+
+def calculate_cost(input_tokens: int, output_tokens: int) -> float:
+    """Calculate cost in USD from token counts."""
+    input_cost = (input_tokens / 1_000_000) * INPUT_COST_PER_M
+    output_cost = (output_tokens / 1_000_000) * OUTPUT_COST_PER_M
+    return input_cost + output_cost
 
 
 # Pydantic models for structured outputs
@@ -47,27 +61,165 @@ class PaginationAnalysis(BaseModel):
     next_selector: Optional[str] = Field(description="CSS selector for next button if applicable")
 
 
+class LLMUsageTracker:
+    """
+    Centralized LLM usage tracking with operation-level granularity.
+
+    Tracks all LLM calls by:
+    - Stage (navigation, urls, products)
+    - Operation name (e.g., "nav_tree_extraction", "gallery_discovery")
+
+    Usage:
+        # At start of stage
+        LLMUsageTracker.set_stage("navigation")
+
+        # During LLM calls
+        handler = LLMHandler()
+        result = handler.call(prompt, operation="nav_tree_extraction")
+
+        # Get stage summary
+        summary = LLMUsageTracker.get_stage_summary("navigation")
+    """
+
+    # Global state
+    _current_stage: str = "unknown"
+    _operations: Dict[str, Dict[str, Any]] = {}  # {stage: {operation: {calls, input, output, cost}}}
+    _stage_start_times: Dict[str, float] = {}  # {stage: start_time}
+
+    @classmethod
+    def set_stage(cls, stage: str):
+        """Set the current stage and reset its tracking."""
+        cls._current_stage = stage
+        cls._operations[stage] = {}
+        cls._stage_start_times[stage] = time.time()
+
+    @classmethod
+    def get_current_stage(cls) -> str:
+        """Get current stage name."""
+        return cls._current_stage
+
+    @classmethod
+    def record_call(cls, operation: str, input_tokens: int, output_tokens: int,
+                    stage: str = None):
+        """Record an LLM call with its usage."""
+        stage = stage or cls._current_stage
+
+        if stage not in cls._operations:
+            cls._operations[stage] = {}
+
+        if operation not in cls._operations[stage]:
+            cls._operations[stage][operation] = {
+                "calls": 0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "cost": 0.0
+            }
+
+        op = cls._operations[stage][operation]
+        op["calls"] += 1
+        op["input_tokens"] += input_tokens
+        op["output_tokens"] += output_tokens
+        op["cost"] += calculate_cost(input_tokens, output_tokens)
+
+    @classmethod
+    def get_stage_summary(cls, stage: str) -> Dict[str, Any]:
+        """Get summary of all operations for a stage."""
+        if stage not in cls._operations:
+            return {
+                "operations": [],
+                "summary": {"calls": 0, "input_tokens": 0, "output_tokens": 0, "cost": 0.0}
+            }
+
+        operations = []
+        total_calls = 0
+        total_input = 0
+        total_output = 0
+        total_cost = 0.0
+
+        for op_name, op_data in cls._operations[stage].items():
+            operations.append({
+                "name": op_name,
+                "calls": op_data["calls"],
+                "input_tokens": op_data["input_tokens"],
+                "output_tokens": op_data["output_tokens"],
+                "cost": op_data["cost"]
+            })
+            total_calls += op_data["calls"]
+            total_input += op_data["input_tokens"]
+            total_output += op_data["output_tokens"]
+            total_cost += op_data["cost"]
+
+        return {
+            "operations": operations,
+            "summary": {
+                "calls": total_calls,
+                "input_tokens": total_input,
+                "output_tokens": total_output,
+                "cost": round(total_cost, 6)
+            }
+        }
+
+    @classmethod
+    def get_all_stages_summary(cls) -> Dict[str, Any]:
+        """Get summary across all stages."""
+        result = {}
+        grand_total = {"calls": 0, "input_tokens": 0, "output_tokens": 0, "cost": 0.0}
+
+        for stage in cls._operations:
+            stage_summary = cls.get_stage_summary(stage)
+            result[stage] = stage_summary
+            grand_total["calls"] += stage_summary["summary"]["calls"]
+            grand_total["input_tokens"] += stage_summary["summary"]["input_tokens"]
+            grand_total["output_tokens"] += stage_summary["summary"]["output_tokens"]
+            grand_total["cost"] += stage_summary["summary"]["cost"]
+
+        result["_total"] = {
+            "summary": grand_total
+        }
+        return result
+
+    @classmethod
+    def reset_all(cls):
+        """Reset all tracking data."""
+        cls._current_stage = "unknown"
+        cls._operations = {}
+        cls._stage_start_times = {}
+
+    @classmethod
+    def reset_stage(cls, stage: str):
+        """Reset tracking for a specific stage."""
+        if stage in cls._operations:
+            del cls._operations[stage]
+        if stage in cls._stage_start_times:
+            del cls._stage_start_times[stage]
+
+
 class LLMHandler:
     """
-    Generic handler for LLM interactions.
+    Unified handler for all LLM interactions in the pipeline.
 
-    Simple utility that:
-    - Takes a prompt and expected output format
-    - Returns parsed JSON response
-    - Tracks latency and token usage
+    All LLM calls should go through this class for:
+    - Consistent token tracking by operation
+    - Cost calculation
+    - Retry logic
+    - Structured output parsing
+
+    Usage:
+        handler = LLMHandler()
+        result = handler.call(prompt, operation="gallery_discovery")
     """
 
-    # Class-level usage tracking (shared across all instances)
+    # Class-level usage tracking (legacy - for backwards compatibility)
     _total_input_tokens = 0
     _total_output_tokens = 0
     _call_count = 0
 
     def __init__(self, model: str = "claude-sonnet-4-20250514"):
         """
-        Initialize LLM Handler
+        Initialize LLM Handler.
 
         Args:
-            model: Claude model to use (default: Sonnet 3.5 for quality)
+            model: Claude model to use (default: Sonnet 4)
         """
         self.model = model
         if ClaudeInterface:
@@ -78,11 +230,7 @@ class LLMHandler:
 
     @classmethod
     def get_total_usage(cls) -> Dict[str, Any]:
-        """Get cumulative token usage across all calls."""
-        # Claude Sonnet 4 pricing (per 1M tokens)
-        INPUT_COST_PER_M = 3.0   # $3 per 1M input tokens
-        OUTPUT_COST_PER_M = 15.0  # $15 per 1M output tokens
-
+        """Get cumulative token usage across all calls (legacy method)."""
         input_cost = (cls._total_input_tokens / 1_000_000) * INPUT_COST_PER_M
         output_cost = (cls._total_output_tokens / 1_000_000) * OUTPUT_COST_PER_M
 
@@ -98,28 +246,37 @@ class LLMHandler:
 
     @classmethod
     def reset_usage(cls):
-        """Reset usage counters."""
+        """Reset usage counters (legacy method)."""
         cls._total_input_tokens = 0
         cls._total_output_tokens = 0
         cls._call_count = 0
 
     @classmethod
     def get_snapshot(cls) -> Dict[str, int]:
-        """Return current usage state for delta calculation."""
+        """Return current usage state for delta calculation (legacy method)."""
         return {
             "input_tokens": cls._total_input_tokens,
             "output_tokens": cls._total_output_tokens,
             "call_count": cls._call_count
         }
 
-    def _track_usage(self, usage: Optional[Dict[str, int]]):
-        """Track usage from a call."""
+    def _track_usage(self, usage: Optional[Dict[str, int]], operation: str = "unknown"):
+        """Track usage from a call - updates both legacy counters and new tracker."""
         if usage:
-            LLMHandler._total_input_tokens += usage.get('input_tokens', 0)
-            LLMHandler._total_output_tokens += usage.get('output_tokens', 0)
+            input_tokens = usage.get('input_tokens', 0)
+            output_tokens = usage.get('output_tokens', 0)
+
+            # Legacy tracking
+            LLMHandler._total_input_tokens += input_tokens
+            LLMHandler._total_output_tokens += output_tokens
             LLMHandler._call_count += 1
-    
-    def call(self, prompt: str, expected_format: str = "json", response_model: BaseModel = None, max_tokens: int = 8192, max_retries: int = 4, debug: bool = False) -> Dict[str, Any]:
+
+            # New operation-level tracking
+            LLMUsageTracker.record_call(operation, input_tokens, output_tokens)
+
+    def call(self, prompt: str, expected_format: str = "json", response_model: BaseModel = None,
+             max_tokens: int = 8192, max_retries: int = 4, debug: bool = False,
+             operation: str = "llm_call") -> Dict[str, Any]:
         """
         Generic LLM call with response parsing and intelligent retry logic
         
@@ -195,7 +352,7 @@ class LLMHandler:
 
                         # Get token usage if available
                         usage = self.client.get_last_usage() if hasattr(self.client, 'get_last_usage') else None
-                        self._track_usage(usage)
+                        self._track_usage(usage, operation)
 
                         return {
                             "data": result,
@@ -211,7 +368,7 @@ class LLMHandler:
 
                         # Get token usage if available
                         usage = self.client.get_last_usage() if hasattr(self.client, 'get_last_usage') else None
-                        self._track_usage(usage)
+                        self._track_usage(usage, operation)
 
                         return {
                             "response": response,
@@ -265,4 +422,125 @@ class LLMHandler:
                 # Wait before retry
                 if wait_seconds > 0:
                     time.sleep(wait_seconds)
+
+    def call_with_image(self, prompt: str, image_b64: str, media_type: str = "image/png",
+                        max_tokens: int = 8000, operation: str = "vision_call") -> Dict[str, Any]:
+        """
+        LLM call with an image (vision).
+
+        Args:
+            prompt: Text prompt to send
+            image_b64: Base64-encoded image data
+            media_type: Image media type (default: image/png)
+            max_tokens: Maximum tokens for response
+            operation: Operation name for tracking
+
+        Returns:
+            Dictionary with response text and metadata
+        """
+        import os
+        from anthropic import Anthropic
+
+        start_time = time.time()
+
+        try:
+            # Use Anthropic client directly for vision calls
+            client = Anthropic(api_key=os.getenv('CLAUDE_API_KEY'))
+
+            response = client.messages.create(
+                model=self.model,
+                max_tokens=max_tokens,
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": image_b64}},
+                        {"type": "text", "text": prompt}
+                    ]
+                }]
+            )
+
+            latency_ms = (time.time() - start_time) * 1000
+
+            # Track usage
+            if response.usage:
+                usage = {
+                    "input_tokens": response.usage.input_tokens,
+                    "output_tokens": response.usage.output_tokens
+                }
+                self._track_usage(usage, operation)
+            else:
+                usage = None
+
+            result_text = response.content[0].text.strip()
+
+            return {
+                "response": result_text,
+                "latency_ms": latency_ms,
+                "success": True,
+                "usage": usage
+            }
+
+        except Exception as e:
+            latency_ms = (time.time() - start_time) * 1000
+            return {
+                "error": str(e),
+                "latency_ms": latency_ms,
+                "success": False
+            }
+
+    def call_text(self, prompt: str, max_tokens: int = 1500,
+                  operation: str = "text_call") -> Dict[str, Any]:
+        """
+        Simple text-only LLM call.
+
+        Args:
+            prompt: Text prompt to send
+            max_tokens: Maximum tokens for response
+            operation: Operation name for tracking
+
+        Returns:
+            Dictionary with response text and metadata
+        """
+        import os
+        from anthropic import Anthropic
+
+        start_time = time.time()
+
+        try:
+            client = Anthropic(api_key=os.getenv('CLAUDE_API_KEY'))
+
+            response = client.messages.create(
+                model=self.model,
+                max_tokens=max_tokens,
+                messages=[{"role": "user", "content": prompt}]
+            )
+
+            latency_ms = (time.time() - start_time) * 1000
+
+            # Track usage
+            if response.usage:
+                usage = {
+                    "input_tokens": response.usage.input_tokens,
+                    "output_tokens": response.usage.output_tokens
+                }
+                self._track_usage(usage, operation)
+            else:
+                usage = None
+
+            result_text = response.content[0].text.strip()
+
+            return {
+                "response": result_text,
+                "latency_ms": latency_ms,
+                "success": True,
+                "usage": usage
+            }
+
+        except Exception as e:
+            latency_ms = (time.time() - start_time) * 1000
+            return {
+                "error": str(e),
+                "latency_ms": latency_ms,
+                "success": False
+            }
     

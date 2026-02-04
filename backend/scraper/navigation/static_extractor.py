@@ -13,13 +13,11 @@ from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent.parent.parent.parent / 'config' / '.env')
 
-from anthropic import Anthropic
 from playwright.async_api import async_playwright
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from scraper.navigation.llm_popup_dismiss import dismiss_popups_with_llm
-
-client = Anthropic(api_key=os.getenv('CLAUDE_API_KEY'))
+from scraper.llm_handler import LLMHandler, LLMUsageTracker
 
 
 async def get_nav_links_with_structure(page) -> str:
@@ -278,24 +276,26 @@ RULES:
 Respond with ONLY the JSON array, no markdown, no explanation:
 """
 
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
+        # Use LLMHandler for unified tracking
+        llm = LLMHandler()
+        llm_response = llm.call_with_image(
+            prompt=prompt,
+            image_b64=screenshot_b64,
+            media_type="image/png",
             max_tokens=8000,
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": screenshot_b64}},
-                    {"type": "text", "text": prompt}
-                ]
-            }]
+            operation="nav_tree_extraction"
         )
 
-        # Capture LLM usage for metrics (accumulate)
-        if response.usage:
-            llm_usage["input_tokens"] += response.usage.input_tokens
-            llm_usage["output_tokens"] += response.usage.output_tokens
+        # Extract usage from response
+        if llm_response.get("usage"):
+            llm_usage["input_tokens"] += llm_response["usage"].get("input_tokens", 0)
+            llm_usage["output_tokens"] += llm_response["usage"].get("output_tokens", 0)
 
-        result = response.content[0].text.strip()
+        if not llm_response.get("success"):
+            print(f"\n[ERROR] LLM call failed: {llm_response.get('error')}")
+            return None, links_text, llm_usage
+
+        result = llm_response.get("response", "").strip()
 
         # Save raw LLM response for debugging
         raw_response_file = output_dir / 'llm_response_raw.txt'

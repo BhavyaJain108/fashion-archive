@@ -200,7 +200,8 @@ class LlmSchemaStrategy(BaseStrategy):
             prompt=prompt,
             expected_format="json",
             response_model=ApiExtractionSchema,
-            max_tokens=1000
+            max_tokens=1000,
+            operation="api_schema_discovery",
         )
 
         if result.get("success") and result.get("data"):

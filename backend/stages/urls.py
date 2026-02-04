@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "scraper"))
 
 from stages.storage import load_navigation, save_urls, get_domain, ensure_domain_dir
 from llm_handler import LLMHandler
-from stages.metrics import update_stage_metrics, calculate_cost
+from stages.metrics import update_stage_metrics, calculate_cost, set_current_stage, get_stage_metrics_from_tracker
 from brand import Brand
 
 
@@ -436,7 +436,8 @@ def extract_urls(domain: str, max_workers: int = 4) -> dict:
         print(f"Found {len(leaves)} leaf categories to process")
     print()
 
-    # Reset and snapshot LLM usage before extraction
+    # Set the current stage for LLM tracking and reset counters
+    set_current_stage("urls")
     LLMHandler.reset_usage()
     llm_snapshot_before = LLMHandler.get_snapshot()
     stage_start_time = time.time()
@@ -612,21 +613,18 @@ def extract_urls(domain: str, max_workers: int = 4) -> dict:
     # Save results
     json_path, txt_path = save_urls(clean_domain, result)
 
-    # Calculate LLM usage delta
-    llm_input_tokens = llm_snapshot_after["input_tokens"] - llm_snapshot_before["input_tokens"]
-    llm_output_tokens = llm_snapshot_after["output_tokens"] - llm_snapshot_before["output_tokens"]
-    llm_calls = llm_snapshot_after["call_count"] - llm_snapshot_before["call_count"]
-    llm_cost = calculate_cost(llm_input_tokens, llm_output_tokens)
+    # Get operation-level metrics from the unified tracker
+    tracker_data = get_stage_metrics_from_tracker("urls")
+    operations = tracker_data.get("operations", [])
+    summary = tracker_data.get("summary", {"calls": 0, "input_tokens": 0, "output_tokens": 0, "cost": 0.0})
 
-    # Build and save metrics
-    stage_data = {
-        "run_time": datetime.now(),
-        "duration": stage_duration,
-        "extra_fields": {
-            "Categories": len(leaves),
-            "Unique Products": unique_products
-        },
-        "operations": [
+    # Fall back to snapshot-based calculation if tracker has no data
+    if not operations:
+        llm_input_tokens = llm_snapshot_after["input_tokens"] - llm_snapshot_before["input_tokens"]
+        llm_output_tokens = llm_snapshot_after["output_tokens"] - llm_snapshot_before["output_tokens"]
+        llm_calls = llm_snapshot_after["call_count"] - llm_snapshot_before["call_count"]
+        llm_cost = calculate_cost(llm_input_tokens, llm_output_tokens)
+        operations = [
             {
                 "name": "url_extraction",
                 "calls": llm_calls,
@@ -634,14 +632,25 @@ def extract_urls(domain: str, max_workers: int = 4) -> dict:
                 "output_tokens": llm_output_tokens,
                 "cost": llm_cost
             }
-        ],
-        "categories": sorted(category_metrics, key=lambda x: -x["products"]),
-        "summary": {
+        ]
+        summary = {
             "calls": llm_calls,
             "input_tokens": llm_input_tokens,
             "output_tokens": llm_output_tokens,
             "cost": llm_cost
+        }
+
+    # Build and save metrics
+    stage_data = {
+        "run_time": datetime.now().isoformat(),
+        "duration": stage_duration,
+        "extra_fields": {
+            "Categories": len(leaves),
+            "Unique Products": unique_products
         },
+        "operations": operations,
+        "categories": sorted(category_metrics, key=lambda x: -x["products"]),
+        "summary": summary,
         "products": unique_products
     }
 
@@ -654,7 +663,7 @@ def extract_urls(domain: str, max_workers: int = 4) -> dict:
     print(f"After dedup: {dedup_stats['total_deduped']} ({dedup_stats['total_removed']} removed)")
     print(f"Unique products: {unique_products}")
     print(f"Duration: {stage_duration:.1f}s")
-    print(f"LLM Cost: ${llm_cost:.4f} ({llm_calls} calls, {llm_input_tokens + llm_output_tokens:,} tokens)")
+    print(f"LLM Cost: ${summary.get('cost', 0):.4f} ({summary.get('calls', 0)} calls, {summary.get('input_tokens', 0) + summary.get('output_tokens', 0):,} tokens)")
     print(f"Saved: {json_path}")
     print(f"Saved: {txt_path}")
     print(f"Saved: {full_urls_path}")

@@ -416,7 +416,72 @@ def extract_multi_page_products(page_url: str, pattern: Dict[str, str], brand_na
         }
     
     _log(f"\n🔗 Multi-Page Extraction Starting...")
-    
+
+    # Initialize lineage memory (will be populated from page 1 results)
+    lineage_memory = {
+        "rejected_lineages": set(),
+        "pattern_used": pattern
+    }
+
+    # Check if we're in "next page only" mode (no numbered pages, just Next button)
+    pagination_type = pagination_result.get("pagination_type", "page_links")
+    max_page_detected = pagination_result.get("max_page_detected")
+    next_page_url = pagination_result.get("next_page_url")
+    url_pattern = pagination_result.get("url_pattern")
+
+    # CASE 1: Next button pagination - use sequential extraction
+    # This applies when:
+    # - pagination_type is "next_button", OR
+    # - max_page_detected is None and we have a next_page_url, OR
+    # - max_page_detected is very low (2) suggesting we only see the immediate next page
+    is_next_button_pagination = (
+        pagination_type == "next_button" or
+        (max_page_detected is None and next_page_url) or
+        (max_page_detected == 2 and next_page_url)  # Only sees page 2, likely next button style
+    )
+
+    if is_next_button_pagination and next_page_url:
+        _log(f"   📄 Next-button pagination detected (type={pagination_type}, max={max_page_detected}) - using sequential extraction")
+        start_time = time.time()
+
+        # Run sequential extraction for all pages starting from page 2
+        sequential_results = _sequential_next_page_extraction(
+            first_next_page_url=next_page_url,
+            pattern=pattern,
+            brand_name=brand_name,
+            category_name=category_name,
+            brand_instance=brand_instance,
+            lineage_memory=lineage_memory,
+            url_pattern=url_pattern,
+            base_url=page_url
+        )
+
+        # Collect products and stats
+        all_products = []
+        per_page_stats = []
+
+        for result in sequential_results:
+            if result.get("products"):
+                all_products.extend(result["products"])
+            per_page_stats.append(result)
+
+        total_time = time.time() - start_time
+
+        _log(f"   📊 Sequential multi-page extraction complete:")
+        _log(f"      • Pages processed: {len(per_page_stats)}")
+        _log(f"      • Total products: {len(all_products)}")
+        _log(f"      • Total time: {total_time:.2f}s")
+
+        return {
+            "products": all_products,
+            "pages_extracted": len(per_page_stats),
+            "total_products_found": len(all_products),
+            "per_page_stats": per_page_stats,
+            "lineage_memory": lineage_memory,
+            "total_extraction_time": total_time
+        }
+
+    # CASE 2: Numbered pagination - use parallel extraction + sequential fallback
     # Generate page URLs
     page_urls = _generate_page_urls(page_url, pagination_result)
     if not page_urls:
@@ -428,35 +493,29 @@ def extract_multi_page_products(page_url: str, pattern: Dict[str, str], brand_na
             "per_page_stats": [],
             "lineage_memory": {"rejected_lineages": set()}
         }
-    
+
     _log(f"   📊 Extracting from {len(page_urls)} additional pages: {page_urls}")
-    
-    # Initialize lineage memory (will be populated from page 1 results)
-    lineage_memory = {
-        "rejected_lineages": set(),
-        "pattern_used": pattern
-    }
-    
+
     # Extract from all pages in parallel
     all_products = []
     per_page_stats = []
-    
+
     start_time = time.time()
-    
+
     # Concurrent extraction: Parallel (known pages) + Sequential (beyond max)
     max_workers = min(len(page_urls) + 3, 8)  # Allow extra workers for sequential fallback
-    
+
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit all known page extraction tasks (parallel)
         future_to_info = {}
         for i, url in enumerate(page_urls):
             future = executor.submit(
                 _extract_single_additional_page,
-                url, pattern, brand_name, category_name, brand_instance, 
+                url, pattern, brand_name, category_name, brand_instance,
                 lineage_memory, i + 2  # Page numbers start from 2
             )
             future_to_info[future] = {"url": url, "page_num": i + 2, "source": "parallel"}
-        
+
         # Submit sequential fallback task (concurrent with parallel)
         fallback_future = None
         if pagination_result.get("max_page_detected"):
@@ -756,10 +815,186 @@ def _concurrent_sequential_fallback(base_url: str, pattern: Dict[str, str], bran
     return fallback_results
 
 
+def _sequential_next_page_extraction(first_next_page_url: str, pattern: Dict[str, str],
+                                     brand_name: str, category_name: str, brand_instance,
+                                     lineage_memory: Dict, url_pattern: Optional[str],
+                                     base_url: str) -> List[Dict]:
+    """
+    Sequential extraction following "Next" page links when no numbered pagination exists.
+
+    This handles the case where a category only has Next/Prev buttons without numbered
+    page links. It extracts page 2, then finds the link to page 3, extracts page 3, etc.
+
+    Args:
+        first_next_page_url: URL of page 2 (the first "next" page from page 1)
+        pattern: Product extraction pattern from page 1
+        brand_name: Brand name for extraction
+        category_name: Category name for extraction
+        brand_instance: Brand instance with learned patterns
+        lineage_memory: Shared lineage memory from page 1
+        url_pattern: Optional URL pattern detected (e.g., "?page=X")
+        base_url: Base category URL (page 1)
+
+    Returns:
+        List of page extraction results with products
+    """
+    from playwright.sync_api import sync_playwright
+
+    _log(f"\n🔗 Sequential Next-Page Extraction Starting...")
+    _log(f"   Starting from: {first_next_page_url}")
+
+    all_results = []
+    current_page_url = first_next_page_url
+    current_page_num = 2  # We start at page 2
+    consecutive_failures = 0
+    max_consecutive_failures = 3
+    max_pages = 50  # Safety limit
+
+    while current_page_num <= max_pages and consecutive_failures < max_consecutive_failures:
+        try:
+            _log(f"   📄 Extracting page {current_page_num}: {current_page_url}")
+
+            # Extract products from current page
+            page_result = _extract_single_additional_page(
+                current_page_url, pattern, brand_name, category_name,
+                brand_instance, lineage_memory, current_page_num
+            )
+
+            raw_products = page_result.get("products", [])
+            products_before_filtering = len(raw_products)
+
+            # Apply lineage filtering
+            if raw_products and len(raw_products) > 1:
+                category_for_filtering = extract_category_name(current_page_url)
+                filtered_products = apply_lineage_filtering(
+                    raw_products, base_url, category_for_filtering, brand_instance
+                )
+            else:
+                filtered_products = raw_products
+
+            products_found = len(filtered_products)
+
+            # Record result
+            result = {
+                "page_num": current_page_num,
+                "url": current_page_url,
+                "products_found": products_found,
+                "products_before_filtering": products_before_filtering,
+                "extraction_time": page_result.get("extraction_time", 0),
+                "source": "sequential_next_page",
+                "products": filtered_products if products_found > 0 else []
+            }
+            all_results.append(result)
+
+            if products_found > 0:
+                _log(f"   ✅ Page {current_page_num}: {products_found}/{products_before_filtering} products")
+                consecutive_failures = 0
+            else:
+                _log(f"   📄 Page {current_page_num}: 0 products - stopping sequential extraction")
+                break
+
+            # Now find the next page link
+            # We need to open the page again to extract bottom links
+            # (or we could modify _extract_single_additional_page to return them)
+            next_page_url = _detect_next_page_from_url(
+                current_page_url, current_page_num, url_pattern, base_url
+            )
+
+            if next_page_url:
+                _log(f"   ➡️  Found next page: {next_page_url}")
+                current_page_url = next_page_url
+                current_page_num += 1
+            else:
+                _log(f"   🏁 No more pages found after page {current_page_num}")
+                break
+
+        except Exception as e:
+            _log(f"   ❌ Page {current_page_num} failed: {str(e)[:100]}")
+            consecutive_failures += 1
+
+            # Record failure
+            all_results.append({
+                "page_num": current_page_num,
+                "url": current_page_url,
+                "products_found": 0,
+                "error": str(e),
+                "source": "sequential_next_page"
+            })
+
+            # Check for 404 errors
+            if "404" in str(e) or "not found" in str(e).lower():
+                _log(f"   🚫 404 detected - stopping")
+                break
+
+            # Try to continue to next page if we have the pattern
+            if url_pattern:
+                current_page_num += 1
+                # Generate next URL from pattern
+                if "?page=X" in url_pattern:
+                    current_page_url = base_url.split("?")[0] + f"?page={current_page_num}"
+                elif "/page/X/" in url_pattern:
+                    current_page_url = base_url.rstrip("/") + f"/page/{current_page_num}/"
+                elif "/page/X" in url_pattern:
+                    current_page_url = base_url.rstrip("/") + f"/page/{current_page_num}"
+                elif "?p=X" in url_pattern:
+                    current_page_url = base_url.split("?")[0] + f"?p={current_page_num}"
+                else:
+                    break
+            else:
+                break
+
+    _log(f"   📊 Sequential extraction complete: {len(all_results)} pages processed")
+    return all_results
+
+
+def _detect_next_page_from_url(current_page_url: str, current_page_num: int,
+                               url_pattern: Optional[str], base_url: str) -> Optional[str]:
+    """
+    Open a page and detect the next page URL from its bottom links.
+
+    This is used during sequential pagination to find the link to the next page.
+    """
+    from playwright.sync_api import sync_playwright
+
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context(
+                viewport={'width': 1920, 'height': 1080},
+                user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+            )
+            page = context.new_page()
+
+            try:
+                page.goto(current_page_url, wait_until="networkidle", timeout=30000)
+                page.wait_for_timeout(2000)  # Brief wait for dynamic content
+
+                # Extract bottom links
+                bottom_links = _extract_bottom_page_links(page, current_page_url)
+
+                # Filter to category links
+                category_links = _filter_links_by_category(bottom_links, current_page_url)
+
+                # Find the next page URL
+                next_url = _find_next_page_url_from_current(
+                    category_links, current_page_url, current_page_num, url_pattern
+                )
+
+                return next_url
+
+            finally:
+                context.close()
+                browser.close()
+
+    except Exception as e:
+        _log(f"   ⚠️  Error detecting next page: {e}")
+        return None
+
+
 def _generate_page_urls(base_url: str, pagination_result: Dict) -> List[str]:
     """Generate URLs for additional pages based on More Links detection"""
     page_urls = []
-    
+
     url_pattern = pagination_result.get("url_pattern")
     max_page = pagination_result.get("max_page_detected")
     next_page_url = pagination_result.get("next_page_url")
@@ -1319,7 +1554,7 @@ def apply_lineage_filtering(products: List[Dict[str, Any]], page_url: str, categ
         from instrumentation import emit_event
         import time
         llm_start = time.time()
-        llm_result = llm_handler.call(prompt, response_model=response_model)
+        llm_result = llm_handler.call(prompt, response_model=response_model, operation="lineage_filtering")
         llm_duration = time.time() - llm_start
 
         emit_event(brand_instance, "llm_call", {
@@ -1833,21 +2068,25 @@ def _detect_post_scroll_pagination(page, page_url: str) -> Dict[str, Any]:
         
         llm_handler = LLMHandler()
         prompt = get_prompt(page_url, category_filtered_links)
-        llm_response = llm_handler.call(prompt, expected_format="json", response_model=get_response_model())
+        llm_response = llm_handler.call(prompt, expected_format="json", response_model=get_response_model(), operation="pagination_detection")
         
         if llm_response.get("success", False):
             data = llm_response.get("data", {})
-            
+
+            pagination_type = data.get("pagination_type", "page_links")
+
             result.update({
                 "pagination_found": data.get("pagination_found", False),
+                "pagination_type": pagination_type,  # "page_links", "next_button", or "none"
                 "url_pattern": data.get("url_template"),
                 "max_page_detected": data.get("max_page_detected"),
                 "next_page_url": None,  # Will be set below if needed
                 "reasoning": data.get("reasoning", "LLM analysis completed")
             })
-            
-            # If pagination found but no max detected, extract next page URL from filtered links
-            if result["pagination_found"] and result["max_page_detected"] is None:
+
+            # For next_button type OR when no max detected, extract next page URL
+            # This ensures we have next_page_url for sequential navigation
+            if result["pagination_found"] and (pagination_type == "next_button" or result["max_page_detected"] is None):
                 next_url = _extract_next_page_url(category_filtered_links, page_url, result["url_pattern"])
                 result["next_page_url"] = next_url
                 
@@ -1986,7 +2225,7 @@ def _filter_links_by_category(bottom_links: List[str], current_page_url: str) ->
 
 
 def _extract_next_page_url(bottom_links: List[str], current_url: str, url_pattern: str) -> Optional[str]:
-    """Extract the actual next page URL when max page is unknown"""
+    """Extract the actual next page URL when max page is unknown (for initial page 1 -> page 2)"""
     try:
         # Look for links that match the detected pattern and represent "page 2"
         for link in bottom_links:
@@ -1997,16 +2236,93 @@ def _extract_next_page_url(bottom_links: List[str], current_url: str, url_patter
                 return link
             elif url_pattern == "/page/X" and "/page/2" in link and not "/page/2/" in link:
                 return link
-                
+
         # Fallback: look for any link with "page=2", "p=2", etc.
         page_2_indicators = ["page=2", "p=2", "/2/", "/2?", "/page/2"]
         for link in bottom_links:
             if any(indicator in link for indicator in page_2_indicators):
                 return link
-                
+
         return None
-        
+
     except Exception:
+        return None
+
+
+def _find_next_page_url_from_current(bottom_links: List[str], current_url: str, current_page_num: int, url_pattern: Optional[str]) -> Optional[str]:
+    """
+    Find the next page URL from the current page's bottom links.
+
+    This is a generalized version that works for any page number, not just page 1 -> 2.
+
+    Args:
+        bottom_links: Links from the bottom 30% of the current page
+        current_url: The URL of the current page
+        current_page_num: The current page number (e.g., 2 means we're looking for page 3)
+        url_pattern: Optional URL pattern detected from page 1 (e.g., "?page=X")
+
+    Returns:
+        URL of the next page, or None if not found
+    """
+    import re
+
+    try:
+        next_page_num = current_page_num + 1
+
+        # Strategy 1: Look for links matching the known URL pattern
+        if url_pattern:
+            for link in bottom_links:
+                if url_pattern == "?page=X" and f"?page={next_page_num}" in link:
+                    return link
+                elif url_pattern == "/page/X/" and f"/page/{next_page_num}/" in link:
+                    return link
+                elif url_pattern == "/page/X" and f"/page/{next_page_num}" in link and f"/page/{next_page_num}/" not in link:
+                    return link
+                elif url_pattern == "?p=X" and f"?p={next_page_num}" in link:
+                    return link
+
+        # Strategy 2: Look for any link with the next page number
+        next_page_indicators = [
+            f"page={next_page_num}",
+            f"p={next_page_num}",
+            f"/{next_page_num}/",
+            f"/{next_page_num}?",
+            f"/page/{next_page_num}",
+            f"&page={next_page_num}",
+            f"&p={next_page_num}",
+        ]
+
+        for link in bottom_links:
+            # Skip if it's the current URL
+            if link == current_url:
+                continue
+            if any(indicator in link for indicator in next_page_indicators):
+                return link
+
+        # Strategy 3: Look for "next" links by examining URL patterns
+        # Find links that increment the page number from current
+        for link in bottom_links:
+            if link == current_url:
+                continue
+
+            # Check for page number in query string
+            page_match = re.search(r'[?&]page=(\d+)', link)
+            if page_match and int(page_match.group(1)) == next_page_num:
+                return link
+
+            p_match = re.search(r'[?&]p=(\d+)', link)
+            if p_match and int(p_match.group(1)) == next_page_num:
+                return link
+
+            # Check for page number in path
+            path_match = re.search(r'/page/(\d+)/?', link)
+            if path_match and int(path_match.group(1)) == next_page_num:
+                return link
+
+        return None
+
+    except Exception as e:
+        _log(f"   ⚠️  Error finding next page URL: {e}")
         return None
 
 

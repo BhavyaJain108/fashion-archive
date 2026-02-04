@@ -313,7 +313,7 @@ If no pagination:
 """.strip()
         
         try:
-            llm_response = self.llm_handler.call(prompt, expected_format="json", response_model=PaginationAnalysis)
+            llm_response = self.llm_handler.call(prompt, expected_format="json", response_model=PaginationAnalysis, operation="pagination_analysis")
             
             if llm_response.get("success", False):
                 data = llm_response.get("data", {})
@@ -808,7 +808,7 @@ If no pagination:
         prompt = get_prompt(page_url, links_with_context)
 
         # Try structured output first
-        llm_response = self.llm_handler.call(prompt, expected_format="json", response_model=get_response_model())
+        llm_response = self.llm_handler.call(prompt, expected_format="json", response_model=get_response_model(), operation="product_link_classification")
 
         # Debug: print LLM response
         if not llm_response.get("success", False):
@@ -992,7 +992,7 @@ If no pagination:
         
         # Use Haiku for speed with structured output
         prompt = get_prompt(product_contexts)
-        llm_response = self.llm_handler.call(prompt, expected_format="json", response_model=get_response_model())
+        llm_response = self.llm_handler.call(prompt, expected_format="json", response_model=get_response_model(), operation="product_container_analysis")
         
         if llm_response.get("success", False):
             data = llm_response.get("data", {})

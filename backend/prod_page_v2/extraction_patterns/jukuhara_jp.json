@@ -1,7 +1,4 @@
 {
-  "price_pattern": "\"price\":\"([0-9.]+)\",\"priceCurrency\":\"USD\"",
-  "description_pattern": "\"category\":\"Activewear\\ Tops\",\"description\":\"([^\"]+)\",\"hasVariant\"",
-  "category_pattern": "\"brand\":\\{\"@type\":\"Brand\",\"name\":\"JUKUHARA\"\\},\"category\":\"([^\"]+)\",\"description\"",
-  "variants_pattern": "\"variants\":\\[\\{\"id\":46402118844603,\"qty\":0,\"title\":\"1\\ \\(S\\)\",\"policy\":\"deny\"\\},\\{\"id\":46402118877371,\"qty\":0,\"title\":\"2\\ \\(M\\)\",\"policy\":\"deny\"\\},\\{\"id\":46402118910139,\"qty\":0,\"title\":\"3\\ \\(L\\)\",\"policy\":\"deny\"\\},\\{\"id\":46402118942907,\"qty\":0,\"title\":\"4\\ \\(XL\\)\",\"policy\":\"deny\"\\},\\{\"id\":46402118975675,\"qty\":0,\"title\":\"5\\ \\(2XL\\)\",\"policy\":\"deny\"\\}\\]",
-  "image_pattern": "\"@type\":\"Product\",\"image\":\"([^\"]+)\",\"name\""
+  "description_pattern": "\"category\":\"T\\-Shirts\",\"description\":\"([^\"]+)\",\"hasVariant\"",
+  "category_pattern": "\"name\":\"JUKUHARA\"\\},\"category\":\"([^\"]+)\",\"description\""
 }
