@@ -1,0 +1,4 @@
+{
+  "description_pattern": "\"category\":\"T\\-Shirts\",\"description\":\"([^\"]+)\",\"hasVariant\"",
+  "category_pattern": "\"name\":\"JUKUHARA\"\\},\"category\":\"([^\"]+)\",\"description\""
+}

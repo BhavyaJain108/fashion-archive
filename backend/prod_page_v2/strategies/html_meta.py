@@ -32,8 +32,8 @@ class HtmlMetaStrategy(BaseStrategy):
 
             html = page_data.html
 
-            # Extract from meta tags
-            name = self._extract_meta(html, [
+            # Extract from meta tags — prefer itemprop="name" (most specific)
+            name = self._extract_itemprop_name(html) or self._extract_meta(html, [
                 'og:title',
                 'twitter:title',
                 'title',
@@ -97,6 +97,28 @@ class HtmlMetaStrategy(BaseStrategy):
             return False
         # Check if there's at least og:title or a title tag
         return 'og:title' in page_data.html or '<title>' in page_data.html
+
+    def _extract_itemprop_name(self, html: str) -> Optional[str]:
+        """Extract product name from itemprop='name' element (most reliable)."""
+        # Match <... itemprop="name">TEXT</...>
+        match = re.search(
+            r'itemprop=["\']name["\'][^>]*>([^<]+)<',
+            html,
+            re.IGNORECASE
+        )
+        if match:
+            val = match.group(1).strip()
+            if val and len(val) > 1:
+                return val
+        # Match <meta itemprop="name" content="...">
+        match = re.search(
+            r'<meta[^>]*itemprop=["\']name["\'][^>]*content=["\']([^"\']+)["\']',
+            html,
+            re.IGNORECASE
+        )
+        if match:
+            return match.group(1).strip()
+        return None
 
     def _extract_meta(self, html: str, properties: List[str]) -> Optional[str]:
         """Extract content from meta tag by property or name."""

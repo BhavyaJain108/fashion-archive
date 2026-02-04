@@ -26,13 +26,25 @@ class Storage:
         return self.extraction_manager.read_brand(brand_id)
 
     def create_brand(self, brand_id: str, brand_data: Dict) -> bool:
-        """Stub - brands are created by running the pipeline."""
-        # New pipeline creates folders directly in extractions/
-        return True
+        """Create brand by saving brand.json to the extraction directory."""
+        try:
+            domain = brand_data.get("domain", "")
+            domain_folder = domain.replace('.', '_') if domain else f"{brand_id}_com"
+            domain_path = self.extraction_manager.base_path / domain_folder
+            domain_path.mkdir(parents=True, exist_ok=True)
+
+            brand_json_path = domain_path / "brand.json"
+            import json
+            with open(brand_json_path, 'w') as f:
+                json.dump(brand_data, f, indent=2)
+            return True
+        except Exception as e:
+            print(f"Error creating brand {brand_id}: {e}")
+            return False
 
     def update_brand(self, brand_id: str, brand_data: Dict):
-        """Stub - brand data comes from extraction files."""
-        pass
+        """Update brand.json."""
+        self.create_brand(brand_id, brand_data)
 
     def delete_brand(self, brand_id: str) -> bool:
         """Stub - would need to delete extraction folder."""
@@ -107,6 +119,17 @@ class Storage:
 
         # Classification URL filter - use urls.json to find products in category
         if filters.get("classification_url"):
+            import re
+            _collection_re = re.compile(r'/collections/[^/]+/products/')
+
+            def canonical_url(url):
+                """Canonicalize: strip query, trailing slash, and /collections/{slug}/."""
+                if not url:
+                    return ''
+                clean = url.split('?')[0].rstrip('/')
+                clean = _collection_re.sub('/products/', clean)
+                return clean
+
             category_url = filters["classification_url"]
             # Get product URLs for this category from urls.json
             urls_data = self.extraction_manager.read_urls(brand_id)
@@ -130,27 +153,14 @@ class Storage:
                     category_url
                 )
 
-            def get_product_slug(url):
-                """Extract product slug from URL, stripping variant suffix."""
-                # e.g., /products/the-snap-black -> the-snap
-                if '/products/' in url:
-                    slug = url.split('/products/')[-1].split('?')[0]
-                    # Strip common color/variant suffixes
-                    parts = slug.rsplit('-', 1)
-                    if len(parts) == 2 and len(parts[1]) <= 12:
-                        # Likely a variant suffix, return base
-                        return parts[0]
-                    return slug
-                return url
-
-            # Build set of base slugs from category products
-            category_slugs = {get_product_slug(url) for url in product_urls_in_category}
+            # Canonicalize all category product URLs for matching
+            canonical_category_urls = {canonical_url(u) for u in product_urls_in_category}
+            canonical_category_urls.discard('')
 
             filtered = [
                 p for p in filtered
-                if p.get("url") in product_urls_in_category
-                or p.get("source_url") in product_urls_in_category
-                or get_product_slug(p.get("url", "")) in category_slugs
+                if canonical_url(p.get("url", "")) in canonical_category_urls
+                or canonical_url(p.get("source_url", "")) in canonical_category_urls
             ]
 
         # Search filter - search in name and description

@@ -1,0 +1,5 @@
+{
+  "image_selector": "product-slider#Product-Slider .product-images__slide img",
+  "url_attribute": "src",
+  "container_selector": "product-slider#Product-Slider"
+}

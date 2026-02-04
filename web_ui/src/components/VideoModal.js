@@ -1,5 +1,4 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { FashionArchiveAPI } from '../services/api';
 
 function VideoModal({ videoPath, onClose }) {
   // Initialize position and size safely within viewport
@@ -9,11 +8,9 @@ function VideoModal({ videoPath, onClose }) {
     return { x: safeX, y: safeY };
   });
   const [size, setSize] = useState(() => ({
-    width: 400,
-    height: 350
+    width: 480,
+    height: 310 // 480/(16/9) + 40 for title bar
   }));
-  const [aspectRatio, setAspectRatio] = useState(400 / 350);
-  const videoRef = useRef(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
   const [resizeType, setResizeType] = useState(null);
@@ -31,19 +28,6 @@ function VideoModal({ videoPath, onClose }) {
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
   }, [onClose]);
-
-  // Handle video load to get natural dimensions
-  const handleVideoLoad = () => {
-    if (videoRef.current) {
-      const video = videoRef.current;
-      const naturalAspectRatio = video.videoWidth / video.videoHeight;
-      setAspectRatio(naturalAspectRatio);
-      
-      // Adjust initial size to match video aspect ratio
-      const newHeight = 400 / naturalAspectRatio;
-      setSize({ width: 400, height: newHeight + 40 }); // +40 for title bar
-    }
-  };
 
   // Resize functionality
   const handleResizeMouseDown = (e, type) => {
@@ -101,7 +85,7 @@ function VideoModal({ videoPath, onClose }) {
           if (resizeType === 'se') {
             // Southeast corner - resize maintaining aspect ratio
             const newWidth = Math.min(maxWidth, Math.max(300, dragOffset.startWidth + deltaX));
-            const newHeight = (newWidth / aspectRatio) + 40; // +40 for title bar
+            const newHeight = (newWidth / (16/9)) + 40; // +40 for title bar
             newSize.width = newWidth;
             newSize.height = Math.max(250, newHeight);
           }
@@ -146,8 +130,8 @@ function VideoModal({ videoPath, onClose }) {
           top: `${position.y}px`,
           width: `${size.width}px`,
           height: `${size.height}px`,
-          backgroundColor: 'var(--mac-bg)',
-          border: '2px outset var(--mac-bg)',
+          backgroundColor: '#c0c0c0',
+          border: '2px outset #c0c0c0',
           boxShadow: '4px 4px 8px rgba(0,0,0,0.4)',
           zIndex: 2000,
           userSelect: 'none' // Prevent text selection during drag
@@ -162,11 +146,11 @@ function VideoModal({ videoPath, onClose }) {
             justifyContent: 'space-between',
             cursor: isDragging ? 'grabbing' : 'grab',
             padding: '4px 8px',
-            backgroundColor: 'var(--mac-bg)',
-            borderBottom: '1px solid var(--mac-border)'
+            backgroundColor: '#c0c0c0',
+            borderBottom: '1px solid #808080'
           }}
         >
-          <span style={{ fontSize: '12px' }}>Fashion Show Video</span>
+          <span style={{ fontSize: '12px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginRight: '8px' }}>{videoPath.title || 'Fashion Show Video'}</span>
           <button 
             onClick={onClose}
             className="mac-button"
@@ -180,24 +164,20 @@ function VideoModal({ videoPath, onClose }) {
           </button>
         </div>
         
-        {/* Video player - simple HTML5 video */}
+        {/* Video player - YouTube embed */}
         <div style={{ padding: '8px', height: 'calc(100% - 40px)', display: 'flex', flexDirection: 'column' }}>
-          <video 
-            ref={videoRef}
-            controls 
-            autoPlay
-            onLoadedMetadata={handleVideoLoad}
-            style={{ 
+          <iframe
+            src={`${videoPath.embedUrl}?autoplay=1&rel=0&vq=hd1080`}
+            title={videoPath.title || 'Fashion Show Video'}
+            style={{
               display: 'block',
               width: '100%',
               height: '100%',
-              border: '1px solid var(--mac-border)',
-              objectFit: 'contain'
+              border: '1px solid var(--mac-border)'
             }}
-          >
-            <source src={FashionArchiveAPI.getVideoUrl(videoPath)} type="video/mp4" />
-            Your browser does not support the video tag.
-          </video>
+            allow="autoplay; encrypted-media"
+            allowFullScreen
+          />
         </div>
         
         {/* Invisible resize handle - corner only */}

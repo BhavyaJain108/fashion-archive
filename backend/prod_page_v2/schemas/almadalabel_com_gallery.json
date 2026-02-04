@@ -1,0 +1,5 @@
+{
+  "image_selector": "img.photoswipe__image",
+  "url_attribute": "data-photoswipe-src",
+  "container_selector": "div[data-class=\"splide__track\"]"
+}

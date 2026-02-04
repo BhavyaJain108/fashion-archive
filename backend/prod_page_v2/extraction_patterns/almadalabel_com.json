@@ -1,0 +1,6 @@
+{
+  "price_pattern": "\"price\":([0-9.]+),\"name\":\"Nessa\\ T\\-shirt,\\ chocolate\\ \\-\\ XS\"",
+  "description_pattern": "\"description\":\\ \"([^\"]+)\"",
+  "category_pattern": "\"type\":\"([^\"]+)\",\"handle\"",
+  "variants_pattern": "\"variants\":\\[\\{\"id\":55600949559679,\"title\":\"([^\"]+)\""
+}

@@ -13,13 +13,11 @@ from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent.parent.parent.parent / 'config' / '.env')
 
-from anthropic import Anthropic
 from playwright.async_api import async_playwright
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from scraper.navigation.llm_popup_dismiss import dismiss_popups_with_llm
-
-client = Anthropic(api_key=os.getenv('CLAUDE_API_KEY'))
+from scraper.llm_handler import LLMHandler, LLMUsageTracker
 
 
 async def get_nav_links_with_structure(page) -> str:
@@ -36,11 +34,47 @@ async def get_nav_links_with_structure(page) -> str:
                     document.querySelector('[role="navigation"]') ||
                     document.querySelector('header');
 
-        if (!nav) return 'No nav found';
+        if (!nav) {
+            // Fallback: grab ALL links from the page so the LLM can decide
+            const allLinks = document.querySelectorAll('a[href]');
+            const fallbackLinks = [];
+            const seen = new Set();
+            allLinks.forEach(link => {
+                const href = link.getAttribute('href') || '';
+                const text = link.innerText.trim().replace(/\\n/g, ' ').replace(/\\s+/g, ' ').substring(0, 80);
+                if (!text || !href || href === '#' || href.startsWith('javascript:')) return;
+                const key = href + '|' + text;
+                if (seen.has(key)) return;
+                seen.add(key);
+                fallbackLinks.push(text + ' | ' + href);
+            });
+            if (fallbackLinks.length > 0) {
+                return '=== All Page Links (no nav element found) ===\\n' + fallbackLinks.join('\\n');
+            }
+            return 'No nav found';
+        }
 
         // Find the main list (direct ul child of nav, or within nav)
         const mainList = nav.querySelector('ul');
-        if (!mainList) return 'No nav list found';
+        if (!mainList) {
+            // Fallback: grab all links from the nav/header even without a <ul>
+            const navLinks = nav.querySelectorAll('a[href]');
+            const flatLinks = [];
+            const seen = new Set();
+            navLinks.forEach(link => {
+                const href = link.getAttribute('href') || '';
+                const text = link.innerText.trim().replace(/\\n/g, ' ').replace(/\\s+/g, ' ').substring(0, 80);
+                if (!text || !href || href === '#' || href.startsWith('javascript:')) return;
+                const key = href + '|' + text;
+                if (seen.has(key)) return;
+                seen.add(key);
+                flatLinks.push(text + ' | ' + href);
+            });
+            if (flatLinks.length > 0) {
+                return '=== Navigation Links (flat) ===\\n' + flatLinks.join('\\n');
+            }
+            return 'No nav list found';
+        }
 
         // Get top-level list items
         const topLevelItems = mainList.querySelectorAll(':scope > li');
@@ -231,7 +265,9 @@ SCHEMA (follow exactly):
 RULES:
 - Return a JSON array (not object)
 - Only include product categories (Women, Men, Clothing, Shoes, Bags, Accessories, etc.)
-- EXCLUDE: Campaigns, Playlists, Artists, Collaborations, About pages, Sustainability, FAQ, Legal
+- If the site has a single "Store" or "Shop" link (even to a subdomain), include it as a top-level category
+- If no structured categories exist but there IS a store/shop link, return it as: [{{"name": "Store", "url": "https://...", "children": []}}]
+- EXCLUDE: Campaigns, Playlists, Artists, Collaborations, About pages, Sustainability, FAQ, Legal, Social media links, Music/Video links
 - Use section headers (=== NAME ===) as top-level categories
 - Use indentation within sections to determine children
 - Every node MUST have: "name" (string), "url" (string or null), "children" (array, can be empty)
@@ -240,24 +276,26 @@ RULES:
 Respond with ONLY the JSON array, no markdown, no explanation:
 """
 
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
+        # Use LLMHandler for unified tracking
+        llm = LLMHandler()
+        llm_response = llm.call_with_image(
+            prompt=prompt,
+            image_b64=screenshot_b64,
+            media_type="image/png",
             max_tokens=8000,
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": screenshot_b64}},
-                    {"type": "text", "text": prompt}
-                ]
-            }]
+            operation="nav_tree_extraction"
         )
 
-        # Capture LLM usage for metrics (accumulate)
-        if response.usage:
-            llm_usage["input_tokens"] += response.usage.input_tokens
-            llm_usage["output_tokens"] += response.usage.output_tokens
+        # Extract usage from response
+        if llm_response.get("usage"):
+            llm_usage["input_tokens"] += llm_response["usage"].get("input_tokens", 0)
+            llm_usage["output_tokens"] += llm_response["usage"].get("output_tokens", 0)
 
-        result = response.content[0].text.strip()
+        if not llm_response.get("success"):
+            print(f"\n[ERROR] LLM call failed: {llm_response.get('error')}")
+            return None, links_text, llm_usage
+
+        result = llm_response.get("response", "").strip()
 
         # Save raw LLM response for debugging
         raw_response_file = output_dir / 'llm_response_raw.txt'

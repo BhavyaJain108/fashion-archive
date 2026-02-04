@@ -1,0 +1,5 @@
+{
+  "image_selector": "button[data-index] img",
+  "url_attribute": "src",
+  "container_selector": "div.pc\\:row-start-1.pc\\:w-\\[calc\\(100\\%_\\+_1\\.25rem\\)\\]"
+}

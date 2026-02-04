@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from scraper.navigation.static_extractor import extract_tree as static_extract_tree
 from scraper.navigation.dynamic_explorer import explore as dynamic_explore
-from scraper.navigation.build_tree import build_tree, find_cross_toplevel_urls, dedupe_parent_child_links, hoist_common_links
+from scraper.navigation.build_tree import build_tree, find_cross_toplevel_urls, dedupe_parent_child_links, strip_homepage_nodes
 
 
 # =============================================================================
@@ -164,8 +164,7 @@ async def run_dynamic(url: str) -> Optional[dict]:
         # Build tree from states
         tree = build_tree(states, base_url, filter_urls=cross_toplevel_urls)
 
-        # Post-process: hoist common links, dedupe
-        hoist_common_links(tree)
+        # Post-process: dedupe
         dedupe_parent_child_links(tree)
 
         link_count = count_links(tree)
@@ -229,7 +228,12 @@ async def extract_navigation_tree_async(url: str) -> dict:
     print(f"\n      ✅ Using {method} extractor (static: {static_count}, dynamic: {dynamic_count} links)")
 
     # Convert to scraper format
-    return convert_to_scraper_format(winner)
+    result = convert_to_scraper_format(winner)
+
+    # Strip any homepage links from final tree
+    result["category_tree"] = strip_homepage_nodes(result["category_tree"], url)
+
+    return result
 
 
 def extract_navigation_tree(url: str) -> dict:

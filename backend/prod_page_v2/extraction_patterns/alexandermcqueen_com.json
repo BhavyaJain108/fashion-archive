@@ -1,0 +1,7 @@
+{
+  "title_pattern": "\"@type\":\"Product\",\"name\":\"([^\"]+)\"",
+  "price_pattern": "\"price\":([0-9.]+),\"itemCondition\"",
+  "description_pattern": "\"description\":\"([^\"]+)\",\"sku\"",
+  "category_pattern": "\"category\":\"([^\"]+)\",\"countryOfOrigin\"",
+  "image_pattern": "\"image\":\\[\"([^\"]+)\""
+}

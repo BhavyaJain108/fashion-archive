@@ -1,5 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import Fuse from 'fuse.js';
 import { FashionArchiveAPI } from '../services/api';
+import ProductDetailPanel from './ProductDetailPanel';
 
 function MyBrandsPanel() {
   const [brands, setBrands] = useState([]);
@@ -7,10 +9,29 @@ function MyBrandsPanel() {
   const [expandedBrands, setExpandedBrands] = useState({});
   const [expandedCategories, setExpandedCategories] = useState({});
   const [selectedLeaves, setSelectedLeaves] = useState(new Set());
+  const selectedLeavesRef = useRef(new Set());
   const [products, setProducts] = useState([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [scrapingBrands, setScrapingBrands] = useState(new Set());
   const [productCounts, setProductCounts] = useState({});
+  const [selectedProduct, setSelectedProduct] = useState(null);
+
+  // Search + sort state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState('');
+  const [searchResults, setSearchResults] = useState(null);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [selectedDropdownIdx, setSelectedDropdownIdx] = useState(-1);
+  const searchTimerRef = useRef(null);
+  const searchInputRef = useRef(null);
+
+  // Resizable detail panel
+  const [detailPanelWidth, setDetailPanelWidth] = useState(400);
+  const isResizing = useRef(false);
+
+  // Streaming state
+  const [streamingBrandId, setStreamingBrandId] = useState(null); // which brand is being streamed
 
   // Add brand modal state
   const [showAddBrandModal, setShowAddBrandModal] = useState(false);
@@ -18,10 +39,19 @@ function MyBrandsPanel() {
   const [validating, setValidating] = useState(false);
   const [error, setError] = useState('');
 
-  // Long-press state for re-scraping
-  const [longPressTimer, setLongPressTimer] = useState(null);
-  const [longPressingBrand, setLongPressingBrand] = useState(null);
-  const [longPressProgress, setLongPressProgress] = useState(0);
+  // Remove brand state
+  const [removeMode, setRemoveMode] = useState(false);
+  const [selectedForRemoval, setSelectedForRemoval] = useState(new Set());
+  const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
+
+  // Click-count state for re-scraping (double-click = products only, triple-click = full)
+  const clickCountRef = useRef({});
+  const clickTimerRef = useRef({});
+
+  // Image row height equalization
+  const [imageDimensions, setImageDimensions] = useState({});
+  const gridRef = useRef(null);
+  const [gridColWidth, setGridColWidth] = useState(0);
 
   // Load brands on mount
   useEffect(() => {
@@ -144,6 +174,75 @@ function MyBrandsPanel() {
     checkStatus();
   };
 
+  // Stream products via SSE as they're extracted
+  const streamProducts = (brandId) => {
+    setStreamingBrandId(brandId);
+    const source = new EventSource(`http://localhost:8081/api/brands/${brandId}/scrape/stream`);
+
+    source.onmessage = (event) => {
+      try {
+        const product = JSON.parse(event.data);
+        const categoryUrl = product._category_url || '';
+
+        // Update live category counter (keyed by brandId::categoryUrl to match sidebar tree)
+        if (categoryUrl) {
+          const leafKey = `${brandId}::${categoryUrl}`;
+          setProductCounts(prev => ({
+            ...prev,
+            [leafKey]: (prev[leafKey] || 0) + 1
+          }));
+        }
+
+        // Only add to product grid if this product's category is currently selected
+        if (categoryUrl) {
+          const leafKey = `${brandId}::${categoryUrl}`;
+          if (selectedLeavesRef.current.has(leafKey)) {
+            setProducts(prev => [product, ...prev]);
+          }
+        }
+      } catch (e) {
+        console.error('Error parsing streamed product:', e);
+      }
+    };
+
+    source.addEventListener('nav_ready', async () => {
+      // Navigation tree is ready — re-fetch hierarchy and update the brand's tree
+      try {
+        const navResponse = await fetch(
+          `http://localhost:8081/api/brands/${brandId}/categories/hierarchy`
+        );
+        if (navResponse.ok) {
+          const navData = await navResponse.json();
+          const hierarchy = navData.hierarchy || [];
+          setBrands(prev => prev.map(b =>
+            b.brand_id === brandId ? { ...b, navigation: hierarchy } : b
+          ));
+          // Auto-expand the brand so user sees categories appear
+          setExpandedBrands(prev => ({ ...prev, [brandId]: true }));
+        }
+      } catch (e) {
+        console.warn('Failed to reload navigation after nav_ready:', e);
+      }
+    });
+
+    source.addEventListener('done', () => {
+      source.close();
+      setScrapingBrands(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(brandId);
+        return newSet;
+      });
+      setStreamingBrandId(null);
+      loadBrands();
+    });
+
+    source.onerror = () => {
+      source.close();
+    };
+
+    return source;
+  };
+
   // Toggle brand expansion
   const toggleBrand = (brandId) => {
     setExpandedBrands(prev => ({
@@ -152,38 +251,44 @@ function MyBrandsPanel() {
     }));
   };
 
-  // Handle long-press to re-scrape brand
-  const handleBrandMouseDown = (brandId) => {
-    setLongPressingBrand(brandId);
-    setLongPressProgress(0);
+  // Handle click counting: single=expand, double=rescrape products, triple=full rescrape
+  const handleBrandClick = (brandId) => {
+    if (!clickCountRef.current[brandId]) clickCountRef.current[brandId] = 0;
+    clickCountRef.current[brandId]++;
 
-    let progress = 0;
-    const interval = setInterval(() => {
-      progress += 2;
-      setLongPressProgress(progress);
-      if (progress >= 100) {
-        clearInterval(interval);
-        handleRescrape(brandId);
+    if (clickTimerRef.current[brandId]) clearTimeout(clickTimerRef.current[brandId]);
+
+    clickTimerRef.current[brandId] = setTimeout(() => {
+      const clicks = clickCountRef.current[brandId];
+      clickCountRef.current[brandId] = 0;
+
+      if (clicks === 1) {
+        toggleBrand(brandId);
+      } else if (clicks === 2) {
+        handleRescrape(brandId, 'products_only');
+      } else if (clicks >= 3) {
+        handleRescrape(brandId, 'full');
       }
-    }, 30); // 1.5 seconds total (50 * 30ms)
-
-    setLongPressTimer(interval);
+    }, 350);
   };
 
-  const handleBrandMouseUp = () => {
-    if (longPressTimer) {
-      clearInterval(longPressTimer);
-      setLongPressTimer(null);
-    }
-    setLongPressingBrand(null);
-    setLongPressProgress(0);
-  };
-
-  const handleRescrape = async (brandId) => {
+  const handleRescrape = async (brandId, mode = 'full') => {
     setScrapingBrands(prev => new Set(prev).add(brandId));
+    setProducts([]);
+    setStreamingBrandId(brandId);
+    // Clear product counts for this brand so categories show 0 until products stream in
+    setProductCounts(prev => {
+      const cleared = { ...prev };
+      Object.keys(cleared).forEach(key => {
+        if (key.startsWith(`${brandId}::`)) delete cleared[key];
+      });
+      return cleared;
+    });
+    // Expand the brand tree so user can see categories reappearing
+    setExpandedBrands(prev => ({ ...prev, [brandId]: true }));
     try {
-      await FashionArchiveAPI.startBrandScraping(brandId);
-      pollScrapingStatus(brandId);
+      await FashionArchiveAPI.startBrandScraping(brandId, mode);
+      streamProducts(brandId);
     } catch (error) {
       console.error('Error starting re-scrape:', error);
       setScrapingBrands(prev => {
@@ -222,6 +327,7 @@ function MyBrandsPanel() {
     }
 
     setSelectedLeaves(newSelected);
+    selectedLeavesRef.current = newSelected;
 
     // Load products for all selected leaves
     if (newSelected.size > 0) {
@@ -234,70 +340,44 @@ function MyBrandsPanel() {
   };
 
   // Load products for selected categories
+  // Cross-category dedup: if the same product (by brand+name) appears in multiple
+  // selected categories, only show it once. But within a single category, duplicates
+  // are kept (they're genuinely different listings). Category counts in the sidebar
+  // always show the raw per-category total (not affected by dedup).
   const loadProductsForSelection = async (selectedSet, newlySelectedKey = null) => {
     try {
       setLoadingProducts(true);
 
-      // Track seen products by URL to avoid duplicates
-      const seenProductUrls = new Set();
-      const deduplicatedProducts = [];
+      // Load each selected category separately (preserving per-category grouping)
+      const categoryArrays = []; // array of { leafKey, products[] }
 
-      // Helper function to get product URL (handles both old and new formats)
-      const getProductUrl = (product) => {
-        return product.url || product.product_url || '';
-      };
-
-      // If there's a newly selected key, load it first (prepend)
-      let newProducts = [];
-      let existingProductsWithCategory = [];
-
+      // Load newly selected category first so it appears at the top
+      const orderedKeys = [];
       if (newlySelectedKey && selectedSet.has(newlySelectedKey)) {
-        // Load the newly selected category first
-        const [brandId, categoryIdentifier] = newlySelectedKey.split('::');
-        // Try both classification_url and classification_name for compatibility
-        let response = await fetch(
-          `http://localhost:8081/api/products?brand_id=${brandId}&classification_url=${encodeURIComponent(categoryIdentifier)}&limit=1000`
-        );
-        if (response.ok) {
-          const data = await response.json();
-          newProducts = (data.products || []).map(p => ({ ...p, _category: categoryIdentifier }));
-        }
+        orderedKeys.push(newlySelectedKey);
+      }
+      for (const leafKey of selectedSet) {
+        if (leafKey !== newlySelectedKey) orderedKeys.push(leafKey);
       }
 
-      // Load all other selected categories
-      for (const leafKey of selectedSet) {
-        if (leafKey === newlySelectedKey) continue; // Skip the newly added one
-
+      await Promise.all(orderedKeys.map(async (leafKey, idx) => {
         const [brandId, categoryIdentifier] = leafKey.split('::');
         const response = await fetch(
           `http://localhost:8081/api/products?brand_id=${brandId}&classification_url=${encodeURIComponent(categoryIdentifier)}&limit=1000`
         );
-
         if (response.ok) {
           const data = await response.json();
-          const productsWithCategory = (data.products || []).map(p => ({ ...p, _category: categoryIdentifier }));
-          existingProductsWithCategory.push(...productsWithCategory);
+          categoryArrays[idx] = data.products || [];
+        } else {
+          categoryArrays[idx] = [];
         }
-      }
+      }));
 
-      // Deduplicate: prioritize new products, then add existing ones if not already seen
-      for (const product of newProducts) {
-        const url = getProductUrl(product);
-        if (url && !seenProductUrls.has(url)) {
-          seenProductUrls.add(url);
-          deduplicatedProducts.push(product);
-        }
-      }
-
-      for (const product of existingProductsWithCategory) {
-        const url = getProductUrl(product);
-        if (url && !seenProductUrls.has(url)) {
-          seenProductUrls.add(url);
-          deduplicatedProducts.push(product);
-        }
-      }
-
-      setProducts(deduplicatedProducts);
+      // Cross-category dedup using the shared deduplicateProducts function
+      // Each element in categoryArrays is one category's products.
+      // deduplicateProducts removes brand+name dupes across arrays but keeps them within.
+      const deduped = deduplicateProducts(categoryArrays);
+      setProducts(deduped);
     } catch (error) {
       console.error('Error loading products:', error);
     } finally {
@@ -350,10 +430,12 @@ function MyBrandsPanel() {
       const newBrand = createResult.brand;
       await FashionArchiveAPI.followBrand(newBrand.brand_id, newBrand.name);
 
-      // Start scraping
+      // Start scraping with live streaming
       setScrapingBrands(prev => new Set(prev).add(newBrand.brand_id));
+      setProducts([]);
+      setStreamingBrandId(newBrand.brand_id);
       FashionArchiveAPI.startBrandScraping(newBrand.brand_id).then(() => {
-        pollScrapingStatus(newBrand.brand_id);
+        streamProducts(newBrand.brand_id);
       });
 
       setShowAddBrandModal(false);
@@ -368,9 +450,23 @@ function MyBrandsPanel() {
     }
   };
 
+  // Check if a category subtree has any products (for filtering during scraping)
+  const hasProductsInSubtree = (brand, category) => {
+    const hasChildren = category.children && category.children.length > 0;
+    if (!hasChildren) {
+      // Leaf: check product count
+      const leafKey = `${brand.brand_id}::${category.url}`;
+      return (productCounts[leafKey] || 0) > 0;
+    }
+    // Parent: check if any child has products
+    return category.children.some(child => hasProductsInSubtree(brand, child));
+  };
+
   // Render category tree recursively
   const renderCategoryTree = (brand, categories, level = 0) => {
     if (!categories || categories.length === 0) return null;
+
+    const isScraping = scrapingBrands.has(brand.brand_id);
 
     // Sort categories: parents with children first, then leaf categories
     const sortedCategories = [...categories].sort((a, b) => {
@@ -382,7 +478,12 @@ function MyBrandsPanel() {
       return 0;
     });
 
-    return sortedCategories.map((category, idx) => {
+    // During scraping, filter to only categories with products
+    const visibleCategories = isScraping
+      ? sortedCategories.filter(cat => hasProductsInSubtree(brand, cat))
+      : sortedCategories;
+
+    return visibleCategories.map((category, idx) => {
       const hasChildren = category.children && category.children.length > 0;
       const isLeaf = !hasChildren;
       const leafKey = `${brand.brand_id}::${category.url}`;
@@ -424,6 +525,337 @@ function MyBrandsPanel() {
     });
   };
 
+  // Flatten all categories with full paths + build trigram index for O(1) lookup
+  const { allCategories, trigramIndex } = useMemo(() => {
+    const leaves = [];
+    const collect = (brand, cats, path) => {
+      if (!cats) return;
+      for (const cat of cats) {
+        const currentPath = [...path, cat.name || ''];
+        if (cat.children && cat.children.length > 0) {
+          collect(brand, cat.children, currentPath);
+        } else {
+          const fullPath = [(brand.name || brand.brand_id || ''), ...currentPath].join(' / ');
+          leaves.push({
+            fullPath,
+            fullPathLower: fullPath.toLowerCase(),
+            name: cat.name || '',
+            url: cat.url,
+            brandId: brand.brand_id,
+            leafKeys: [`${brand.brand_id}::${cat.url}`],
+          });
+        }
+      }
+    };
+    for (const brand of brands) {
+      collect(brand, brand.navigation, []);
+    }
+    leaves.sort((a, b) => a.fullPathLower.localeCompare(b.fullPathLower));
+
+    // Build trigram index: map each 3-char substring → Set of category indices
+    const idx = {};
+    for (let i = 0; i < leaves.length; i++) {
+      const s = leaves[i].fullPathLower;
+      for (let j = 0; j <= s.length - 3; j++) {
+        const tri = s.slice(j, j + 3);
+        if (!idx[tri]) idx[tri] = new Set();
+        idx[tri].add(i);
+      }
+      // Also index bigrams for short queries
+      for (let j = 0; j <= s.length - 2; j++) {
+        const bi = s.slice(j, j + 2);
+        const key = `_bi_${bi}`;
+        if (!idx[key]) idx[key] = new Set();
+        idx[key].add(i);
+      }
+    }
+
+    return { allCategories: leaves, trigramIndex: idx };
+  }, [brands]);
+
+  // Categories matching search query via trigram index intersection, then verify
+  const matchingCategories = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return [];
+
+    // For very short queries (1 char), fall back to linear scan
+    if (q.length === 1) {
+      return allCategories.filter(cat => cat.fullPathLower.includes(q));
+    }
+
+    // Get candidate set via trigram/bigram index intersection
+    let candidates = null;
+    if (q.length === 2) {
+      candidates = trigramIndex[`_bi_${q}`];
+    } else {
+      // Intersect trigram sets for each trigram in query
+      for (let i = 0; i <= q.length - 3; i++) {
+        const tri = q.slice(i, i + 3);
+        const set = trigramIndex[tri];
+        if (!set) return []; // trigram not found = no matches
+        if (candidates === null) {
+          candidates = new Set(set);
+        } else {
+          for (const idx of candidates) {
+            if (!set.has(idx)) candidates.delete(idx);
+          }
+        }
+        if (candidates.size === 0) return [];
+      }
+    }
+
+    if (!candidates) return [];
+
+    // Verify candidates with full substring check (hash narrowed the set)
+    const results = [];
+    for (const idx of candidates) {
+      if (allCategories[idx].fullPathLower.includes(q)) {
+        results.push(allCategories[idx]);
+      }
+    }
+    return results.sort((a, b) => a.fullPathLower.localeCompare(b.fullPathLower));
+  }, [searchQuery, allCategories, trigramIndex]);
+
+  // Deduplicate products by URL, then by name across different categories (not within same category)
+  const deduplicateProducts = useCallback((productArrays) => {
+    const seenUrl = new Set();
+    // Track which brand+name combos we've seen AND which array index they came from
+    const brandNameSource = new Map(); // "brand::name" → array index
+    const results = [];
+    for (let i = 0; i < productArrays.length; i++) {
+      for (const p of productArrays[i]) {
+        const url = p.url || p.product_url || '';
+        if (url && seenUrl.has(url)) continue;
+        if (url) seenUrl.add(url);
+
+        // Cross-category name dedup: skip if same brand+name from a DIFFERENT array
+        const brand = (p.brand || p.brand_id || '').toLowerCase();
+        const name = (p.name || p.product_name || '').toLowerCase();
+        if (brand && name) {
+          const key = `${brand}::${name}`;
+          if (brandNameSource.has(key) && brandNameSource.get(key) !== i) continue;
+          brandNameSource.set(key, i);
+        }
+
+        results.push(p);
+      }
+    }
+    return results;
+  }, []);
+
+  // Load products for a specific dropdown category
+  const loadCategoryProducts = useCallback(async (category) => {
+    setSearchLoading(true);
+    try {
+      // Fire all leaf key fetches in parallel
+      const fetches = category.leafKeys.map(async (leafKey) => {
+        const [brandId, categoryUrl] = leafKey.split('::');
+        const response = await fetch(
+          `http://localhost:8081/api/products?brand_id=${brandId}&classification_url=${encodeURIComponent(categoryUrl)}&limit=1000`
+        );
+        if (response.ok) {
+          const data = await response.json();
+          return data.products || [];
+        }
+        return [];
+      });
+      const results = await Promise.all(fetches);
+      setSearchResults(deduplicateProducts(results));
+    } catch (e) {
+      console.error('Category load failed:', e);
+    } finally {
+      setSearchLoading(false);
+    }
+  }, [deduplicateProducts]);
+
+  // Concurrent search: fires backend product search + matching category product fetches in parallel
+  const executeSearch = useCallback(async (query) => {
+    const q = query.trim();
+    if (!q) {
+      setSearchResults(null);
+      return;
+    }
+    setSearchLoading(true);
+    try {
+      // 1) Backend full-text search
+      const textSearchPromise = fetch(
+        `http://localhost:8081/api/products/search?q=${encodeURIComponent(q)}&limit=200`
+      ).then(r => r.ok ? r.json().then(d => d.products || []) : []).catch(() => []);
+
+      // 2) Fetch products from all matching categories in parallel
+      const catFetches = matchingCategories.flatMap(cat =>
+        cat.leafKeys.map(leafKey => {
+          const [brandId, categoryUrl] = leafKey.split('::');
+          return fetch(
+            `http://localhost:8081/api/products?brand_id=${brandId}&classification_url=${encodeURIComponent(categoryUrl)}&limit=500`
+          ).then(r => r.ok ? r.json().then(d => d.products || []) : []).catch(() => []);
+        })
+      );
+
+      // Await all concurrently
+      const [textResults, ...catResults] = await Promise.all([textSearchPromise, ...catFetches]);
+
+      // Deduplicate: text search results first (higher relevance), then category products
+      const merged = deduplicateProducts([textResults, ...catResults]);
+
+      // Fuzzy re-rank the merged set
+      const fuse = new Fuse(merged, {
+        keys: ['name', 'product_name', 'brand', 'brand_id', 'description', 'category'],
+        threshold: 0.5,
+        ignoreLocation: true,
+        minMatchCharLength: 2,
+      });
+      const fuzzyResults = fuse.search(q).map(r => r.item);
+      setSearchResults(fuzzyResults.length > 0 ? fuzzyResults : merged);
+    } catch (e) {
+      console.error('Search failed:', e);
+    } finally {
+      setSearchLoading(false);
+    }
+  }, [matchingCategories, deduplicateProducts]);
+
+  // Handle search input — show dropdown + debounced auto-search for products simultaneously
+  const handleSearchChange = useCallback((query) => {
+    setSearchQuery(query);
+    setSelectedDropdownIdx(-1);
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+
+    if (!query.trim()) {
+      setSearchResults(null);
+      setShowDropdown(false);
+      return;
+    }
+
+    setShowDropdown(true);
+
+    // Debounced product search fires simultaneously with instant category dropdown
+    searchTimerRef.current = setTimeout(() => {
+      executeSearch(query);
+    }, 300);
+  }, [executeSearch]);
+
+  // Handle keyboard in search input
+  const handleSearchKeyDown = useCallback((e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+      if (selectedDropdownIdx >= 0 && selectedDropdownIdx < matchingCategories.length) {
+        loadCategoryProducts(matchingCategories[selectedDropdownIdx]);
+      } else {
+        executeSearch(searchQuery);
+      }
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setShowDropdown(true);
+      setSelectedDropdownIdx(prev => Math.min(prev + 1, matchingCategories.length - 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setSelectedDropdownIdx(prev => Math.max(prev - 1, -1));
+    } else if (e.key === 'Escape') {
+      setShowDropdown(false);
+    }
+  }, [searchQuery, selectedDropdownIdx, matchingCategories, loadCategoryProducts, executeSearch]);
+
+  // Parse price to number for sorting
+  const parsePrice = useCallback((product) => {
+    const raw = product.price || product.attributes?.price || '';
+    const num = parseFloat(String(raw).replace(/[^0-9.]/g, ''));
+    return isNaN(num) ? 0 : num;
+  }, []);
+
+  // Compute displayed products: use search results when searching, else category products
+  const displayProducts = useMemo(() => {
+    let result = searchResults !== null ? searchResults : products;
+
+    // Sort
+    if (sortBy) {
+      result = [...result].sort((a, b) => {
+        const nameA = (a.name || a.product_name || '').toLowerCase();
+        const nameB = (b.name || b.product_name || '').toLowerCase();
+        switch (sortBy) {
+          case 'name-asc': return nameA.localeCompare(nameB);
+          case 'name-desc': return nameB.localeCompare(nameA);
+          case 'price-asc': return parsePrice(a) - parsePrice(b);
+          case 'price-desc': return parsePrice(b) - parsePrice(a);
+          default: return 0;
+        }
+      });
+    }
+
+    return result;
+  }, [products, searchResults, sortBy, parsePrice]);
+
+  // Reset image dimensions when displayed products change
+  useEffect(() => {
+    setImageDimensions({});
+  }, [displayProducts]);
+
+  // Track column width via ResizeObserver
+  useEffect(() => {
+    const updateColWidth = () => {
+      if (gridRef.current) {
+        const firstCard = gridRef.current.querySelector('.product-card');
+        if (firstCard) {
+          setGridColWidth(firstCard.offsetWidth);
+        }
+      }
+    };
+    updateColWidth();
+    if (!gridRef.current) return;
+    const observer = new ResizeObserver(updateColWidth);
+    observer.observe(gridRef.current);
+    return () => observer.disconnect();
+  }, [displayProducts]);
+
+  // Calculate per-row image heights: each row's images match the tallest
+  const GRID_COLS = 4;
+  const rowImageHeights = useMemo(() => {
+    if (!gridColWidth) return {};
+    const heights = {};
+    displayProducts.forEach((_, idx) => {
+      const dims = imageDimensions[idx];
+      if (dims && dims.naturalWidth > 0) {
+        const row = Math.floor(idx / GRID_COLS);
+        const displayHeight = Math.ceil((dims.naturalHeight / dims.naturalWidth) * gridColWidth);
+        heights[row] = Math.max(heights[row] || 0, displayHeight);
+      }
+    });
+    return heights;
+  }, [imageDimensions, gridColWidth, displayProducts]);
+
+  const handleImageLoad = useCallback((idx, e) => {
+    const { naturalWidth, naturalHeight } = e.target;
+    setImageDimensions(prev => ({ ...prev, [idx]: { naturalWidth, naturalHeight } }));
+  }, []);
+
+  // Drag resize handlers for detail panel
+  const handleResizeMouseDown = useCallback((e) => {
+    e.preventDefault();
+    isResizing.current = true;
+    const startX = e.clientX;
+    const startWidth = detailPanelWidth;
+
+    const onMouseMove = (e) => {
+      if (!isResizing.current) return;
+      const delta = startX - e.clientX; // dragging left = wider
+      const newWidth = Math.min(window.innerWidth * 0.5, Math.max(300, startWidth + delta));
+      setDetailPanelWidth(newWidth);
+    };
+
+    const onMouseUp = () => {
+      isResizing.current = false;
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }, [detailPanelWidth]);
+
   if (loading) {
     return (
       <div className="my-brands-container">
@@ -441,29 +873,35 @@ function MyBrandsPanel() {
             const isExpanded = expandedBrands[brand.brand_id];
             const isScraping = scrapingBrands.has(brand.brand_id);
 
-            const isLongPressing = longPressingBrand === brand.brand_id;
-
             return (
               <div key={brand.brand_id} className="brand-section">
                 <div
-                  className={`brand-name ${isScraping ? 'brand-loading' : ''} ${isLongPressing ? 'brand-long-pressing' : ''}`}
-                  onClick={() => !isLongPressing && !isScraping && toggleBrand(brand.brand_id)}
-                  onMouseDown={() => !isScraping && handleBrandMouseDown(brand.brand_id)}
-                  onMouseUp={handleBrandMouseUp}
-                  onMouseLeave={handleBrandMouseUp}
+                  className={`brand-name ${isScraping ? 'brand-loading' : ''} ${removeMode && selectedForRemoval.has(brand.brand_id) ? 'selected-for-removal' : ''}`}
+                  onClick={() => {
+                    if (removeMode) {
+                      setSelectedForRemoval(prev => {
+                        const next = new Set(prev);
+                        if (next.has(brand.brand_id)) {
+                          next.delete(brand.brand_id);
+                        } else {
+                          next.add(brand.brand_id);
+                        }
+                        return next;
+                      });
+                    } else if (!isScraping) {
+                      handleBrandClick(brand.brand_id);
+                    }
+                  }}
                   style={{
                     position: 'relative',
-                    cursor: isScraping ? 'not-allowed' : undefined,
-                    background: isLongPressing
-                      ? `linear-gradient(to right, rgba(0, 122, 255, 0.1) ${longPressProgress}%, transparent ${longPressProgress}%)`
-                      : undefined
+                    cursor: isScraping && !removeMode ? 'not-allowed' : undefined,
                   }}
                 >
                   <span className="brand-name-text">{(brand.name || brand.brand_id || 'Unknown').toUpperCase()}</span>
-                  {isScraping && <span className="brand-loading-text"> loading...</span>}
+                  {isScraping && !removeMode && <span className="brand-loading-text"> loading...</span>}
                 </div>
 
-                {isExpanded && !isScraping && (
+                {isExpanded && !removeMode && (
                   <div className="brand-categories">
                     {renderCategoryTree(brand, brand.navigation)}
                   </div>
@@ -473,62 +911,138 @@ function MyBrandsPanel() {
           })}
         </div>
 
-        {/* Add Brand Button */}
+        {/* Footer Buttons */}
         <div className="add-brand-footer">
-          <button
-            className="add-brand-button"
-            onClick={() => setShowAddBrandModal(true)}
-          >
-            + Add New Brand
-          </button>
+          {removeMode ? (
+            <button
+              className="remove-brand-button"
+              onClick={() => {
+                if (selectedForRemoval.size > 0) {
+                  setShowRemoveConfirm(true);
+                } else {
+                  setRemoveMode(false);
+                  setSelectedForRemoval(new Set());
+                }
+              }}
+            >
+              {selectedForRemoval.size > 0
+                ? `Remove ${selectedForRemoval.size} Brand${selectedForRemoval.size > 1 ? 's' : ''}`
+                : 'Cancel'}
+            </button>
+          ) : (
+            <>
+              <button
+                className="add-brand-button"
+                onClick={() => setShowAddBrandModal(true)}
+              >
+                + Add New Brand
+              </button>
+              <button
+                className="remove-brand-button-idle"
+                onClick={() => setRemoveMode(true)}
+              >
+                - Remove Brand
+              </button>
+            </>
+          )}
         </div>
       </div>
 
       {/* Right Panel - Product Gallery */}
       <div className="product-gallery">
-        {loadingProducts ? (
+        {/* Search + Sort Toolbar */}
+        <div className="product-toolbar">
+            <div className="search-wrapper">
+              <input
+                ref={searchInputRef}
+                type="text"
+                className="product-search-input"
+                placeholder="Search products..."
+                value={searchQuery}
+                onChange={(e) => handleSearchChange(e.target.value)}
+                onKeyDown={handleSearchKeyDown}
+                onFocus={() => { if (searchQuery.trim()) setShowDropdown(true); }}
+                onBlur={() => {}}
+              />
+              {showDropdown && matchingCategories.length > 0 && (
+                <div className="search-dropdown">
+                  {matchingCategories.map((cat, idx) => {
+                    const q = searchQuery.trim().toLowerCase();
+                    const pathLower = cat.fullPath.toLowerCase();
+                    const matchIdx = pathLower.indexOf(q);
+                    const before = cat.fullPath.slice(0, matchIdx);
+                    const match = cat.fullPath.slice(matchIdx, matchIdx + q.length);
+                    const after = cat.fullPath.slice(matchIdx + q.length);
+                    return (
+                      <div
+                        key={`${cat.brandId}-${cat.url}`}
+                        className={`search-dropdown-item ${idx === selectedDropdownIdx ? 'highlighted' : ''}`}
+                        onMouseDown={() => loadCategoryProducts(cat)}
+                      >
+                        <span className="dropdown-cat-name">
+                          {before}<strong>{match}</strong>{after}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            <select
+              className="product-sort-select"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+            >
+              <option value="">Sort by...</option>
+              <option value="name-asc">Name A → Z</option>
+              <option value="name-desc">Name Z → A</option>
+              <option value="price-asc">Price Low → High</option>
+              <option value="price-desc">Price High → Low</option>
+            </select>
+          </div>
+
+        {(searchLoading || loadingProducts) ? (
           <div className="gallery-loading">Loading products...</div>
-        ) : products.length > 0 ? (
-          <div className="product-grid">
-            {products.map((product, idx) => {
-              // Extract brand name from brand_id or brand field
+        ) : displayProducts.length > 0 ? (
+          <div className="product-grid" ref={gridRef}>
+            {displayProducts.map((product, idx) => {
               const brandName = product.brand
                 ? product.brand.toUpperCase()
                 : (product.brand_id ? product.brand_id.replace(/_/g, ' ').toUpperCase() : '');
-
-              // Handle both old (product_name) and new (name) field names
               const productName = product.name || product.product_name || 'Unknown Product';
               const productUrl = product.url || product.product_url || '';
-
-              // Handle both old (images[].src) and new (images[] as URLs) formats
               let imageUrl = null;
               if (product.images && product.images.length > 0) {
                 const firstImage = product.images[0];
                 imageUrl = typeof firstImage === 'string' ? firstImage : firstImage.src;
               }
-
-              // Handle both old (attributes.price) and new (price + currency) formats
               const priceDisplay = product.price
                 ? `${product.currency || ''} ${product.price}`.trim()
                 : product.attributes?.price;
 
+              const rowIdx = Math.floor(idx / GRID_COLS);
+              const rowHeight = rowImageHeights[rowIdx];
+
               return (
-                <div key={`${productUrl}-${idx}`} className="product-card">
+                <div
+                  key={`${productUrl}-${idx}`}
+                  className={`product-card ${selectedProduct && (selectedProduct.url || selectedProduct.product_url) === productUrl ? 'selected' : ''}`}
+                  onClick={() => setSelectedProduct(product)}
+                >
                   {imageUrl && (
-                    <div className="product-image">
+                    <div className="product-image" style={rowHeight ? { height: rowHeight } : undefined}>
                       <img
                         src={imageUrl}
                         alt={productName}
                         loading="lazy"
+                        onLoad={(e) => handleImageLoad(idx, e)}
                       />
                     </div>
                   )}
                   <div className="product-info">
                     <div className="product-brand">{brandName}</div>
                     <div className="product-name">{productName}</div>
-                    {priceDisplay && (
-                      <div className="product-price">{priceDisplay}</div>
-                    )}
+                    {priceDisplay && <div className="product-price">{priceDisplay}</div>}
                   </div>
                 </div>
               );
@@ -536,6 +1050,17 @@ function MyBrandsPanel() {
           </div>
         ) : null}
       </div>
+
+      {/* Product Detail Panel with drag handle */}
+      {selectedProduct && (
+        <div className="detail-panel-wrapper" style={{ width: detailPanelWidth, minWidth: 300 }}>
+          <div className="detail-resize-handle" onMouseDown={handleResizeMouseDown} />
+          <ProductDetailPanel
+            product={selectedProduct}
+            onClose={() => setSelectedProduct(null)}
+          />
+        </div>
+      )}
 
       {/* Add Brand Modal */}
       {showAddBrandModal && (
@@ -585,6 +1110,47 @@ function MyBrandsPanel() {
                 disabled={validating || !brandUrlInput.trim()}
               >
                 {validating ? 'Validating...' : 'Add Brand'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Remove Brand Confirmation Modal */}
+      {showRemoveConfirm && (
+        <div className="modern-modal-overlay" onClick={() => setShowRemoveConfirm(false)}>
+          <div className="modern-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modern-modal-title">Remove Brands</div>
+            <div className="modern-modal-content">
+              Are you sure you want to remove the following brand{selectedForRemoval.size > 1 ? 's' : ''} from your list?
+              <ul className="remove-brand-list">
+                {brands
+                  .filter(b => selectedForRemoval.has(b.brand_id))
+                  .map(b => (
+                    <li key={b.brand_id}>{b.name || b.brand_id}</li>
+                  ))
+                }
+              </ul>
+            </div>
+            <div className="modern-modal-actions">
+              <button
+                className="modern-button modern-button-secondary"
+                onClick={() => setShowRemoveConfirm(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="modern-button modern-button-danger"
+                onClick={async () => {
+                  for (const brandId of selectedForRemoval) {
+                    await FashionArchiveAPI.unfollowBrand(brandId);
+                  }
+                  setShowRemoveConfirm(false);
+                  setRemoveMode(false);
+                  setSelectedForRemoval(new Set());
+                  loadBrands();
+                }}
+              >
+                Remove
               </button>
             </div>
           </div>

@@ -1,0 +1,5 @@
+{
+  "image_selector": ".product-images-container img",
+  "url_attribute": "src",
+  "container_selector": ".product-images-container"
+}

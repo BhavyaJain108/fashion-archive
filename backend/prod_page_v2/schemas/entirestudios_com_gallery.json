@@ -1,0 +1,5 @@
+{
+  "image_selector": "img[alt*=\"Margin Drape Top Ace - Image\"]",
+  "url_attribute": "src",
+  "container_selector": ".swiper-wrapper"
+}

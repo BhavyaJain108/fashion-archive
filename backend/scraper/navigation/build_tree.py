@@ -9,7 +9,7 @@ Creates:
 import json
 import sys
 from pathlib import Path
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 
 def find_cross_toplevel_urls(states: list) -> set:
@@ -28,6 +28,16 @@ def find_cross_toplevel_urls(states: list) -> set:
 
     # Return URLs that appear in 2+ top-level tabs
     return {url for url, toplevels in url_to_toplevels.items() if len(toplevels) >= 2}
+
+
+def is_homepage_url(url: str, base_url: str) -> bool:
+    """Check if URL points to the homepage (root path of the site)."""
+    # Handle relative URLs
+    abs_url = urljoin(base_url, url) if not url.startswith("http") else url
+    parsed = urlparse(abs_url)
+    parsed_base = urlparse(base_url)
+    # Same domain and root path (/ or empty)
+    return parsed.netloc == parsed_base.netloc and parsed.path.rstrip("/") == ""
 
 
 def is_product_link(url: str) -> bool:
@@ -82,6 +92,9 @@ def build_tree(states: list, base_url: str, filter_urls: set = None) -> dict:
                     continue
             # Make URL absolute
             full_url = urljoin(base_url, url) if not url.startswith("http") else url
+            # Always skip homepage links
+            if is_homepage_url(full_url, base_url):
+                continue
             if not is_folder_link:
                 if full_url in filter_urls:
                     continue
@@ -180,6 +193,35 @@ def hoist_common_links(node: dict) -> None:
                 child["links"] = [l for l in child["links"] if l["url"] != url]
 
 
+def strip_homepage_nodes(category_tree: list, base_url: str) -> list:
+    """
+    Remove nodes whose URL is the homepage from a standard category tree.
+    Works on [{name, url, children}, ...] format (both static and dynamic origins).
+
+    Exception: if the homepage node is the ONLY top-level node in the entire tree,
+    keep it (the site has no real nav, homepage is all we found).
+    """
+    def _strip(nodes: list) -> list:
+        filtered = []
+        for node in (nodes or []):
+            url = node.get("url")
+            if url and is_homepage_url(url, base_url):
+                continue
+            children = node.get("children")
+            if children:
+                node["children"] = _strip(children) or None
+            filtered.append(node)
+        return filtered
+
+    # If the tree has only one top-level node and it's the homepage, keep it
+    if len(category_tree or []) == 1:
+        only = category_tree[0]
+        if only.get("url") and is_homepage_url(only["url"], base_url):
+            return category_tree
+
+    return _strip(category_tree)
+
+
 def tree_to_txt(node: dict, indent: int = 0, lines: list = None) -> list:
     """Convert tree to readable text format."""
     if lines is None:
@@ -249,9 +291,6 @@ def process_brand(brand_dir: Path):
 
     # Build tree
     tree = build_tree(states, base_url, filter_urls=cross_toplevel_urls)
-
-    # Hoist links that appear in 2+ children up to parent
-    hoist_common_links(tree)
 
     # Deduplicate parent-child links
     dedupe_parent_child_links(tree)

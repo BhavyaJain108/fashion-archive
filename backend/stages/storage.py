@@ -5,6 +5,7 @@ Handles save/load operations and path management.
 """
 
 import json
+import shutil
 from pathlib import Path
 from urllib.parse import urlparse
 from typing import Optional
@@ -32,6 +33,71 @@ def ensure_domain_dir(domain: str) -> Path:
     domain_dir = get_domain_dir(domain)
     domain_dir.mkdir(parents=True, exist_ok=True)
     return domain_dir
+
+
+def clean_previous_extraction(domain: str, stages: list = None):
+    """Remove previous extraction artifacts before a rescrape.
+
+    Args:
+        domain: Domain name (e.g., "heavencanwait_store")
+        stages: List of stages being run. Determines what to clean:
+            - "urls": cleans urls.json, urls.txt, full_urls.txt, products/, config.json, logs/
+            - "products": cleans products/, config.json
+            - "nav": cleans nav.json, nav.txt
+            - "streaming" / "all": cleans urls, products, and logs
+
+    Always preserves: brand_meta.json (cached nav method, fingerprint)
+    """
+    domain_dir = get_domain_dir(domain)
+    if not domain_dir.exists():
+        return
+
+    stages = stages or []
+    cleaned = []
+
+    clean_urls = any(s in stages for s in ["urls", "streaming", "all"])
+    clean_products = any(s in stages for s in ["urls", "products", "streaming", "all"])
+    clean_nav = "nav" in stages or "all" in stages
+
+    # Clean products directory
+    products_dir = domain_dir / "products"
+    if clean_products and products_dir.exists():
+        shutil.rmtree(products_dir)
+        cleaned.append("products/")
+
+    # Clean URL artifacts
+    if clean_urls:
+        for fname in ["urls.json", "urls.txt", "full_urls.txt"]:
+            fpath = domain_dir / fname
+            if fpath.exists():
+                fpath.unlink()
+                cleaned.append(fname)
+
+    # Clean nav artifacts
+    if clean_nav:
+        for fname in ["nav.json", "nav.txt"]:
+            fpath = domain_dir / fname
+            if fpath.exists():
+                fpath.unlink()
+                cleaned.append(fname)
+
+    # Clean config and metrics (regenerated each run)
+    if clean_products:
+        for fname in ["config.json", "metrics.json", "metrics.txt"]:
+            fpath = domain_dir / fname
+            if fpath.exists():
+                fpath.unlink()
+                cleaned.append(fname)
+
+    # Clean logs
+    if clean_urls or clean_products:
+        logs_dir = domain_dir / "logs"
+        if logs_dir.exists():
+            shutil.rmtree(logs_dir)
+            cleaned.append("logs/")
+
+    if cleaned:
+        print(f"  Cleaned previous extraction: {', '.join(cleaned)}")
 
 
 # ============================================================

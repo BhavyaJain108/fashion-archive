@@ -1,0 +1,5 @@
+{
+  "image_selector": ".product-slider__wrapper img, .scroll-zone-content img.product-desc__pic",
+  "url_attribute": "src",
+  "container_selector": ".product__media-wrapper"
+}

@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "scraper"))
 
 from stages.storage import load_urls, save_config, save_product, get_category_path_for_url, ensure_domain_dir
 from llm_handler import LLMHandler
-from stages.metrics import update_stage_metrics, calculate_cost
+from stages.metrics import update_stage_metrics, calculate_cost, set_current_stage, get_stage_metrics_from_tracker
 
 
 def flatten_urls(urls_tree: dict) -> List[str]:
@@ -74,6 +74,7 @@ async def extract_products(domain: str, concurrency: int = 10) -> dict:
 
     # Track timing and LLM usage
     stage_start_time = time.time()
+    set_current_stage("products")
     LLMHandler.reset_usage()
     discovery_start_time = None
     discovery_end_time = None
@@ -208,21 +209,19 @@ async def extract_products(domain: str, concurrency: int = 10) -> dict:
     discovery_duration = (discovery_end_time - discovery_start_time) if discovery_start_time else 0
     batch_duration = (batch_end_time - batch_start_time) if batch_start_time else 0
 
-    llm_usage = LLMHandler.get_total_usage()
-    llm_input = llm_usage.get("input_tokens", 0)
-    llm_output = llm_usage.get("output_tokens", 0)
-    llm_calls = llm_usage.get("call_count", 0)
-    llm_cost = calculate_cost(llm_input, llm_output)
+    # Get operation-level metrics from the unified tracker
+    tracker_data = get_stage_metrics_from_tracker("products")
+    operations = tracker_data.get("operations", [])
+    summary = tracker_data.get("summary", {"calls": 0, "input_tokens": 0, "output_tokens": 0, "cost": 0.0})
 
-    # Build and save metrics
-    stage_data = {
-        "run_time": datetime.now(),
-        "duration": stage_duration,
-        "extra_fields": {
-            "Products Attempted": len(all_urls),
-            "Products Successful": products_successful
-        },
-        "operations": [
+    # Fall back to legacy method if tracker has no data
+    if not operations:
+        llm_usage = LLMHandler.get_total_usage()
+        llm_input = llm_usage.get("input_tokens", 0)
+        llm_output = llm_usage.get("output_tokens", 0)
+        llm_calls = llm_usage.get("call_count", 0)
+        llm_cost = calculate_cost(llm_input, llm_output)
+        operations = [
             {
                 "name": "product_extraction",
                 "calls": llm_calls,
@@ -230,17 +229,28 @@ async def extract_products(domain: str, concurrency: int = 10) -> dict:
                 "output_tokens": llm_output,
                 "cost": llm_cost
             }
-        ],
-        "latency_breakdown": {
-            "Discovery": discovery_duration,
-            "Batch Extraction": batch_duration
-        },
-        "summary": {
+        ]
+        summary = {
             "calls": llm_calls,
             "input_tokens": llm_input,
             "output_tokens": llm_output,
             "cost": llm_cost
+        }
+
+    # Build and save metrics
+    stage_data = {
+        "run_time": datetime.now().isoformat(),
+        "duration": stage_duration,
+        "extra_fields": {
+            "Products Attempted": len(all_urls),
+            "Products Successful": products_successful
         },
+        "operations": operations,
+        "latency_breakdown": {
+            "Discovery": discovery_duration,
+            "Batch Extraction": batch_duration
+        },
+        "summary": summary,
         "products": products_successful
     }
 
@@ -253,7 +263,7 @@ async def extract_products(domain: str, concurrency: int = 10) -> dict:
     print(f"Products successful: {products_successful}")
     print(f"Products saved: {len(products_saved)}")
     print(f"Duration: {stage_duration:.1f}s (discovery: {discovery_duration:.1f}s, batch: {batch_duration:.1f}s)")
-    print(f"LLM Cost: ${llm_cost:.4f} ({llm_calls} calls, {llm_input + llm_output:,} tokens)")
+    print(f"LLM Cost: ${summary.get('cost', 0):.4f} ({summary.get('calls', 0)} calls, {summary.get('input_tokens', 0) + summary.get('output_tokens', 0):,} tokens)")
     print(f"Metrics: {metrics_path}")
     print(f"{'='*60}\n")
 

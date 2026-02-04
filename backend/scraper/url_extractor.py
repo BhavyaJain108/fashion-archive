@@ -169,13 +169,36 @@ def _extract_links_from_current_state(page, page_url: str) -> List[Dict]:
     Extract all links from current page state (after scrolling).
 
     Returns:
-        List of dicts with: url, lineage, link_text, position_index
+        List of dicts with: url, lineage, link_text, position_index, in_carousel
     """
     try:
         # JavaScript to extract all links with their metadata
         links_data = page.evaluate("""
             () => {
                 const links = Array.from(document.querySelectorAll('a[href]'));
+
+                // Patterns that indicate carousel/slider containers
+                const carouselPatterns = [
+                    'slider', 'carousel', 'swiper', 'slick', 'glide', 'splide',
+                    'slideshow', 'marquee', 'ticker'
+                ];
+
+                // Check if element has a carousel ancestor (walk up to 15 levels)
+                function isInCarousel(element) {
+                    let current = element;
+                    for (let i = 0; i < 15 && current && current !== document.body; i++) {
+                        const tagName = (current.tagName || '').toLowerCase();
+                        const className = (typeof current.className === 'string' ? current.className : '').toLowerCase();
+
+                        for (const pattern of carouselPatterns) {
+                            if (tagName.includes(pattern) || className.includes(pattern)) {
+                                return true;
+                            }
+                        }
+                        current = current.parentElement;
+                    }
+                    return false;
+                }
 
                 // Function to get DOM lineage (3 generations)
                 function getLineage(element) {
@@ -216,7 +239,8 @@ def _extract_links_from_current_state(page, page_url: str) -> List[Dict]:
                         url: href,
                         lineage: getLineage(link),
                         link_text: (link.textContent || '').trim().substring(0, 100),
-                        position_index: index
+                        position_index: index,
+                        in_carousel: isInCarousel(link)
                     });
                 });
 
@@ -231,7 +255,70 @@ def _extract_links_from_current_state(page, page_url: str) -> List[Dict]:
         return []
 
 
-def _scroll_and_extract_links(page_url: str, brand_instance=None) -> Dict[str, Any]:
+def _detect_pagination_with_cached_pattern(page, page_url: str, cached_pattern: Dict) -> Dict[str, Any]:
+    """
+    Fast pagination detection using a known URL pattern from the brand cache.
+
+    Skips the LLM call entirely. Extracts bottom links, filters by category,
+    then uses the known url_pattern to find max_page from the link URLs.
+
+    Returns same structure as _detect_post_scroll_pagination.
+    """
+    import re
+    url_pattern = cached_pattern.get("url_pattern")
+    if not url_pattern:
+        return {"pagination_found": False, "url_pattern": None, "max_page_detected": None,
+                "next_page_url": None, "reasoning": "No cached url_pattern"}
+
+    result = {
+        "pagination_found": False,
+        "url_pattern": url_pattern,
+        "pagination_type": cached_pattern.get("pagination_type", "page_links"),
+        "max_page_detected": None,
+        "next_page_url": None,
+        "reasoning": "Fast detection using cached pattern"
+    }
+
+    try:
+        bottom_links = _extract_bottom_page_links(page, page_url)
+        if not bottom_links:
+            return result
+
+        category_links = _filter_links_by_category(bottom_links, page_url)
+        if not category_links:
+            return result
+
+        # Extract page numbers from links using the known pattern
+        page_numbers = []
+        for link in category_links:
+            if "?page=" in url_pattern or "?page=X" in url_pattern:
+                match = re.search(r'[?&]page=(\d+)', link)
+            elif "?p=" in url_pattern or "?p=X" in url_pattern:
+                match = re.search(r'[?&]p=(\d+)', link)
+            elif "/page/" in url_pattern:
+                match = re.search(r'/page/(\d+)', link)
+            else:
+                match = None
+            if match:
+                page_numbers.append(int(match.group(1)))
+
+        if page_numbers:
+            max_page = max(page_numbers)
+            result["pagination_found"] = True
+            result["max_page_detected"] = max_page
+            result["reasoning"] = f"Fast detection: found pages {sorted(set(page_numbers))}, max={max_page} (cached pattern: {url_pattern})"
+            _log(f"   ⚡ Fast pagination: max page {max_page} (cached pattern: {url_pattern})")
+        else:
+            _log(f"   📄 No page numbers found with cached pattern {url_pattern}")
+
+    except Exception as e:
+        result["reasoning"] = f"Fast detection failed: {e}"
+        _log(f"   ❌ Fast pagination detection failed: {e}")
+
+    return result
+
+
+def _scroll_and_extract_links(page_url: str, brand_instance=None, skip_pagination_detection: bool = False) -> Dict[str, Any]:
     """
     Scroll page fully and extract all links.
 
@@ -359,9 +446,16 @@ def _scroll_and_extract_links(page_url: str, brand_instance=None) -> Dict[str, A
 
             all_links = final_links
 
-            # Detect pagination for multi-page extraction
-            pagination_result = _detect_post_scroll_pagination(page, page_url)
-            discovery_info["pagination_detected"] = pagination_result
+            # Detect pagination for multi-page extraction (skip on pages 2+ where we already know the pattern)
+            if not skip_pagination_detection:
+                # If brand has a cached pagination pattern, use fast detection (no LLM)
+                cached = brand_instance.pagination_pattern if brand_instance and getattr(brand_instance, 'pagination_pattern', None) else None
+                if cached:
+                    _log(f"   ⚡ Using cached pagination pattern from brand: {cached.get('url_pattern')}")
+                    pagination_result = _detect_pagination_with_cached_pattern(page, page_url, cached)
+                else:
+                    pagination_result = _detect_post_scroll_pagination(page, page_url)
+                discovery_info["pagination_detected"] = pagination_result
 
         finally:
             browser.close()
@@ -461,7 +555,8 @@ def classify_product_links(
         response = llm_handler.call(
             prompt,
             expected_format="json",
-            response_model=url_classification.get_response_model()
+            response_model=url_classification.get_response_model(),
+            operation="url_classification",
         )
 
         if response.get("success"):
@@ -573,8 +668,8 @@ def _extract_urls_from_single_page(
     start_time = time.time()
 
     try:
-        # Scroll and extract all links
-        result = _scroll_and_extract_links(page_url, brand_instance)
+        # Scroll and extract all links (skip pagination detection on pages 2+ to avoid wasted LLM calls)
+        result = _scroll_and_extract_links(page_url, brand_instance, skip_pagination_detection=skip_pagination_detection)
         links = result.get("links", [])
         discovery_info = result.get("discovery_info", {})
 
@@ -698,6 +793,81 @@ def extract_multi_page_urls(
                     "error": str(e)
                 })
 
+    # Sequential discovery: continue extracting pages beyond what we already processed.
+    # This handles:
+    # - next_page_url only (no max detected) - classic next/prev button case
+    # - pagination_type == "next_button" - LLM explicitly identified next button
+    # - max_page_detected <= 2 - likely only seeing adjacent page, not full numbered pagination
+    max_page = pagination_result.get("max_page_detected")
+    pagination_type = pagination_result.get("pagination_type", "page_links")
+    should_continue_sequential = (
+        (not max_page and pagination_result.get("next_page_url")) or
+        pagination_type == "next_button" or
+        (max_page is not None and max_page <= 2)
+    )
+    if should_continue_sequential and pagination_result.get("url_pattern"):
+        url_pattern = pagination_result.get("url_pattern")
+        if url_pattern:
+            import re
+            # Find the highest page number we just processed
+            current_page_num = 2  # We started at page 2
+            for stat in per_page_stats:
+                if stat.get("page_num", 0) > current_page_num:
+                    current_page_num = stat["page_num"]
+
+            # Continue sequentially: load next page, extract URLs, check ONLY that page for more pages
+            consecutive_empty = 0
+            safety_limit = current_page_num + 50
+            current_page_num += 1
+
+            while current_page_num <= safety_limit and consecutive_empty < 3:
+                # Generate URL for this page
+                if "?page=X" in url_pattern or "?page=" in url_pattern:
+                    next_url = base_url.split("?")[0] + f"?page={current_page_num}"
+                elif "/page/X/" in url_pattern or "/page/" in url_pattern:
+                    next_url = base_url.rstrip("/") + f"/page/{current_page_num}/"
+                elif "/page/X" in url_pattern:
+                    next_url = base_url.rstrip("/") + f"/page/{current_page_num}"
+                elif "?p=X" in url_pattern or "?p=" in url_pattern:
+                    next_url = base_url.split("?")[0] + f"?p={current_page_num}"
+                else:
+                    next_url = base_url + url_pattern.replace("X", str(current_page_num))
+
+                _log(f"   🔄 Sequential discovery: page {current_page_num} ({next_url})")
+
+                try:
+                    page_result = _extract_urls_from_single_page(
+                        next_url, base_url, category_name, current_page_num, brand_instance, True
+                    )
+                    urls_found = page_result.get("product_urls", [])
+
+                    if urls_found:
+                        all_urls.extend(urls_found)
+                        consecutive_empty = 0
+                        _log(f"   ✅ Page {current_page_num}: {len(urls_found)} product URLs")
+                    else:
+                        consecutive_empty += 1
+                        _log(f"   📄 Page {current_page_num}: 0 product URLs (empty #{consecutive_empty})")
+
+                    per_page_stats.append({
+                        "page_num": current_page_num,
+                        "url": next_url,
+                        "urls_found": len(urls_found),
+                        "extraction_time": page_result.get("extraction_time", 0)
+                    })
+
+                except Exception as e:
+                    consecutive_empty += 1
+                    _log(f"   ❌ Page {current_page_num} failed: {e}")
+                    per_page_stats.append({
+                        "page_num": current_page_num,
+                        "url": next_url,
+                        "urls_found": 0,
+                        "error": str(e)
+                    })
+
+                current_page_num += 1
+
     total_time = time.time() - start_time
 
     _log(f"   📊 Multi-page extraction complete:")
@@ -763,6 +933,16 @@ def extract_urls_from_category(
         # Multi-page extraction if pagination detected
         if pagination_detected and pagination_detected.get("pagination_found"):
             _log(f"\n   📖 Pagination detected, extracting additional pages...")
+
+            # Cache pagination pattern on brand for cross-category reuse
+            if brand_instance and pagination_detected.get("url_pattern"):
+                with brand_instance._pagination_lock:
+                    if not brand_instance.pagination_pattern:
+                        brand_instance.pagination_pattern = {
+                            "url_pattern": pagination_detected["url_pattern"],
+                            "pagination_type": pagination_detected.get("pagination_type", "page_links"),
+                        }
+                        _log(f"   💾 Cached pagination pattern: {brand_instance.pagination_pattern['url_pattern']}")
 
             multi_result = extract_multi_page_urls(
                 category_url, category_name, brand_instance, pagination_detected

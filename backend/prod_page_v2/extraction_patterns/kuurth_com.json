@@ -1,0 +1,6 @@
+{
+  "title_pattern": "\"title\":\"([^\"]+)\"",
+  "price_pattern": "\"price\":([0-9.]+)",
+  "description_pattern": "\"description\":\"([^\"]+)\"",
+  "image_pattern": "\"featured_image\":\"([^\"]+)\""
+}

@@ -52,14 +52,43 @@ class ExtractionManager:
         return self.base_path / clean_domain
 
     def _domain_to_brand_id(self, domain: str) -> str:
-        """Convert domain folder name to brand_id format"""
-        # eckhauslatta_com -> eckhauslatta
-        return domain.replace('_com', '').replace('_', '')
+        """Convert domain folder name to brand_id.
+
+        The brand_id IS the folder name (e.g. devi-clothing_com).
+        This avoids lossy conversions that strip hyphens or TLDs.
+        """
+        return domain
 
     def _brand_id_to_domain(self, brand_id: str) -> str:
-        """Convert brand_id to domain folder name"""
-        # eckhauslatta -> eckhauslatta_com
-        return f"{brand_id}_com"
+        """Convert brand_id to domain folder name.
+
+        First checks for an exact match, then does a fuzzy search
+        to stay compatible with old brand_ids that stripped the TLD.
+        """
+        if not self.base_path.exists():
+            return brand_id
+
+        # Exact match (brand_id IS the folder name in the new scheme)
+        if (self.base_path / brand_id).is_dir():
+            return brand_id
+
+        # Fuzzy fallback: support old-style brand_ids that dropped TLD/hyphens
+        normalized = brand_id.replace('-', '').replace('_', '').lower()
+
+        for d in self.base_path.iterdir():
+            if not d.is_dir():
+                continue
+            folder_normalized = d.name.replace('-', '').replace('_', '').lower()
+            if folder_normalized == normalized:
+                return d.name
+            # Also try stripping TLD from folder for matching
+            parts = d.name.rsplit('_', 1)
+            if len(parts) == 2:
+                base_normalized = parts[0].replace('-', '').replace('_', '').lower()
+                if base_normalized == normalized:
+                    return d.name
+
+        return brand_id  # fallback: return as-is
 
     # =========================================================================
     # BRAND OPERATIONS
@@ -72,7 +101,7 @@ class ExtractionManager:
 
         domains = []
         for d in self.base_path.iterdir():
-            if d.is_dir() and (d / "nav.json").exists():
+            if d.is_dir() and ((d / "nav.json").exists() or (d / "brand.json").exists()):
                 domains.append(d.name)
 
         return domains
@@ -102,12 +131,18 @@ class ExtractionManager:
         metrics_data = self._read_json(domain_path / "metrics.json")
         config_data = self._read_json(domain_path / "config.json")
 
+        # If no extraction data yet, check for brand.json (newly created brand)
         if not nav_data and not urls_data:
+            brand_json = self._read_json(domain_path / "brand.json")
+            if brand_json:
+                return brand_json
             return None
 
         # Build brand object
         domain = domain_path.name.replace('_', '.')
-        brand_name = brand_id.replace('_', ' ').title()
+        # Derive display name: strip TLD, replace separators with spaces
+        name_base = domain_path.name.rsplit('_', 1)[0]  # e.g. "devi-clothing"
+        brand_name = name_base.replace('-', ' ').replace('_', ' ').title()
 
         # Get stats
         category_count = nav_data.get("category_count", 0) if nav_data else 0
@@ -226,7 +261,23 @@ class ExtractionManager:
             # Maybe products aren't extracted yet, return empty
             return {"products": [], "total_products": 0}
 
-        products = []
+        # Canonicalize product URLs: strip /collections/{slug}/ prefix so
+        # the same product extracted from different category pages deduplicates.
+        import re
+        _collection_re = re.compile(r'/collections/[^/]+/products/')
+
+        def canonical_url(url: str) -> str:
+            """Normalize URL to canonical product path for dedup."""
+            if not url:
+                return url
+            # Strip query string and trailing slash
+            clean = url.split('?')[0].rstrip('/')
+            # Collapse /collections/{anything}/products/ → /products/
+            clean = _collection_re.sub('/products/', clean)
+            return clean
+
+        # Deduplicate by canonical product URL, keeping the most recently modified file
+        seen = {}  # canonical_url -> (mtime, product_data)
 
         # Walk through category folders
         for category_path in products_dir.rglob("*.json"):
@@ -245,7 +296,18 @@ class ExtractionManager:
                     "hierarchy": category_parts
                 }]
 
-                products.append(product_data)
+                product_url = product_data.get("url") or product_data.get("source_url") or ""
+                canon = canonical_url(product_url)
+                mtime = category_path.stat().st_mtime if category_path.exists() else 0
+
+                if canon and canon in seen:
+                    # Keep the newer file
+                    if mtime > seen[canon][0]:
+                        seen[canon] = (mtime, product_data)
+                else:
+                    seen[canon or str(category_path)] = (mtime, product_data)
+
+        products = [entry[1] for entry in seen.values()]
 
         return {
             "products": products,
@@ -419,26 +481,50 @@ class ExtractionManager:
 
     def get_product_counts_by_url(self, brand_id: str) -> Dict[str, int]:
         """
-        Get product counts grouped by category URL from urls.json tree.
+        Get product counts grouped by category URL.
+
+        Only counts products that actually exist on disk (have been extracted),
+        not just URLs discovered during URL extraction. This ensures sidebar
+        counts match what query_products would return.
 
         Returns:
-            Dict mapping category URL to product count
+            Dict mapping category URL to extracted product count
         """
-        urls_data = self.read_urls(brand_id)
+        import re
 
+        urls_data = self.read_urls(brand_id)
         if not urls_data:
             return {}
+
+        # Build set of canonical URLs for all extracted products
+        products_data = self.read_products(brand_id)
+        extracted_canonical = set()
+        if products_data:
+            _coll_re = re.compile(r'/collections/[^/]+/products/')
+            def _canon(url):
+                if not url: return ''
+                return _coll_re.sub('/products/', url.split('?')[0].rstrip('/'))
+
+            for p in products_data.get("products", []):
+                purl = p.get("url") or p.get("source_url") or ""
+                canon = _canon(purl)
+                if canon:
+                    extracted_canonical.add(canon)
 
         url_counts = {}
 
         def count_from_tree(nodes):
             for node in nodes:
-                url = node.get("url")
-                products = node.get("products", [])
-                if url and products:
-                    url_counts[url] = len(products)
+                cat_url = node.get("url")
+                product_urls = node.get("products", [])
+                if cat_url and product_urls:
+                    count = sum(
+                        1 for pu in product_urls
+                        if _canon(pu) in extracted_canonical
+                    )
+                    if count > 0:
+                        url_counts[cat_url] = count
 
-                # Recurse into children
                 children = node.get("children", [])
                 if children:
                     count_from_tree(children)

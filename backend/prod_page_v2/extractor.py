@@ -23,8 +23,8 @@ from strategies.llm_schema import LlmSchemaStrategy
 from page_loader import load_page
 
 
-# Fields we track for merge strategy
-TRACKED_FIELDS = ['name', 'price', 'currency', 'images', 'description', 'variants', 'brand', 'sku', 'category']
+# Fields we track for merge strategy (images handled separately by gallery pipeline)
+TRACKED_FIELDS = ['name', 'price', 'currency', 'description', 'variants', 'brand', 'sku', 'category']
 
 
 @dataclass
@@ -59,6 +59,7 @@ class MultiStrategyConfig:
     discovery_url: Optional[str] = None
     verification_url: Optional[str] = None
     site_images: List[str] = field(default_factory=list)  # Images to exclude (appear on multiple products)
+    field_sources: Dict[str, str] = field(default_factory=dict)  # field_name -> strategy_value (validated)
 
     def get_strategies_for_field(self, field_name: str) -> List[ExtractionStrategy]:
         """Get strategies that provide a specific field."""
@@ -66,6 +67,10 @@ class MultiStrategyConfig:
 
     def get_active_strategies(self) -> List[ExtractionStrategy]:
         """Get all strategies that contribute at least one field."""
+        if self.field_sources:
+            # Use strategies referenced in field_sources
+            strat_values = set(self.field_sources.values())
+            return [ExtractionStrategy(v) for v in strat_values]
         return [c.strategy for c in self.contributions if c.fields]
 
     def to_dict(self) -> dict:
@@ -78,6 +83,8 @@ class MultiStrategyConfig:
         }
         if self.site_images:
             result["site_images"] = self.site_images
+        if self.field_sources:
+            result["field_sources"] = self.field_sources
         return result
 
     @classmethod
@@ -89,6 +96,7 @@ class MultiStrategyConfig:
             discovery_url=data.get("discovery_url"),
             verification_url=data.get("verification_url"),
             site_images=data.get("site_images", []),
+            field_sources=data.get("field_sources", {}),
         )
 
 
@@ -124,7 +132,7 @@ class ProductExtractor:
         ]
 
     def _get_contributed_fields(self, product: Product) -> Set[str]:
-        """Determine which fields a product extraction contributed."""
+        """Determine which fields a product extraction contributed (images excluded - gallery pipeline)."""
         fields = set()
         if product.name:
             fields.add('name')
@@ -132,8 +140,6 @@ class ProductExtractor:
             fields.add('price')
         if product.currency:
             fields.add('currency')
-        if product.images:
-            fields.add('images')
         if product.description:
             fields.add('description')
         if product.variants:
@@ -145,6 +151,93 @@ class ProductExtractor:
         if product.category:
             fields.add('category')
         return fields
+
+    # Strategy cost order: cheapest first (no LLM < LLM)
+    STRATEGY_COST_ORDER = [
+        ExtractionStrategy.SHOPIFY_JSON,
+        ExtractionStrategy.SHOPIFY_GRAPHQL,
+        ExtractionStrategy.LD_JSON,
+        ExtractionStrategy.API_INTERCEPT,
+        ExtractionStrategy.HTML_META,
+        ExtractionStrategy.LLM_SCHEMA,
+        ExtractionStrategy.DOM_FALLBACK,
+    ]
+
+    def _validate_field(self, field_name: str, product: Product, gt: Product) -> bool:
+        """Check if a strategy's field value matches ground truth Product."""
+        if field_name == 'price':
+            if product.price is None:
+                return False
+            if not gt.price:  # None or 0 means GT couldn't determine price
+                return True
+            return abs(product.price - gt.price) < 0.02
+
+        if field_name == 'currency':
+            gt_currency = gt.currency or ''
+            if not gt_currency:
+                return bool(product.currency)
+            return bool(product.currency) and product.currency.upper() == gt_currency.upper()
+
+        if field_name == 'name':
+            gt_name = gt.name or ''
+            if not gt_name:
+                return bool(product.name)
+            if not product.name:
+                return False
+            a, b = product.name.lower(), gt_name.lower()
+            return a in b or b in a or a == b
+
+        if field_name == 'description':
+            gt_desc = gt.description or ''
+            desc = product.description or ''
+            if not gt_desc:
+                return bool(desc)
+            return len(desc) >= len(gt_desc) * 0.3
+
+        if field_name == 'variants':
+            gt_count = len(gt.variants) if gt.variants else 0
+            count = len(product.variants) if product.variants else 0
+            if gt_count == 0:
+                return count >= 0
+            return count > 0 and abs(count - gt_count) <= max(2, gt_count * 0.3)
+
+        # brand, sku, category: accept if present
+        return True
+
+    def _compute_field_sources(
+        self,
+        results: List[ExtractionResult],
+        ground_truth: Product
+    ) -> Dict[str, str]:
+        """
+        For each field, find the cheapest strategy that passes ground truth validation.
+
+        Returns: {field_name: strategy_value}
+        """
+        # Build strategy -> product map
+        strat_products = {}
+        for r in results:
+            if r.success and r.product:
+                strat_products[r.strategy] = r.product
+
+        field_sources = {}
+
+        for field_name in TRACKED_FIELDS:
+            # Try strategies in cost order (cheapest first)
+            for strat in self.STRATEGY_COST_ORDER:
+                product = strat_products.get(strat)
+                if not product:
+                    continue
+                # Check field is present
+                fields = self._get_contributed_fields(product)
+                if field_name not in fields:
+                    continue
+                # Validate against ground truth
+                if self._validate_field(field_name, product, ground_truth):
+                    field_sources[field_name] = strat.value
+                    break
+
+        return field_sources
 
     def _compute_minimal_strategies(self, contributions: List[StrategyContribution]) -> List[StrategyContribution]:
         """
@@ -192,17 +285,55 @@ class ProductExtractor:
 
         return minimal_set
 
-    def _merge_products(self, results: List[ExtractionResult], url: str) -> Product:
-        """Merge multiple extraction results into one product."""
-        # Sort by score (highest first) - higher score = more trustworthy
-        sorted_results = sorted(
-            [r for r in results if r.success and r.product],
-            key=lambda r: r.score,
-            reverse=True
-        )
+    def _minimal_from_field_sources(
+        self,
+        field_sources: Dict[str, str],
+        contributions: List[StrategyContribution]
+    ) -> List[StrategyContribution]:
+        """
+        Compute minimal strategies based on field_sources (GT-validated field assignments).
 
-        if not sorted_results:
-            # Return empty product with all fields missing
+        Instead of greedy score-based selection, include only strategies that are
+        actually needed according to field_sources.
+        """
+        # Build mapping: strategy_name -> fields it's responsible for
+        strategy_fields: Dict[str, Set[str]] = {}
+        for field, strategy_name in field_sources.items():
+            if strategy_name not in strategy_fields:
+                strategy_fields[strategy_name] = set()
+            strategy_fields[strategy_name].add(field)
+
+        # Build minimal contributions from strategies that have assigned fields
+        minimal_set = []
+        contrib_by_name = {c.strategy.value: c for c in contributions}
+
+        print(f"\n  [MINIMAL SET] Computing from field_sources:")
+
+        for strategy_name, fields in strategy_fields.items():
+            if strategy_name in contrib_by_name:
+                orig = contrib_by_name[strategy_name]
+                minimal_contrib = StrategyContribution(
+                    strategy=orig.strategy,
+                    fields=fields,
+                    score=orig.score
+                )
+                minimal_set.append(minimal_contrib)
+                print(f"    ✓ {strategy_name}: {', '.join(sorted(fields))}")
+            else:
+                print(f"    ✗ {strategy_name}: strategy not in contributions (skipped)")
+
+        print(f"  [MINIMAL SET] Result: {len(minimal_set)} strategies")
+        return minimal_set
+
+    def _merge_products(self, results: List[ExtractionResult], url: str, field_sources: Optional[Dict[str, str]] = None) -> Product:
+        """Merge multiple extraction results into one product.
+
+        If field_sources is provided, pick each field from its designated strategy.
+        Otherwise, fall back to score-based first-wins merge.
+        """
+        successful = [r for r in results if r.success and r.product]
+
+        if not successful:
             return Product(
                 name="",
                 price=0.0,
@@ -216,46 +347,88 @@ class ProductExtractor:
                 )
             )
 
-        # Start with the best result as base
+        # Build strategy -> product lookup
+        strat_map = {}
+        for r in successful:
+            strat_map[r.strategy.value] = r.product
+
+        # Sort by score for fallback
+        sorted_results = sorted(successful, key=lambda r: r.score, reverse=True)
         base = sorted_results[0].product
-        merged = Product(
-            name=base.name,
-            price=base.price,
-            currency=base.currency,
-            images=base.images.copy() if base.images else [],
-            description=base.description,
-            url=url,
-            variants=base.variants.copy() if base.variants else [],
-            brand=base.brand,
-            sku=base.sku,
-            category=base.category,
-            raw_description=base.raw_description,
-            extraction_strategy=base.extraction_strategy,
-        )
 
-        # Fill in gaps from other results
-        for result in sorted_results[1:]:
-            product = result.product
+        if field_sources:
+            # Field-level source picking (validated by ground truth)
+            def pick(field_name, attr, default=None):
+                strat_val = field_sources.get(field_name)
+                if strat_val and strat_val in strat_map:
+                    val = getattr(strat_map[strat_val], attr, default)
+                    if val is not None and val != '' and val != []:
+                        return val
+                # Fallback: score-based
+                for r in sorted_results:
+                    val = getattr(r.product, attr, default)
+                    if val is not None and val != '' and val != []:
+                        return val
+                return default
 
-            # Fill missing fields
-            if not merged.name and product.name:
-                merged.name = product.name
-            if merged.price is None and product.price is not None:
-                merged.price = product.price
-            if not merged.currency and product.currency:
-                merged.currency = product.currency
-            if not merged.images and product.images:
-                merged.images = product.images.copy()
-            if not merged.description and product.description:
-                merged.description = product.description
-            if not merged.variants and product.variants:
-                merged.variants = product.variants.copy()
-            if not merged.brand and product.brand:
-                merged.brand = product.brand
-            if not merged.sku and product.sku:
-                merged.sku = product.sku
-            if not merged.category and product.category:
-                merged.category = product.category
+            # Images: just use best available (gallery pipeline overrides at extraction time)
+            imgs = None
+            for r in sorted_results:
+                if r.product.images:
+                    imgs = r.product.images
+                    break
+            vrnts = pick('variants', 'variants', [])
+            merged = Product(
+                name=pick('name', 'name', ''),
+                price=pick('price', 'price'),
+                currency=pick('currency', 'currency', ''),
+                images=list(imgs) if imgs else [],
+                description=pick('description', 'description', ''),
+                url=url,
+                variants=list(vrnts) if vrnts else [],
+                brand=pick('brand', 'brand', ''),
+                sku=pick('sku', 'sku', ''),
+                category=pick('category', 'category', ''),
+                raw_description=base.raw_description,
+                extraction_strategy=base.extraction_strategy,
+            )
+        else:
+            # Legacy: score-based first-wins merge
+            merged = Product(
+                name=base.name,
+                price=base.price,
+                currency=base.currency,
+                images=base.images.copy() if base.images else [],
+                description=base.description,
+                url=url,
+                variants=base.variants.copy() if base.variants else [],
+                brand=base.brand,
+                sku=base.sku,
+                category=base.category,
+                raw_description=base.raw_description,
+                extraction_strategy=base.extraction_strategy,
+            )
+
+            for result in sorted_results[1:]:
+                product = result.product
+                if not merged.name and product.name:
+                    merged.name = product.name
+                if merged.price is None and product.price is not None:
+                    merged.price = product.price
+                if not merged.currency and product.currency:
+                    merged.currency = product.currency
+                if not merged.images and product.images:
+                    merged.images = product.images.copy()
+                if not merged.description and product.description:
+                    merged.description = product.description
+                if not merged.variants and product.variants:
+                    merged.variants = product.variants.copy()
+                if not merged.brand and product.brand:
+                    merged.brand = product.brand
+                if not merged.sku and product.sku:
+                    merged.sku = product.sku
+                if not merged.category and product.category:
+                    merged.category = product.category
 
         # Update missing fields
         merged.missing_fields = MissingFields(
@@ -287,9 +460,9 @@ class ProductExtractor:
         best_score = 0
 
         for strategy in self.strategies:
-            # Skip expensive dom_fallback if we already have a great result
-            if strategy.strategy_type == ExtractionStrategy.DOM_FALLBACK and best_score >= 95:
-                print(f"\n  Skipping {strategy.strategy_type.value}... (already have score {best_score})")
+            # Skip dom_fallback during discovery — GT extraction handles it
+            if strategy.strategy_type == ExtractionStrategy.DOM_FALLBACK:
+                print(f"\n  Skipping {strategy.strategy_type.value} (GT extraction will handle)")
                 continue
 
             print(f"\n  Trying {strategy.strategy_type.value}...")
@@ -327,7 +500,54 @@ class ProductExtractor:
         else:
             print("\n  ❌ All strategies failed")
 
-        return contributions, results
+        # Ground truth: single LLM extraction that validates strategies AND serves as dom_fallback
+        ground_truth = None
+        field_sources = {}
+        dom_fallback = None
+        for s in self.strategies:
+            if s.strategy_type == ExtractionStrategy.DOM_FALLBACK:
+                dom_fallback = s
+                break
+
+        print(f"\n  [GROUND TRUTH] Running LLM extraction...")
+        if dom_fallback:
+            gt_data = dom_fallback.extract_ground_truth(page_data)
+            if gt_data:
+                ground_truth = dom_fallback._parse_product(gt_data, url, page_data)
+
+                # Add GT result as dom_fallback contribution
+                gt_result = ExtractionResult.from_product(ground_truth, ExtractionStrategy.DOM_FALLBACK)
+                results.append(gt_result)
+                gt_fields = self._get_contributed_fields(ground_truth)
+                contributions.append(StrategyContribution(
+                    strategy=ExtractionStrategy.DOM_FALLBACK,
+                    fields=gt_fields,
+                    score=gt_result.score
+                ))
+
+        if ground_truth and contributions:
+            gt_variants = len(ground_truth.variants) if ground_truth.variants else 0
+            gt_desc_len = len(ground_truth.description) if ground_truth.description else 0
+            print(f"    GT: name={ground_truth.name}, price={ground_truth.price} {ground_truth.currency}")
+            print(f"    GT: variants={gt_variants}, desc_len={gt_desc_len}")
+            field_sources = self._compute_field_sources(results, ground_truth)
+            print(f"    Field sources: {field_sources}")
+
+            # If dom_fallback is selected for any field, discover and save regex patterns
+            # so future extractions can use them without LLM
+            if dom_fallback and any(v == ExtractionStrategy.DOM_FALLBACK.value for v in field_sources.values()):
+                dom_fields = [k for k, v in field_sources.items() if v == ExtractionStrategy.DOM_FALLBACK.value]
+                print(f"\n  [PATTERNS] dom_fallback selected for {dom_fields}, discovering patterns...")
+                patterns = dom_fallback._discover_patterns(page_data.html, url, domain=dom_fallback._get_domain(url))
+                if patterns:
+                    dom_fallback._save_patterns(dom_fallback._get_domain(url), patterns)
+                    print(f"    Saved patterns for {dom_fallback._get_domain(url)}")
+                else:
+                    print(f"    Pattern discovery failed (dom_fallback will use LLM at runtime)")
+        else:
+            print(f"    Ground truth LLM call failed, falling back to score-based merge")
+
+        return contributions, results, ground_truth, field_sources
 
     async def discover_site_images(self, url1: str, url2: str) -> List[str]:
         """
@@ -458,7 +678,7 @@ class ProductExtractor:
         print(f"DISCOVERY PHASE - {domain}")
         print('='*60)
 
-        contributions, discovery_results = await self.discover(product_urls[0])
+        contributions, discovery_results, ground_truth, field_sources = await self.discover(product_urls[0])
 
         if not contributions:
             print(f"\n❌ Discovery failed for {domain}")
@@ -475,13 +695,30 @@ class ProductExtractor:
             print(f"\n❌ Verification failed for {domain}")
             return None
 
-        # Create config with MINIMAL strategy set (skip redundant strategies)
-        minimal_contributions = self._compute_minimal_strategies(contributions)
+        # Phase 3: Gallery discovery
+        print(f"\n{'='*60}")
+        print(f"GALLERY DISCOVERY - {domain}")
+        print('='*60)
+
+        gallery_config = await self.discover_gallery_selector(product_urls[0])
+        if gallery_config:
+            print(f"  Gallery selector: {gallery_config.get('image_selector', '?')}")
+            print(f"  Image count: {gallery_config.get('image_count', '?')}")
+        else:
+            print(f"  No gallery selector found — will use strategy images")
+
+        # Create config with MINIMAL strategy set
+        # If field_sources exist, derive minimal set from them (not greedy score)
+        if field_sources:
+            minimal_contributions = self._minimal_from_field_sources(field_sources, contributions)
+        else:
+            minimal_contributions = self._compute_minimal_strategies(contributions)
 
         config = MultiStrategyConfig(
             domain=domain,
             contributions=minimal_contributions,
             verified=True,
+            field_sources=field_sources,
             discovery_url=product_urls[0],
             verification_url=product_urls[1],
         )
@@ -494,6 +731,10 @@ class ProductExtractor:
         print(f"  Active strategies:")
         for c in minimal_contributions:
             print(f"    - {c.strategy.value}: {', '.join(sorted(c.fields))}")
+        if field_sources:
+            print(f"  Field sources (ground-truth validated):")
+            for fname, sval in sorted(field_sources.items()):
+                print(f"    - {fname} → {sval}")
         print(f"  Config saved to: {self._get_config_path(domain)}")
         print('='*60)
 
@@ -533,8 +774,9 @@ class ProductExtractor:
                 result = await strategy.extract(url, page_data)
                 results.append(result)
 
-        # Merge results
-        merged_product = self._merge_products(results, url)
+        # Merge results (use field_sources if available)
+        fs = config.field_sources if config else None
+        merged_product = self._merge_products(results, url, field_sources=fs)
 
         if merged_product.name:  # At least got a name
             return ExtractionResult(
@@ -548,6 +790,455 @@ class ProductExtractor:
             ExtractionStrategy.SHOPIFY_JSON,
             "No strategy succeeded"
         )
+
+    async def extract_single_pooled(
+        self,
+        url: str,
+        page: 'Page',
+        config: Optional[MultiStrategyConfig] = None,
+        wait_time: int = 500,
+        gallery_selector=None,
+    ) -> ExtractionResult:
+        """
+        Extract a single product using a pre-acquired page from BrowserPool.
+
+        Args:
+            url: Product URL to extract
+            page: Playwright Page from BrowserPool
+            config: Optional MultiStrategyConfig for this domain
+            wait_time: ms to wait for dynamic content (default 500, calibrated during discovery)
+            gallery_selector: CSS selector for product gallery (discovered once per domain)
+
+        Returns:
+            ExtractionResult with extracted product data
+        """
+        from page_loader import load_page_on_existing, extract_gallery_images
+        import time as _time
+
+        domain = self._get_domain(url)
+
+        # Try to load config if not provided
+        if not config:
+            config = self._load_config(domain)
+
+        # Load page using the provided page object
+        t0 = _time.monotonic()
+        page_data = await load_page_on_existing(page, url, wait_time=wait_time)
+        t_load = _time.monotonic()
+
+        # Fix 2: Don't run extraction on failed/error pages (including 404s)
+        if not page_data.loaded or page_data.status_code in (404, 403, 410, 429, 500, 502, 503):
+            return ExtractionResult(
+                success=False,
+                error=f"Page load failed (status={page_data.status_code})",
+                strategy=ExtractionStrategy.SHOPIFY_JSON,
+                status_code=page_data.status_code,
+            )
+
+        import asyncio as _asyncio
+
+        if config and config.verified:
+            active_strategies = config.get_active_strategies()
+            tasks = [s.extract(url, page_data) for s in self.strategies if s.strategy_type in active_strategies]
+        else:
+            tasks = [s.extract(url, page_data) for s in self.strategies]
+
+        results = await _asyncio.gather(*tasks) if tasks else []
+        t_strat = _time.monotonic()
+
+        # Merge results (use field_sources if available)
+        fs = config.field_sources if config else None
+        merged_product = self._merge_products(list(results), url, field_sources=fs)
+
+        # Fix 3: Stronger success criteria
+        # Require a real name + at least one substantive field (price, images, or description)
+        GARBAGE_NAMES = {
+            "access denied", "too many requests", "page not found", "404",
+            "error", "not found", "forbidden", "blocked", "please try again",
+            "just a moment", "attention required", "checking your browser",
+            "service unavailable", "temporarily unavailable",
+        }
+
+        has_real_name = (
+            merged_product.name
+            and len(merged_product.name.strip()) > 1
+            and merged_product.name.strip().lower() not in GARBAGE_NAMES
+        )
+        has_substance = (
+            merged_product.price
+            or (merged_product.images and len(merged_product.images) > 0)
+            or (merged_product.description and len(merged_product.description) > 10)
+        )
+
+        if has_real_name and has_substance:
+            # Override images with gallery-extracted images if selector available
+            if gallery_selector:
+                gallery_images = await extract_gallery_images(page, gallery_selector)
+                if gallery_images:
+                    merged_product.images = gallery_images
+            t_gallery = _time.monotonic()
+
+            total = t_gallery - t0
+            if total > 3.0:
+                import sys as _sys
+                slug = url.split('/')[-1][:30]
+                print(f"[Extractor SLOW] {slug}: load={t_load-t0:.1f}s strat={t_strat-t_load:.1f}s gallery={t_gallery-t_strat:.1f}s TOTAL={total:.1f}s", file=_sys.stderr)
+
+            return ExtractionResult(
+                success=True,
+                product=merged_product,
+                strategy=ExtractionStrategy.SHOPIFY_JSON,  # placeholder
+                score=merged_product.completeness_score(),
+                status_code=page_data.status_code,
+            )
+
+        reason = "No product name" if not has_real_name else "Name only, no price/images/description"
+        return ExtractionResult(
+            success=False,
+            error=reason,
+            strategy=ExtractionStrategy.SHOPIFY_JSON,
+            status_code=page_data.status_code,
+        )
+
+    async def calibrate_wait_time(
+        self,
+        url: str,
+        config: Optional[MultiStrategyConfig] = None,
+    ) -> int:
+        """
+        Find the minimum wait time that produces a good extraction.
+
+        Tests progressively: 300ms → 800ms → 2000ms
+        Returns the first wait time that yields a product with name + price.
+        Uses networkidle so actual waits are often shorter than the ceiling.
+
+        Called during discovery phase so we only pay this cost once per domain.
+        """
+        from page_loader import load_page_on_existing
+        from browser_pool import BrowserPool
+
+        WAIT_TIMES = [300, 800, 2000]
+
+        pool = BrowserPool(size=1, pages_per_recycle=100, headless=True)
+        await pool.start()
+
+        try:
+            for wait_ms in WAIT_TIMES:
+                async with pool.acquire() as page:
+                    page_data = await load_page_on_existing(page, url, wait_time=wait_ms)
+
+                import asyncio as _asyncio
+                if config and config.verified:
+                    active = config.get_active_strategies()
+                    tasks = [s.extract(url, page_data) for s in self.strategies if s.strategy_type in active]
+                else:
+                    tasks = [s.extract(url, page_data) for s in self.strategies]
+                results = await _asyncio.gather(*tasks) if tasks else []
+
+                fs = config.field_sources if config else None
+                merged = self._merge_products(list(results), url, field_sources=fs)
+
+                has_name = bool(merged.name and len(merged.name) > 1)
+                has_price = bool(merged.price and merged.price != "0")
+
+                if has_name and has_price:
+                    print(f"[Calibration] {wait_ms}ms → ✓ name + price found")
+                    return wait_ms
+                else:
+                    print(f"[Calibration] {wait_ms}ms → ✗ missing {'name' if not has_name else 'price'}")
+
+            print(f"[Calibration] Falling back to 5000ms")
+            return 5000
+        finally:
+            await pool.shutdown()
+
+    def _gallery_schema_path(self, domain: str) -> Path:
+        """Path to the gallery selector file for a domain."""
+        schema_dir = Path(__file__).parent / "schemas"
+        schema_dir.mkdir(exist_ok=True)
+        return schema_dir / f"{domain.replace('.', '_')}_gallery.json"
+
+    def load_gallery_selector(self, domain: str) -> Optional[dict]:
+        """Load saved gallery config for a domain."""
+        path = self._gallery_schema_path(domain)
+        if path.exists():
+            try:
+                data = json.loads(path.read_text())
+                # Migrate old format: {"gallery_selector": "..."} -> new dict format
+                if "gallery_selector" in data and "image_selector" not in data:
+                    old = data["gallery_selector"]
+                    data = {"image_selector": "", "url_attribute": "src", "container_selector": old}
+                    path.write_text(json.dumps(data, indent=2))
+                return data
+            except Exception:
+                pass
+        return None
+
+    def save_gallery_selector(self, domain: str, config: dict):
+        """Save gallery config for a domain."""
+        path = self._gallery_schema_path(domain)
+        path.write_text(json.dumps(config, indent=2))
+        print(f"[GalleryDiscovery] Saved config for {domain}: {config}")
+
+    async def discover_gallery_selector(self, url: str, page=None) -> Optional[dict]:
+        """
+        Use LLM to find how to extract product images from the gallery.
+
+        Called once during discovery. Returns a config dict with:
+        - "image_selector": CSS selector targeting image elements directly
+        - "url_attribute": which attribute holds the image URL (src, data-src, etc.)
+        - "container_selector": the gallery container (for context)
+
+        Args:
+            url: A product page URL
+            page: Optional Playwright page (already loaded). If None, loads one.
+
+        Returns:
+            Gallery config dict or None
+        """
+        domain = self._get_domain(url)
+
+        # Check saved config first
+        saved = self.load_gallery_selector(domain)
+        if saved:
+            print(f"[GalleryDiscovery] Using saved config for {domain}")
+            return saved
+        from page_loader import load_page_on_existing, extract_gallery_images
+        from browser_pool import BrowserPool
+
+        try:
+            from scraper.llm_handler import LLMHandler
+        except ImportError:
+            try:
+                from backend.scraper.llm_handler import LLMHandler
+            except ImportError:
+                print("[GalleryDiscovery] LLM not available, trying common selectors")
+                return await self._try_common_gallery_selectors(url)
+
+        llm = LLMHandler()
+
+        # Load the page if not provided
+        own_pool = None
+        if page is None:
+            own_pool = BrowserPool(size=1, pages_per_recycle=10, headless=True)
+            await own_pool.start()
+
+        try:
+            if own_pool:
+                async with own_pool.acquire() as p:
+                    page_data = await load_page_on_existing(p, url, wait_time=2000)
+                    html = page_data.html
+                    test_page = p
+                    return await self._discover_gallery_with_llm(llm, html, url, test_page)
+            else:
+                html = await page.content()
+                return await self._discover_gallery_with_llm(llm, html, url, page)
+        finally:
+            if own_pool:
+                await own_pool.shutdown()
+
+    async def _discover_gallery_with_llm(self, llm, html: str, url: str, page) -> Optional[dict]:
+        """Extract image DOM context from the live page, send to LLM, verify result."""
+
+        # Use Playwright to grab every image element + its ancestor chain
+        # This gives the LLM a focused view: just images and their structural context
+        image_snapshot = await page.evaluate("""() => {
+            const results = [];
+            const imgs = document.querySelectorAll('img, source, [style*="background-image"]');
+            for (const el of imgs) {
+                // Get the image's own attributes
+                const attrs = {};
+                for (const attr of el.attributes) {
+                    attrs[attr.name] = attr.value.length > 200 ? attr.value.slice(0, 200) + '...' : attr.value;
+                }
+
+                // Walk up the ancestor chain (up to 4 levels) to capture structural context
+                const ancestors = [];
+                let node = el.parentElement;
+                for (let i = 0; i < 4 && node && node !== document.body; i++) {
+                    const a = {};
+                    for (const attr of node.attributes) {
+                        // Only keep structural attrs, skip long values
+                        if (['class', 'id', 'role', 'data-component', 'data-testid',
+                             'data-section', 'data-product-media', 'data-product-media-container',
+                             'data-media-type', 'aria-label', 'data-gallery', 'data-carousel',
+                             'data-slider', 'data-swiper'].includes(attr.name) ||
+                            attr.name.startsWith('data-')) {
+                            a[attr.name] = attr.value.length > 100 ? attr.value.slice(0, 100) + '...' : attr.value;
+                        }
+                    }
+                    ancestors.push({ tag: node.tagName.toLowerCase(), attrs: a });
+                    node = node.parentElement;
+                }
+
+                results.push({
+                    tag: el.tagName.toLowerCase(),
+                    attrs: attrs,
+                    ancestors: ancestors,
+                });
+            }
+            return results;
+        }""")
+
+        if not image_snapshot:
+            print("[GalleryDiscovery] No image elements found on page")
+            return None
+
+        # If too many images, keep only the first 50 — product galleries are near
+        # the top of the page, the rest are recommendations/footer/etc.
+        if len(image_snapshot) > 50:
+            image_snapshot = image_snapshot[:50]
+
+        # Format the snapshot for the LLM
+        snapshot_text = f"Found {len(image_snapshot)} image elements on {url}:\n\n"
+        for i, img in enumerate(image_snapshot):
+            snapshot_text += f"[{i}] <{img['tag']}"
+            for k, v in img['attrs'].items():
+                snapshot_text += f' {k}="{v}"'
+            snapshot_text += ">\n"
+            for j, anc in enumerate(img['ancestors']):
+                indent = "  " * (j + 1)
+                attr_str = " ".join(f'{k}="{v}"' for k, v in anc['attrs'].items())
+                snapshot_text += f"{indent}parent: <{anc['tag']} {attr_str}>\n"
+            snapshot_text += "\n"
+
+        print(f"[GalleryDiscovery] Snapshot: {len(image_snapshot)} images, {len(snapshot_text)} chars")
+
+        prompt = f"""This is a product page at: {url}
+
+Here are all the image elements on the page, with their parent elements for context.
+
+{snapshot_text}
+
+Which of these images are the MAIN PRODUCT GALLERY photos for THIS product?
+
+Important:
+- Product pages often have MULTIPLE image sections: a main carousel/slideshow, a detail/description section with more product shots, recommended/related products at the bottom, etc.
+- I need a selector that captures ALL images of THIS specific product (from any section — carousel, detail, description), but NOT images of other products (recommendations, "you may also like"), nav/menu images, logos, or icons.
+- There may be duplicate images across sections — that's fine, I'll deduplicate later.
+
+Tell me:
+1. A CSS selector that targets the product gallery/detail image elements for THIS product
+2. Which attribute holds the best image URL (src, data-src, srcset, etc.)
+
+Return a JSON object with:
+- "image_selector": CSS selector targeting the product image elements
+- "url_attribute": which attribute has the image URL ("src", "data-src", "srcset", etc.)
+- "container_selector": the gallery/product container selector (for context)
+- "notes": brief explanation"""
+
+        from pydantic import BaseModel, Field
+
+        class GalleryConfig(BaseModel):
+            image_selector: str = Field(description="CSS selector targeting image elements directly")
+            url_attribute: str = Field(default="src", description="Attribute holding the image URL")
+            container_selector: str = Field(default="", description="Gallery container selector")
+            notes: str = Field(default="", description="Brief explanation of gallery structure")
+
+        result = llm.call(
+            prompt=prompt,
+            expected_format="json",
+            response_model=GalleryConfig,
+            max_tokens=400,
+            operation="gallery_discovery",
+        )
+
+        if not result.get("success") or not result.get("data"):
+            print("[GalleryDiscovery] LLM call failed")
+            return None
+
+        data = result["data"]
+        image_selector = data.get("image_selector", "")
+        url_attribute = data.get("url_attribute", "src")
+        notes = data.get("notes", "")
+        print(f"[GalleryDiscovery] LLM returned:")
+        print(f"  image_selector: '{image_selector}'")
+        print(f"  url_attribute: '{url_attribute}'")
+        print(f"  notes: {notes}")
+
+        # Validate selector looks like CSS
+        if not image_selector or image_selector.startswith("<") or len(image_selector) > 200:
+            print(f"[GalleryDiscovery] Invalid selector: '{image_selector}'")
+            return None
+
+        # Verify on the live page
+        try:
+            elements = await page.query_selector_all(image_selector)
+        except Exception as e:
+            print(f"[GalleryDiscovery] Selector error: {e}")
+            return None
+
+        if not elements:
+            print(f"[GalleryDiscovery] Selector '{image_selector}' matched 0 elements")
+            return None
+
+        # Try to get a URL from the first element
+        sample_url = None
+        for attr in [url_attribute, "src", "data-src", "srcset"]:
+            sample_url = await elements[0].get_attribute(attr)
+            if sample_url:
+                break
+
+        if not sample_url:
+            print(f"[GalleryDiscovery] Selector matched {len(elements)} elements but no URLs found")
+            return None
+
+        config = {
+            "image_selector": image_selector,
+            "url_attribute": url_attribute,
+            "container_selector": data.get("container_selector", ""),
+        }
+        print(f"[GalleryDiscovery] Verified: {len(elements)} elements, sample: {sample_url[:80]}")
+        domain = self._get_domain(url)
+        self.save_gallery_selector(domain, config)
+        return config
+
+    async def _try_common_gallery_selectors_on_page(self, page) -> Optional[dict]:
+        """Try common gallery selectors as fallback."""
+        from page_loader import extract_gallery_images
+
+        COMMON_SELECTORS = [
+            "[data-product-media-container]",
+            "[data-product-media]",
+            ".product-gallery",
+            ".product-images",
+            ".product__media",
+            ".product-media",
+            ".gallery",
+            ".product-photos",
+            ".swiper-wrapper",
+            ".slider",
+            ".carousel",
+        ]
+
+        for selector in COMMON_SELECTORS:
+            config = {"image_selector": "", "url_attribute": "src", "container_selector": selector}
+            images = await extract_gallery_images(page, config)
+            if len(images) >= 1:
+                print(f"[GalleryDiscovery] Fallback found: '{selector}' ({len(images)} images)")
+                try:
+                    domain = urlparse(page.url).netloc.replace("www.", "")
+                    self.save_gallery_selector(domain, config)
+                except Exception:
+                    pass
+                return config
+
+        print("[GalleryDiscovery] No gallery selector found")
+        return None
+
+    async def _try_common_gallery_selectors(self, url: str) -> Optional[dict]:
+        """Try common selectors by loading a page (no LLM available)."""
+        from browser_pool import BrowserPool
+        from page_loader import load_page_on_existing
+
+        pool = BrowserPool(size=1, pages_per_recycle=10, headless=True)
+        await pool.start()
+        try:
+            async with pool.acquire() as page:
+                await load_page_on_existing(page, url, wait_time=2000)
+                return await self._try_common_gallery_selectors_on_page(page)
+        finally:
+            await pool.shutdown()
 
     async def extract_batch(
         self,

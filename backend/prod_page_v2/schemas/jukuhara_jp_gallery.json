@@ -1,0 +1,5 @@
+{
+  "image_selector": "#Slider-Gallery-template--18778625769659__main .slider__slide img",
+  "url_attribute": "src",
+  "container_selector": "#Slider-Gallery-template--18778625769659__main"
+}

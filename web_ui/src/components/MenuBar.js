@@ -125,13 +125,13 @@ function MenuBar({ currentPage, onPageSwitch, currentView, onViewChange, current
         top: 0,
         left: 0,
         right: 0,
-        height: '20px',
+        height: '40px',
         backgroundColor: 'var(--mac-bg)',
         borderBottom: '1px solid var(--mac-border)',
         zIndex: 1000,
         display: 'flex',
         alignItems: 'center',
-        fontSize: '12px',
+        fontSize: '26px',
         paddingLeft: '8px'
       }}>
         <div onClick={handleToolsClick}
@@ -183,7 +183,7 @@ function MenuBar({ currentPage, onPageSwitch, currentView, onViewChange, current
                    onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
               >
                 <span>Research</span>
-                <span style={{ fontSize: '12px', fontWeight: 'bold' }}>
+                <span style={{ fontSize: '22px', fontWeight: 'bold' }}>
                   {researchMode ? '✓' : ''}
                 </span>
               </div>
@@ -349,7 +349,7 @@ function MenuBar({ currentPage, onPageSwitch, currentView, onViewChange, current
                   onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
                 >
                   <span>{option.label}</span>
-                  <span style={{ fontSize: '12px', fontWeight: 'bold' }}>
+                  <span style={{ fontSize: '22px', fontWeight: 'bold' }}>
                     {currentView === option.key ? '✓' : ''}
                   </span>
                 </div>
@@ -368,7 +368,7 @@ function MenuBar({ currentPage, onPageSwitch, currentView, onViewChange, current
             paddingRight: '8px'
           }}>
             <span style={{
-              fontSize: '12px',
+              fontSize: '22px',
               color: '#000',
               padding: '2px 4px'
             }}>
@@ -381,7 +381,7 @@ function MenuBar({ currentPage, onPageSwitch, currentView, onViewChange, current
                 cursor: 'pointer',
                 backgroundColor: 'transparent',
                 color: '#000',
-                fontSize: '12px'
+                fontSize: '22px'
               }}
               onMouseEnter={(e) => e.target.style.backgroundColor = '#d0d0d0'}
               onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
@@ -523,7 +523,7 @@ function MenuBar({ currentPage, onPageSwitch, currentView, onViewChange, current
                   margin: '4px 0',
                   maxHeight: '200px',
                   overflow: 'auto',
-                  fontSize: '11px'
+                  fontSize: '18px'
                 }}>
                   {testResults.success ? (
                     testResults.results ? (

@@ -356,3 +356,51 @@ def update_stage_metrics(domain: str, stage_key: str, stage_data: Dict):
     txt_file, json_file = save_metrics(domain, metrics)
 
     return txt_file
+
+
+def get_stage_metrics_from_tracker(stage: str) -> Dict:
+    """
+    Get metrics for a stage from the centralized LLMUsageTracker.
+
+    Args:
+        stage: Stage name (e.g., "navigation", "urls", "products")
+
+    Returns:
+        Dict with 'operations' and 'summary' keys
+    """
+    try:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent.parent / "scraper"))
+        from llm_handler import LLMUsageTracker
+        return LLMUsageTracker.get_stage_summary(stage)
+    except ImportError:
+        return {"operations": [], "summary": {"calls": 0, "input_tokens": 0, "output_tokens": 0, "cost": 0.0}}
+
+
+def set_current_stage(stage: str):
+    """
+    Set the current stage for LLM tracking.
+
+    Call this at the start of each pipeline stage.
+
+    Args:
+        stage: Stage name (e.g., "navigation", "urls", "products")
+    """
+    try:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent.parent / "scraper"))
+        from llm_handler import LLMUsageTracker
+        LLMUsageTracker.set_stage(stage)
+    except ImportError:
+        pass
+
+
+def reset_all_tracking():
+    """Reset all LLM tracking data. Call at the start of a new pipeline run."""
+    try:
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent.parent / "scraper"))
+        from llm_handler import LLMUsageTracker
+        LLMUsageTracker.reset_all()
+    except ImportError:
+        pass

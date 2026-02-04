@@ -352,43 +352,45 @@ def serve_fashion_image():
 
 
 def download_video():
-    """POST /api/download-video - Download video from collection"""
+    """POST /api/download-video - Search for and return a fashion show video"""
     try:
         data = request.get_json()
-        video_url = data.get('videoUrl', '')
-        designer_name = data.get('designerName', 'video')
+        designer_name = data.get('designerName', '')
+        season_name = data.get('seasonName', '')
 
-        if not video_url:
-            return jsonify({'error': 'No video URL provided'}), 400
+        if not designer_name or not season_name:
+            return jsonify({'error': 'designerName and seasonName are required'}), 400
 
-        # Create cache directory
-        cache_dir = Path("backend/high_fashion/cache/videos")
-        cache_dir.mkdir(parents=True, exist_ok=True)
+        # Build search query from designer + season (e.g. "Givenchy Ready To Wear Fall Winter 2014 Paris")
+        search_query = f"{designer_name} {season_name} full fashion show runway"
+        print(f"🔍 Video search query: {search_query}")
 
-        filename = f"{designer_name.replace(' ', '_').replace('/', '_')}.mp4"
-        filepath = cache_dir / filename
+        # Use EnhancedFashionVideoSearch to find a YouTube video
+        import sys
+        tools_dir = str(Path(__file__).parent.parent / "high_fashion" / "tools")
+        if tools_dir not in sys.path:
+            sys.path.insert(0, tools_dir)
 
-        # Use yt-dlp to download video
-        try:
-            subprocess.run([
-                'yt-dlp',
-                '-o', str(filepath),
-                video_url
-            ], check=True, capture_output=True)
+        from claude_video_verifier import EnhancedFashionVideoSearch
 
-            return jsonify({
-                'success': True,
-                'path': str(filepath),
-                'filename': filename
-            })
+        search = EnhancedFashionVideoSearch()
+        video_info = search.get_streaming_url(search_query)
 
-        except subprocess.CalledProcessError as e:
-            return jsonify({
-                'error': 'Video download failed',
-                'details': str(e)
-            }), 500
+        if not video_info:
+            return jsonify({'error': 'No matching video found'}), 404
+
+        return jsonify({
+            'success': True,
+            'videoId': video_info['video_id'],
+            'youtubeUrl': video_info['youtube_url'],
+            'embedUrl': video_info['embed_url'],
+            'title': video_info['title'],
+            'thumbnail': video_info['thumbnail']
+        })
 
     except Exception as e:
+        import traceback
+        print(f"ERROR download_video: {traceback.format_exc()}")
         return jsonify({'error': str(e)}), 500
 
 

@@ -289,21 +289,23 @@ function App() {
     setZoomMode((zoomMode + 1) % 3);
   };
 
-  // Handle video button click - download or toggle video
+  // Handle video button click - search or toggle video
   const handleVideoButton = async () => {
     if (videoDownloadState === 'ready') {
-      // Start download
+      // Start search
       setVideoDownloadState('loading');
       try {
-        const videoPath = await FashionArchiveAPI.downloadVideo(selectedCollection);
-        if (videoPath) {
-          setCurrentVideoPath(videoPath);
+        const designerName = selectedCollection?.designer || '';
+        const seasonName = selectedSeason?.name || '';
+        const videoInfo = await FashionArchiveAPI.downloadVideo(designerName, seasonName);
+        if (videoInfo) {
+          setCurrentVideoPath(videoInfo);
           setVideoDownloadState('downloaded');
         } else {
           setVideoDownloadState('ready'); // Reset on failure
         }
       } catch (error) {
-        console.error('Video download failed:', error);
+        console.error('Video search failed:', error);
         setVideoDownloadState('ready'); // Reset on failure
       }
     } else if (videoDownloadState === 'downloaded') {
@@ -353,7 +355,7 @@ function App() {
     return (
       <div className="columns-container">
         <div className="loading">
-          <div className="mac-label">Loading Fashion Week Archive...</div>
+          <div className="mac-label">Loading Fashion Archive...</div>
         </div>
       </div>
     );
@@ -371,23 +373,29 @@ function App() {
         onLogout={handleLogout}
       />
       
-      {/* Title Bar - matches tkinter window title */}
-      <div className="mac-title-bar" style={{ 
-        position: 'fixed', 
-        top: '20px', 
-        left: 0, 
-        right: 0, 
-        zIndex: 100 
+      {/* Title Bar - scrolling marquee */}
+      <div className="mac-title-bar" style={{
+        position: 'fixed',
+        top: '42px',
+        left: 0,
+        right: 0,
+        zIndex: 100,
+        overflow: 'hidden',
+        whiteSpace: 'nowrap',
       }}>
-        Fashion Week Archive Browser
+        <div className="marquee-track">
+          {Array.from({ length: 20 }, (_, i) => (
+            <span key={i} className="marquee-item">Fashion Archive Browser</span>
+          ))}
+        </div>
       </div>
 
       {/* Main Content - offset by menu and title bars */}
       {currentPage === 'high-fashion' ? (
-        <div style={{ display: 'flex', width: '100%', height: '100vh', paddingTop: '40px' }}>
+        <div style={{ display: 'flex', width: '100%', height: '100vh', paddingTop: '75px' }}>
           
           {/* Column 1: Seasons (Always visible) */}
-          <div className="column" style={{ width: '300px' }}>
+          <div className="column" style={{ width: '300px', flexShrink: 0 }}>
             <SeasonsPanel 
               seasons={seasons}
               selectedSeason={selectedSeason}
@@ -397,7 +405,7 @@ function App() {
 
           {/* Column 2: Collections (Visible after season selection) */}
           {column2Activated && (
-            <div className="column" style={{ width: '400px' }}>
+            <div className="column" style={{ width: '30vw', minWidth: '300px', maxWidth: '500px', flexShrink: 0 }}>
               <CollectionsPanel 
                 collections={collections}
                 selectedCollection={selectedCollection}
