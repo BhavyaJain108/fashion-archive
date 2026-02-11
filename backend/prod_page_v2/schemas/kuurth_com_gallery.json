@@ -1,5 +1,7 @@
 {
-  "image_selector": "ul[id^=\"media-list\"] .splide__slide img",
+  "image_selectors": [
+    "div#splide01-track img"
+  ],
   "url_attribute": "src",
-  "container_selector": "ul[id^=\"media-list\"]"
+  "image_count": 5
 }

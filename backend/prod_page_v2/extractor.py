@@ -120,6 +120,10 @@ class ProductExtractor:
     def __init__(self, output_dir: Optional[Path] = None):
         self.output_dir = output_dir or Path(__file__).parent / "extractions"
 
+        # Stealth preference: detected during discovery, cached for entire brand run.
+        # True = use stealth (default), False = stealth triggers WAF, use vanilla
+        self.use_stealth: bool = True
+
         # Initialize strategies (order = priority for field conflicts)
         self.strategies = [
             ShopifyStrategy(),        # .json endpoint (most reliable)
@@ -450,7 +454,12 @@ class ProductExtractor:
             (contributions, all_results)
         """
         print(f"\n[DISCOVER] Loading page: {url}")
-        page_data = await load_page(url)
+        page_data = await load_page(url, stealth=self.use_stealth)
+
+        # Cache WAF detection at brand level — all subsequent loads skip stealth
+        if page_data.waf_detected:
+            self.use_stealth = False
+            print(f"  [WAF] Stealth triggers WAF for this brand — switching to vanilla for all pages")
 
         print(f"  Captured {len(page_data.json_responses)} JSON responses")
         print(f"  HTML length: {len(page_data.html)} chars")
@@ -570,8 +579,8 @@ class ProductExtractor:
         print(f"  Product 2: {url2}")
 
         # Load both pages
-        page1 = await load_page(url1)
-        page2 = await load_page(url2)
+        page1 = await load_page(url1, stealth=self.use_stealth)
+        page2 = await load_page(url2, stealth=self.use_stealth)
 
         print(f"  Page 1 images: {len(page1.image_urls)}")
         print(f"  Page 2 images: {len(page2.image_urls)}")
@@ -614,7 +623,7 @@ class ProductExtractor:
 
         print(f"\n[VERIFY] Testing {len(active_strategies)} strategies on: {url}")
 
-        page_data = await load_page(url)
+        page_data = await load_page(url, stealth=self.use_stealth)
         results = []
         verified_contributions = []
 
@@ -700,9 +709,15 @@ class ProductExtractor:
         print(f"GALLERY DISCOVERY - {domain}")
         print('='*60)
 
-        gallery_config = await self.discover_gallery_selector(product_urls[0])
+        # Get product name from ground truth or merged result for better LLM accuracy
+        product_name = ground_truth.name if ground_truth else None
+        if not product_name:
+            merged = self._merge_products(discovery_results, product_urls[0], field_sources)
+            product_name = merged.name
+
+        gallery_config = await self.discover_gallery_selector(product_urls[0], product_name=product_name)
         if gallery_config:
-            print(f"  Gallery selector: {gallery_config.get('image_selector', '?')}")
+            print(f"  Gallery selectors: {gallery_config.get('image_selectors', '?')}")
             print(f"  Image count: {gallery_config.get('image_count', '?')}")
         else:
             print(f"  No gallery selector found — will use strategy images")
@@ -757,7 +772,7 @@ class ProductExtractor:
         if not config:
             config = self._load_config(domain)
 
-        page_data = await load_page(url)
+        page_data = await load_page(url, stealth=self.use_stealth)
         results = []
 
         if config and config.verified:
@@ -980,18 +995,21 @@ class ProductExtractor:
         path.write_text(json.dumps(config, indent=2))
         print(f"[GalleryDiscovery] Saved config for {domain}: {config}")
 
-    async def discover_gallery_selector(self, url: str, page=None) -> Optional[dict]:
+    async def discover_gallery_selector(self, url: str, page=None, product_name: str = None) -> Optional[dict]:
         """
         Use LLM to find how to extract product images from the gallery.
 
-        Called once during discovery. Returns a config dict with:
-        - "image_selector": CSS selector targeting image elements directly
+        Called once during discovery. Uses many-shot prompting with examples
+        from multiple brands for better accuracy.
+
+        Returns a config dict with:
+        - "image_selectors": list of CSS selectors targeting gallery images
         - "url_attribute": which attribute holds the image URL (src, data-src, etc.)
-        - "container_selector": the gallery container (for context)
 
         Args:
             url: A product page URL
             page: Optional Playwright page (already loaded). If None, loads one.
+            product_name: Product name (improves LLM accuracy)
 
         Returns:
             Gallery config dict or None
@@ -1003,19 +1021,10 @@ class ProductExtractor:
         if saved:
             print(f"[GalleryDiscovery] Using saved config for {domain}")
             return saved
-        from page_loader import load_page_on_existing, extract_gallery_images
+
+        from page_loader import load_page_on_existing
         from browser_pool import BrowserPool
-
-        try:
-            from scraper.llm_handler import LLMHandler
-        except ImportError:
-            try:
-                from backend.scraper.llm_handler import LLMHandler
-            except ImportError:
-                print("[GalleryDiscovery] LLM not available, trying common selectors")
-                return await self._try_common_gallery_selectors(url)
-
-        llm = LLMHandler()
+        from llm_image_extractor import extract_product_images_with_llm
 
         # Load the page if not provided
         own_pool = None
@@ -1026,120 +1035,196 @@ class ProductExtractor:
         try:
             if own_pool:
                 async with own_pool.acquire() as p:
-                    page_data = await load_page_on_existing(p, url, wait_time=2000)
-                    html = page_data.html
-                    test_page = p
-                    return await self._discover_gallery_with_llm(llm, html, url, test_page)
+                    await load_page_on_existing(p, url, wait_time=2000)
+                    return await self._discover_gallery_with_manyshot(p, url, product_name)
             else:
-                html = await page.content()
-                return await self._discover_gallery_with_llm(llm, html, url, page)
+                return await self._discover_gallery_with_manyshot(page, url, product_name)
         finally:
             if own_pool:
                 await own_pool.shutdown()
 
-    async def _discover_gallery_with_llm(self, llm, html: str, url: str, page) -> Optional[dict]:
-        """Extract image DOM context from the live page, send to LLM, verify result."""
+    async def _discover_gallery_with_manyshot(self, page, url: str, product_name: str = None) -> Optional[dict]:
+        """
+        Use many-shot LLM prompting to identify product images and derive a selector.
 
-        # Use Playwright to grab every image element + its ancestor chain
-        # This gives the LLM a focused view: just images and their structural context
-        image_snapshot = await page.evaluate("""() => {
+        This approach uses examples from multiple brands to improve accuracy.
+        """
+        from llm_image_extractor import extract_product_images_with_llm
+
+        domain = self._get_domain(url)
+
+        # Use product name if provided, otherwise try to extract from page
+        if not product_name:
+            try:
+                product_name = await page.evaluate("document.querySelector('h1')?.textContent?.trim() || ''")
+            except Exception:
+                product_name = ""
+
+        print(f"[GalleryDiscovery] Using many-shot approach for: {product_name or 'unknown product'}")
+
+        result = await extract_product_images_with_llm(page, product_name, url, max_images=50)
+
+        if not result.get("gallery_selector"):
+            print("[GalleryDiscovery] No selector derived, trying common selectors")
+            return await self._try_common_gallery_selectors_on_page(page)
+
+        selector = result["gallery_selector"]
+        selector_valid = result.get("selector_valid", False)
+        selector_count = result.get("selector_count", 0)
+
+        print(f"[GalleryDiscovery] Derived selector: {selector}")
+        print(f"[GalleryDiscovery] Selector valid: {selector_valid} ({selector_count} elements)")
+        print(f"[GalleryDiscovery] Found {len(result.get('product_image_urls', []))} unique images")
+
+        if not selector_valid:
+            print("[GalleryDiscovery] Selector invalid, trying common selectors")
+            return await self._try_common_gallery_selectors_on_page(page)
+
+        # Convert to standard config format
+        # Handle multiple selectors (comma-separated)
+        if ", " in selector:
+            selectors = [s.strip() for s in selector.split(", ")]
+        else:
+            selectors = [selector]
+
+        config = {
+            "image_selectors": selectors,
+            "url_attribute": "src",
+            "image_count": len(result.get("product_image_urls", [])),
+        }
+
+        self.save_gallery_selector(domain, config)
+        return config
+
+    async def _discover_gallery_with_llm(self, llm, html: str, url: str, page) -> Optional[dict]:
+        """
+        Two-step gallery discovery:
+        1. LLM identifies which images are product images (returns list of indices + reasoning)
+        2. We analyze those images to find their common DOM pattern and derive a selector
+        """
+
+        # Step 1: Extract image snapshot with link context
+        image_snapshot = await page.evaluate("""(currentUrl) => {
             const results = [];
-            const imgs = document.querySelectorAll('img, source, [style*="background-image"]');
+            const imgs = document.querySelectorAll('img');
+
             for (const el of imgs) {
-                // Get the image's own attributes
-                const attrs = {};
-                for (const attr of el.attributes) {
-                    attrs[attr.name] = attr.value.length > 200 ? attr.value.slice(0, 200) + '...' : attr.value;
+                const src = el.src || el.dataset.src || '';
+                if (!src || src.includes('data:')) continue;
+
+                const alt = el.alt || '';
+
+                // Check if image is wrapped in a link
+                let linkInfo = null;
+                let node = el.parentElement;
+                for (let i = 0; i < 6 && node && node !== document.body; i++) {
+                    if (node.tagName === 'A' && node.href) {
+                        const href = node.href;
+                        if (href === currentUrl || href === currentUrl + '#' || href.endsWith('#')) {
+                            linkInfo = { type: 'SAME_PAGE', href: null };
+                        } else if (href.includes('/product/') || href.includes('/products/')) {
+                            const match = href.match(/\\/products?\\/([^/?#]+)/);
+                            linkInfo = {
+                                type: 'PRODUCT_LINK',
+                                href: match ? match[1].slice(0, 40) : href.slice(0, 50)
+                            };
+                        } else {
+                            linkInfo = { type: 'OTHER_LINK', href: href.slice(0, 50) };
+                        }
+                        break;
+                    }
+                    node = node.parentElement;
                 }
 
-                // Walk up the ancestor chain (up to 4 levels) to capture structural context
-                const ancestors = [];
-                let node = el.parentElement;
-                for (let i = 0; i < 4 && node && node !== document.body; i++) {
-                    const a = {};
-                    for (const attr of node.attributes) {
-                        // Only keep structural attrs, skip long values
-                        if (['class', 'id', 'role', 'data-component', 'data-testid',
-                             'data-section', 'data-product-media', 'data-product-media-container',
-                             'data-media-type', 'aria-label', 'data-gallery', 'data-carousel',
-                             'data-slider', 'data-swiper'].includes(attr.name) ||
-                            attr.name.startsWith('data-')) {
-                            a[attr.name] = attr.value.length > 100 ? attr.value.slice(0, 100) + '...' : attr.value;
-                        }
-                    }
-                    ancestors.push({ tag: node.tagName.toLowerCase(), attrs: a });
+                // Get container path (for later analysis)
+                // Filter out Tailwind utility classes with special characters
+                const containerPath = [];
+                node = el.parentElement;
+                for (let i = 0; i < 5 && node && node !== document.body; i++) {
+                    const tag = node.tagName.toLowerCase();
+                    const cls = node.className && typeof node.className === 'string'
+                        ? node.className.split(' ').filter(c =>
+                            c && !c.includes(':') && !c.includes('/') &&
+                            !c.includes('[') && !c.includes(']') &&
+                            !c.includes('(') && !c.includes(')') &&
+                            c.length > 2 && c.length < 30
+                          ).slice(0, 2).join('.')
+                        : '';
+                    const id = node.id || '';
+                    containerPath.push({ tag, cls, id });
                     node = node.parentElement;
                 }
 
                 results.push({
-                    tag: el.tagName.toLowerCase(),
-                    attrs: attrs,
-                    ancestors: ancestors,
+                    src: src,
+                    alt: alt,
+                    link: linkInfo,
+                    containerPath: containerPath,
                 });
             }
             return results;
-        }""")
+        }""", url)
 
         if not image_snapshot:
             print("[GalleryDiscovery] No image elements found on page")
             return None
 
-        # If too many images, keep only the first 50 — product galleries are near
-        # the top of the page, the rest are recommendations/footer/etc.
-        if len(image_snapshot) > 50:
-            image_snapshot = image_snapshot[:50]
+        # Limit to first 60 images
+        if len(image_snapshot) > 60:
+            image_snapshot = image_snapshot[:60]
 
-        # Format the snapshot for the LLM
-        snapshot_text = f"Found {len(image_snapshot)} image elements on {url}:\n\n"
+        # Format snapshot for LLM - just the info needed to identify product images
+        snapshot_text = ""
         for i, img in enumerate(image_snapshot):
-            snapshot_text += f"[{i}] <{img['tag']}"
-            for k, v in img['attrs'].items():
-                snapshot_text += f' {k}="{v}"'
-            snapshot_text += ">\n"
-            for j, anc in enumerate(img['ancestors']):
-                indent = "  " * (j + 1)
-                attr_str = " ".join(f'{k}="{v}"' for k, v in anc['attrs'].items())
-                snapshot_text += f"{indent}parent: <{anc['tag']} {attr_str}>\n"
-            snapshot_text += "\n"
+            alt = img['alt'][:50] if img['alt'] else '(no alt)'
+            src_end = img['src'].split('/')[-1][:30] if img['src'] else ''
 
-        print(f"[GalleryDiscovery] Snapshot: {len(image_snapshot)} images, {len(snapshot_text)} chars")
+            # Link info
+            link = img.get('link')
+            if link:
+                if link['type'] == 'PRODUCT_LINK':
+                    link_str = f"LINK→product:{link['href']}"
+                elif link['type'] == 'SAME_PAGE':
+                    link_str = "LINK→same_page"
+                else:
+                    link_str = f"LINK→other"
+            else:
+                link_str = "NO_LINK"
 
-        prompt = f"""This is a product page at: {url}
+            # Container summary
+            containers = [f"{c['tag']}.{c['cls']}" if c['cls'] else c['tag'] for c in img['containerPath'][:3]]
 
-Here are all the image elements on the page, with their parent elements for context.
+            snapshot_text += f"[{i}] {link_str} | alt=\"{alt}\" | containers: {' > '.join(containers)}\n"
+
+        print(f"[GalleryDiscovery] Snapshot: {len(image_snapshot)} images")
+
+        # Step 2: Ask LLM to identify product images by index
+        prompt = f"""This is a product page. Here are all images on the page:
 
 {snapshot_text}
 
-Which of these images are the MAIN PRODUCT GALLERY photos for THIS product?
+Which images belong to the PRODUCT GALLERY (photos of the product being sold)?
 
-Important:
-- Product pages often have MULTIPLE image sections: a main carousel/slideshow, a detail/description section with more product shots, recommended/related products at the bottom, etc.
-- I need a selector that captures ALL images of THIS specific product (from any section — carousel, detail, description), but NOT images of other products (recommendations, "you may also like"), nav/menu images, logos, or icons.
-- There may be duplicate images across sections — that's fine, I'll deduplicate later.
+Exclude:
+- Recommendation/related product images (usually link to other products)
+- Logos, icons, UI elements
 
-Tell me:
-1. A CSS selector that targets the product gallery/detail image elements for THIS product
-2. Which attribute holds the best image URL (src, data-src, srcset, etc.)
-
-Return a JSON object with:
-- "image_selector": CSS selector targeting the product image elements
-- "url_attribute": which attribute has the image URL ("src", "data-src", "srcset", etc.)
-- "container_selector": the gallery/product container selector (for context)
-- "notes": brief explanation"""
+Return JSON with:
+- "product_image_indices": list of image numbers that are product gallery images, e.g. [8, 9, 10, 11]
+- "reasoning": brief explanation of how you identified them"""
 
         from pydantic import BaseModel, Field
+        from typing import List
 
-        class GalleryConfig(BaseModel):
-            image_selector: str = Field(description="CSS selector targeting image elements directly")
-            url_attribute: str = Field(default="src", description="Attribute holding the image URL")
-            container_selector: str = Field(default="", description="Gallery container selector")
-            notes: str = Field(default="", description="Brief explanation of gallery structure")
+        class ImageSelection(BaseModel):
+            product_image_indices: List[int] = Field(description="List of image indices that are product images")
+            reasoning: str = Field(description="Explanation of pattern used")
 
         result = llm.call(
             prompt=prompt,
             expected_format="json",
-            response_model=GalleryConfig,
-            max_tokens=400,
+            response_model=ImageSelection,
+            max_tokens=300,
             operation="gallery_discovery",
         )
 
@@ -1148,49 +1233,128 @@ Return a JSON object with:
             return None
 
         data = result["data"]
-        image_selector = data.get("image_selector", "")
-        url_attribute = data.get("url_attribute", "src")
-        notes = data.get("notes", "")
-        print(f"[GalleryDiscovery] LLM returned:")
-        print(f"  image_selector: '{image_selector}'")
-        print(f"  url_attribute: '{url_attribute}'")
-        print(f"  notes: {notes}")
+        indices = data.get("product_image_indices", [])
+        reasoning = data.get("reasoning", "")
 
-        # Validate selector looks like CSS
-        if not image_selector or image_selector.startswith("<") or len(image_selector) > 200:
-            print(f"[GalleryDiscovery] Invalid selector: '{image_selector}'")
+        print(f"[GalleryDiscovery] LLM selected {len(indices)} images: {indices}")
+        print(f"[GalleryDiscovery] Reasoning: {reasoning}")
+
+        if not indices:
+            print("[GalleryDiscovery] No product images identified")
             return None
 
-        # Verify on the live page
-        try:
-            elements = await page.query_selector_all(image_selector)
-        except Exception as e:
-            print(f"[GalleryDiscovery] Selector error: {e}")
+        # Step 3: Analyze selected images to find common container pattern
+        selected_images = [image_snapshot[i] for i in indices if i < len(image_snapshot)]
+        if not selected_images:
+            print("[GalleryDiscovery] Invalid indices")
             return None
 
-        if not elements:
-            print(f"[GalleryDiscovery] Selector '{image_selector}' matched 0 elements")
+        # Find common container pattern among selected images
+        # Look for the most common class at each level of the container path
+        config = self._derive_selector_from_images(selected_images, page, url)
+        return config
+
+    def _derive_selector_from_images(self, selected_images: list, page, url: str) -> Optional[dict]:
+        """
+        Group selected images by their full container path signature.
+        Derive a selector for each distinct group.
+        """
+        from collections import defaultdict
+
+        if not selected_images:
             return None
 
-        # Try to get a URL from the first element
-        sample_url = None
-        for attr in [url_attribute, "src", "data-src", "srcset"]:
-            sample_url = await elements[0].get_attribute(attr)
-            if sample_url:
-                break
+        # Build full path signature for each image
+        # e.g., "swiper-slide > swiper-wrapper > swiper"
+        def get_path_signature(img):
+            parts = []
+            for c in img['containerPath'][:4]:
+                if c['cls']:
+                    # Use all classes (joined), not just the first one
+                    parts.append(c['cls'])
+                elif c['id']:
+                    parts.append(f"#{c['id']}")
+                else:
+                    parts.append(c['tag'])
+            return " > ".join(parts)
 
-        if not sample_url:
-            print(f"[GalleryDiscovery] Selector matched {len(elements)} elements but no URLs found")
+        # Group by path signature
+        groups = defaultdict(list)
+        for img in selected_images:
+            sig = get_path_signature(img)
+            groups[sig].append(img)
+
+        print(f"[GalleryDiscovery] Grouped by full path into {len(groups)} types:")
+        for sig, imgs in groups.items():
+            print(f"  [{len(imgs)} imgs] {sig}")
+
+        # Gallery-related class patterns (prefer these over utility classes)
+        GALLERY_PATTERNS = ['swiper', 'carousel', 'gallery', 'slider', 'splide',
+                           'product-media', 'product-image', 'media-list', 'lightbox']
+        UTILITY_CLASSES = {'div', 'span', 'relative', 'flex', 'hidden', 'w-full',
+                          'h-full', 'block', 'inline', 'absolute', 'overflow'}
+
+        # For each group, find the best selector
+        selectors = []
+        for sig, imgs in groups.items():
+            path = imgs[0]['containerPath']
+            print(f"  Finding selector for path: {sig}")
+
+            best_selector = None
+
+            # First: look for ID anywhere in path
+            for c in path[:4]:
+                if c['id']:
+                    best_selector = f"#{c['id']} img"
+                    break
+
+            # Second: look for gallery-related classes anywhere in path
+            if not best_selector:
+                for c in path[:4]:
+                    if c['cls']:
+                        for pattern in GALLERY_PATTERNS:
+                            if pattern in c['cls'].lower():
+                                # Found a gallery-related class
+                                first_cls = c['cls'].split('.')[0]
+                                best_selector = f".{first_cls} img"
+                                break
+                    if best_selector:
+                        break
+
+            # Third: use full class combination, preferring non-utility classes
+            if not best_selector:
+                for c in path[:3]:
+                    if c['cls']:
+                        classes = c['cls'].split('.')
+                        # Filter to non-utility classes
+                        meaningful = [cl for cl in classes if cl and cl not in UTILITY_CLASSES]
+                        if meaningful:
+                            best_selector = f".{'.'.join(meaningful[:2])} img"
+                            break
+                        elif classes:
+                            # Fallback: use full class combo
+                            best_selector = f".{'.'.join(classes[:2])} img"
+                            break
+
+            if best_selector and best_selector not in selectors:
+                selectors.append(best_selector)
+                print(f"  → Selector: {best_selector}")
+
+        print(f"[GalleryDiscovery] Derived selectors: {selectors}")
+
+        if not selectors:
+            print("[GalleryDiscovery] No distinctive selectors found")
             return None
 
         config = {
-            "image_selector": image_selector,
-            "url_attribute": url_attribute,
-            "container_selector": data.get("container_selector", ""),
+            "image_selectors": selectors,
+            "url_attribute": "src",
         }
-        print(f"[GalleryDiscovery] Verified: {len(elements)} elements, sample: {sample_url[:80]}")
+
         domain = self._get_domain(url)
         self.save_gallery_selector(domain, config)
+        print(f"[GalleryDiscovery] Saved config for {domain}")
+
         return config
 
     async def _try_common_gallery_selectors_on_page(self, page) -> Optional[dict]:

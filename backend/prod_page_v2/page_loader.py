@@ -33,6 +33,26 @@ IGNORE_DOMAINS = [
     'doubleclick', 'criteo', 'onetrust', 'cookielaw',
 ]
 
+# WAF/bot challenge detection threshold and markers
+WAF_MAX_LENGTH = 5000  # Real product pages are much larger than this
+
+WAF_MARKERS = [
+    'aws-waf', 'awswaf', 'challenge.js',
+    'captcha', 'cf-browser-verification',
+    'challenge-platform', 'challenge-form',
+    'just a moment', 'checking your browser',
+    'attention required', 'cf-challenge',
+    'verify you are human', 'bot detection',
+]
+
+
+def _is_waf_page(html: str) -> bool:
+    """Detect if the loaded page is a WAF/bot challenge instead of real content."""
+    if not html or len(html) > WAF_MAX_LENGTH:
+        return False
+    html_lower = html.lower()
+    return any(marker in html_lower for marker in WAF_MARKERS)
+
 
 def _is_tracking_domain(url: str) -> bool:
     """Check if URL is from a tracking/analytics domain."""
@@ -51,12 +71,23 @@ async def load_page(url: str, wait_time: int = 5000, headless: bool = True, stea
         stealth: Use stealth mode to evade bot detection (default True)
 
     Returns:
-        PageData with HTML and captured JSON responses
+        PageData with HTML and captured JSON responses.
+        If stealth triggers a WAF challenge, automatically retries with vanilla
+        and sets page_data.waf_detected = True so callers can cache the preference.
     """
     page_data = PageData(url=url)
 
     if stealth:
         await _load_page_stealth(page_data, url, wait_time, headless)
+
+        # Check if stealth triggered a WAF/bot challenge
+        if _is_waf_page(page_data.html):
+            print(f"[PageLoader] WAF detected with stealth browser ({len(page_data.html)} chars), retrying vanilla...")
+            # Reset page_data and retry without stealth
+            page_data = PageData(url=url)
+            await _load_page_vanilla(page_data, url, wait_time, headless)
+            page_data.waf_detected = True
+            print(f"[PageLoader] Vanilla retry: {len(page_data.html)} chars (WAF {'still present' if _is_waf_page(page_data.html) else 'bypassed'})")
     else:
         await _load_page_vanilla(page_data, url, wait_time, headless)
 
@@ -77,8 +108,8 @@ async def _load_page_stealth(page_data: PageData, url: str, wait_time: int, head
             if _is_tracking_domain(req_url):
                 return
 
-            # Capture image URLs
-            if 'image' in content_type or any(ext in req_url.lower() for ext in ['.jpg', '.jpeg', '.png', '.webp']):
+            # Capture image URLs (including GIFs)
+            if 'image' in content_type or any(ext in req_url.lower() for ext in ['.jpg', '.jpeg', '.png', '.webp', '.gif']):
                 page_data.image_urls.append(req_url)
                 return
 
@@ -132,8 +163,8 @@ async def _load_page_vanilla(page_data: PageData, url: str, wait_time: int, head
             if _is_tracking_domain(req_url):
                 return
 
-            # Capture image URLs
-            if 'image' in content_type or any(ext in req_url.lower() for ext in ['.jpg', '.jpeg', '.png', '.webp']):
+            # Capture image URLs (including GIFs)
+            if 'image' in content_type or any(ext in req_url.lower() for ext in ['.jpg', '.jpeg', '.png', '.webp', '.gif']):
                 page_data.image_urls.append(req_url)
                 return
 
@@ -274,7 +305,8 @@ async def load_page_on_existing(
             return
 
         # Capture image URLs (for image filtering later)
-        if 'image' in content_type or any(ext in req_url.lower() for ext in ['.jpg', '.jpeg', '.png', '.webp']):
+        # Capture image URLs (including GIFs)
+        if 'image' in content_type or any(ext in req_url.lower() for ext in ['.jpg', '.jpeg', '.png', '.webp', '.gif']):
             page_data.image_urls.append(req_url)
             return
 
@@ -357,6 +389,13 @@ async def load_page_on_existing(
             pass
         t_html = _time.monotonic()
 
+        # Detect WAF/bot challenge pages (stealth patches in pool browsers can trigger these)
+        if _is_waf_page(page_data.html):
+            page_data.waf_detected = True
+            page_data.loaded = False
+            print(f"[PageLoader] WAF challenge detected ({len(page_data.html)} chars) for {url}")
+            return page_data
+
         # Detect soft error/rate-limit pages by scanning HTML content
         if page_data.html:
             html_lower = page_data.html.lower()
@@ -388,9 +427,14 @@ async def load_page_on_existing(
     return page_data
 
 
-async def extract_gallery_images(page, gallery_config) -> List[str]:
+async def extract_gallery_images(page, gallery_config, ancestry_depth: int = 4) -> List[str]:
     """
-    Extract product images from the gallery using a config dict or CSS selector string.
+    Extract product images from the gallery using DOM ancestry-based clustering.
+
+    The key insight: product images share a common DOM ancestor. By clustering
+    images by their ancestry path, we can filter out recommendation sections,
+    related products, and other non-product images that live in different
+    parts of the DOM tree.
 
     Args:
         page: Playwright Page object (already loaded)
@@ -399,85 +443,149 @@ async def extract_gallery_images(page, gallery_config) -> List[str]:
             - url_attribute: which attribute holds the URL (default "src")
             - container_selector: gallery container (for context)
           Or a plain CSS selector string (legacy/fallback format)
+        ancestry_depth: How many levels up to consider for clustering (default 4)
 
     Returns:
-        List of full-resolution image URLs (size suffixes stripped)
+        List of full-resolution image URLs from the primary product cluster
     """
     try:
-        # Normalize: accept both dict and string
+        # Normalize config format
         if isinstance(gallery_config, dict):
-            image_selector = gallery_config.get("image_selector", "")
+            # New format: multiple selectors
+            image_selectors = gallery_config.get("image_selectors", [])
+            # Legacy format: single selector
+            if not image_selectors:
+                single = gallery_config.get("image_selector", "")
+                if single:
+                    image_selectors = [single]
             url_attribute = gallery_config.get("url_attribute", "src")
             container_selector = gallery_config.get("container_selector", "")
+
+            # Build combined selector
+            if image_selectors:
+                selector = ", ".join(image_selectors)
+            elif container_selector:
+                selector = f"{container_selector} img, {container_selector} source"
+            else:
+                return []
         else:
             # Legacy string format — treat as container selector
-            image_selector = ""
             url_attribute = "src"
-            container_selector = str(gallery_config)
+            selector = f"{gallery_config} img, {gallery_config} source"
 
-        # Strategy 1: Use image_selector directly (new LLM format)
-        if image_selector:
-            elements = await page.query_selector_all(image_selector)
-            if elements:
-                raw_urls = []
-                for el in elements:
-                    # If LLM said srcset, parse it for the largest URL
-                    if url_attribute == "srcset":
-                        srcset = await el.get_attribute("srcset")
-                        if srcset:
-                            best_url = _best_from_srcset(srcset)
-                            if best_url:
-                                raw_urls.append(best_url)
-                                continue
+        # Extract images WITH their ancestry paths using JavaScript
+        # This lets us cluster images by their DOM position
+        images_with_ancestry = await page.evaluate(f"""(config) => {{
+            const selector = config.selector;
+            const urlAttr = config.urlAttr;
+            const depth = config.depth;
 
-                    # Try the specified attribute first, then fallbacks
-                    got_url = False
-                    for attr in [url_attribute, "src", "data-src", "data-zoom", "data-large", "data-high-res"]:
-                        val = await el.get_attribute(attr)
-                        if val and (val.startswith("http") or val.startswith("//")):
-                            if val.startswith("//"):
-                                val = "https:" + val
-                            raw_urls.append(val)
-                            got_url = True
-                            break
+            const elements = document.querySelectorAll(selector);
+            const results = [];
 
-                    # Fallback: check srcset if nothing yet
-                    if not got_url:
-                        srcset = await el.get_attribute("srcset")
-                        if srcset:
-                            best_url = _best_from_srcset(srcset)
-                            if best_url:
-                                raw_urls.append(best_url)
+            for (let i = 0; i < elements.length; i++) {{
+                const el = elements[i];
 
-                return _dedupe_and_clean(raw_urls)
+                // Get the image URL from various attributes
+                let url = null;
+                const attrs = [urlAttr, 'src', 'data-src', 'data-zoom', 'data-large', 'data-high-res'];
+                for (const attr of attrs) {{
+                    const val = el.getAttribute(attr);
+                    if (val && (val.startsWith('http') || val.startsWith('//'))) {{
+                        url = val.startsWith('//') ? 'https:' + val : val;
+                        break;
+                    }}
+                }}
 
-        # Strategy 2: Use container_selector + find img/source inside (legacy format)
-        if container_selector:
-            elements = await page.query_selector_all(
-                f"{container_selector} img, {container_selector} source"
+                // Try srcset if no URL yet
+                if (!url) {{
+                    const srcset = el.getAttribute('srcset');
+                    if (srcset) {{
+                        // Get largest from srcset
+                        let bestUrl = null;
+                        let bestWidth = 0;
+                        for (const part of srcset.split(',')) {{
+                            const pieces = part.trim().split(/\\s+/);
+                            if (pieces.length >= 2) {{
+                                const w = parseInt(pieces[1]);
+                                if (w > bestWidth) {{
+                                    bestWidth = w;
+                                    bestUrl = pieces[0];
+                                }}
+                            }} else if (pieces[0] && pieces[0].startsWith('http')) {{
+                                bestUrl = bestUrl || pieces[0];
+                            }}
+                        }}
+                        url = bestUrl;
+                    }}
+                }}
+
+                if (!url) continue;
+
+                // Build ancestry path: walk up N levels and capture tag.class signatures
+                const ancestry = [];
+                let node = el.parentElement;
+                for (let j = 0; j < depth && node && node !== document.body; j++) {{
+                    const tag = node.tagName.toLowerCase();
+                    const cls = (node.className && typeof node.className === 'string')
+                        ? '.' + node.className.trim().split(/\\s+/).slice(0, 2).join('.')
+                        : '';
+                    ancestry.push(tag + cls);
+                    node = node.parentElement;
+                }}
+
+                results.push({{
+                    url: url,
+                    ancestry: ancestry.join(' > '),
+                    domIndex: i  // preserve DOM order
+                }});
+            }}
+
+            return results;
+        }}""", {"selector": selector, "urlAttr": url_attribute, "depth": ancestry_depth})
+
+        if not images_with_ancestry:
+            return []
+
+        # Cluster images by their ancestry path
+        # Images sharing the same ancestor chain are likely in the same gallery section
+        clusters = {}
+        for img in images_with_ancestry:
+            ancestry = img.get("ancestry", "")
+            if ancestry not in clusters:
+                clusters[ancestry] = []
+            clusters[ancestry].append(img)
+
+        if not clusters:
+            return []
+
+        # Pick the primary cluster: the LARGEST one (product galleries have the most images)
+        # If there's only one cluster, use it
+        if len(clusters) == 1:
+            primary_cluster = list(clusters.values())[0]
+        else:
+            # Sort clusters by size (descending), then by DOM order as tiebreaker
+            sorted_clusters = sorted(
+                clusters.values(),
+                key=lambda c: (-len(c), min(img["domIndex"] for img in c))
             )
-            if elements:
-                raw_urls = []
-                for el in elements:
-                    for attr in ["src", "data-src", "data-zoom", "data-large", "data-high-res"]:
-                        val = await el.get_attribute(attr)
-                        if val and (val.startswith("http") or val.startswith("//")):
-                            if val.startswith("//"):
-                                val = "https:" + val
-                            raw_urls.append(val)
+            primary_cluster = sorted_clusters[0]
 
-                    srcset = await el.get_attribute("srcset")
-                    if srcset:
-                        best_url = _best_from_srcset(srcset)
-                        if best_url:
-                            raw_urls.append(best_url)
+            # Debug logging
+            print(f"[GalleryExtract] Found {len(clusters)} clusters, selected primary with {len(primary_cluster)} images")
+            for ancestry, imgs in clusters.items():
+                marker = "→" if imgs == primary_cluster else " "
+                print(f"  {marker} [{len(imgs)} imgs] {ancestry[:60]}...")
 
-                return _dedupe_and_clean(raw_urls)
+        # Extract URLs from primary cluster, preserving order
+        raw_urls = [img["url"] for img in sorted(primary_cluster, key=lambda x: x["domIndex"])]
 
-        return []
+        return _dedupe_and_clean(raw_urls)
 
     except Exception as e:
         print(f"[GalleryExtract] Error: {e}")
+        import traceback
+        traceback.print_exc()
         return []
 
 

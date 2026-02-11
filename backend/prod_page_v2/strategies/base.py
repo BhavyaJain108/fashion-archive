@@ -178,18 +178,32 @@ class BaseStrategy(ABC):
 
         # URL patterns to exclude (icons, logos, etc.)
         EXCLUDE_PATTERNS = [
+            # Icons and logos
             '/icon', '/logo', '/favicon', '/sprite',
-            '/footer/', '/header/', '/nav/',
+            '-logo.', '_logo.', '/brand/', '/brands-logo',
+            # Site structure
+            '/footer/', '/header/', '/nav/', '/menu/',
+            # Payment/trust badges
             'payment', 'cc-', '-brands.svg',
-            'placeholder', 'clear.svg', 'arrow',
+            '/badge', '/trust', '/secure', '/payment-icon',
+            '/shipping-', '/guarantee',
+            # UI elements
+            'placeholder', 'clear.svg', 'arrow', '/button/',
             # Thumbnail/chip images (not main product images)
             '/chip/', '_chip.',
             # Tracking pixels
             'rp.gif', '/bounce', '/track/',
+            # Recommendation/related product sections (often have distinct URL patterns)
+            '/recommend', '/similar', '/also-like', '/related',
+            '/recently-viewed', '/upsell', '/cross-sell',
+            '/you-may-like', '/complete-the-look',
+            # Social icons
+            '/social/', 'facebook-icon', 'instagram-icon', 'twitter-icon', 'tiktok-icon',
         ]
 
         # File extensions to exclude (usually not product photos)
-        EXCLUDE_EXTENSIONS = ['.svg', '.gif']
+        # Note: GIFs are allowed - some brands use animated product images
+        EXCLUDE_EXTENSIONS = ['.svg']
 
         # Build set of excluded image identifiers (for cross-product filtering)
         excluded_ids = set()
