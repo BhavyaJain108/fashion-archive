@@ -93,7 +93,7 @@ async def try_direct_popup_selectors(page: Page) -> int:
     Try common popup selectors directly (faster than LLM, catches non-ARIA popups).
     Returns number dismissed.
     """
-    from navigation.popup_selectors import POPUP_CLOSE_SELECTORS, POPUP_IFRAME_SELECTORS
+    from scraper.navigation.popup_selectors import POPUP_CLOSE_SELECTORS, POPUP_IFRAME_SELECTORS
 
     dismissed = 0
     selectors = POPUP_CLOSE_SELECTORS + POPUP_IFRAME_SELECTORS
@@ -128,7 +128,7 @@ async def remove_overlay_elements(page: Page) -> int:
 
     Returns number of elements removed.
     """
-    from navigation.popup_selectors import OVERLAY_REMOVAL_SELECTORS
+    from scraper.navigation.popup_selectors import OVERLAY_REMOVAL_SELECTORS
 
     removed = 0
     for selector in OVERLAY_REMOVAL_SELECTORS:

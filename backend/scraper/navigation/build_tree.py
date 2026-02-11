@@ -13,21 +13,13 @@ from urllib.parse import urljoin, urlparse
 
 
 def find_cross_toplevel_urls(states: list) -> set:
-    """Find URLs appearing across 2+ different top-level tabs - these are utility links."""
-    # Group URLs by their top-level category
-    url_to_toplevels = {}  # url -> set of top-level names
-    for state in states:
-        path = state.get("path", [])
-        if not path:
-            continue
-        top_level = path[0]
-        for url in state.get("new_links", {}).values():
-            if url not in url_to_toplevels:
-                url_to_toplevels[url] = set()
-            url_to_toplevels[url].add(top_level)
+    """
+    Previously filtered URLs appearing across 2+ different top-level tabs.
 
-    # Return URLs that appear in 2+ top-level tabs
-    return {url for url, toplevels in url_to_toplevels.items() if len(toplevels) >= 2}
+    DISABLED: Some sites intentionally share categories across top-levels
+    (e.g., Accessories shared between Men and Women). We shouldn't filter these.
+    """
+    return set()  # Don't filter any URLs
 
 
 def is_homepage_url(url: str, base_url: str) -> bool:
@@ -44,6 +36,89 @@ def is_product_link(url: str) -> bool:
     """Check if URL is a product page (not a category/collection)."""
     product_patterns = ['/product/', '/products/', '/p/', '/item/']
     return any(p in url.lower() for p in product_patterns)
+
+
+def build_hierarchy_from_urls(links: list) -> list:
+    """
+    Build hierarchical structure from flat links based on URL paths.
+
+    For flat mega-menus where all links are captured at once, this infers
+    parent-child relationships from URL structure:
+
+    Input:
+        [
+            {"name": "SHOES", "url": "/men/footwear"},
+            {"name": "DICE", "url": "/men/footwear/dice"},
+            {"name": "NEW ARRIVALS", "url": "/men/new-arrivals"},
+        ]
+
+    Output:
+        [
+            {"name": "SHOES", "url": "/men/footwear", "children": [
+                {"name": "DICE", "url": "/men/footwear/dice", "children": []}
+            ]},
+            {"name": "NEW ARRIVALS", "url": "/men/new-arrivals", "children": []},
+        ]
+    """
+    if not links:
+        return []
+
+    # Normalize URLs for comparison (remove trailing slashes, get path only)
+    def normalize_url(url):
+        parsed = urlparse(url)
+        return parsed.path.rstrip('/')
+
+    # Create nodes with normalized paths
+    nodes = []
+    for link in links:
+        url = link.get("url", "")
+        nodes.append({
+            "name": link.get("name", ""),
+            "url": url,
+            "path": normalize_url(url),
+            "children": []
+        })
+
+    # Sort by path length (shorter paths = potential parents, should be processed first)
+    nodes.sort(key=lambda x: len(x["path"]))
+
+    # Build hierarchy - for each node, find its parent
+    root_nodes = []
+
+    for node in nodes:
+        node_path = node["path"]
+        parent_found = False
+
+        # Look for parent among already-processed nodes (shorter paths)
+        # Check all root nodes and their descendants
+        def find_parent_in_tree(search_nodes):
+            for potential_parent in search_nodes:
+                parent_path = potential_parent["path"]
+                # Check if this node's path starts with parent's path + /
+                if node_path.startswith(parent_path + '/') and node_path != parent_path:
+                    # Check if there's a closer parent in children
+                    closer_parent = find_parent_in_tree(potential_parent["children"])
+                    if closer_parent:
+                        return closer_parent
+                    return potential_parent
+            return None
+
+        parent = find_parent_in_tree(root_nodes)
+
+        if parent:
+            parent["children"].append(node)
+        else:
+            root_nodes.append(node)
+
+    # Clean up - remove the temporary 'path' field
+    def clean_node(node):
+        return {
+            "name": node["name"],
+            "url": node["url"],
+            "children": [clean_node(c) for c in node["children"]]
+        }
+
+    return [clean_node(n) for n in root_nodes]
 
 
 def build_tree(states: list, base_url: str, filter_urls: set = None) -> dict:

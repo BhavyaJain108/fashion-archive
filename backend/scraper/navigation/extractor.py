@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from scraper.navigation.static_extractor import extract_tree as static_extract_tree
 from scraper.navigation.dynamic_explorer import explore as dynamic_explore
-from scraper.navigation.build_tree import build_tree, find_cross_toplevel_urls, dedupe_parent_child_links, strip_homepage_nodes
+from scraper.navigation.build_tree import build_tree, find_cross_toplevel_urls, dedupe_parent_child_links, strip_homepage_nodes, build_hierarchy_from_urls
 
 
 # =============================================================================
@@ -96,14 +96,25 @@ def convert_to_scraper_format(tree) -> dict:
         for child in node.get("children", []):
             children.append(convert_dynamic_node(child))
 
-        # Convert links array to leaf nodes
-        for link in node.get("links", []):
-            children.append({
-                "name": link["name"],
-                "url": link["url"],
-                "reasoning": "Extracted from navigation",
-                "children": None
-            })
+        # Build hierarchy from links based on URL structure
+        # This handles flat mega-menus where all links appear at once
+        # but have parent-child relationships in their URLs
+        links = node.get("links", [])
+        if links:
+            hierarchical_links = build_hierarchy_from_urls(links)
+
+            # Convert hierarchical links to children format
+            def convert_link_node(link_node):
+                link_children = [convert_link_node(c) for c in link_node.get("children", [])]
+                return {
+                    "name": link_node["name"],
+                    "url": link_node["url"],
+                    "reasoning": "Extracted from navigation",
+                    "children": link_children if link_children else None
+                }
+
+            for link_node in hierarchical_links:
+                children.append(convert_link_node(link_node))
 
         return {
             "name": node["name"],
@@ -135,7 +146,7 @@ async def run_static(url: str) -> Optional[list]:
     """Run static extractor and return tree."""
     try:
         print(f"      [Static] Starting extraction for {url}")
-        tree, _ = await static_extract_tree(url)
+        tree, _, _ = await static_extract_tree(url)
         print(f"      [Static] Completed - found {count_links(tree)} links")
         return tree
     except Exception as e:

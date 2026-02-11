@@ -21,6 +21,8 @@ POPUP_CLOSE_SELECTORS = [
     # Newsletter/signup close buttons
     '#attentive_overlay button[aria-label*="close" i]',
     '#attentive_overlay button:has-text("Close")',
+    '[data-sentry-component="NewsletterModal"] button[aria-label="Close"]',
+    '[data-sentry-component*="Newsletter"] button[aria-label*="close" i]',
     '[class*="newsletter"] button[aria-label*="close" i]',
     '[class*="popup"] button[aria-label*="close" i]',
     '[class*="modal"] button[aria-label*="close" i]',

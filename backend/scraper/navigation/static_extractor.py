@@ -203,7 +203,7 @@ async def extract_tree(url: str, output_dir: Path = None) -> tuple:
     # Setup output dir early so we can save raw links before LLM
     if output_dir is None:
         domain = urlparse(url).netloc.replace('www.', '').split('.')[0]
-        output_dir = Path(__file__).parent / 'extractions' / domain
+        output_dir = Path(__file__).parent.parent.parent / 'extractions' / domain
     output_dir.mkdir(parents=True, exist_ok=True)
 
     playwright = await async_playwright().start()
@@ -379,11 +379,11 @@ async def main():
     from urllib.parse import urlparse
     domain = urlparse(url).netloc.replace('www.', '').split('.')[0]
 
-    output_dir = Path(__file__).parent / 'extractions' / domain
+    output_dir = Path(__file__).parent.parent.parent / 'extractions' / domain
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Run extraction (raw_links.txt saved immediately during extraction)
-    tree, links_text = await extract_tree(url, output_dir)
+    tree, links_text, _ = await extract_tree(url, output_dir)
 
     if tree:
         # Save JSON tree

@@ -160,10 +160,22 @@ CLASSIFICATION - Based on ARIA ROLE, not the name:
 - EXPANDABLE: role=button, role=tab, role=menuitem → we click these to explore
 - LINK: role=link → we record the URL but don't click
 
+IMPORTANT - INDENTATION SHOWS HIERARCHY:
+- In ARIA, indentation indicates parent/child nesting.
+- Only list items that are CHILDREN of the current path.
+- If current path is "Men", only list items INDENTED UNDER Men's expanded region.
+- Do NOT list sibling items at the same level (e.g., "Women" is a sibling of "Men", not a child).
+- Example: If you see:
+    - button "Men" [expanded]:
+      - button "Shoes"      ← CHILD of Men (indented under)
+      - button "Clothing"   ← CHILD of Men (indented under)
+    - button "Women":       ← SIBLING of Men (same level, not indented under)
+  Then Shoes and Clothing are children of Men, but Women is NOT.
+
 IMPORTANT:
 - Look at the actual ARIA role, not what the name suggests.
 - "Ready-to-wear" with role=menuitem is EXPANDABLE, not a LINK.
-- Include ALL buttons, tabs, and menuitems - do not skip any.
+- Include ALL buttons, tabs, and menuitems that are CHILDREN of current path.
 - Menus often have one item already selected (usually the first) - include it too.
 
 EXPANDABLE:
@@ -611,41 +623,35 @@ async def click_button(page: Page, name: str, container=None, prefer_tab: bool =
 
 def hover_revealed_content(aria_before: str, aria_after: str) -> tuple[bool, str]:
     """
-    Check if hover revealed navigation structure (not just char count).
+    Check if hover revealed NEW navigation links.
 
-    Looks for new navigation elements: menus, lists, tabs, links.
+    Uses set difference to detect new URLs - works even when total count
+    decreases (e.g., MEN menu closes while WOMEN menu opens).
 
     Returns (revealed: bool, reason: str)
     """
-    import re
+    # Extract URLs from both snapshots
+    links_before = extract_links_from_aria(aria_before)
+    links_after = extract_links_from_aria(aria_after)
 
-    # Count navigation-related structures
-    nav_patterns = [
-        (r'- menu\b', 'menu'),
-        (r'- navigation\b', 'navigation'),
-        (r'- menuitem\b', 'menuitem'),
-        (r'- tablist\b', 'tablist'),
-        (r'- list:', 'list'),
-    ]
+    urls_before = set(links_before.values())
+    urls_after = set(links_after.values())
 
-    for pattern, name in nav_patterns:
-        before_count = len(re.findall(pattern, aria_before))
-        after_count = len(re.findall(pattern, aria_after))
-        if after_count > before_count:
-            return True, f"new {name} (+{after_count - before_count})"
+    # Find NEW URLs that appeared
+    new_urls = urls_after - urls_before
 
-    # Check for new links (most common indicator)
-    before_links = len(re.findall(r'- link\b', aria_before))
-    after_links = len(re.findall(r'- link\b', aria_after))
-    if after_links > before_links + 3:  # At least 4 new links
-        return True, f"new links (+{after_links - before_links})"
+    if new_urls:  # Set changed - new URLs appeared
+        return True, f"new links (+{len(new_urls)})"
 
-    # Fallback: significant char increase (but higher threshold)
-    char_diff = len(aria_after) - len(aria_before)
-    if char_diff > 500:
-        return True, f"content (+{char_diff} chars)"
+    # Also check for new link names (in case URLs are the same but names differ)
+    names_before = set(links_before.keys())
+    names_after = set(links_after.keys())
+    new_names = names_after - names_before
 
-    return False, "no change"
+    if new_names:  # Set changed - new names appeared
+        return True, f"new link names (+{len(new_names)})"
+
+    return False, "no new links"
 
 
 async def hover_and_check(page: Page, name: str, item_type: str = None, container=None) -> tuple[bool, str]:
@@ -1183,6 +1189,8 @@ async def explore_toggle_menu(page: Page, menu_structure: dict, states: list, st
         clicked = await click_button(page, menu_button_name)
         if clicked:
             await page.wait_for_timeout(500)
+            # Check for popups that appear after menu opens (e.g., newsletter)
+            await dismiss_popups_with_llm(page)
         return clicked
 
     menu_links = menu_structure.get('links', [])
@@ -1355,7 +1363,7 @@ async def explore(url: str, max_depth: int = 3) -> tuple:
     browser = await playwright.chromium.launch(headless=False)
     # Use desktop viewport (1280px) to ensure desktop navigation is visible
     # Many sites hide desktop nav below 992px (CSS media queries)
-    page = await browser.new_page(viewport={'width': 1280, 'height': 800})
+    page = await browser.new_page(viewport={'width': 500, 'height': 900})
 
     try:
         # Setup
@@ -1588,6 +1596,48 @@ async def explore(url: str, max_depth: int = 3) -> tuple:
                         if path[0] in top_level_urls:
                             approved_links[path[0]] = top_level_urls[path[0]]
 
+                        # Try hovering each revealed link to find nested content
+                        # (e.g., hovering CLOTHING reveals clothing subcategories)
+                        nested_links = {}
+                        current_aria_urls = set(approved_links.values())
+                        for link_name, link_url in list(approved_links.items()):
+                            try:
+                                # Re-hover parent to ensure menu stays open
+                                await hover_and_check(page, path[0], item_type)
+                                await page.wait_for_timeout(200)
+
+                                # Capture ARIA before nested hover
+                                aria_before_nested = await page.locator('body').aria_snapshot()
+
+                                # Hover by URL selector (contains, to handle full vs relative URLs)
+                                link_locator = page.locator(f'a[href*="{link_url}"]').first
+                                if await link_locator.count() > 0 and await link_locator.is_visible():
+                                    print(f"        [HOVER] Hovering '{link_name}' by URL {link_url}")
+                                    await link_locator.hover(timeout=3000, force=True)
+                                    await page.wait_for_timeout(400)
+
+                                    # Capture ARIA after and check for changes
+                                    aria_after_nested = await page.locator('body').aria_snapshot()
+                                    nested_revealed, reason = hover_revealed_content(aria_before_nested, aria_after_nested)
+
+                                    if nested_revealed:
+                                        print(f"      [NESTED HOVER] '{link_name}' revealed more content ({reason})")
+                                        nested_all = extract_links_from_aria(aria_after_nested)
+                                        nested_all = filter_utility_links(nested_all)
+                                        # Add any new links not already captured
+                                        for n_name, n_url in nested_all.items():
+                                            if n_url not in current_aria_urls and n_url not in nested_links.values():
+                                                nested_links[n_name] = n_url
+                                                current_aria_urls.add(n_url)
+                                    else:
+                                        print(f"        [HOVER] No new content from '{link_name}'")
+                            except Exception as e:
+                                print(f"      [NESTED HOVER] Error hovering '{link_name}': {e}")
+
+                        if nested_links:
+                            print(f"    [NESTED HOVER] Found {len(nested_links)} additional links")
+                            approved_links.update(nested_links)
+
                         # Capture state
                         state = await capture_state(page, path, f"hovered: {path[-1]}", step)
                         state['new_links'] = approved_links
@@ -1789,7 +1839,7 @@ async def main():
 
     # Extract domain for output dir
     domain = urlparse(url).netloc.replace('www.', '').split('.')[0]
-    output_dir = Path(__file__).parent / 'extractions' / domain
+    output_dir = Path(__file__).parent.parent.parent / 'extractions' / domain
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Run exploration
