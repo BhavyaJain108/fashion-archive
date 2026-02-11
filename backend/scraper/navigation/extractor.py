@@ -149,7 +149,7 @@ async def run_dynamic(url: str) -> Optional[dict]:
         print(f"      [Dynamic] Starting exploration for {url}")
 
         # Run exploration
-        states = await dynamic_explore(url)
+        states, llm_usage = await dynamic_explore(url)
 
         if not states:
             print(f"      [Dynamic] No states captured")

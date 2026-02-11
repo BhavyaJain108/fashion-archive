@@ -1211,17 +1211,12 @@ async def explore_toggle_menu(page: Page, menu_structure: dict, states: list, st
 
         await page.wait_for_timeout(500)
 
-        # Capture state for this top-level category
+        # Capture ARIA and extract ALL links (will filter by LLM later)
         aria = await page.locator('body').aria_snapshot()
-        links = extract_links_from_aria(aria)
-        links = filter_utility_links(links)
+        all_links = extract_links_from_aria(aria)
+        all_links = filter_utility_links(all_links)
 
-        state = await capture_state(page, [tl_name], f"clicked: {tl_name}", step)
-        state['new_links'] = links
-        states.append(state)
-        step += 1
-
-        print(f"    Found {len(links)} links at top level")
+        print(f"    Found {len(all_links)} links at top level (before LLM filter)")
 
         # Ask LLM to identify subcategories for THIS category
         # This handles any site structure without hardcoding ARIA patterns
@@ -1230,7 +1225,7 @@ async def explore_toggle_menu(page: Page, menu_structure: dict, states: list, st
         print(f"    Asking LLM for subcategories...")
         llm = _get_llm_handler()
         subcat_result = llm.call_text(
-            prompt=prompt_subcategories(aria, [tl_name], links),
+            prompt=prompt_subcategories(aria, [tl_name], all_links),
             max_tokens=1000,
             operation="nav_subcategories"
         )
@@ -1248,6 +1243,18 @@ async def explore_toggle_menu(page: Page, menu_structure: dict, states: list, st
             print(f"    Expandable: {[s['name'] for s in expandable_items]}")
         if leaf_links:
             print(f"    Links (won't click): {[s['name'] for s in leaf_links]}")
+
+        # Use LLM-approved links only (match by name to get URLs from extracted links)
+        llm_approved_names = {link['name'].lower() for link in leaf_links}
+        approved_links = {name: url for name, url in all_links.items()
+                        if name.lower() in llm_approved_names}
+        print(f"    LLM approved {len(approved_links)} of {len(all_links)} links")
+
+        # Capture state with LLM-filtered links
+        state = await capture_state(page, [tl_name], f"clicked: {tl_name}", step)
+        state['new_links'] = approved_links
+        states.append(state)
+        step += 1
 
         # Now explore each EXPANDABLE subcategory (skip leaf links - they navigate away)
         for sub_item in expandable_items:
@@ -1291,16 +1298,34 @@ async def explore_toggle_menu(page: Page, menu_structure: dict, states: list, st
 
             # Capture state for this combination
             aria = await page.locator('body').aria_snapshot()
-            links = extract_links_from_aria(aria)
-            links = filter_utility_links(links)
+            all_links = extract_links_from_aria(aria)
+            all_links = filter_utility_links(all_links)
+
+            # Ask LLM to filter links at subcategory level
+            print(f"      Found {len(all_links)} links, asking LLM to filter...")
+            subcat_subcat_result = llm.call_text(
+                prompt=prompt_subcategories(aria, [tl_name, sub_name], all_links),
+                max_tokens=1000,
+                operation="nav_subcategories"
+            )
+            _track_llm_result(subcat_subcat_result)
+            if subcat_subcat_result.get("success"):
+                _, sub_leaf_links, _ = parse_subcategories(subcat_subcat_result.get("response", ""))
+                sub_llm_approved = {link['name'].lower() for link in sub_leaf_links}
+                approved_links = {name: url for name, url in all_links.items()
+                                 if name.lower() in sub_llm_approved}
+                print(f"      LLM approved {len(approved_links)} of {len(all_links)} links")
+            else:
+                # Fallback to all links if LLM fails
+                approved_links = all_links
+                print(f"      LLM failed, keeping all {len(all_links)} links")
 
             state = await capture_state(page, [tl_name, sub_name], f"clicked: {tl_name} > {sub_name}", step)
-            state['new_links'] = links
+            state['new_links'] = approved_links
             states.append(state)
             step += 1
 
-            print(f"      Found {len(links)} links")
-            for name, url in links.items():
+            for name, url in approved_links.items():
                 print(f"        [LNK] {name} → {url}")
 
     return step
@@ -1538,21 +1563,38 @@ async def explore(url: str, max_depth: int = 3) -> tuple:
                         print(f"    [HOVER] Menu revealed on hover ({item_type}), capturing without clicking...")
 
                         # Extract links from hover-revealed content
-                        links = extract_links_from_aria(aria_after_hover)
-                        links = filter_utility_links(links)
+                        all_links = extract_links_from_aria(aria_after_hover)
+                        all_links = filter_utility_links(all_links)
+
+                        # Ask LLM to filter hover-revealed links
+                        print(f"    Found {len(all_links)} links via hover, asking LLM to filter...")
+                        hover_result = llm.call_text(
+                            prompt=prompt_subcategories(aria_after_hover, path, all_links),
+                            max_tokens=1000,
+                            operation="nav_subcategories"
+                        )
+                        _track_llm_result(hover_result)
+                        if hover_result.get("success"):
+                            _, hover_leaf_links, _ = parse_subcategories(hover_result.get("response", ""))
+                            hover_approved = {link['name'].lower() for link in hover_leaf_links}
+                            approved_links = {name: url for name, url in all_links.items()
+                                             if name.lower() in hover_approved}
+                            print(f"    LLM approved {len(approved_links)} of {len(all_links)} links")
+                        else:
+                            approved_links = all_links
+                            print(f"    LLM failed, keeping all {len(all_links)} links")
 
                         # Add the top-level item's own URL if it has one
                         if path[0] in top_level_urls:
-                            links[path[0]] = top_level_urls[path[0]]
+                            approved_links[path[0]] = top_level_urls[path[0]]
 
                         # Capture state
                         state = await capture_state(page, path, f"hovered: {path[-1]}", step)
-                        state['new_links'] = links
+                        state['new_links'] = approved_links
                         state['aria'] = aria_after_hover
                         states.append(state)
 
-                        print(f"    Found {len(links)} links via hover")
-                        for name, url in links.items():
+                        for name, url in approved_links.items():
                             print(f"      [LNK] {name} → {url}")
 
                         step += 1
@@ -1678,11 +1720,12 @@ async def explore(url: str, max_depth: int = 3) -> tuple:
                     # Reset counter if we find expandable items
                     level_no_expandable_count[current_level] = 0
 
-            # Find new links (compared to initial state)
-            # current_links already extracted above for LLM
-            initial_links = extract_links_from_aria(states[0]['aria'])
-            initial_links = filter_utility_links(initial_links)
-            new_links = {k: v for k, v in current_links.items() if k not in initial_links}
+            # Use LLM-approved links only (match by name to get URLs from extracted links)
+            # This filters out products that the LLM identified as non-category links
+            llm_approved_names = {name.lower() for name in llm_links.keys()}
+            new_links = {name: url for name, url in current_links.items()
+                        if name.lower() in llm_approved_names}
+            print(f"    LLM approved {len(new_links)} of {len(current_links)} links")
 
             # Add the top-level item's own URL if this is a top-level path
             if len(path) == 1 and path[0] in top_level_urls:
