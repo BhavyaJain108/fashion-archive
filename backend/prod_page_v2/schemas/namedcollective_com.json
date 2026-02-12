@@ -1,0 +1,18 @@
+{
+  "name": "[2].product.title",
+  "price": "[2].product.variants.price",
+  "currency": "USD",
+  "description": "[2].product.body_html",
+  "brand": "[2].product.vendor",
+  "category": "[2].product.product_type",
+  "sku": "[2].product.variants.sku",
+  "images": null,
+  "image_url_field": null,
+  "variants": "[2].product.variants",
+  "variant_size_field": "title",
+  "variant_color_field": null,
+  "variant_price_field": "price",
+  "variant_available_field": null,
+  "variant_stock_field": null,
+  "variant_sku_field": "sku"
+}

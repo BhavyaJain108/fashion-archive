@@ -61,6 +61,7 @@ class PageData:
     visible_text: str = ""  # document.body.innerText — what user sees on page
     loaded: bool = True  # False if page failed to load or is an error page
     status_code: int = 0  # HTTP status from navigation response
+    waf_detected: bool = False  # True if WAF/bot challenge was detected
 
 
 class ExtractionStrategy(Enum):

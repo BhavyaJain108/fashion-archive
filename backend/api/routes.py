@@ -682,13 +682,13 @@ def start_scrape(brand_id):
                 domain = get_domain(homepage_url).replace('.', '_')
 
                 if mode == 'products_only':
-                    # Skip navigation, use existing nav tree
+                    # Skip navigation, use existing nav tree for URL + product extraction
                     nav_tree = load_navigation(domain)
                     if not nav_tree:
                         raise Exception("No existing navigation tree found — run a full scrape first")
 
                     with job_lock:
-                        scraping_jobs[job_id]["current_action"] = "Re-extracting products from existing URLs..."
+                        scraping_jobs[job_id]["current_action"] = "Re-extracting URLs + products (streaming)..."
                         scraping_jobs[job_id]["progress"] = 30
 
                     # Notify frontend nav is already ready
@@ -719,7 +719,7 @@ def start_scrape(brand_id):
                     broadcast_product(brand_id, product_dict, category_path, category_url)
 
                 orchestrator = StreamingOrchestrator(
-                    domain, nav_tree,
+                    domain, nav_tree=nav_tree,
                     product_callback=on_product,
                 )
                 result = orchestrator.run()

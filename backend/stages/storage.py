@@ -44,7 +44,7 @@ def clean_previous_extraction(domain: str, stages: list = None):
             - "urls": cleans urls.json, urls.txt, full_urls.txt, products/, config.json, logs/
             - "products": cleans products/, config.json
             - "nav": cleans nav.json, nav.txt
-            - "streaming" / "all": cleans urls, products, and logs
+            - "urls+products": cleans urls, products, and logs (streaming mode)
 
     Always preserves: brand_meta.json (cached nav method, fingerprint)
     """
@@ -55,9 +55,9 @@ def clean_previous_extraction(domain: str, stages: list = None):
     stages = stages or []
     cleaned = []
 
-    clean_urls = any(s in stages for s in ["urls", "streaming", "all"])
-    clean_products = any(s in stages for s in ["urls", "products", "streaming", "all"])
-    clean_nav = "nav" in stages or "all" in stages
+    clean_urls = any(s in stages for s in ["urls", "urls+products"])
+    clean_products = any(s in stages for s in ["urls", "products", "urls+products"])
+    clean_nav = "nav" in stages
 
     # Clean products directory
     products_dir = domain_dir / "products"

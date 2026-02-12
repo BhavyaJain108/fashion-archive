@@ -138,13 +138,22 @@ CURRENT PATH: {path_str}
 TASK: First determine if this is a PRODUCT LISTING page or a NAVIGATION page.
 
 HOW TO IDENTIFY A PRODUCT LISTING PAGE (LEAF):
-Look at the EXTRACTED LINKS above. If you see ANY of these, it's a LEAF page:
-1. "Filter", "Filter and sort", "Filters", "Refine" - filter controls
-2. "Clear" - filter reset button
-3. "Sort", "Sort by" - sort controls
-4. Links to individual products (long names with colors/sizes like "Tokyo Dad Jeans | Baggy, Wide-Leg Metal Black")
+Look at the EXTRACTED LINKS above. If you see ANY of these patterns, it's a LEAF page:
 
-CRITICAL: If EXTRACTED LINKS contains "Filter", "Filter and sort", "Clear", or "Sort" → this is a LEAF page.
+1. Filter/sort controls: "Filter", "Filter and sort", "Filters", "Refine", "Sort", "Sort by", "Clear"
+
+2. Individual PRODUCT links - these have specific patterns:
+   - Long descriptive names with color/size: "Tokyo Dad Jeans | Baggy, Wide-Leg Metal Black"
+   - Names with color in parentheses: "STITCH WINGS ZIP HOODIE BLACK (DETACHABLE WINGS)"
+   - Names with material/variant: "Oversized Cotton Hoodie - Washed Black"
+   - Multiple similar items (same product, different colors): seeing 3+ links that are variants of same item
+   - Product names are usually 4+ words describing a specific item
+
+3. Category links look DIFFERENT - they are short, generic names:
+   - "Hoodies", "Tops", "Jackets", "Shoes", "Bags" (1-2 words)
+   - "New Arrivals", "Best Sellers", "Sale" (collection names)
+
+CRITICAL RULE: If EXTRACTED LINKS contains MOSTLY long product names (4+ words with colors/sizes/variants), this is a LEAF page. Don't be fooled by a few category buttons in the header - look at the LINKS.
 
 RESPOND WITH THIS FORMAT:
 
@@ -822,6 +831,61 @@ async def open_menu(page: Page) -> bool:
     return False
 
 
+async def is_hamburger_menu_open(page: Page, hamburger_name: str, base_url: str = None) -> bool:
+    """
+    Check if hamburger menu is currently open.
+
+    Uses multiple signals:
+    1. URL changed from base_url → definitely navigated away (menu closed)
+    2. Hamburger button aria-expanded="true" → menu open
+    3. Hamburger button aria-expanded="false" → menu closed
+    4. Close button visible → menu open
+    5. Default: assume open if URL unchanged (accordion expansion)
+    """
+    # If URL changed from base, we definitely navigated away
+    if base_url:
+        current_url = page.url.rstrip('/')
+        base_clean = base_url.rstrip('/')
+        if current_url != base_clean:
+            print(f"        [MENU-CHECK] URL changed: {current_url} != {base_clean} - navigated away")
+            return False
+
+    # Check hamburger button's aria-expanded state
+    try:
+        for role in ['button', 'tab']:
+            locator = page.get_by_role(role, name=hamburger_name, exact=False)
+            if await locator.count() > 0:
+                element = locator.first
+                if await element.is_visible():
+                    expanded = await element.get_attribute('aria-expanded')
+                    if expanded == 'true':
+                        return True
+                    elif expanded == 'false':
+                        return False
+    except:
+        pass
+
+    # Check for close button (common in open hamburger menus)
+    close_selectors = [
+        'button[aria-label*="close" i]',
+        'button[aria-label*="Close" i]',
+        'button:has-text("Close")',
+        'button:has-text("✕")',
+        'button:has-text("×")',
+        '[class*="close"]',
+    ]
+    for selector in close_selectors:
+        try:
+            locator = page.locator(selector).first
+            if await locator.count() > 0 and await locator.is_visible():
+                return True
+        except:
+            pass
+
+    # Default: assume OPEN if URL unchanged (likely accordion expansion within menu)
+    return True
+
+
 async def find_back_button(page: Page) -> str | None:
     """
     Look for a back button. Returns selector string if found, None otherwise.
@@ -1131,7 +1195,14 @@ async def capture_state(page: Page, path: list, action: str, step: int,
                         new_buttons: set | dict = None, new_links: dict = None,
                         capture_screenshot: bool = False) -> dict:
     """Capture current state after an action."""
-    aria = await page.locator('body').aria_snapshot()
+    try:
+        aria = await asyncio.wait_for(page.locator('body').aria_snapshot(), timeout=10.0)
+    except asyncio.TimeoutError:
+        print("    [WARN] ARIA snapshot timed out, using header only")
+        try:
+            aria = await asyncio.wait_for(page.locator('header').aria_snapshot(), timeout=5.0)
+        except:
+            aria = ""
 
     screenshot_b64 = None
     if capture_screenshot:
@@ -1164,177 +1235,164 @@ async def capture_state(page: Page, path: list, action: str, step: int,
 # Structured exploration for toggle menus
 # =============================================================================
 
+async def expand_all_collapsed(page: Page) -> int:
+    """
+    Expand all collapsed sections in the menu.
+    Clicks buttons with aria-expanded="false" or expand icons.
+    Returns number of sections expanded.
+    """
+    expanded_count = 0
+
+    # Find all collapsed buttons (aria-expanded="false")
+    try:
+        collapsed = page.locator('button[aria-expanded="false"], [role="button"][aria-expanded="false"]')
+        count = await collapsed.count()
+        for i in range(count):
+            try:
+                btn = collapsed.nth(i)
+                if await btn.is_visible():
+                    await btn.click(timeout=2000)
+                    await page.wait_for_timeout(200)
+                    expanded_count += 1
+            except:
+                pass
+    except:
+        pass
+
+    # Also try clicking buttons with plus/expand icons
+    expand_selectors = [
+        'button:has(svg[class*="plus"])',
+        'button:has(svg[class*="expand"])',
+        'button:has(svg[class*="toggle"])',
+        '[class*="accordion"]:not([class*="open"]) button',
+        '[class*="collapsible"]:not([class*="open"]) button',
+    ]
+    for selector in expand_selectors:
+        try:
+            buttons = page.locator(selector)
+            count = await buttons.count()
+            for i in range(min(count, 10)):  # Limit to avoid infinite loops
+                try:
+                    btn = buttons.nth(i)
+                    if await btn.is_visible():
+                        await btn.click(timeout=2000)
+                        await page.wait_for_timeout(200)
+                        expanded_count += 1
+                except:
+                    pass
+        except:
+            pass
+
+    return expanded_count
+
+
 async def explore_toggle_menu(page: Page, menu_structure: dict, states: list, step: int,
                                menu_button_name: str, base_url: str) -> int:
     """
-    Explore a toggle menu with known structure (top_level + subcategories).
-    Returns updated step count.
+    Explore a hamburger/toggle menu by clicking each accordion and capturing new links.
 
-    For sites like Alexander McQueen where menu has parallel dimensions:
-    - top_level: Women, Men, Gifts, etc.
-    - subcategories: Handbags, Shoes, Ready-to-Wear, etc.
-
-    We explore each combination: Women×Handbags, Women×Shoes, Men×Handbags, etc.
+    Simple approach:
+    1. Open menu, expand all collapsed sections
+    2. Capture base links
+    3. For each accordion: click it, capture NEW links via set difference
+    4. Done - no need to click the revealed links
     """
     top_level = menu_structure.get('top_level', [])
-    subcategories = menu_structure.get('subcategories', [])
-
-    async def ensure_menu_open():
-        """Re-open menu if it got closed (e.g., after navigation)."""
-        # Check if we navigated away
-        if not page.url.startswith(base_url.rstrip('/')):
-            await page.goto(base_url, wait_until="domcontentloaded")
-            await page.wait_for_timeout(1000)
-        # Try to click menu button
-        clicked = await click_button(page, menu_button_name)
-        if clicked:
-            await page.wait_for_timeout(500)
-            # Check for popups that appear after menu opens (e.g., newsletter)
-            await dismiss_popups_with_llm(page)
-        return clicked
-
     menu_links = menu_structure.get('links', [])
 
-    print(f"\n[STRUCTURED] Exploring toggle menu:")
-    print(f"    Top-level: {[item['name'] for item in top_level]}")
-    print(f"    Subcategories (tabs): {[item['name'] for item in subcategories]}")
-    print(f"    Direct links (won't click): {[item['name'] for item in menu_links]}")
+    print(f"\n[HAMBURGER MENU] Exploring:")
+    print(f"    Accordions: {[item['name'] for item in top_level]}")
+    print(f"    Base links: {[item['name'] for item in menu_links]}")
 
+    # Capture initial menu state (links visible when menu first opens)
+    aria = await page.locator('body').aria_snapshot()
+    all_links = extract_links_from_aria(aria)
+    all_links = filter_utility_links(all_links)
+
+    # Match LLM-identified menu links to actual URLs
+    if menu_links:
+        base_links = {}
+        for item in menu_links:
+            link_name = item['name']
+            if link_name in all_links:
+                base_links[link_name] = all_links[link_name]
+            else:
+                # Case-insensitive match
+                for aria_name, aria_url in all_links.items():
+                    if aria_name.lower() == link_name.lower():
+                        base_links[link_name] = aria_url
+                        break
+
+        if base_links:
+            print(f"\n    Captured {len(base_links)} base menu links:")
+            state = await capture_state(page, ["Menu"], "menu_opened", step)
+            state['new_links'] = base_links
+            states.append(state)
+            step += 1
+            for name, url in base_links.items():
+                print(f"      [LNK] {name} → {url}")
+
+    # Track all links we've seen (to compute set difference)
+    seen_links = set(all_links.values())
+
+    # Click each accordion and capture NEW links
     for tl_item in top_level:
         tl_name = tl_item['name']
-        tl_type = tl_item['type']
+        print(f"\n[{step}] ACCORDION: {tl_name}")
 
-        print(f"\n{'='*60}")
-        print(f"[{step}] TOP-LEVEL: {tl_name}")
+        # ALWAYS refresh and re-open menu before each accordion
+        # This ensures clean state - previous accordion clicks may have changed things
+        await page.goto(base_url, wait_until="domcontentloaded")
+        await page.wait_for_timeout(500)
+        await click_button(page, menu_button_name)
+        await page.wait_for_timeout(500)
 
-        # Ensure menu is open before each top-level
-        await ensure_menu_open()
+        # Capture links BEFORE clicking this accordion
+        aria_before = await page.locator('body').aria_snapshot()
+        links_before = extract_links_from_aria(aria_before)
+        links_before = filter_utility_links(links_before)
+        urls_before = set(links_before.values())
 
-        # Click the top-level category
-        prefer_tab = (tl_type == 'tab')
-        clicked = await click_button(page, tl_name, prefer_tab=prefer_tab)
+        # Click the accordion
+        clicked = await click_button(page, tl_name)
         if not clicked:
             print(f"    Failed to click {tl_name}, skipping...")
             continue
 
-        await page.wait_for_timeout(500)
+        await page.wait_for_timeout(400)
 
-        # Capture ARIA and extract ALL links (will filter by LLM later)
-        aria = await page.locator('body').aria_snapshot()
-        all_links = extract_links_from_aria(aria)
-        all_links = filter_utility_links(all_links)
-
-        print(f"    Found {len(all_links)} links at top level (before LLM filter)")
-
-        # Ask LLM to identify subcategories for THIS category
-        # This handles any site structure without hardcoding ARIA patterns
-        # Pass top-level names so LLM knows to exclude them (always visible nav)
-        top_level_names = [item['name'] for item in top_level]
-        print(f"    Asking LLM for subcategories...")
-        llm = _get_llm_handler()
-        subcat_result = llm.call_text(
-            prompt=prompt_subcategories(aria, [tl_name], all_links),
-            max_tokens=1000,
-            operation="nav_subcategories"
-        )
-        _track_llm_result(subcat_result)
-        if not subcat_result.get("success"):
-            print(f"    LLM call failed: {subcat_result.get('error')}")
-            continue
-        raw_response = subcat_result.get("response", "")
-        print(f"    LLM raw response:\n{raw_response[:500]}")
-        expandable_items, leaf_links, is_product_listing = parse_subcategories(raw_response)
-        if is_product_listing:
-            print(f"    [PRODUCT_LISTING] Top-level '{tl_name}' is a product page, skipping subcategories")
-            continue
-        if expandable_items:
-            print(f"    Expandable: {[s['name'] for s in expandable_items]}")
-        if leaf_links:
-            print(f"    Links (won't click): {[s['name'] for s in leaf_links]}")
-
-        # Use LLM-approved links only (match by name to get URLs from extracted links)
-        llm_approved_names = {link['name'].lower() for link in leaf_links}
-        approved_links = {name: url for name, url in all_links.items()
-                        if name.lower() in llm_approved_names}
-        print(f"    LLM approved {len(approved_links)} of {len(all_links)} links")
-
-        # Capture state with LLM-filtered links
-        state = await capture_state(page, [tl_name], f"clicked: {tl_name}", step)
-        state['new_links'] = approved_links
-        states.append(state)
-        step += 1
-
-        # Now explore each EXPANDABLE subcategory (skip leaf links - they navigate away)
-        for sub_item in expandable_items:
-            sub_name = sub_item['name']
-            sub_type = sub_item['type']
-            print(f"\n  [{step}] {tl_name} > {sub_name}")
-
-            # Track URL before click to detect navigation
-            url_before = page.url
-
-            # Try clicking the subcategory directly first
-            prefer_tab_for_sub = (sub_type == 'tab')
-            sub_clicked = await click_button(page, sub_name, prefer_tab=prefer_tab_for_sub)
-
-            # Only reset menu if the click failed (element not found/visible)
-            if not sub_clicked:
-                print(f"      {sub_name} not found, re-opening menu...")
-                await ensure_menu_open()
-                await click_button(page, tl_name, prefer_tab=prefer_tab)
-                await page.wait_for_timeout(300)
-                sub_clicked = await click_button(page, sub_name, prefer_tab=prefer_tab_for_sub)
-                if not sub_clicked:
-                    print(f"      Failed to click {sub_name} after reset, skipping...")
-                    continue
-
-            await page.wait_for_timeout(500)
-
-            # Check if clicking caused navigation (it's a link, not a tab)
-            url_after = page.url
-            if url_after != url_before:
-                print(f"      [{sub_name}] navigated to {url_after} - capturing as link")
-                # Still capture this as a valid state
-                state = await capture_state(page, [tl_name, sub_name], f"navigated: {tl_name} > {sub_name}", step)
-                state['new_links'] = {sub_name: url_after}
-                states.append(state)
-                step += 1
-                # Go back to home for next iteration
-                await page.goto(base_url, wait_until="domcontentloaded")
-                await wait_for_page_ready(page)
-                continue
-
-            # Capture state for this combination
-            aria = await page.locator('body').aria_snapshot()
-            all_links = extract_links_from_aria(aria)
-            all_links = filter_utility_links(all_links)
-
-            # Ask LLM to filter links at subcategory level
-            print(f"      Found {len(all_links)} links, asking LLM to filter...")
-            subcat_subcat_result = llm.call_text(
-                prompt=prompt_subcategories(aria, [tl_name, sub_name], all_links),
-                max_tokens=1000,
-                operation="nav_subcategories"
-            )
-            _track_llm_result(subcat_subcat_result)
-            if subcat_subcat_result.get("success"):
-                _, sub_leaf_links, _ = parse_subcategories(subcat_subcat_result.get("response", ""))
-                sub_llm_approved = {link['name'].lower() for link in sub_leaf_links}
-                approved_links = {name: url for name, url in all_links.items()
-                                 if name.lower() in sub_llm_approved}
-                print(f"      LLM approved {len(approved_links)} of {len(all_links)} links")
-            else:
-                # Fallback to all links if LLM fails
-                approved_links = all_links
-                print(f"      LLM failed, keeping all {len(all_links)} links")
-
-            state = await capture_state(page, [tl_name, sub_name], f"clicked: {tl_name} > {sub_name}", step)
-            state['new_links'] = approved_links
+        # Check if we navigated away (URL changed)
+        menu_open = await is_hamburger_menu_open(page, menu_button_name, base_url)
+        if not menu_open:
+            print(f"    [LINK] '{tl_name}' navigated to {page.url}")
+            state = await capture_state(page, [tl_name], f"link: {tl_name}", step)
+            state['new_links'] = {tl_name: page.url}
             states.append(state)
             step += 1
+            continue
 
-            for name, url in approved_links.items():
-                print(f"        [LNK] {name} → {url}")
+        # Accordion expanded - capture NEW links
+        aria_after = await page.locator('body').aria_snapshot()
+        links_after = extract_links_from_aria(aria_after)
+        links_after = filter_utility_links(links_after)
+
+        # Set difference: new links = links that weren't there before clicking this accordion
+        # Don't filter by seen_links - each accordion should show what IT reveals
+        new_links = {name: url for name, url in links_after.items()
+                     if url not in urls_before}
+
+        if new_links:
+            print(f"    [EXPANDED] Revealed {len(new_links)} new links:")
+            state = await capture_state(page, [tl_name], f"accordion: {tl_name}", step)
+            state['new_links'] = new_links
+            states.append(state)
+            step += 1
+            for name, url in new_links.items():
+                print(f"      [LNK] {name} → {url}")
+            # Add to seen links
+            seen_links.update(new_links.values())
+        else:
+            print(f"    [NO CHANGE] No new links revealed")
 
     return step
 
@@ -1363,7 +1421,9 @@ async def explore(url: str, max_depth: int = 3) -> tuple:
     browser = await playwright.chromium.launch(headless=False)
     # Use desktop viewport (1280px) to ensure desktop navigation is visible
     # Many sites hide desktop nav below 992px (CSS media queries)
-    page = await browser.new_page(viewport={'width': 500, 'height': 900})
+    # Use 768px width - tablet size that often has hamburger menu but with URL navigation
+    # (500px mobile often uses SPA navigation where URLs don't change)
+    page = await browser.new_page(viewport={'width': 768, 'height': 900})
 
     try:
         # Setup
@@ -1385,8 +1445,8 @@ async def explore(url: str, max_depth: int = 3) -> tuple:
         print("[4] Finding top-level items...")
         # Use header-focused ARIA to avoid popup/cookie/country junk flooding the snapshot
         try:
-            header_aria = await page.locator('header').aria_snapshot()
-        except Exception:
+            header_aria = await asyncio.wait_for(page.locator('header').aria_snapshot(), timeout=5.0)
+        except (Exception, asyncio.TimeoutError):
             header_aria = None
         body_aria = initial_state['aria']
 
@@ -1408,7 +1468,10 @@ async def explore(url: str, max_depth: int = 3) -> tuple:
         print(f"    LLM raw response:\n{llm_response_text}")
         top_level = parse_items(llm_response_text)
 
-        # Filter to majority type - but keep items with URLs (they're valid nav destinations)
+        # Keywords for hamburger/toggle menus - keep these even when filtering by majority type
+        toggle_menu_keywords = ['menu', 'hamburger', 'nav', 'navigation']
+
+        # Filter to majority type - but keep items with URLs and toggle menu buttons
         # This removes stray utility buttons (no URL) when main nav is links
         if len(top_level) > 1:
             from collections import Counter
@@ -1416,10 +1479,13 @@ async def explore(url: str, max_depth: int = 3) -> tuple:
             majority_type = type_counts.most_common(1)[0][0]
             if type_counts[majority_type] > 1:  # Only filter if majority has >1 item
                 original_count = len(top_level)
-                # Keep items that match majority type OR have a URL
-                top_level = [item for item in top_level if item['type'] == majority_type or item.get('url')]
+                # Keep items that match majority type OR have a URL OR are toggle menu buttons
+                top_level = [item for item in top_level
+                             if item['type'] == majority_type
+                             or item.get('url')
+                             or any(kw in item['name'].lower() for kw in toggle_menu_keywords)]
                 if len(top_level) < original_count:
-                    print(f"    Filtered to {majority_type} items (majority type), kept items with URLs")
+                    print(f"    Filtered to {majority_type} items (majority type), kept URLs and toggle buttons")
 
         print(f"    Found {len(top_level)} items:")
         for item in top_level:
@@ -1431,7 +1497,6 @@ async def explore(url: str, max_depth: int = 3) -> tuple:
 
         # Check if this is a toggle menu site (hamburger menu)
         # BUT: if there are already visible tabs (like women/men/kids), prefer DFS over toggle menu
-        toggle_menu_keywords = ['menu', 'hamburger', 'nav', 'navigation']
         toggle_item = None
 
         # Count visible tabs that are NOT toggle menus (actual category tabs)
@@ -1463,7 +1528,7 @@ async def explore(url: str, max_depth: int = 3) -> tuple:
                 print("    ERROR: Could not open toggle menu")
                 return states, _llm_usage
 
-            await page.wait_for_timeout(1000)
+            await page.wait_for_timeout(500)
 
             # Get ARIA and ask LLM to identify structure
             aria = await page.locator('body').aria_snapshot()
@@ -1583,11 +1648,17 @@ async def explore(url: str, max_depth: int = 3) -> tuple:
                         )
                         _track_llm_result(hover_result)
                         if hover_result.get("success"):
-                            _, hover_leaf_links, _ = parse_subcategories(hover_result.get("response", ""))
+                            raw_response = hover_result.get("response", "")
+                            _, hover_leaf_links, is_leaf = parse_subcategories(raw_response)
                             hover_approved = {link['name'].lower() for link in hover_leaf_links}
                             approved_links = {name: url for name, url in all_links.items()
                                              if name.lower() in hover_approved}
                             print(f"    LLM approved {len(approved_links)} of {len(all_links)} links")
+                            # Show reasoning when 0 approved
+                            if len(approved_links) == 0 and len(all_links) > 0:
+                                print(f"    [REASONING] LLM response:")
+                                for line in raw_response.split('\n')[:15]:
+                                    print(f"      {line}")
                         else:
                             approved_links = all_links
                             print(f"    LLM failed, keeping all {len(all_links)} links")
@@ -1776,6 +1847,12 @@ async def explore(url: str, max_depth: int = 3) -> tuple:
             new_links = {name: url for name, url in current_links.items()
                         if name.lower() in llm_approved_names}
             print(f"    LLM approved {len(new_links)} of {len(current_links)} links")
+            # Show reasoning when 0 approved
+            if len(new_links) == 0 and len(current_links) > 0:
+                print(f"    [REASONING] LLM found no matching links. LLM links: {list(llm_links.keys())}")
+                print(f"    [REASONING] Extracted links: {list(current_links.keys())[:10]}")
+                if is_product_listing:
+                    print(f"    [REASONING] Marked as LEAF/PRODUCT_LISTING page")
 
             # Add the top-level item's own URL if this is a top-level path
             if len(path) == 1 and path[0] in top_level_urls:

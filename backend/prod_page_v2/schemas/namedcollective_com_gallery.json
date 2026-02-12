@@ -1,0 +1,7 @@
+{
+  "image_selectors": [
+    "product-gallery img"
+  ],
+  "url_attribute": "src",
+  "image_count": 8
+}

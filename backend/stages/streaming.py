@@ -49,14 +49,20 @@ class StreamingOrchestrator:
     Orchestrates streaming between URL and Product extraction stages.
 
     Usage:
-        orchestrator = StreamingOrchestrator(domain, nav_tree)
+        # Extract URLs fresh from nav tree, stream products as URLs are found:
+        orchestrator = StreamingOrchestrator(domain, nav_tree=nav_tree)
+        result = orchestrator.run()
+
+        # Use existing URLs from urls.json (products-only mode):
+        orchestrator = StreamingOrchestrator(domain, urls_tree=urls_tree)
         result = orchestrator.run()
     """
 
     def __init__(
         self,
         domain: str,
-        nav_tree: dict,
+        nav_tree: dict = None,
+        urls_tree: dict = None,
         max_url_workers: int = 4,
         product_concurrency: int = 15,
         product_callback=None,
@@ -66,13 +72,20 @@ class StreamingOrchestrator:
 
         Args:
             domain: Domain name (e.g., "eckhauslatta_com")
-            nav_tree: Navigation tree from Stage 1 (nav.json content)
-            max_url_workers: Max parallel URL extraction workers
+            nav_tree: Navigation tree from Stage 1 (nav.json content) - extracts URLs fresh
+            urls_tree: URLs tree from Stage 2 (urls.json content) - uses existing URLs
+                       Provide either nav_tree OR urls_tree, not both.
+            max_url_workers: Max parallel URL extraction workers (only used with nav_tree)
             product_concurrency: Max concurrent product extractions
             product_callback: Optional callable(product_dict, category_path) called after each product is saved
         """
+        if not nav_tree and not urls_tree:
+            raise ValueError("Must provide either nav_tree or urls_tree")
+
         self.domain = domain
         self.nav_tree = nav_tree
+        self.urls_tree = urls_tree
+        self.skip_url_extraction = urls_tree is not None
         self.max_url_workers = max_url_workers
         self.product_concurrency = product_concurrency
         self.product_callback = product_callback
@@ -108,10 +121,14 @@ class StreamingOrchestrator:
         start_time = time.time()
 
         print(f"\n{'='*60}")
-        print(f"STREAMING PIPELINE")
+        if self.skip_url_extraction:
+            print(f"PRODUCT EXTRACTION (from urls.json)")
+        else:
+            print(f"STREAMING PIPELINE")
         print(f"{'='*60}")
         print(f"Domain: {self.domain}")
-        print(f"URL workers: {self.max_url_workers}")
+        if not self.skip_url_extraction:
+            print(f"URL workers: {self.max_url_workers}")
         print(f"Product concurrency: {self.product_concurrency}")
         print(f"{'='*60}\n")
 
@@ -123,9 +140,12 @@ class StreamingOrchestrator:
         )
         consumer_thread.start()
 
-        # Run producer (blocks until all URLs extracted)
+        # Run producer/loader (blocks until all URLs ready)
         try:
-            self._url_producer()
+            if self.skip_url_extraction:
+                self._url_loader()
+            else:
+                self._url_producer()
         except Exception as e:
             with self._stats_lock:
                 self.errors.append(f"URL producer error: {e}")
@@ -368,6 +388,76 @@ class StreamingOrchestrator:
 
         # Signal completion
         print(f"\n[URL Producer] Complete. Raw: {dedup_stats['total_raw']}, After dedup: {self.urls_produced}")
+        self.url_queue.put(URLBatch(
+            urls=[], category_path="", category_name="",
+            category_url="", is_sentinel=True
+        ))
+
+        # Ensure discovery is signaled even if we have < 2 URLs
+        self.discovery_complete.set()
+
+    def _url_loader(self):
+        """
+        Load URLs from existing urls_tree and feed them to the queue.
+
+        Used when skip_url_extraction=True (products-only mode).
+        No URL extraction happens - just loads from urls.json.
+        """
+        from stages.metrics import set_current_stage
+
+        set_current_stage("products")
+
+        tree = self.urls_tree.get("category_tree", [])
+        total_urls = self.urls_tree.get("unique_products", 0)
+
+        print(f"[URL Loader] Loading {total_urls} URLs from urls.json")
+
+        # Flatten tree into batches
+        def process_node(node, parent_path=""):
+            name = node.get("name", "Unknown")
+            url = node.get("url", "")
+            products = node.get("products", [])
+            path = node.get("path", name)
+
+            # Build category path for filesystem
+            category_path = path.lower().replace(" ", "-")
+            category_path = ''.join(c for c in category_path if c.isalnum() or c in '-/')
+
+            if products:
+                # Discovery phase: collect first 2 URLs
+                discovery_needed = 2
+                if len(self.discovery_urls) < discovery_needed:
+                    for prod_url in products:
+                        if len(self.discovery_urls) < discovery_needed:
+                            self.discovery_urls.append((prod_url, category_path))
+
+                    if len(self.discovery_urls) >= discovery_needed:
+                        print(f"\n[Discovery] Got {len(self.discovery_urls)} URLs for discovery")
+                        self.discovery_complete.set()
+
+                # Put batch in queue
+                batch = URLBatch(
+                    urls=products,
+                    category_path=category_path,
+                    category_name=name,
+                    category_url=url
+                )
+                self.url_queue.put(batch)
+
+                with self._stats_lock:
+                    self.urls_produced += len(products)
+
+                print(f"  [URL Loader] {name}: {len(products)} URLs")
+
+            # Recurse into children
+            for child in node.get("children", []):
+                process_node(child, category_path)
+
+        for node in tree:
+            process_node(node)
+
+        # Signal completion
+        print(f"\n[URL Loader] Complete. {self.urls_produced} URLs queued")
         self.url_queue.put(URLBatch(
             urls=[], category_path="", category_name="",
             category_url="", is_sentinel=True

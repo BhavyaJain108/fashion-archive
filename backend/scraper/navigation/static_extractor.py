@@ -19,153 +19,59 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from scraper.navigation.llm_popup_dismiss import dismiss_popups_with_llm
 from scraper.llm_handler import LLMHandler, LLMUsageTracker
 
+# Import hamburger detection from dynamic explorer
+from scraper.navigation.dynamic_explorer import open_menu
+
+# Match viewport with dynamic explorer (triggers hamburger menus)
+VIEWPORT = {'width': 768, 'height': 900}
+
 
 async def get_nav_links_with_structure(page) -> str:
     """
-    Extract all nav links grouped by top-level sections with hierarchy.
-    Returns formatted string with section headers, sub-headers (buttons), and indentation.
+    Extract all links from DOM with depth indentation to preserve structure.
     """
     script = """
     () => {
-        const results = [];
+        const allLinks = document.querySelectorAll('a[href]');
+        const links = [];
+        const seen = new Set();
 
-        // Find main nav
-        const nav = document.querySelector('nav') ||
-                    document.querySelector('[role="navigation"]') ||
-                    document.querySelector('header');
-
-        if (!nav) {
-            // Fallback: grab ALL links from the page so the LLM can decide
-            const allLinks = document.querySelectorAll('a[href]');
-            const fallbackLinks = [];
-            const seen = new Set();
-            allLinks.forEach(link => {
-                const href = link.getAttribute('href') || '';
-                const text = link.innerText.trim().replace(/\\n/g, ' ').replace(/\\s+/g, ' ').substring(0, 80);
-                if (!text || !href || href === '#' || href.startsWith('javascript:')) return;
-                const key = href + '|' + text;
-                if (seen.has(key)) return;
-                seen.add(key);
-                fallbackLinks.push(text + ' | ' + href);
-            });
-            if (fallbackLinks.length > 0) {
-                return '=== All Page Links (no nav element found) ===\\n' + fallbackLinks.join('\\n');
-            }
-            return 'No nav found';
-        }
-
-        // Find the main list (direct ul child of nav, or within nav)
-        const mainList = nav.querySelector('ul');
-        if (!mainList) {
-            // Fallback: grab all links from the nav/header even without a <ul>
-            const navLinks = nav.querySelectorAll('a[href]');
-            const flatLinks = [];
-            const seen = new Set();
-            navLinks.forEach(link => {
-                const href = link.getAttribute('href') || '';
-                const text = link.innerText.trim().replace(/\\n/g, ' ').replace(/\\s+/g, ' ').substring(0, 80);
-                if (!text || !href || href === '#' || href.startsWith('javascript:')) return;
-                const key = href + '|' + text;
-                if (seen.has(key)) return;
-                seen.add(key);
-                flatLinks.push(text + ' | ' + href);
-            });
-            if (flatLinks.length > 0) {
-                return '=== Navigation Links (flat) ===\\n' + flatLinks.join('\\n');
-            }
-            return 'No nav list found';
-        }
-
-        // Get top-level list items
-        const topLevelItems = mainList.querySelectorAll(':scope > li');
-
-        // Find the nearest parent button text for a link
-        function getParentButtonText(el, container) {
-            let parent = el.parentElement;
-            while (parent && parent !== container) {
-                // Check if this parent has a sibling or child button before the link
-                const prevButton = parent.querySelector(':scope > button');
-                if (prevButton) {
-                    return prevButton.innerText.trim().replace(/\\n/g, ' ').replace(/\\s+/g, ' ');
-                }
-                // Check for aria-label on container
-                const ariaLabel = parent.getAttribute('aria-label');
-                if (ariaLabel) {
-                    return ariaLabel;
-                }
-                // Check for role=region with name
-                if (parent.getAttribute('role') === 'region') {
-                    const regionLabel = parent.getAttribute('aria-label') || parent.getAttribute('aria-labelledby');
-                    if (regionLabel) return regionLabel;
-                }
-                parent = parent.parentElement;
-            }
-            return null;
-        }
-
-        // Count UL depth relative to a container element
-        function getDepthWithin(el, container) {
+        // Get depth of element in DOM (count parent elements)
+        function getDepth(el) {
             let depth = 0;
             let parent = el.parentElement;
-            while (parent && parent !== container) {
-                if (parent.tagName === 'UL') {
-                    depth++;
-                }
+            while (parent && parent !== document.body) {
+                depth++;
                 parent = parent.parentElement;
             }
-            return Math.max(0, depth - 1);
+            return depth;
         }
 
-        topLevelItems.forEach(li => {
-            // Get section name from first button or link
-            const sectionEl = li.querySelector('button, a');
-            if (!sectionEl) return;
-
-            const sectionName = sectionEl.innerText.trim().replace(/\\n/g, ' ').replace(/\\s+/g, ' ');
-            if (!sectionName) return;
-
-            // Skip utility sections
-            const nameLower = sectionName.toLowerCase();
-            if (['search', 'cart', 'login', 'account'].includes(nameLower)) return;
-
-            // Get all links within this section, grouped by parent button
-            const links = li.querySelectorAll('a[href]');
-            const sectionLinks = [];
-            let lastParentButton = null;
-
-            links.forEach(link => {
-                const href = link.getAttribute('href') || '';
-                const text = link.innerText.trim().replace(/\\n/g, ' ').replace(/\\s+/g, ' ').substring(0, 50);
-
-                // Skip empty or useless
-                if (!text || !href || href === '#' || href.startsWith('javascript:')) {
-                    return;
-                }
-
-                // Get parent button/aria-label for grouping
-                const parentButton = getParentButtonText(link, li);
-
-                // Add sub-header when parent button changes
-                if (parentButton && parentButton !== lastParentButton && parentButton !== sectionName) {
-                    sectionLinks.push('');
-                    sectionLinks.push('--- ' + parentButton + ' ---');
-                    lastParentButton = parentButton;
-                }
-
-                const depth = getDepthWithin(link, li);
-                const indent = '  '.repeat(depth);
-                sectionLinks.push(indent + text + ' | ' + href);
-            });
-
-            // Only add section if it has links
-            if (sectionLinks.length > 0) {
-                results.push('');
-                results.push('=== ' + sectionName + ' ===');
-                sectionLinks.forEach(link => results.push(link));
+        // Find min depth to normalize indentation
+        let minDepth = Infinity;
+        allLinks.forEach(link => {
+            const href = link.getAttribute('href') || '';
+            const text = link.innerText.trim();
+            if (text && href && href !== '#' && !href.startsWith('javascript:')) {
+                minDepth = Math.min(minDepth, getDepth(link));
             }
         });
 
-        return results.join('\\n').trim();
+        allLinks.forEach(link => {
+            const href = link.getAttribute('href') || '';
+            const text = link.innerText.trim().replace(/\\n/g, ' ').replace(/\\s+/g, ' ').substring(0, 80);
+            if (!text || !href || href === '#' || href.startsWith('javascript:')) return;
+            const key = href + '|' + text;
+            if (seen.has(key)) return;
+            seen.add(key);
+
+            // Indent based on DOM depth (normalized)
+            const depth = Math.max(0, getDepth(link) - minDepth);
+            const indent = '  '.repeat(Math.min(depth, 5)); // Cap at 5 levels
+            links.push(indent + text + ' | ' + href);
+        });
+
+        return links.join('\\n');
     }
     """
 
@@ -208,7 +114,7 @@ async def extract_tree(url: str, output_dir: Path = None) -> tuple:
 
     playwright = await async_playwright().start()
     browser = await playwright.chromium.launch(headless=False)
-    page = await browser.new_page()
+    page = await browser.new_page(viewport=VIEWPORT)
     links_text = ""
     llm_usage = {"input_tokens": 0, "output_tokens": 0}  # Initialize for tracking
 
@@ -220,7 +126,15 @@ async def extract_tree(url: str, output_dir: Path = None) -> tuple:
         print("[2] Dismissing popups...")
         await dismiss_popups_with_llm(page)
 
-        print("[3] Extracting nav links with structure...")
+        print("[3] Opening hamburger menu if present...")
+        menu_opened = await open_menu(page)
+        if menu_opened:
+            print("    Hamburger menu opened")
+            await page.wait_for_timeout(500)
+        else:
+            print("    No hamburger menu found (or already open)")
+
+        print("[4] Extracting nav links with structure...")
         links_text = await get_nav_links_with_structure(page)
 
         # Save raw links immediately (before LLM) for quick review
@@ -236,7 +150,7 @@ async def extract_tree(url: str, output_dir: Path = None) -> tuple:
         if len(links_text.split('\n')) > 30:
             print(f"    ... and {len(links_text.split(chr(10))) - 30} more")
 
-        print("\n[4] Asking LLM to build tree...")
+        print("\n[5] Asking LLM to build tree...")
 
         screenshot = await page.screenshot()
         screenshot_b64 = base64.b64encode(screenshot).decode('utf-8')
@@ -245,7 +159,7 @@ async def extract_tree(url: str, output_dir: Path = None) -> tuple:
 
 {links_text}
 
-Build a JSON array of PRODUCT CATEGORIES only.
+Build a JSON array of ALL shopping/product links.
 
 SCHEMA (follow exactly):
 [
@@ -264,12 +178,10 @@ SCHEMA (follow exactly):
 
 RULES:
 - Return a JSON array (not object)
-- Only include product categories (Women, Men, Clothing, Shoes, Bags, Accessories, etc.)
+- INCLUDE: Any link to products or collections - this includes traditional categories (Women, Men, Shoes) AND brand-specific collection names (seasonal drops, collaborations, style names, etc.)
+- INCLUDE: Links containing /collections/, /products/, /shop/, /category/ in the URL
+- EXCLUDE ONLY: About, Contact, FAQ, Terms, Privacy, Careers, Press, Customer Service, Account, Cart, Wishlist, Search, Social media links
 - If the site has a single "Store" or "Shop" link (even to a subdomain), include it as a top-level category
-- If no structured categories exist but there IS a store/shop link, return it as: [{{"name": "Store", "url": "https://...", "children": []}}]
-- EXCLUDE: Campaigns, Playlists, Artists, Collaborations, About pages, Sustainability, FAQ, Legal, Social media links, Music/Video links
-- Use section headers (=== NAME ===) as top-level categories
-- Use indentation within sections to determine children
 - Every node MUST have: "name" (string), "url" (string or null), "children" (array, can be empty)
 - IMPORTANT: Copy URLs exactly as they appear - do NOT decode URL-encoded characters like %C2%A0, %20, etc.
 
@@ -330,7 +242,7 @@ Respond with ONLY the JSON array, no markdown, no explanation:
             # Resolve relative URLs to absolute URLs
             resolve_urls_in_tree(tree, url)
 
-            print("\n[5] Tree extracted:")
+            print("\n[6] Tree extracted:")
             print(json.dumps(tree, indent=2))
             return tree, links_text, llm_usage
 

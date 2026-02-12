@@ -60,43 +60,47 @@ def run_urls(domain: str) -> bool:
 
 
 def run_products(domain: str) -> bool:
-    """Run Stage 3: Product extraction."""
-    from stages.products import run_extract_products
+    """Run Stage 3: Product extraction (from existing urls.json).
 
-    result = run_extract_products(domain)
-    return result is not None and result.get("success")
+    Uses the same streaming infrastructure as urls+products (browser pool,
+    rate limiter, dashboard) but loads URLs from urls.json instead of
+    extracting them fresh.
+    """
+    from stages.streaming import StreamingOrchestrator
+    from stages.storage import load_urls
+
+    urls_tree = load_urls(domain)
+    if not urls_tree:
+        print(f"Failed to load urls.json for {domain}")
+        return False
+
+    print("\n" + "="*60)
+    print("STAGE 3: PRODUCT EXTRACTION")
+    print("="*60)
+    orchestrator = StreamingOrchestrator(domain, urls_tree=urls_tree)
+    result = orchestrator.run()
+
+    return result.success
 
 
-def run_streaming(url: str, nav_mode: str = "both") -> bool:
-    """Run streaming pipeline: nav -> (urls + products in parallel).
+def run_urls_and_products(domain: str) -> bool:
+    """Run Stages 2+3 with streaming: products extract as URLs are found.
 
-    Products start extracting as soon as URLs become available,
-    rather than waiting for all URL extraction to complete.
+    Requires nav.json to exist. Uses StreamingOrchestrator so product
+    extraction starts immediately as URLs become available.
     """
     from stages.streaming import StreamingOrchestrator
     from stages.storage import load_navigation
 
-    domain = get_domain(url).replace('.', '_')
-
-    # Stage 1: Navigation (unchanged)
-    print("\n" + "="*60)
-    print("STAGE 1: NAVIGATION")
-    print("="*60)
-    if not run_nav(url, mode=nav_mode):
-        print("Navigation extraction failed")
-        return False
-
-    # Load nav tree for streaming
     nav_tree = load_navigation(domain)
     if not nav_tree:
         print(f"Failed to load nav.json for {domain}")
         return False
 
-    # Stage 2+3: Streaming URL -> Product extraction
     print("\n" + "="*60)
     print("STAGES 2+3: STREAMING URL & PRODUCT EXTRACTION")
     print("="*60)
-    orchestrator = StreamingOrchestrator(domain, nav_tree)
+    orchestrator = StreamingOrchestrator(domain, nav_tree=nav_tree)
     result = orchestrator.run()
 
     return result.success
@@ -113,9 +117,6 @@ def main():
     # Determine what stages to run
     stages = []
 
-    # Handle 'all' command specially (uses streaming)
-    use_streaming = (command == "all")
-
     if command == "nav":
         stages = ["nav"]
     elif command == "urls":
@@ -125,9 +126,9 @@ def main():
     elif command == "nav+urls":
         stages = ["nav", "urls"]
     elif command == "urls+products":
-        stages = ["urls", "products"]
+        stages = ["urls+products"]  # Streaming
     elif command == "all":
-        stages = ["streaming"]  # Special marker for streaming mode
+        stages = ["nav", "urls+products"]  # Nav then streaming
     else:
         print(f"Unknown command: {command}")
         print(__doc__)
@@ -142,8 +143,8 @@ def main():
         url = None
 
     # Validate inputs
-    if ("nav" in stages or use_streaming) and not url:
-        print("Error: This command requires a URL")
+    if "nav" in stages and not url:
+        print("Error: 'nav' stage requires a URL")
         print("Usage: python pipeline.py <command> <url>")
         sys.exit(1)
 
@@ -154,10 +155,14 @@ def main():
     elif "--dynamic" in sys.argv:
         nav_mode = "dynamic"
 
+    # Determine if streaming is involved
+    uses_streaming = "urls+products" in stages
+
     print(f"\n{'#'*60}")
     print(f"# FASHION SCRAPING PIPELINE")
-    if use_streaming:
-        print(f"# Mode: STREAMING (nav -> urls+products parallel)")
+    if uses_streaming:
+        stage_names = [s if s != "urls+products" else "urls+products (streaming)" for s in stages]
+        print(f"# Stages: {' -> '.join(stage_names)}")
     else:
         print(f"# Stages: {' -> '.join(stages)}")
     print(f"# Target: {url or domain}")
@@ -174,25 +179,20 @@ def main():
     success = True
 
     # Run stages
-    if use_streaming:
-        # Streaming mode: nav -> (urls + products in parallel)
-        success = run_streaming(url, nav_mode)
-        if not success:
-            print(f"\nStreaming pipeline failed.")
-            sys.exit(1)
-    else:
-        # Sequential mode for individual stages
-        for stage in stages:
-            if stage == "nav":
-                success = run_nav(url, mode=nav_mode)
-            elif stage == "urls":
-                success = run_urls(domain)
-            elif stage == "products":
-                success = run_products(domain)
+    for stage in stages:
+        if stage == "nav":
+            success = run_nav(url, mode=nav_mode)
+        elif stage == "urls":
+            success = run_urls(domain)
+        elif stage == "products":
+            success = run_products(domain)
+        elif stage == "urls+products":
+            # Streaming: products start extracting as URLs are found
+            success = run_urls_and_products(domain)
 
-            if not success:
-                print(f"\nStage '{stage}' failed. Stopping pipeline.")
-                sys.exit(1)
+        if not success:
+            print(f"\nStage '{stage}' failed. Stopping pipeline.")
+            sys.exit(1)
 
     # Print pipeline summary with total costs
     from stages.metrics import load_metrics
