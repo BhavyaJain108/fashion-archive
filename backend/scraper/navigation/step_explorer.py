@@ -63,7 +63,7 @@ class NavExplorer:
         self.menu_selector: str = None
 
         # DFS state
-        self.stack: list[tuple] = []  # [(path, name, role, expands_info), ...] where expands_info is None or {'link_name': str, 'link_url': str}
+        self.stack: list[tuple] = []  # [(path, name, role, expands_info, is_tab), ...] where expands_info is None or {'link_name': str, 'link_url': str}
         self.explored: set = set()    # path tuples we've clicked
         self.categories: dict = {}    # path_key -> url
 
@@ -147,7 +147,7 @@ class NavExplorer:
                 # Add tabs to stack (reversed so first tab is on top)
                 for tab in reversed(self.tabs):
                     path = [tab['text']]
-                    self.stack.append((path, tab['text'], tab['role'], None))
+                    self.stack.append((path, tab['text'], tab['role'], None, True))  # is_tab=True
             else:
                 print("[SETUP] Could not find tabs in DOM")
 
@@ -226,7 +226,7 @@ class NavExplorer:
                         # Use aria_role for clicking (actual DOM role), not logical type
                         full_path = path + [name]
                         click_role = el.get('aria_role', el['type'])
-                        self.stack.append((full_path, name, click_role, expands_info))
+                        self.stack.append((full_path, name, click_role, expands_info, False))  # is_tab=False
                         expandables_added += 1
                         print(f"[SETUP] Expandable '{name}': added to stack")
                     else:
@@ -234,7 +234,7 @@ class NavExplorer:
 
             print(f"[SETUP] Total: {links_added} links, {expandables_added} expandables")
 
-        print(f"[SETUP] Stack: {[name for _, name, _, _ in self.stack]}")
+        print(f"[SETUP] Stack: {[name for _, name, _, _, _ in self.stack]}")
         return {'success': True, 'stack_size': len(self.stack)}
 
     async def _get_aria(self) -> str:
@@ -301,7 +301,7 @@ class NavExplorer:
         if hasattr(self, '_back_button_element') and self._back_button_element:
             try:
                 await self._back_button_element.click(timeout=3000, force=True)
-                await self.page.wait_for_timeout(300)
+                await self.page.wait_for_timeout(100)
                 print(f"    [BACK] Clicked stored element")
                 return True
             except Exception as e:
@@ -316,7 +316,7 @@ class NavExplorer:
                 loc = container.locator(self.back_button_selector).first
                 if await loc.count() > 0:
                     await loc.click(timeout=3000, force=True)
-                    await self.page.wait_for_timeout(300)
+                    await self.page.wait_for_timeout(100)
                     print(f"    [BACK] Clicked: {self.back_button_selector}")
                     return True
                 else:
@@ -333,7 +333,7 @@ class NavExplorer:
             try:
                 loc = container.locator(back_sel).first
                 await loc.click(timeout=3000, force=True)
-                await self.page.wait_for_timeout(300)
+                await self.page.wait_for_timeout(100)
                 print(f"    [BACK] Found and clicked: {back_sel}")
                 return True
             except Exception as e:
@@ -502,7 +502,7 @@ Return the 1-indexed number of the back button, or 0 if none of these is a back 
         if self.current_tab:
             print(f"  [RECOVER] Clicking tab '{self.current_tab}'")
             await click_button(self.page, self.current_tab, prefer_role='tab')
-            await self.page.wait_for_timeout(300)
+            await self.page.wait_for_timeout(100)
 
         # Navigate down to target path (skip tab if it's first in path)
         for i, item_name in enumerate(target_path[:-1]):
@@ -513,7 +513,7 @@ Return the 1-indexed number of the back button, or 0 if none of these is a back 
             if not clicked:
                 print(f"  [RECOVER] Could not navigate to '{item_name}'")
                 return False
-            await self.page.wait_for_timeout(200)
+            await self.page.wait_for_timeout(100)
 
         print(f"  [RECOVER] Recovery complete, ready for '{target_path[-1]}'")
         return True
@@ -541,7 +541,7 @@ Return the 1-indexed number of the back button, or 0 if none of these is a back 
             )
 
         # Pop item
-        path, item_name, role, expands_info = self.stack.pop()
+        path, item_name, role, expands_info, is_tab = self.stack.pop()
         path_key = tuple(path)
 
         # Check if this button expands a link - if so, children attach to link's node
@@ -567,32 +567,38 @@ Return the 1-indexed number of the back button, or 0 if none of these is a back 
         print(f"\n[STEP] {' > '.join(path)} ({role})", flush=True)
         print(f"  Stack: {len(self.stack)} remaining", flush=True)
 
+        # is_tab was stored in stack when item was added
+        is_tab_switch = is_tab
+
         # Track current tab - reset state when switching
-        if role == 'tab' and len(path) == 1:
+        if is_tab_switch:
             self.current_tab = item_name
             self.back_button_selector = None  # Clear back button cache for new tab
-            print(f"  [TAB] Switched to: {item_name}")
+            print(f"  [TAB] Switching to: {item_name}")
 
             # Ensure menu is open before clicking tab
             await self._ensure_menu_open()
-
-        # Get ARIA before and extract elements
-        aria_before = await self._get_aria()
-        print(f"  [ARIA BEFORE] {len(aria_before)} chars, {len(aria_before.splitlines())} lines")
-        # Print ARIA for debugging
-        for line in aria_before.splitlines():
-            print(f"    {line}")
 
         # CSS exclusion cache is per-depth (CSS classes reused differently at each level)
         depth = len(path)
         depth_cache = self.excluded_groups_cache.get(depth)
 
-        # Extract nav elements from BEFORE (for diff)
-        result_before = await extract_and_filter_nav_elements(
-            self.page, aria_before, self.menu_selector,
-            excluded_groups_cache=depth_cache
-        )
-        elements_before = result_before['elements']
+        # For TABS: skip BEFORE capture - we want ALL content, no diff
+        # For EXPANDABLES: capture BEFORE for diff
+        elements_before = []
+        if not is_tab_switch:
+            aria_before = await self._get_aria()
+            print(f"  [ARIA BEFORE] {len(aria_before)} chars, {len(aria_before.splitlines())} lines")
+            # Print ARIA for debugging
+            for line in aria_before.splitlines():
+                print(f"    {line}")
+
+            # Extract nav elements from BEFORE (for diff)
+            result_before = await extract_and_filter_nav_elements(
+                self.page, aria_before, self.menu_selector,
+                excluded_groups_cache=depth_cache
+            )
+            elements_before = result_before['elements']
 
         # Click the item (with recovery for submenu navigation)
         url_before = self.page.url
@@ -617,7 +623,7 @@ Return the 1-indexed number of the back button, or 0 if none of these is a back 
                     error=f"Could not click '{item_name}'"
                 )
 
-        await self.page.wait_for_timeout(300)
+        await self.page.wait_for_timeout(100)
 
         # Check if click caused navigation (URL changed)
         # For tabs, URL might change (hash or query params) - that's expected
@@ -638,6 +644,7 @@ Return the 1-indexed number of the back button, or 0 if none of these is a back 
 
         # Detect back button when entering submenu (not for tabs)
         entered_submenu = False
+        is_in_place_expansion = False
         if role != 'tab' and not self.back_button_selector:
             container = self.page.locator(self.menu_selector) if self.menu_selector else self.page
             back_sel = await self._find_menu_back_button(container)
@@ -646,6 +653,7 @@ Return the 1-indexed number of the back button, or 0 if none of these is a back 
                 entered_submenu = True
                 print(f"  [BACK] Detected: {back_sel}")
             else:
+                is_in_place_expansion = True
                 print(f"  [EXPAND] Content expanded in place (no back button)")
 
         # Get ARIA after and extract elements
@@ -667,10 +675,9 @@ Return the 1-indexed number of the back button, or 0 if none of these is a back 
             self.excluded_groups_cache[depth] = result_after['excluded_groups']
 
         # Build sets for diff
-        # - Tab switch: capture all content (no diff)
+        # - Tab switch: capture all content (no diff) - is_tab_switch already set above
         # - Submenu navigation (back button exists): position-based diff (old content hidden)
         # - In-place expansion (no back button): context-based diff (name + parent/nearby_link)
-        is_tab_switch = (role == 'tab' and len(path) == 1)
         use_position_diff = self.back_button_selector is not None
 
         if is_tab_switch:
@@ -832,7 +839,7 @@ Return the 1-indexed number of the back button, or 0 if none of these is a back 
         for exp in pending_expandables:
             if not self._has_children(exp['el_path'], exp['name']):
                 full_path = exp['el_path'] + [exp['name']]
-                self.stack.append((full_path, exp['name'], exp['click_role'], exp['expands_info']))
+                self.stack.append((full_path, exp['name'], exp['click_role'], exp['expands_info'], False))  # is_tab=False
                 added_to_stack += 1
                 print(f"  [NAV] Expandable: {exp['name']} (added to stack)", flush=True)
             else:
@@ -842,7 +849,8 @@ Return the 1-indexed number of the back button, or 0 if none of these is a back 
         print(f"  [TREE] Total categories: {len(self.categories)}", flush=True)
 
         # Fallback: if no back button found, look for icon-only buttons not in discovered elements
-        if role != 'tab' and not self.back_button_selector:
+        # Skip if we already determined it's in-place expansion (no back button needed)
+        if role != 'tab' and not self.back_button_selector and not is_in_place_expansion:
             discovered_names = {el['name'] for el in elements_after}
             container = self.page.locator(self.menu_selector) if self.menu_selector else self.page
             try:
@@ -875,7 +883,7 @@ Return the 1-indexed number of the back button, or 0 if none of these is a back 
         print(f"  [STACK] Added {len(children)} (LIFO - last added = next to pop)", flush=True)
         print(f"  [STACK] ({len(self.stack)} items, top first):", flush=True)
         # Print stack in reverse (top = last = next to pop)
-        for i, (p, n, r, _) in enumerate(reversed(self.stack)):
+        for i, (p, n, r, _, _) in enumerate(reversed(self.stack)):
             path_str = ' > '.join(p)
             role_tag = f" [{r}]" if r == 'tab' else ""
             marker = "→ " if i == 0 else "  "
@@ -887,7 +895,7 @@ Return the 1-indexed number of the back button, or 0 if none of these is a back 
         # Go back if next item is at same or shallower depth (not a child we just pushed)
         # Skip for in-place expansion - no back button needed, all content still visible
         if self.stack and len(children) == 0 and self.back_button_selector:
-            next_path, _, next_role, _ = self.stack[-1]
+            next_path, _, next_role, _, _ = self.stack[-1]
 
             if next_role == 'tab':
                 # Next is a tab - go back to level 1 (tab level)
@@ -926,7 +934,7 @@ Return the 1-indexed number of the back button, or 0 if none of these is a back 
         """Print current state."""
         print(f"\n{'='*50}")
         print(f"Stack: {len(self.stack)}")
-        for path, name, role, _ in self.stack[-5:]:
+        for path, name, role, _, _ in self.stack[-5:]:
             print(f"  [{role}] {' > '.join(path)}")
         if len(self.stack) > 5:
             print(f"  ... +{len(self.stack)-5} more")

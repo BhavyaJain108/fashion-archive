@@ -1098,6 +1098,182 @@ def is_duplicate_block(block_aria: str, before_aria: str, threshold: float = 0.8
     return match_ratio >= threshold
 
 
+async def _discover_menu_container(page: Page, diff_text: str, before_aria: str) -> str | None:
+    """
+    Discover menu container by finding element whose ARIA matches the diff content.
+
+    Used as fallback when no standard ARIA roles (dialog, navigation, etc.) are found.
+
+    Args:
+        page: Playwright page
+        diff_text: The ARIA diff content (new lines that appeared)
+        before_aria: ARIA before menu opened (to filter out pre-existing content)
+
+    Returns:
+        CSS selector for the menu container, or None if not found
+    """
+    print(f"    [DISCOVER] Diff content ({len(diff_text)} chars):")
+    print(diff_text)
+    print(f"    [DISCOVER] --- end diff ---")
+
+    # Strip leading whitespace for comparison (indentation differs between full-page and element ARIA)
+    diff_lines = set(line.lstrip() for line in diff_text.split('\n') if line.strip())
+    before_lines = set(line.lstrip() for line in before_aria.split('\n') if line.strip())
+
+    print(f"    [DISCOVER] Diff has {len(diff_lines)} unique lines")
+
+    # Find visible overlay elements via JS (fixed/absolute positioned, large, visible)
+    # Track per-tag index for accurate Playwright locator
+    overlay_info = await page.evaluate("""() => {
+        const results = [];
+        const tagCounts = {};  // Track index per tag
+
+        document.querySelectorAll('div, aside, section, header').forEach((el) => {
+            const tag = el.tagName.toLowerCase();
+            tagCounts[tag] = (tagCounts[tag] || 0);
+            const tagIdx = tagCounts[tag];
+            tagCounts[tag]++;
+
+            const style = getComputedStyle(el);
+            const rect = el.getBoundingClientRect();
+
+            // Must be visible
+            if (style.display === 'none' || style.visibility === 'hidden') return;
+            if (parseFloat(style.opacity) === 0) return;
+            if (rect.width < 200 || rect.height < 200) return;
+
+            // Prefer fixed/absolute (overlays) but also check static elements
+            const isOverlay = style.position === 'fixed' || style.position === 'absolute';
+
+            results.push({
+                tag: tag,
+                tagIdx: tagIdx,  // Index within this tag type
+                isOverlay: isOverlay,
+                width: Math.round(rect.width),
+                height: Math.round(rect.height)
+            });
+        });
+        return results;
+    }""")
+
+    # Sort: overlays first, then by size (larger first)
+    overlay_info.sort(key=lambda x: (not x['isOverlay'], -(x['width'] * x['height'])))
+
+    print(f"    [DISCOVER] Found {len(overlay_info)} visible large elements ({sum(1 for x in overlay_info if x['isOverlay'])} overlays)")
+
+    # Debug: show first few overlays
+    for i, info in enumerate(overlay_info[:10]):
+        overlay_tag = "OVERLAY" if info['isOverlay'] else "static"
+        print(f"    [DISCOVER] #{i}: {info['tag']}[{info['tagIdx']}] ({overlay_tag}, {info['width']}x{info['height']})")
+
+    candidates = []
+
+    for info in overlay_info[:30]:  # Check top 30
+        try:
+            # Get element by tag and index within that tag
+            el = page.locator(f"{info['tag']}").nth(info['tagIdx'])
+
+            el_aria = await el.aria_snapshot()
+            if not el_aria or len(el_aria) < 100:
+                print(f"    [DISCOVER] {info['tag']}[{info['tagIdx']}]: skipped (aria={len(el_aria) if el_aria else 0} chars)")
+                continue
+
+            # Strip whitespace to match diff_lines format
+            el_lines = set(line.lstrip() for line in el_aria.split('\n') if line.strip())
+
+            # Check how much of diff is in this element
+            diff_in_el = diff_lines & el_lines
+            if len(diff_lines) == 0:
+                continue
+
+            coverage = len(diff_in_el) / len(diff_lines)
+
+            # Check how much is NEW (not from before)
+            new_in_el = el_lines - before_lines
+            if len(el_lines) == 0:
+                continue
+
+            new_ratio = len(new_in_el) / len(el_lines)
+
+            # Log all overlays and elements with any coverage
+            overlay_tag = "[OVERLAY]" if info['isOverlay'] else ""
+            if info['isOverlay'] or coverage > 0.1:
+                print(f"    [DISCOVER] {info['tag']}[{info['tagIdx']}]{overlay_tag}: coverage={coverage:.0%}, new={new_ratio:.0%}, size={len(el_aria)}")
+
+            # Good candidate: contains most of diff AND mostly new content
+            if coverage > 0.5 and new_ratio > 0.5:
+                selector = await _build_selector_for_element(page, el)
+                if selector:
+                    candidates.append({
+                        'selector': selector,
+                        'coverage': coverage,
+                        'new_ratio': new_ratio,
+                        'size': len(el_aria),
+                        'is_overlay': info['isOverlay']
+                    })
+                    print(f"    [DISCOVER] Candidate: {selector}")
+
+        except Exception as e:
+            continue
+
+    if not candidates:
+        print(f"    [DISCOVER] No container found matching diff content")
+        return None
+
+    # Pick best candidate: prefer overlays, then highest new_ratio (menu should be mostly new content)
+    candidates.sort(key=lambda c: (not c['is_overlay'], -c['new_ratio'], c['size']))
+    best = candidates[0]
+    print(f"    [DISCOVER] Selected: {best['selector']} (overlay={best['is_overlay']}, coverage={best['coverage']:.0%}, new={best['new_ratio']:.0%})")
+
+    # Debug: print first 500 chars of selected element
+    try:
+        el = page.locator(best['selector']).first
+        el_aria = await el.aria_snapshot()
+        preview = el_aria[:500] if el_aria else "N/A"
+        print(f"    [DISCOVER] Preview:\n{preview}")
+    except:
+        pass
+
+    return best['selector']
+
+
+async def _build_selector_for_element(page: Page, el) -> str | None:
+    """Build a CSS selector for an element."""
+    try:
+        # Try to get a unique selector via JS
+        selector = await el.evaluate("""el => {
+            // Try ID first
+            if (el.id) return '#' + el.id;
+
+            // Try unique class combination
+            if (el.className) {
+                const classes = el.className.toString().split(' ')
+                    .filter(c => c && !c.includes(':') && c.length < 30)
+                    .slice(0, 3);
+                if (classes.length) {
+                    const selector = el.tagName.toLowerCase() + '.' + classes.join('.');
+                    if (document.querySelectorAll(selector).length === 1) {
+                        return selector;
+                    }
+                }
+            }
+
+            // Try aria-label
+            const label = el.getAttribute('aria-label');
+            if (label) {
+                const selector = el.tagName.toLowerCase() + '[aria-label="' + label + '"]';
+                if (document.querySelectorAll(selector).length === 1) {
+                    return selector;
+                }
+            }
+
+            return null;
+        }""")
+        return selector
+    except:
+        return None
+
+
 def find_root_role_in_diff(new_lines: list[str]) -> list[str]:
     """
     Find container roles in the ARIA diff.
@@ -1150,7 +1326,10 @@ async def find_menu_from_aria_diff(page: Page, before_aria: str, after_aria: str
     candidate_roles = find_root_role_in_diff(new_lines)
 
     if not candidate_roles:
-        return diff_text, None, []
+        # Fallback: discover menu container by matching ARIA content
+        print(f"    [ARIA-DIFF] No standard roles, discovering container by content...")
+        selector = await _discover_menu_container(page, diff_text, before_aria)
+        return diff_text, selector, []
 
     print(f"    [ARIA-DIFF] Container roles found: {candidate_roles}")
 

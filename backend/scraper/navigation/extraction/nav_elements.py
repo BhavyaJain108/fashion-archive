@@ -360,20 +360,21 @@ async def _get_css_for_elements(page: Page, elements: list[dict], menu_selector:
 
         try:
             # Map our types to Playwright roles
+            # IMPORTANT: exact=True prevents substring matching (e.g., 'S' matching 'Sale')
             if role == 'button':
-                locator = page.get_by_role('button', name=name)
+                locator = page.get_by_role('button', name=name, exact=True)
             elif role == 'tab':
-                locator = page.get_by_role('tab', name=name)
+                locator = page.get_by_role('tab', name=name, exact=True)
             elif role == 'menuitem':
-                locator = page.get_by_role('menuitem', name=name)
+                locator = page.get_by_role('menuitem', name=name, exact=True)
             elif role == 'link':
-                locator = page.get_by_role('link', name=name)
+                locator = page.get_by_role('link', name=name, exact=True)
             else:
-                locator = page.get_by_role('button', name=name)
+                locator = page.get_by_role('button', name=name, exact=True)
 
             # If we have a container, scope to it
             if container:
-                locator = container.get_by_role(role, name=name)
+                locator = container.get_by_role(role, name=name, exact=True)
 
             # Get first match
             if await locator.count() > 0:
@@ -514,7 +515,9 @@ async def _mark_expandable_links(page: Page, elements: list[dict], menu_selector
                             // Check if link or its children have expandable indicator classes
                             const allElements = [link, ...link.querySelectorAll('*')];
                             for (const child of allElements) {
-                                const classes = (child.className || '').toLowerCase();
+                                // Handle SVG elements where className is SVGAnimatedString
+                                const rawClass = child.className;
+                                const classes = (typeof rawClass === 'string' ? rawClass : rawClass?.baseVal || '').toLowerCase();
                                 for (const keyword of keywords) {
                                     if (classes.includes(keyword)) {
                                         expandable.push(name);
@@ -545,7 +548,9 @@ async def _mark_expandable_links(page: Page, elements: list[dict], menu_selector
                         if (linkText === name) {
                             const allElements = [link, ...link.querySelectorAll('*')];
                             for (const child of allElements) {
-                                const classes = (child.className || '').toLowerCase();
+                                // Handle SVG elements where className is SVGAnimatedString
+                                const rawClass = child.className;
+                                const classes = (typeof rawClass === 'string' ? rawClass : rawClass?.baseVal || '').toLowerCase();
                                 for (const keyword of keywords) {
                                     if (classes.includes(keyword)) {
                                         expandable.push(name);
