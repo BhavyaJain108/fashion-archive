@@ -20,10 +20,14 @@ from playwright.async_api import async_playwright, Page
 client = Anthropic(api_key=os.getenv('CLAUDE_API_KEY'))
 
 
-async def ask_llm_for_popup(page: Page) -> dict | None:
+async def ask_llm_for_popup(page: Page, menu_is_open: bool = False) -> dict | None:
     """
     Ask LLM if there's a popup and how to dismiss it.
     Returns ONE popup at a time - the highest priority one.
+
+    Args:
+        page: Playwright page
+        menu_is_open: If True, be extra careful about "Close" buttons (might be menu)
 
     Returns:
         dict with 'role' and 'name' of element to click, or None if no popup
@@ -32,38 +36,40 @@ async def ask_llm_for_popup(page: Page) -> dict | None:
     screenshot_b64 = base64.standard_b64encode(screenshot).decode('utf-8')
     aria = await page.locator('body').aria_snapshot()
 
-    prompt = """Look at this webpage. Is there a popup, modal, cookie banner, or overlay blocking the main content?
+    menu_warning = ""
+    if menu_is_open:
+        menu_warning = """
+IMPORTANT: The navigation menu is currently OPEN. A generic "Close" button is likely the MENU close button, NOT a popup. Only identify a popup if there's clearly a modal/overlay with distinct popup content (newsletter signup text, cookie text, promo offer, etc).
 
-If NO popup, respond: NONE
+If you only see a "Close" button without clear popup content, respond: NONE
+"""
 
-If YES, tell me the SINGLE most important one to dismiss first:
+    prompt = f"""Look at this webpage. Is there a popup, modal, cookie banner, or overlay blocking the main content?
+{menu_warning}
+RESPONSE FORMAT:
+REASON: <one sentence explaining what you see>
 POPUP: <role> "<exact button text>"
+or
+REASON: <one sentence>
+NONE
 
-Priority (what to dismiss first):
-1. Cookie consent → "Accept All Cookies", "Accept All", "Allow All"
-2. Newsletter/email signup → "Close", "X", "No thanks", "Maybe later"
-3. Discount/promo code popup → "Close", "X", "No thanks", "Continue without"
-4. Free gift/giveaway popup → "Close", "X", "No thanks", "Skip"
-5. Spin-to-win/wheel popup → "Close", "X", "No thanks"
-6. Country/region selector → "Continue", "Confirm", "Stay on site"
-7. Age verification → "Yes", "I am over 18", "Enter"
-8. Welcome/first-time visitor → "Close", "X", "Continue shopping"
+CRITICAL: The button you select MUST CLOSE/DISMISS the popup. Examples of dismiss buttons:
+- "Close", "X", "Accept", "Accept All", "No thanks", "Maybe later", "Continue"
 
-Things that are NOT popups (never dismiss):
-- "Close menu" / navigation controls
-- Search/cart close buttons
-- Menu-related controls
-- Product quick-view modals
-- Size guides
+NOT dismiss buttons (never select these):
+- Country names like "United States", "UK" (these SELECT, not close)
+- Language options like "English", "EN" (these SELECT, not close)
+- Navigation links, menu items, product links
+- Any button that doesn't close the popup
 
-CRITICAL: "Close menu" is NEVER a popup.
+If you don't see a clear CLOSE/DISMISS button, respond: NONE
 
 ARIA Snapshot:
 """ + aria[:8000]
 
     response = client.messages.create(
         model="claude-sonnet-4-20250514",
-        max_tokens=100,
+        max_tokens=150,
         messages=[{
             "role": "user",
             "content": [
@@ -74,7 +80,9 @@ ARIA Snapshot:
     )
 
     result = response.content[0].text.strip()
-    print(f"    LLM: {result}")
+    # Print full response including reasoning
+    for line in result.split('\n'):
+        print(f"    LLM: {line}")
 
     if "none" in result.lower():
         return None
@@ -150,13 +158,14 @@ async def remove_overlay_elements(page: Page) -> int:
     return removed
 
 
-async def dismiss_popups_with_llm(page: Page, max_attempts: int = 1) -> int:
+async def dismiss_popups_with_llm(page: Page, max_attempts: int = 1, menu_is_open: bool = False) -> int:
     """
     Dismiss popups - first try direct selectors, then LLM fallback.
 
     Args:
         page: Playwright page
         max_attempts: Max LLM attempts (direct selectors don't count)
+        menu_is_open: If True, be extra careful about "Close" buttons
 
     Returns:
         Number of popups dismissed
@@ -164,17 +173,21 @@ async def dismiss_popups_with_llm(page: Page, max_attempts: int = 1) -> int:
     dismissed = 0
 
     # First: try direct selectors (fast, catches non-ARIA popups)
-    print("  [Direct popup check]")
-    direct_dismissed = await try_direct_popup_selectors(page)
-    dismissed += direct_dismissed
-    if direct_dismissed > 0:
-        await page.wait_for_timeout(500)
+    # Skip when menu is open - direct selectors can match menu's close button
+    if not menu_is_open:
+        print("  [Direct popup check]")
+        direct_dismissed = await try_direct_popup_selectors(page)
+        dismissed += direct_dismissed
+        if direct_dismissed > 0:
+            await page.wait_for_timeout(500)
+    else:
+        print("  [Direct popup check SKIPPED - menu is open]")
 
     # Then: LLM fallback for anything we missed
     for attempt in range(max_attempts):
         print(f"  [LLM check {attempt + 1}/{max_attempts}]")
 
-        popup = await ask_llm_for_popup(page)
+        popup = await ask_llm_for_popup(page, menu_is_open=menu_is_open)
 
         if popup is None:
             print(f"    No popup")
@@ -198,11 +211,14 @@ async def dismiss_popups_with_llm(page: Page, max_attempts: int = 1) -> int:
             break
 
     # Finally: remove overlay elements from DOM entirely
-    # This ensures they can't intercept clicks even if hidden
-    print("  [DOM removal]")
-    removed = await remove_overlay_elements(page)
-    if removed > 0:
-        await page.wait_for_timeout(300)
+    # Skip when menu is open - selectors like role="dialog" can match menu drawer
+    if not menu_is_open:
+        print("  [DOM removal]")
+        removed = await remove_overlay_elements(page)
+        if removed > 0:
+            await page.wait_for_timeout(300)
+    else:
+        print("  [DOM removal SKIPPED - menu is open]")
 
     return dismissed
 
