@@ -19,8 +19,8 @@ load_dotenv(Path(__file__).parent.parent.parent.parent / 'config' / '.env')
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from scraper.navigation.static_extractor import extract_tree as static_extract_tree
-from scraper.navigation.dynamic_explorer import explore as dynamic_explore
-from scraper.navigation.build_tree import build_tree, find_cross_toplevel_urls, dedupe_parent_child_links, strip_homepage_nodes, build_hierarchy_from_urls
+from scraper.navigation.step_explorer import explore as step_explore
+from scraper.navigation.build_tree import strip_homepage_nodes, build_hierarchy_from_urls, dedupe_parent_child_links
 
 
 # =============================================================================
@@ -155,25 +155,16 @@ async def run_static(url: str) -> Optional[list]:
 
 
 async def run_dynamic(url: str) -> Optional[dict]:
-    """Run dynamic extractor and return tree."""
+    """Run step explorer and return tree."""
     try:
-        print(f"      [Dynamic] Starting exploration for {url}")
+        print(f"      [Dynamic] Starting step exploration for {url}")
 
-        # Run exploration
-        states, llm_usage = await dynamic_explore(url)
+        # Run step explorer
+        tree, stats = await step_explore(url)
 
-        if not states:
-            print(f"      [Dynamic] No states captured")
+        if not tree:
+            print(f"      [Dynamic] No tree captured")
             return None
-
-        # Get base URL from first state
-        base_url = states[0].get("url", url)
-
-        # Find cross-toplevel URLs to filter out
-        cross_toplevel_urls = find_cross_toplevel_urls(states)
-
-        # Build tree from states
-        tree = build_tree(states, base_url, filter_urls=cross_toplevel_urls)
 
         # Post-process: dedupe
         dedupe_parent_child_links(tree)

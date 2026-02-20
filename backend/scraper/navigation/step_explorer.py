@@ -1086,6 +1086,7 @@ async def run_exploration(
     return {
         'success': True,
         'categories': categories,
+        'tabs': [t['text'] for t in explorer.tabs],
         'stats': {
             'total_steps': step_count,
             'total_links': len(categories),
@@ -1095,3 +1096,86 @@ async def run_exploration(
         },
         'error': None,
     }
+
+
+def categories_to_tree(categories: dict, tabs: list = None) -> dict:
+    """
+    Convert flat categories dict to hierarchical tree format.
+
+    Input: {'Women > Shoes > Heels': '/women/shoes/heels', ...}
+    Output: {'name': 'root', 'children': [...], 'links': [...]}
+    """
+    root = {'name': 'root', 'children': [], 'links': []}
+
+    # Group by first path segment (tab)
+    tab_nodes = {}
+
+    for path_str, url in categories.items():
+        parts = [p.strip() for p in path_str.split(' > ')]
+
+        # Navigate/create path in tree
+        current = root
+        for i, part in enumerate(parts):
+            is_leaf = (i == len(parts) - 1)
+
+            if is_leaf:
+                # Add as link
+                current['links'].append({'name': part, 'url': url})
+            else:
+                # Find or create child node
+                child = None
+                for c in current.get('children', []):
+                    if c['name'] == part:
+                        child = c
+                        break
+
+                if not child:
+                    child = {'name': part, 'children': [], 'links': []}
+                    if 'children' not in current:
+                        current['children'] = []
+                    current['children'].append(child)
+
+                current = child
+
+    return root
+
+
+async def explore(url: str) -> tuple:
+    """
+    Main entry point - creates browser, runs exploration, returns tree.
+
+    Returns:
+        tuple: (tree_dict, stats_dict)
+            tree_dict: {'name': 'root', 'children': [...], 'links': [...]}
+            stats_dict: {'total_links': int, 'total_steps': int, ...}
+    """
+    from playwright.async_api import async_playwright
+
+    print(f"\n{'='*70}")
+    print("STEP EXPLORER")
+    print(f"{'='*70}")
+    print(f"URL: {url}\n")
+
+    playwright = await async_playwright().start()
+    browser = await playwright.chromium.launch(headless=False)
+    page = await browser.new_page(viewport={'width': 768, 'height': 900})
+
+    try:
+        result = await run_exploration(page, url, max_steps=200, max_errors=5)
+
+        if not result['success']:
+            print(f"\n[ERROR] {result['error']}")
+            return None, result['stats']
+
+        # Convert to tree format
+        tree = categories_to_tree(result['categories'], result.get('tabs', []))
+
+        print(f"\n{'='*70}")
+        print(f"COMPLETE: {result['stats']['total_links']} links in {result['stats']['total_steps']} steps")
+        print(f"{'='*70}")
+
+        return tree, result['stats']
+
+    finally:
+        await browser.close()
+        await playwright.stop()
