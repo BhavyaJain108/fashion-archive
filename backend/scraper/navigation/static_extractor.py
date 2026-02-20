@@ -108,7 +108,7 @@ async def extract_tree(url: str, output_dir: Path = None) -> tuple:
 
     # Setup output dir early so we can save raw links before LLM
     if output_dir is None:
-        domain = urlparse(url).netloc.replace('www.', '').split('.')[0]
+        domain = urlparse(url).netloc.replace('www.', '').replace('.', '_')
         output_dir = Path(__file__).parent.parent.parent / 'extractions' / domain
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -178,9 +178,11 @@ SCHEMA (follow exactly):
 
 RULES:
 - Return a JSON array (not object)
-- INCLUDE: Any link to products or collections - this includes traditional categories (Women, Men, Shoes) AND brand-specific collection names (seasonal drops, collaborations, style names, etc.)
-- INCLUDE: Links containing /collections/, /products/, /shop/, /category/ in the URL
-- EXCLUDE ONLY: About, Contact, FAQ, Terms, Privacy, Careers, Press, Customer Service, Account, Cart, Wishlist, Search, Social media links
+- INCLUDE: Category/collection pages - this includes traditional categories (Women, Men, Shoes) AND brand-specific collection names (seasonal drops, collaborations, style names, etc.)
+- INCLUDE: URLs like /collections/*, /shop/*, /category/*, /c/* (category pages)
+- EXCLUDE: Individual product pages - URLs like /products/*, /product/*, /p/* that link to a SINGLE item (these have specific product names/SKUs in the URL)
+- EXCLUDE: About, Contact, FAQ, Terms, Privacy, Careers, Press, Customer Service, Account, Cart, Wishlist, Search, Social media links
+- KEY DISTINCTION: "/collections/tees" = category (INCLUDE), "/products/vintage-tee-12345" = single product (EXCLUDE)
 - If the site has a single "Store" or "Shop" link (even to a subdomain), include it as a top-level category
 - Every node MUST have: "name" (string), "url" (string or null), "children" (array, can be empty)
 - IMPORTANT: Copy URLs exactly as they appear - do NOT decode URL-encoded characters like %C2%A0, %20, etc.
@@ -289,7 +291,7 @@ async def main():
 
     # Extract domain for filenames
     from urllib.parse import urlparse
-    domain = urlparse(url).netloc.replace('www.', '').split('.')[0]
+    domain = urlparse(url).netloc.replace('www.', '').replace('.', '_')
 
     output_dir = Path(__file__).parent.parent.parent / 'extractions' / domain
     output_dir.mkdir(parents=True, exist_ok=True)

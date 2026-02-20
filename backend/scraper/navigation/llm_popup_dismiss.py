@@ -39,9 +39,16 @@ async def ask_llm_for_popup(page: Page, menu_is_open: bool = False) -> dict | No
     menu_warning = ""
     if menu_is_open:
         menu_warning = """
-IMPORTANT: The navigation menu is currently OPEN. A generic "Close" button is likely the MENU close button, NOT a popup. Only identify a popup if there's clearly a modal/overlay with distinct popup content (newsletter signup text, cookie text, promo offer, etc).
+CRITICAL: The navigation menu drawer is currently OPEN. You will see a dialog/drawer with navigation links and a "Close" or "X" button - THIS IS THE MENU, NOT A POPUP.
 
-If you only see a "Close" button without clear popup content, respond: NONE
+DO NOT identify the menu's close button as a popup dismiss button.
+
+A REAL popup would be:
+- Newsletter signup overlay WITH signup form/email input
+- Cookie consent banner WITH accept/reject buttons
+- Promotional modal WITH offer text
+
+The navigation menu is NOT a popup. If you only see a navigation dialog with categories/links and a close button, respond: NONE
 """
 
     prompt = f"""Look at this webpage. Is there a popup, modal, cookie banner, or overlay blocking the main content?
@@ -198,9 +205,11 @@ async def dismiss_popups_with_llm(page: Page, max_attempts: int = 1, menu_is_ope
 
         # Skip menu close buttons when menu is open
         if menu_is_open:
-            name_lower = name.lower()
-            if 'menu' in name_lower or 'nav' in name_lower:
-                print(f"    ✗ Skip (menu button)")
+            name_lower = name.lower().strip()
+            # Skip if it's a menu/nav button OR a generic "close" button
+            # (generic close buttons in menu context are likely the menu's close button)
+            if 'menu' in name_lower or 'nav' in name_lower or name_lower in ('close', 'x', '×'):
+                print(f"    ✗ Skip (likely menu close button)")
                 break
 
         try:

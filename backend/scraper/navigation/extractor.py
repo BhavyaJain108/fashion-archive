@@ -309,7 +309,7 @@ if __name__ == "__main__":
         result = extract_navigation_tree(url)
 
         # Extract domain for output folder
-        domain = urlparse(url).netloc.replace('www.', '').split('.')[0]
+        domain = urlparse(url).netloc.replace('www.', '').replace('.', '_')
         output_dir = Path(__file__).parent / 'extractions' / domain
         output_dir.mkdir(parents=True, exist_ok=True)
 

@@ -77,12 +77,21 @@ class NavExplorer:
         # Back button cache (reset on tab switch)
         self.back_button_selector: str = None
 
+        # Track if we've entered a submenu (via back button detection or diff)
+        # Used to determine if recovery is needed when clicks fail
+        self.in_submenu: bool = False
+
         # LLM exclusion cache per depth level (CSS classes reused differently at each level)
         self.excluded_groups_cache: dict = {}  # {depth: set of excluded groups}
 
 
     def _add_to_tree(self, path: list[str], name: str, url: str):
         """Add a link to the categories tree."""
+        # Resolve relative URL to absolute
+        if url and url.startswith('/'):
+            from urllib.parse import urljoin
+            url = urljoin(self.base_url, url)
+
         key = ' > '.join(path + [name])
         self.categories[key] = url
 
@@ -606,9 +615,10 @@ Return the 1-indexed number of the back button, or 0 if none of these is a back 
         clicked = await click_button(self.page, item_name, prefer_role=role)
 
         if not clicked:
-            # For submenu navigation (back button exists), try full recovery
-            # For in-place expansion, skip recovery - menu state unchanged
-            if self.back_button_selector:
+            # Try recovery if we're in a submenu (back button exists or detected via diff)
+            # Recovery will use back button if available, otherwise full page refresh
+            if self.back_button_selector or self.in_submenu:
+                print(f"  [RECOVER] Attempting recovery (back_btn={bool(self.back_button_selector)}, in_submenu={self.in_submenu})")
                 recovered = await self._recover_navigation(path, role)
                 if recovered:
                     # Retry click after recovery
@@ -651,10 +661,9 @@ Return the 1-indexed number of the back button, or 0 if none of these is a back 
             if back_sel:
                 self.back_button_selector = back_sel
                 entered_submenu = True
+                self.in_submenu = True
                 print(f"  [BACK] Detected: {back_sel}")
-            else:
-                is_in_place_expansion = True
-                print(f"  [EXPAND] Content expanded in place (no back button)")
+            # Don't set is_in_place_expansion yet - will check diff after getting aria_after
 
         # Get ARIA after and extract elements
         aria_after = await self._get_aria()
@@ -662,6 +671,29 @@ Return the 1-indexed number of the back button, or 0 if none of these is a back 
         # Print ARIA for debugging
         for line in aria_after.splitlines():
             print(f"    {line}")
+
+        # If no back button detected, use diff to determine submenu vs in-place
+        if role != 'tab' and not entered_submenu and not is_tab_switch:
+            before_lines = set(aria_before.splitlines())
+            after_lines = set(aria_after.splitlines())
+            removed_lines = before_lines - after_lines
+
+            # If >50% of original content removed, it's a submenu replacement
+            removal_ratio = len(removed_lines) / len(before_lines) if before_lines else 0
+            if removal_ratio > 0.5:
+                entered_submenu = True
+                self.in_submenu = True
+                print(f"  [DIFF] Content replaced ({removal_ratio:.0%} removed) - treating as submenu")
+            else:
+                is_in_place_expansion = True
+                # Accordion menu - clear any false back button detection
+                # (icon buttons in accordions are usually close/menu buttons, not back buttons)
+                if self.back_button_selector:
+                    print(f"  [EXPAND] Clearing back button (accordion menu, {removal_ratio:.0%} removed)")
+                    self.back_button_selector = None
+                    self._back_button_element = None
+                else:
+                    print(f"  [EXPAND] Content expanded in place ({removal_ratio:.0%} removed)")
 
         # Extract nav elements from AFTER
         result_after = await extract_and_filter_nav_elements(
@@ -1098,6 +1130,22 @@ async def run_exploration(
     }
 
 
+def _collapse_duplicate_segments(parts: list[str]) -> list[str]:
+    """
+    Collapse consecutive duplicate path segments.
+
+    ['Categories', 'Categories', 'Bottoms'] → ['Categories', 'Bottoms']
+    ['INFO', 'INFO', 'ABOUT US'] → ['INFO', 'ABOUT US']
+    """
+    if not parts:
+        return parts
+    result = [parts[0]]
+    for part in parts[1:]:
+        if part != result[-1]:
+            result.append(part)
+    return result
+
+
 def categories_to_tree(categories: dict, tabs: list = None) -> dict:
     """
     Convert flat categories dict to hierarchical tree format.
@@ -1112,6 +1160,8 @@ def categories_to_tree(categories: dict, tabs: list = None) -> dict:
 
     for path_str, url in categories.items():
         parts = [p.strip() for p in path_str.split(' > ')]
+        # Collapse consecutive duplicates (e.g., Categories > Categories > X)
+        parts = _collapse_duplicate_segments(parts)
 
         # Navigate/create path in tree
         current = root

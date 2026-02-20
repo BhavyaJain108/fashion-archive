@@ -23,15 +23,19 @@ from stages.storage import (
 )
 from stages.metrics import update_stage_metrics, calculate_cost, set_current_stage, get_stage_metrics_from_tracker
 
+# Pre-import navigation modules to avoid deadlocks when running in parallel threads
+# (Both static and dynamic extractors use these, and importing during threading causes locks)
+from static_extractor import extract_tree as static_extract_tree
+from step_explorer import explore as step_explore
+from build_tree import dedupe_parent_child_links, strip_homepage_nodes
+
 
 def run_static_extractor(url: str) -> dict:
     """Run static extractor synchronously."""
-    from static_extractor import extract_tree
-
     try:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        result = loop.run_until_complete(extract_tree(url))
+        result = loop.run_until_complete(static_extract_tree(url))
         loop.close()
 
         # Handle both old (tree, links) and new (tree, links, llm_usage) return formats
@@ -107,33 +111,23 @@ def convert_dynamic_to_standard(node: dict) -> list:
 
 
 def run_dynamic_extractor(url: str) -> dict:
-    """Run dynamic extractor synchronously."""
-    from dynamic_explorer import explore
-    from build_tree import build_tree, find_cross_toplevel_urls, dedupe_parent_child_links
-
+    """Run dynamic extractor (step_explorer) synchronously."""
     try:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        result = loop.run_until_complete(explore(url))
+        tree, stats = loop.run_until_complete(step_explore(url))
         loop.close()
 
-        # Handle both old (states) and new (states, llm_usage) return formats
-        if isinstance(result, tuple):
-            states, llm_usage = result
-        else:
-            states = result
-            llm_usage = {"input_tokens": 0, "output_tokens": 0}
-
-        if states:
-            # Build tree from states
-            base_url = states[0].get("url", url) if states else url
-            cross_toplevel_urls = find_cross_toplevel_urls(states)
-            tree = build_tree(states, base_url, filter_urls=cross_toplevel_urls)
+        if tree:
+            # Dedupe parent-child links
             dedupe_parent_child_links(tree)
 
             # Convert to standard format (dynamic has {name, children, links})
             # Standard is [{name, url, children}, ...]
             standard_tree = convert_dynamic_to_standard(tree)
+
+            # LLM usage tracking is done via the unified tracker now
+            llm_usage = {"input_tokens": 0, "output_tokens": 0}
 
             return {
                 "category_tree": standard_tree,
@@ -296,7 +290,6 @@ def extract_navigation(url: str, timeout: int = 120, mode: str = "both") -> dict
         return None
 
     # Strip homepage nodes from the final tree
-    from build_tree import strip_homepage_nodes
     tree = result.get("category_tree", [])
     if tree:
         result["category_tree"] = strip_homepage_nodes(tree, url)

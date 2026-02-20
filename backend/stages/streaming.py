@@ -775,6 +775,11 @@ class StreamingOrchestrator:
                     )
                 except queue.Empty:
                     return None
+                except RuntimeError as e:
+                    # Executor shutdown during exit - treat as queue exhausted
+                    if "cannot schedule" in str(e) or "shutdown" in str(e):
+                        return None
+                    raise
 
             print(f"[Product Consumer] Starting extraction (streaming mode)...")
 
