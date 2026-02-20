@@ -211,7 +211,7 @@ def _parse_aria_with_hierarchy(aria: str) -> list[dict]:
 
                 # Skip obvious utility buttons
                 name_lower = name.lower()
-                if any(skip in name_lower for skip in ['back', 'close', 'search', 'menu', 'cart', 'login', 'sign in']):
+                if any(skip in name_lower for skip in ['back', 'close', 'search', 'menu', 'cart', 'login', 'sign in', 'change store', 'change location']):
                     continue
 
                 # Find nearby link: closest link at SAME or LOWER indent
@@ -274,7 +274,7 @@ def _parse_aria_with_hierarchy(aria: str) -> list[dict]:
                 # Treat as expandable button (links with empty URLs don't navigate)
                 # Skip obvious utility buttons
                 name_lower = name.lower()
-                if any(skip in name_lower for skip in ['back', 'close', 'search', 'menu', 'cart', 'login', 'sign in']):
+                if any(skip in name_lower for skip in ['back', 'close', 'search', 'menu', 'cart', 'login', 'sign in', 'change store', 'change location']):
                     continue
 
                 # Find nearby link for this pseudo-button

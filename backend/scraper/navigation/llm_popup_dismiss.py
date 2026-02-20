@@ -196,6 +196,13 @@ async def dismiss_popups_with_llm(page: Page, max_attempts: int = 1, menu_is_ope
         role, name = popup["role"], popup["name"]
         print(f"    Dismissing: {role} \"{name}\"")
 
+        # Skip menu close buttons when menu is open
+        if menu_is_open:
+            name_lower = name.lower()
+            if 'menu' in name_lower or 'nav' in name_lower:
+                print(f"    ✗ Skip (menu button)")
+                break
+
         try:
             locator = page.get_by_role(role, name=name, exact=False)
             if await locator.count() > 0:

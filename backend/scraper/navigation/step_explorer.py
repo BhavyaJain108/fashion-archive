@@ -989,3 +989,109 @@ Return the 1-indexed number of the back button, or 0 if none of these is a back 
 
         print(f"\n[TREE] {len(self.categories)} categories")
         print_node(tree)
+
+    def get_results(self) -> dict:
+        """Get exploration results in pipeline-compatible format."""
+        return {
+            'categories': self.categories,
+            'tabs': [t['text'] for t in self.tabs],
+            'explored_count': len(self.explored),
+            'remaining_count': len(self.stack),
+        }
+
+
+async def run_exploration(
+    page: Page,
+    url: str,
+    max_steps: int = 200,
+    max_errors: int = 5,
+) -> dict:
+    """
+    Run full navigation exploration with proper error handling.
+
+    Args:
+        page: Playwright page (browser must be open)
+        url: URL to explore
+        max_steps: Maximum steps before stopping
+        max_errors: Maximum consecutive errors before stopping
+
+    Returns:
+        {
+            'success': bool,
+            'categories': dict,  # path -> url
+            'stats': {
+                'total_steps': int,
+                'total_links': int,
+                'explored': int,
+                'remaining': int,
+                'errors': int,
+            },
+            'error': str or None,
+        }
+    """
+    explorer = NavExplorer(page)
+    consecutive_errors = 0
+    total_errors = 0
+    step_count = 0
+
+    # Setup
+    try:
+        setup_result = await explorer.setup(url)
+        if not setup_result.get('success'):
+            return {
+                'success': False,
+                'categories': {},
+                'stats': {'total_steps': 0, 'total_links': 0, 'explored': 0, 'remaining': 0, 'errors': 1},
+                'error': setup_result.get('error', 'Setup failed'),
+            }
+    except Exception as e:
+        return {
+            'success': False,
+            'categories': {},
+            'stats': {'total_steps': 0, 'total_links': 0, 'explored': 0, 'remaining': 0, 'errors': 1},
+            'error': f'Setup exception: {e}',
+        }
+
+    # Exploration loop
+    while not explorer.done() and step_count < max_steps:
+        try:
+            result = await explorer.step()
+            step_count += 1
+
+            if result.success:
+                consecutive_errors = 0
+                links_count = len(result.links_found)
+                print(f"  [{step_count}] {result.item_name}: {links_count} links, {result.children_added} children")
+            else:
+                consecutive_errors += 1
+                total_errors += 1
+                print(f"  [{step_count}] {result.item_name}: ERROR - {result.error}")
+
+                if consecutive_errors >= max_errors:
+                    print(f"\n[STOP] {max_errors} consecutive errors, stopping exploration")
+                    break
+
+        except Exception as e:
+            consecutive_errors += 1
+            total_errors += 1
+            step_count += 1
+            print(f"  [{step_count}] EXCEPTION: {e}")
+
+            if consecutive_errors >= max_errors:
+                print(f"\n[STOP] {max_errors} consecutive errors, stopping exploration")
+                break
+
+    # Results
+    categories = explorer.categories
+    return {
+        'success': True,
+        'categories': categories,
+        'stats': {
+            'total_steps': step_count,
+            'total_links': len(categories),
+            'explored': len(explorer.explored),
+            'remaining': len(explorer.stack),
+            'errors': total_errors,
+        },
+        'error': None,
+    }
