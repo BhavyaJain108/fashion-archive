@@ -1,0 +1,53 @@
+name: PR checks
+
+# Runs on every pull request. Must stay fast (<5 min) — this is the gate
+# every change passes through. Heavier checks (E2E, LLM evals) live in
+# nightly / release workflows.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: pr-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-and-test:
+    name: Lint + unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dev deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      # Lint + format are currently scoped to tests/ — the existing backend
+      # has ~1600 pre-existing issues we don't want to fix drive-by. We'll
+      # ratchet scope up module-by-module in follow-up PRs.
+      - name: Ruff lint
+        run: ruff check tests/
+
+      - name: Ruff format check
+        run: ruff format --check tests/
+
+      - name: Mypy (tests only, for now)
+        run: mypy
+
+      - name: Pytest (unit only)
+        run: pytest -m unit

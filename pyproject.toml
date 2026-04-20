@@ -1,0 +1,62 @@
+[project]
+name = "fashion-archive"
+version = "0.1.0"
+description = "AI-powered fashion archive: runway imagery + brand product cataloging."
+requires-python = ">=3.10"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+# Scope ruff to our own code; skip vendored/generated dirs.
+extend-exclude = [
+    "backend/extractions",
+    "backend/nav_v8/extractions",
+    "backend/prod_page_v2/explorations",
+    "backend/prod_page_v2/extractions",
+    "backend/scraper/navigation/extractions",
+    "backend/scraper/tests/product_html",
+    "web_ui/node_modules",
+]
+
+[tool.ruff.lint]
+# Start lenient. We can ratchet up over time without drowning in an initial fix-up.
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+]
+ignore = [
+    "E501",  # line too long — handled by formatter, not worth blocking on
+    "B008",  # function call in default arg (common Flask pattern)
+]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.10"
+# Start extremely permissive — we're adding typing to an existing untyped codebase.
+# Ratchet `strict = true` on a per-module basis as we clean things up.
+ignore_missing_imports = true
+follow_imports = "silent"
+warn_unused_ignores = true
+# Only check our own tests + new modules initially. Existing backend code opts in later.
+files = ["tests"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = [
+    "-ra",                # show short summary for non-passing
+    "--strict-markers",   # fail on unknown @pytest.mark.* names
+    "--strict-config",
+]
+markers = [
+    "unit: fast pure-logic tests (default in CI PR checks)",
+    "integration: spins up playwright / local fake site (slower)",
+    "e2e: hits real external services (nightly only)",
+    "llm_eval: fixture-based LLM evaluations (nightly only)",
+]
