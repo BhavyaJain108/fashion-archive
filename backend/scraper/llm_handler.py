@@ -28,6 +28,16 @@ try:
 except ImportError:
     ClaudeInterface = None
 
+# Opt-in fixture recorder (LLM_RECORD=1). No side effects unless enabled.
+try:
+    from llm_recorder import get_recorder
+except ImportError:
+    try:
+        from .llm_recorder import get_recorder  # relative-import fallback
+    except ImportError:
+        def get_recorder():  # type: ignore[no-redef]
+            return None
+
 
 # Claude Sonnet 4 pricing (per 1M tokens)
 INPUT_COST_PER_M = 3.0   # $3 per 1M input tokens
@@ -354,13 +364,20 @@ class LLMHandler:
                         usage = self.client.get_last_usage() if hasattr(self.client, 'get_last_usage') else None
                         self._track_usage(usage, operation)
 
-                        return {
+                        final = {
                             "data": result,
                             "latency_ms": latency_ms,
                             "success": True,
                             "attempts": attempt + 1,
                             "usage": usage
                         }
+                        self._record_fixture(
+                            method="call", prompt=prompt, output=final,
+                            operation=operation, model=self.model,
+                            max_tokens=max_tokens,
+                            response_model=response_model.__name__ if response_model else None,
+                        )
+                        return final
                     else:
                         # Regular text generation
                         response = self.client.generate(prompt, max_tokens=max_tokens)
@@ -370,13 +387,19 @@ class LLMHandler:
                         usage = self.client.get_last_usage() if hasattr(self.client, 'get_last_usage') else None
                         self._track_usage(usage, operation)
 
-                        return {
+                        final = {
                             "response": response,
                             "latency_ms": latency_ms,
                             "success": True,
                             "attempts": attempt + 1,
                             "usage": usage
                         }
+                        self._record_fixture(
+                            method="call", prompt=prompt, output=final,
+                            operation=operation, model=self.model,
+                            max_tokens=max_tokens,
+                        )
+                        return final
                 else:
                     raise NotImplementedError("No LLM client available - use WebFetch externally")
                     
@@ -473,12 +496,18 @@ class LLMHandler:
 
             result_text = response.content[0].text.strip()
 
-            return {
+            final = {
                 "response": result_text,
                 "latency_ms": latency_ms,
                 "success": True,
                 "usage": usage
             }
+            self._record_fixture(
+                method="call_with_image", prompt=prompt, output=final,
+                operation=operation, model=self.model, max_tokens=max_tokens,
+                image_b64=image_b64, image_media_type=media_type,
+            )
+            return final
 
         except Exception as e:
             latency_ms = (time.time() - start_time) * 1000
@@ -529,12 +558,17 @@ class LLMHandler:
 
             result_text = response.content[0].text.strip()
 
-            return {
+            final = {
                 "response": result_text,
                 "latency_ms": latency_ms,
                 "success": True,
                 "usage": usage
             }
+            self._record_fixture(
+                method="call_text", prompt=prompt, output=final,
+                operation=operation, model=self.model, max_tokens=max_tokens,
+            )
+            return final
 
         except Exception as e:
             latency_ms = (time.time() - start_time) * 1000
@@ -543,4 +577,29 @@ class LLMHandler:
                 "latency_ms": latency_ms,
                 "success": False
             }
-    
+
+    # ---- Fixture recording -------------------------------------------------
+
+    def _record_fixture(self, *, method, prompt, output, operation, model,
+                        max_tokens, response_model=None, image_b64=None,
+                        image_media_type=None):
+        """Best-effort fixture recording. No-op unless LLM_RECORD=1."""
+        rec = get_recorder()
+        if rec is None:
+            return
+        try:
+            rec.record_call(
+                method=method,
+                prompt=prompt,
+                output=output,
+                operation=operation,
+                stage=LLMUsageTracker.get_current_stage(),
+                model=model,
+                max_tokens=max_tokens,
+                response_model=response_model,
+                image_b64=image_b64,
+                image_media_type=image_media_type,
+            )
+        except Exception as e:  # noqa: BLE001
+            print(f"[llm_handler] fixture record failed: {e}")
+
