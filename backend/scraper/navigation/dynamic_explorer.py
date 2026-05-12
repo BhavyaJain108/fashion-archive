@@ -450,7 +450,7 @@ def is_duplicate_block(block_aria: str, before_aria: str, threshold: float = 0.8
     return match_ratio >= threshold
 
 
-async def _discover_menu_container(page: Page, diff_text: str, before_aria: str) -> str | None:
+async def _discover_menu_container(page: Page, diff_text: str, before_aria: str) -> tuple[str | None, str | None]:
     """
     Discover menu container by finding element whose ARIA matches the diff content.
 
@@ -462,7 +462,13 @@ async def _discover_menu_container(page: Page, diff_text: str, before_aria: str)
         before_aria: ARIA before menu opened (to filter out pre-existing content)
 
     Returns:
-        CSS selector for the menu container, or None if not found
+        Tuple of (synthesized_aria_or_None, selector_or_None).
+
+        - synthesized_aria is non-None ONLY when we fell back to DOM-based link
+          extraction (the menu items had no ARIA labels — Khaite's mobile menu is
+          the canonical case). It's an ARIA-style string with `link "Name" /url`
+          lines that the downstream parser can consume.
+        - selector is the CSS selector for the menu container (or None).
     """
     print(f"    [DISCOVER] Diff content ({len(diff_text)} chars):")
     print(diff_text)
@@ -570,7 +576,16 @@ async def _discover_menu_container(page: Page, diff_text: str, before_aria: str)
 
     if not candidates:
         print(f"    [DISCOVER] No container found matching diff content")
-        return None
+        # Fallback: ARIA-thin menus (e.g. Khaite mobile drawer) — the menu IS
+        # open and visible, but its items are plain <a> tags whose aria_snapshot
+        # is empty or near-empty. Try the largest visible overlays and extract
+        # their anchor links directly from the DOM, synthesizing ARIA-style
+        # text for the downstream parser.
+        synth_aria, synth_selector = await _dom_link_fallback(page, overlay_info)
+        if synth_aria:
+            print(f"    [DISCOVER] DOM fallback succeeded: {synth_aria.count(chr(10)) + 1} link lines")
+            return synth_aria, synth_selector
+        return None, None
 
     # Pick best candidate: prefer overlays, then highest new_ratio (menu should be mostly new content)
     candidates.sort(key=lambda c: (not c['is_overlay'], -c['new_ratio'], c['size']))
@@ -586,7 +601,79 @@ async def _discover_menu_container(page: Page, diff_text: str, before_aria: str)
     except:
         pass
 
-    return best['selector']
+    return None, best['selector']
+
+
+async def _dom_link_fallback(page: Page, overlay_info: list) -> tuple[str | None, str | None]:
+    """Last-ditch menu extraction for sites whose menu items have no ARIA labels.
+
+    Walks the top overlays found during the visible-element scan, extracts any
+    <a> tags inside them with their visible text + href, and synthesizes an
+    ARIA-style string the existing parser can consume. We pick the overlay
+    with the most anchors (a "menu" without links isn't a menu).
+
+    Returns (synthesized_aria, selector) or (None, None) if no overlay yields
+    a meaningful link list.
+    """
+    if not overlay_info:
+        return None, None
+
+    # Probe top overlays for anchor links. Prefer fixed/absolute since real
+    # drawers are overlays, but fall back to static elements if needed.
+    overlay_info_sorted = sorted(
+        overlay_info[:10],
+        key=lambda x: (not x.get('isOverlay'), -(x['width'] * x['height'])),
+    )
+
+    best = None  # (link_count, links, selector)
+    for info in overlay_info_sorted:
+        try:
+            el = page.locator(info['tag']).nth(info['tagIdx'])
+            # Pull anchors via JS — visible text + href, filter empty/junk.
+            links = await el.evaluate(
+                """node => {
+                    const out = [];
+                    node.querySelectorAll('a[href]').forEach(a => {
+                        const text = (a.innerText || a.textContent || '').trim().replace(/\\s+/g, ' ');
+                        const href = a.href || '';
+                        if (!text || text.length > 80) return;
+                        if (!href || href.startsWith('javascript:')) return;
+                        out.push({text, href});
+                    });
+                    return out;
+                }"""
+            )
+        except Exception:
+            continue
+
+        # Deduplicate by href, preserve order
+        seen = set()
+        deduped = []
+        for link in links:
+            key = link['href']
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(link)
+
+        # An overlay needs to look like a menu, not a footer/sidebar.
+        # Heuristic: at least 3 distinct links.
+        if len(deduped) < 3:
+            continue
+
+        # Score by link count; tie-break by overlay size
+        if best is None or len(deduped) > best[0]:
+            selector = f"{info['tag']}:nth-of-type({info['tagIdx'] + 1})"  # Best-effort
+            best = (len(deduped), deduped, selector)
+
+    if not best:
+        return None, None
+
+    _, links, selector = best
+    # Synthesize ARIA-format string. Four-space indent matches the parser's
+    # nesting convention; everything we emit is top-level.
+    aria_lines = [f'    - link "{link["text"]}" /url: {link["href"]}' for link in links]
+    return "\n".join(aria_lines), selector
 
 
 async def _build_selector_for_element(page: Page, el) -> str | None:
@@ -680,8 +767,11 @@ async def find_menu_from_aria_diff(page: Page, before_aria: str, after_aria: str
     if not candidate_roles:
         # Fallback: discover menu container by matching ARIA content
         print(f"    [ARIA-DIFF] No standard roles, discovering container by content...")
-        selector = await _discover_menu_container(page, diff_text, before_aria)
-        return diff_text, selector, []
+        synth_aria, selector = await _discover_menu_container(page, diff_text, before_aria)
+        # If the DOM fallback synthesized ARIA from anchor tags (menu items had
+        # no ARIA labels), use that instead of the thin diff — otherwise the
+        # downstream parser sees only "Close mobile menu" and finds 0 links.
+        return (synth_aria or diff_text), selector, []
 
     print(f"    [ARIA-DIFF] Container roles found: {candidate_roles}")
 
