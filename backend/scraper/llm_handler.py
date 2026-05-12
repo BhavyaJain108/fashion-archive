@@ -228,15 +228,21 @@ class LLMHandler:
         """
         Initialize LLM Handler.
 
-        Args:
-            model: Claude model to use (default: Sonnet 4)
+        Default provider is Claude. Set LLM_PROVIDER=openrouter (and optionally
+        OPENROUTER_MODEL=...) in the environment to route all structured /
+        text calls through OpenRouter instead. Vision (call_with_image) still
+        uses Claude directly for now — keep CLAUDE_API_KEY set either way.
         """
+        provider = os.getenv('LLM_PROVIDER', 'claude').lower()
         self.model = model
-        if ClaudeInterface:
-            self.client = ClaudeInterface(model=model)
-        else:
+        try:
+            from high_fashion.tools.llm_interface import get_llm_client
+            self.client = get_llm_client(provider)
+            # Mirror the actual model used by the client (so fixture metadata is honest)
+            self.model = getattr(self.client, 'model', model)
+        except Exception as e:
             self.client = None
-            print("⚠️  ClaudeInterface not available - WebFetch calls will be used")
+            print(f"⚠️  LLM client init failed ({provider}): {e} - WebFetch fallback")
 
     @classmethod
     def get_total_usage(cls) -> Dict[str, Any]:
