@@ -506,7 +506,11 @@ class StreamingOrchestrator:
         - Rate limiter: Prevents HTTP 429 errors from the target site
         - Browser pool: Caps memory usage (10 browsers = ~1.5GB max)
         """
-        from prod_page_v2.extractor import ProductExtractor
+        # e0005 product extractor — drop-in replacement for the legacy
+        # prod_page_v2.extractor.ProductExtractor. Same method surface;
+        # internally uses discover_oneshot + FieldOrchestrator and pulls
+        # prefill from upstream pipeline state (brand + category_path).
+        from prod_page_v2.e0005.extractor import ProductExtractor, prefill_from_pipeline
         from prod_page_v2.browser_pool import BrowserPool
         from stages.storage import save_product
         from stages.rate_limiter import AdaptiveRateLimiter
@@ -610,7 +614,12 @@ class StreamingOrchestrator:
         try:
             # Extract and save discovery products (not using pool yet - these were already loaded)
             for url, category_path in self.discovery_urls:
-                result = await extractor.extract_single(url, self.config)
+                prefill = prefill_from_pipeline(
+                    url=url,
+                    brand=self.domain.replace("_", "."),
+                    category_path=category_path,
+                )
+                result = await extractor.extract_single(url, self.config, prefill=prefill)
                 with self._stats_lock:
                     self.products_extracted += 1
                 if result.success and result.product:
@@ -703,10 +712,16 @@ class StreamingOrchestrator:
                     async with await rate_limiter.acquire() as token:
                         try:
                             async with browser_pool.acquire() as page:
+                                prefill = prefill_from_pipeline(
+                                    url=url,
+                                    brand=self.domain.replace("_", "."),
+                                    category_path=category_path,
+                                )
                                 result = await extractor.extract_single_pooled(
                                     url, page, self.config,
                                     wait_time=attempt_wait,
                                     gallery_selector=gallery_selector,
+                                    prefill=prefill,
                                 )
 
                             # Fix 4: Use real HTTP status for rate limiter

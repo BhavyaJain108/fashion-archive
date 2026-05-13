@@ -56,7 +56,17 @@ class NetworkCapture:
 class PageMemo:
     """Lazy cache of per-page artifacts. One instance per product URL."""
 
-    def __init__(self, url: str, *, render_wait_ms: int = 4000, stealth: bool = True):
+    def __init__(self, url: str, *, render_wait_ms: int = 4000, stealth: bool = True,
+                 external_page: Any = None):
+        """Create a PageMemo for `url`.
+
+        external_page (optional): an already-opened Playwright Page from
+        outside (e.g. a BrowserPool). When provided, this memo does NOT
+        launch its own Chromium — it navigates the given page to `url`
+        during `_ensure_rendered()` and reuses it for accordion clicks.
+        On `close()`, it does NOT close the page; ownership stays with
+        the caller.
+        """
         self.url = url
         self.render_wait_ms = render_wait_ms
         self.stealth = stealth
@@ -77,7 +87,8 @@ class PageMemo:
         # after the initial render without re-loading the page.
         self._playwright = None
         self._browser = None
-        self._page = None
+        self._page = external_page
+        self._owns_browser = external_page is None
 
         # Interactive (accordions).
         self._accordion_text: Dict[str, str] = {}
@@ -196,12 +207,13 @@ class PageMemo:
         await self._render_in_flight
 
     async def _do_render(self) -> None:
-        from playwright.async_api import async_playwright
-
-        self._playwright = await async_playwright().start()
-        self._browser = await self._playwright.chromium.launch(headless=True)
-        ctx = await self._browser.new_context(user_agent=USER_AGENT)
-        self._page = await ctx.new_page()
+        # If an external page was injected, skip browser launch.
+        if self._page is None:
+            from playwright.async_api import async_playwright
+            self._playwright = await async_playwright().start()
+            self._browser = await self._playwright.chromium.launch(headless=True)
+            ctx = await self._browser.new_context(user_agent=USER_AGENT)
+            self._page = await ctx.new_page()
 
         async def on_response(response):
             try:
@@ -379,7 +391,16 @@ class PageMemo:
     # =========================================================
 
     async def close(self) -> None:
-        """Release Playwright resources. Always call when finished with the memo."""
+        """Release Playwright resources we own.
+
+        If an external page was injected (via `external_page=`), we do
+        NOT close that page or its browser — caller (e.g. BrowserPool)
+        owns it. We only release Playwright handles we created ourselves.
+        """
+        if not self._owns_browser:
+            # External page; leave it alone.
+            self._page = None
+            return
         for x, name in ((self._page, "page"), (self._browser, "browser"),
                         (self._playwright, "playwright")):
             try:

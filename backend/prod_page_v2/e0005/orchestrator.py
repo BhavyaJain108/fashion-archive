@@ -81,11 +81,26 @@ class FieldOrchestrator:
         self.merchant_context = merchant_context or MerchantContext()
         self.max_attempts_per_field = max_attempts_per_field
 
-    async def extract(self, url: str) -> tuple[E0005Row, ExtractionTrace]:
-        """Run the extraction loop. Returns (row, trace)."""
+    async def extract(
+        self,
+        url: str,
+        prefill: Optional[Dict[str, Any]] = None,
+    ) -> tuple[E0005Row, ExtractionTrace]:
+        """Run the extraction loop. Returns (row, trace).
+
+        Args:
+          url:     product URL.
+          prefill: values known from upstream pipeline state (nav.json,
+                   urls.json, brand config). For any field with a non-blank
+                   prefill value, that value is used directly and the
+                   catalog rows for that field are NOT consulted. Used to
+                   inject `brand`, `category1..5`, and any other context
+                   the orchestrator can't see from the page alone.
+        """
         memo = PageMemo(url)
         product = ProductFields(itemurl=url)
         trace = ExtractionTrace(url=url, domain=self.catalog.domain)
+        prefill = prefill or {}
 
         for field_name in EXTRACTABLE_FIELDS:
             ftrace = FieldTrace(field=field_name)
@@ -95,6 +110,15 @@ class FieldOrchestrator:
             if field_name == "itemurl":
                 ftrace.chosen_method = "url_passthrough"
                 ftrace.chosen_value = url
+                continue
+
+            # Prefill from upstream pipeline state takes precedence over
+            # any catalog row. Used for fields the pipeline already knows
+            # (brand, category1..5, itemurl) — see streaming.py Stage 3.
+            if field_name in prefill and not self._is_blank(prefill[field_name]):
+                self._set_field(product, field_name, prefill[field_name])
+                ftrace.chosen_method = "prefill"
+                ftrace.chosen_value = prefill[field_name]
                 continue
 
             rows = self.catalog.rows_for(field_name)
