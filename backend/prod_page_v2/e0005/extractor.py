@@ -37,39 +37,17 @@ from .orchestrator import FieldOrchestrator
 
 
 # ---------------------------------------------------------------------------
-# Shim types matching the legacy result/product shape that streaming.py reads
+# Result type — `product` is the full E0005 dict; no lossy translation.
 # ---------------------------------------------------------------------------
-
-@dataclass
-class _Variant:
-    size: Optional[str] = None
-    color: Optional[str] = None
-    sku: Optional[str] = None
-    price: Optional[float] = None
-    available: Optional[bool] = None
-
-
-@dataclass
-class _Product:
-    """Subset of fields read by streaming.py's _product_to_dict."""
-    name: Optional[str] = None
-    price: Optional[float] = None
-    currency: Optional[str] = None
-    images: List[str] = dc_field(default_factory=list)
-    description: Optional[str] = None
-    url: Optional[str] = None
-    brand: Optional[str] = None
-    sku: Optional[str] = None
-    category: Optional[str] = None
-    variants: List[_Variant] = dc_field(default_factory=list)
-    # All-fields dump so downstream consumers can grab the rest of E0005.
-    e0005: Dict[str, Any] = dc_field(default_factory=dict)
-
+#
+# Storage and the API receive every field discovery produced; the frontend
+# can pick which fields it needs. Image filtering is the only post-process
+# applied (in streaming._product_to_dict, against `all_images`).
 
 @dataclass
 class ExtractionResult:
     success: bool
-    product: Optional[_Product] = None
+    product: Optional[Dict[str, Any]] = None  # full E0005 ProductFields.model_dump()
     error: Optional[str] = None
     status_code: int = 0
 
@@ -226,22 +204,10 @@ class ProductExtractor:
         if not p.product_title:
             return ExtractionResult(success=False, error="no product_title extracted")
 
-        product = _Product(
-            name=p.product_title,
-            price=p.price,
-            currency=None,
-            images=list(p.all_images or ([p.main_image_url] if p.main_image_url else [])),
-            description=p.description,
-            url=p.itemurl or url,
-            brand=p.brand,
-            sku=p.product_code,
-            category=" / ".join(filter(None, [p.category1, p.category2, p.category3, p.category4, p.category5])) or None,
-            variants=[
-                _Variant(size=s) for s in (p.size_info.split(", ") if p.size_info else [])
-            ],
-            e0005=p.model_dump() if hasattr(p, "model_dump") else dict(p.__dict__),
-        )
-        return ExtractionResult(success=True, product=product, status_code=200)
+        # Canonical: full E0005 dict (Pydantic dump). Storage saves this
+        # verbatim; the frontend reads E0005 field names directly.
+        e0005_dict: Dict[str, Any] = p.model_dump() if hasattr(p, "model_dump") else dict(p.__dict__)
+        return ExtractionResult(success=True, product=e0005_dict, status_code=200)
 
 
 # ---------------------------------------------------------------------------
