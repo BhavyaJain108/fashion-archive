@@ -466,8 +466,6 @@ function MyBrandsPanel() {
   const renderCategoryTree = (brand, categories, level = 0) => {
     if (!categories || categories.length === 0) return null;
 
-    const isScraping = scrapingBrands.has(brand.brand_id);
-
     // Sort categories: parents with children first, then leaf categories
     const sortedCategories = [...categories].sort((a, b) => {
       const aHasChildren = a.children && a.children.length > 0;
@@ -478,8 +476,14 @@ function MyBrandsPanel() {
       return 0;
     });
 
-    // During scraping, filter to only categories with products
-    const visibleCategories = isScraping
+    // Hide categories with zero products whenever we have any product-count
+    // info for this brand (i.e. counts have loaded OR streaming has begun
+    // emitting them). On a freshly-clicked brand with no counts loaded yet,
+    // show everything so the tree isn't blank.
+    const brandHasAnyCounts = Object.keys(productCounts).some(
+      k => k.startsWith(`${brand.brand_id}::`)
+    );
+    const visibleCategories = brandHasAnyCounts
       ? sortedCategories.filter(cat => hasProductsInSubtree(brand, cat))
       : sortedCategories;
 
@@ -1050,25 +1054,43 @@ function MyBrandsPanel() {
               const rowIdx = Math.floor(idx / GRID_COLS);
               const rowHeight = rowImageHeights[rowIdx];
 
+              const cardClass =
+                'product-card' +
+                (selectedProduct && (selectedProduct.itemurl || selectedProduct.url || selectedProduct.product_url) === productUrl ? ' selected' : '') +
+                (!imageUrl ? ' product-card-no-image' : '');
+
               return (
                 <div
                   key={`${productUrl}-${idx}`}
-                  className={`product-card ${selectedProduct && (selectedProduct.itemurl || selectedProduct.url || selectedProduct.product_url) === productUrl ? 'selected' : ''}`}
+                  className={cardClass}
                   onClick={() => setSelectedProduct(product)}
                 >
-                  {imageUrl && (
-                    <div className="product-image" style={rowHeight ? { height: rowHeight } : undefined}>
+                  <div className="product-image" style={rowHeight ? { height: rowHeight } : undefined}>
+                    {imageUrl ? (
                       <img
                         src={imageUrl}
                         alt={productName}
                         loading="lazy"
                         onLoad={(e) => handleImageLoad(idx, e)}
+                        onError={(e) => {
+                          // Swap to no-image placeholder if the image 404s.
+                          const card = e.currentTarget.closest('.product-card');
+                          if (card) card.classList.add('product-card-no-image');
+                          e.currentTarget.style.display = 'none';
+                          const sib = e.currentTarget.parentElement.querySelector('.no-image-placeholder');
+                          if (sib) sib.style.display = 'flex';
+                        }}
                       />
-                      {onSale && <div className="tile-badge tile-badge-sale">Sale</div>}
-                      {!onSale && allSoldOut && <div className="tile-badge tile-badge-bad">Sold out</div>}
-                      {!onSale && !allSoldOut && stock === 1 && <div className="tile-badge">In stock</div>}
+                    ) : null}
+                    <div className="no-image-placeholder" style={{ display: imageUrl ? 'none' : 'flex' }}>
+                      <div className="no-image-icon">⊘</div>
+                      <div className="no-image-text">No image</div>
                     </div>
-                  )}
+                    {imageUrl && onSale && <div className="tile-badge tile-badge-sale">Sale</div>}
+                    {imageUrl && !onSale && allSoldOut && <div className="tile-badge tile-badge-bad">Sold out</div>}
+                    {imageUrl && !onSale && !allSoldOut && stock === 1 && <div className="tile-badge">In stock</div>}
+                    {!imageUrl && <div className="tile-badge tile-badge-flag">Missing image</div>}
+                  </div>
                   <div className="product-info">
                     <div className="product-brand">{brandName}</div>
                     <div className="product-name">{productName}</div>
