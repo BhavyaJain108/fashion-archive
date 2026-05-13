@@ -35,6 +35,8 @@ EXTRACTABLE_FIELDS: List[str] = [
     "additional_code_2", "additional_code_2_type",
     "additional_code_3", "additional_code_3_type",
     "size_info",
+    "size_availability",
+    "size_stock_counts",
     "brand",
     "color_info",
     "material_info",
@@ -116,6 +118,8 @@ class ProductFields(BaseModel):
 
     # Variant axes (carried as text per E0005, not nested)
     size_info: Optional[str] = None
+    size_availability: Optional[str] = None    # "in_stock, out_of_stock, ..." aligned with size_info
+    size_stock_counts: Optional[str] = None    # "0, 1, 3, 4" aligned with size_info
     color_info: Optional[str] = None
     material_info: Optional[str] = None
     variant_info: Optional[str] = None

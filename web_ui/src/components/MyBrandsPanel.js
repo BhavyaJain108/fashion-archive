@@ -624,13 +624,13 @@ function MyBrandsPanel() {
     const results = [];
     for (let i = 0; i < productArrays.length; i++) {
       for (const p of productArrays[i]) {
-        const url = p.url || p.product_url || '';
+        const url = p.itemurl || p.url || p.product_url || '';
         if (url && seenUrl.has(url)) continue;
         if (url) seenUrl.add(url);
 
         // Cross-category name dedup: skip if same brand+name from a DIFFERENT array
         const brand = (p.brand || p.brand_id || '').toLowerCase();
-        const name = (p.name || p.product_name || '').toLowerCase();
+        const name = (p.product_title || p.name || p.product_name || '').toLowerCase();
         if (brand && name) {
           const key = `${brand}::${name}`;
           if (brandNameSource.has(key) && brandNameSource.get(key) !== i) continue;
@@ -700,7 +700,13 @@ function MyBrandsPanel() {
 
       // Fuzzy re-rank the merged set
       const fuse = new Fuse(merged, {
-        keys: ['name', 'product_name', 'brand', 'brand_id', 'description', 'category'],
+        keys: [
+          'product_title', 'name', 'product_name',
+          'brand', 'brand_id',
+          'description', 'specifications', 'material_info',
+          'category', 'category1', 'category2', 'category3',
+          'color_info', 'additional_tags',
+        ],
         threshold: 0.5,
         ignoreLocation: true,
         minMatchCharLength: 2,
@@ -756,9 +762,9 @@ function MyBrandsPanel() {
     }
   }, [searchQuery, selectedDropdownIdx, matchingCategories, loadCategoryProducts, executeSearch]);
 
-  // Parse price to number for sorting
+  // Parse price to number for sorting (E0005 price → legacy fallback)
   const parsePrice = useCallback((product) => {
-    const raw = product.price || product.attributes?.price || '';
+    const raw = product.price ?? product.full_price ?? product.attributes?.price ?? '';
     const num = parseFloat(String(raw).replace(/[^0-9.]/g, ''));
     return isNaN(num) ? 0 : num;
   }, []);
@@ -770,8 +776,8 @@ function MyBrandsPanel() {
     // Sort
     if (sortBy) {
       result = [...result].sort((a, b) => {
-        const nameA = (a.name || a.product_name || '').toLowerCase();
-        const nameB = (b.name || b.product_name || '').toLowerCase();
+        const nameA = (a.product_title || a.name || a.product_name || '').toLowerCase();
+        const nameB = (b.product_title || b.name || b.product_name || '').toLowerCase();
         switch (sortBy) {
           case 'name-asc': return nameA.localeCompare(nameB);
           case 'name-desc': return nameB.localeCompare(nameA);
@@ -1006,19 +1012,40 @@ function MyBrandsPanel() {
         ) : displayProducts.length > 0 ? (
           <div className="product-grid" ref={gridRef}>
             {displayProducts.map((product, idx) => {
-              const brandName = product.brand
-                ? product.brand.toUpperCase()
-                : (product.brand_id ? product.brand_id.replace(/_/g, ' ').toUpperCase() : '');
-              const productName = product.name || product.product_name || 'Unknown Product';
-              const productUrl = product.url || product.product_url || '';
-              let imageUrl = null;
-              if (product.images && product.images.length > 0) {
-                const firstImage = product.images[0];
-                imageUrl = typeof firstImage === 'string' ? firstImage : firstImage.src;
+              // E0005 field names with legacy aliases as fallback.
+              const brandRaw = product.brand || product.brand_id || '';
+              const brandName = brandRaw ? brandRaw.toString().replace(/_/g, ' ').toUpperCase() : '';
+              const productName = product.product_title || product.name || product.product_name || 'Unknown Product';
+              const productUrl = product.itemurl || product.url || product.product_url || '';
+
+              // images: prefer E0005 all_images / main_image_url, then legacy images[]
+              let imageUrl = product.main_image_url || null;
+              if (!imageUrl) {
+                const rawImages = Array.isArray(product.all_images)
+                  ? product.all_images
+                  : (typeof product.all_images === 'string' && product.all_images.startsWith('[')
+                      ? (() => { try { return JSON.parse(product.all_images); } catch { return []; } })()
+                      : (product.images || []));
+                if (rawImages.length > 0) {
+                  const first = rawImages[0];
+                  imageUrl = typeof first === 'string' ? first : first && first.src;
+                }
               }
-              const priceDisplay = product.price
-                ? `${product.currency || ''} ${product.price}`.trim()
-                : product.attributes?.price;
+
+              // price: prefer e0005 price + full_price for sale-strike
+              const price = product.price ?? null;
+              const fullPrice = product.full_price ?? null;
+              const onSale = fullPrice && price && Number(fullPrice) > Number(price);
+              const priceDisplay = price !== null
+                ? formatTilePrice(price)
+                : (product.attributes?.price || '');
+
+              // Per-size availability quick badges
+              const sizeBadges = buildTileSizes(product);
+
+              // Stock badge: in-stock / sold-out
+              const stock = product.in_stock;
+              const allSoldOut = sizeBadges.length > 0 && sizeBadges.every(s => s.gone);
 
               const rowIdx = Math.floor(idx / GRID_COLS);
               const rowHeight = rowImageHeights[rowIdx];
@@ -1026,7 +1053,7 @@ function MyBrandsPanel() {
               return (
                 <div
                   key={`${productUrl}-${idx}`}
-                  className={`product-card ${selectedProduct && (selectedProduct.url || selectedProduct.product_url) === productUrl ? 'selected' : ''}`}
+                  className={`product-card ${selectedProduct && (selectedProduct.itemurl || selectedProduct.url || selectedProduct.product_url) === productUrl ? 'selected' : ''}`}
                   onClick={() => setSelectedProduct(product)}
                 >
                   {imageUrl && (
@@ -1037,12 +1064,31 @@ function MyBrandsPanel() {
                         loading="lazy"
                         onLoad={(e) => handleImageLoad(idx, e)}
                       />
+                      {onSale && <div className="tile-badge tile-badge-sale">Sale</div>}
+                      {!onSale && allSoldOut && <div className="tile-badge tile-badge-bad">Sold out</div>}
+                      {!onSale && !allSoldOut && stock === 1 && <div className="tile-badge">In stock</div>}
                     </div>
                   )}
                   <div className="product-info">
                     <div className="product-brand">{brandName}</div>
                     <div className="product-name">{productName}</div>
-                    {priceDisplay && <div className="product-price">{priceDisplay}</div>}
+                    {priceDisplay && (
+                      <div className="product-price">
+                        {onSale && <span className="product-price-strike">{formatTilePrice(fullPrice)}</span>}
+                        {priceDisplay}
+                      </div>
+                    )}
+                    {sizeBadges.length > 0 && (
+                      <div className="tile-sizes">
+                        {sizeBadges.map((s, i) => (
+                          <span key={i}
+                                className={`tile-size${s.gone ? ' gone' : ''}${s.low ? ' low' : ''}`}
+                                title={s.label + (s.gone ? ' — sold out' : (s.count ? ` — ${s.count} left` : ''))}>
+                            {s.short}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -1158,6 +1204,54 @@ function MyBrandsPanel() {
       )}
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Tile helpers (E0005-aware)
+// ---------------------------------------------------------------------------
+
+function formatTilePrice(p) {
+  if (p === null || p === undefined || p === '') return '';
+  const n = typeof p === 'string' ? parseFloat(p.replace(/[^\d.]/g, '')) : Number(p);
+  if (!isFinite(n)) return String(p);
+  return '$' + n.toLocaleString('en-US', { maximumFractionDigits: 2 });
+}
+
+/** Compact per-size badge list for a tile.
+ *  Returns [{short:"38", gone:false, low:true, count:1, label:"38 / US 2"}, ...]
+ *  Prefers E0005 size_info / size_availability / size_stock_counts; falls
+ *  back to legacy variants[]. Caps at 6 entries to keep tile compact. */
+function buildTileSizes(product) {
+  const sizes = (product.size_info || '').split(/,\s*/).map(s => s.trim()).filter(Boolean);
+  const avails = (product.size_availability || '').split(/,\s*/).map(s => s.trim()).filter(Boolean);
+  const counts = (product.size_stock_counts || '').split(/,\s*/).map(s => s.trim()).filter(Boolean);
+
+  let entries = [];
+  if (sizes.length > 0) {
+    entries = sizes.map((label, i) => {
+      const avail = (avails[i] || '').toLowerCase();
+      const cnt = parseInt(counts[i], 10);
+      const stockCount = isFinite(cnt) ? cnt : undefined;
+      const gone = avail
+        ? ['out_of_stock', 'false', '0', 'no'].includes(avail)
+        : (stockCount === 0);
+      const low = !gone && stockCount !== undefined && stockCount > 0 && stockCount <= 2;
+      const short = label.split('/')[0].trim();   // "38 / US 2" → "38"
+      return { label, short, gone, low, count: stockCount };
+    });
+  } else {
+    const variants = product.variants || [];
+    entries = variants
+      .filter(v => v.size)
+      .map(v => ({
+        label: v.size,
+        short: String(v.size).split('/')[0].trim(),
+        gone: v.available === false,
+        low: v.available !== false && typeof v.stock_count === 'number' && v.stock_count <= 2,
+        count: v.stock_count,
+      }));
+  }
+  return entries.slice(0, 6);
 }
 
 export default MyBrandsPanel;

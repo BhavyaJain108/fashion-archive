@@ -1017,24 +1017,20 @@ class StreamingOrchestrator:
         """Convert an E0005 product dict into the saved row.
 
         `product` is the full ProductFields.model_dump() from e0005.
-        We save every E0005 field verbatim and apply image filtering only
-        to `all_images` (removes tracking pixels / tiny thumbs / logos).
+        We save every E0005 field verbatim. Image filtering is the only
+        post-process — removes tracking pixels / tiny thumbs / logos from
+        the canonical `all_images` list.
 
-        A small transitional alias block (name/url/sku/images/category)
-        is included so the existing frontend (which still reads legacy
-        names) keeps working during the migration. These aliases will
-        be dropped once ProductDetailPanel + MyBrandsPanel are rewritten
-        on E0005 field names.
+        No legacy field aliases are written. The frontend reads E0005
+        field names directly; old records on disk are handled via
+        fallback paths in the React components themselves.
         """
         if not isinstance(product, dict):
             return {}
 
-        # Canonical: full E0005 row as discovery produced it.
         row = dict(product)
         row["source_url"] = source_url
 
-        # Image filter: applied to `all_images` (the canonical list);
-        # `main_image_url` is kept whatever discovery emitted.
         all_images = row.get("all_images") or []
         if isinstance(all_images, str):
             # network_api with json transform can stringify a list; defensively parse.
@@ -1042,39 +1038,7 @@ class StreamingOrchestrator:
                 all_images = json.loads(all_images) if all_images.startswith("[") else [all_images]
             except Exception:
                 all_images = [all_images]
-        filtered = self._filter_images(list(all_images), source_url)
-        row["all_images"] = filtered
-
-        # Transitional aliases for the legacy frontend. Phase 2 of the
-        # frontend refactor drops these and reads E0005 names directly.
-        row["name"] = row.get("product_title")
-        row["url"] = row.get("itemurl") or source_url
-        row["sku"] = row.get("product_code")
-        row["images"] = filtered or ([row.get("main_image_url")] if row.get("main_image_url") else [])
-        row["category"] = " / ".join(
-            x for x in (row.get(f"category{i}") for i in range(1, 6)) if x
-        ) or None
-        # `variants` aliased from size_info / size_availability so the old
-        # table renders. One row per size, with availability mapped.
-        sizes = (row.get("size_info") or "").split(", ") if row.get("size_info") else []
-        avails = (row.get("size_availability") or "").split(", ") if row.get("size_availability") else []
-        counts = (row.get("size_stock_counts") or "").split(", ") if row.get("size_stock_counts") else []
-        variants = []
-        for i, size in enumerate(sizes):
-            size = size.strip()
-            if not size:
-                continue
-            v = {"size": size, "color": row.get("color_info"), "sku": None,
-                 "price": row.get("price"), "available": True}
-            if i < len(avails):
-                v["available"] = avails[i].strip().lower() not in ("out_of_stock", "false", "0")
-            if i < len(counts):
-                try:
-                    v["stock_count"] = int(counts[i].strip())
-                except ValueError:
-                    pass
-            variants.append(v)
-        row["variants"] = variants
+        row["all_images"] = self._filter_images(list(all_images), source_url)
         return row
 
     def _save_urls_json(self):

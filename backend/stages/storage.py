@@ -303,8 +303,8 @@ def save_product(domain: str, product: dict, category_path: str, source_url: str
         # Extract slug from original URL to preserve variant identifier
         slug = source_url.rstrip('/').split('/')[-1].split('?')[0]
     else:
-        name = product.get("name", "")
-        url = product.get("url", "")
+        name = product.get("product_title") or product.get("name") or ""
+        url = product.get("itemurl") or product.get("url") or ""
 
         if name:
             slug = name.lower().replace(" ", "-").replace("/", "-")
