@@ -32,6 +32,15 @@ MANIFEST
 venv/
 env/
 ENV/
+.venv/
+.venv-*/
+
+# Python tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
 
 # IDE files
 .vscode/
@@ -101,3 +110,16 @@ backend/scraper/navigation/extractions
 backend/extractions/
 # Debug output
 backend/prod_page_v2/extraction_patterns/debug/
+
+# Accidental nested backend dir
+backend/backend/
+
+# Local Claude Code state
+.claude/
+
+# Fashion-show testing outputs (gigabytes of generated frames)
+fashion_archive_testing/
+
+# Catalog DB and rest of data dir
+data/
+extractions/

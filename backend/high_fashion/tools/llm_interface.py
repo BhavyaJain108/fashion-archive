@@ -131,6 +131,82 @@ class ClaudeInterface(LLMInterface):
             return response.content[0].text.strip()
 
 
+class OpenRouterInterface(LLMInterface):
+    """OpenRouter interface — gives access to Qwen, DeepSeek, GLM, Kimi, etc.
+    through a single OpenAI-compatible endpoint.
+
+    Pick the model via OPENROUTER_MODEL env (e.g. "qwen/qwen-2.5-72b-instruct",
+    "deepseek/deepseek-chat", "z-ai/glm-4.5-air"). Structured output uses
+    OpenAI tool calling, which Qwen + DeepSeek both support.
+    """
+
+    def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None):
+        try:
+            import openai
+            self.api_key = api_key or os.getenv('OPENROUTER_API_KEY')
+            if not self.api_key:
+                raise ValueError("OpenRouter API key not found (set OPENROUTER_API_KEY)")
+            self.client = openai.OpenAI(
+                api_key=self.api_key,
+                base_url="https://openrouter.ai/api/v1",
+            )
+            self.model = model or os.getenv('OPENROUTER_MODEL', 'qwen/qwen-2.5-72b-instruct')
+            self._last_usage = None
+        except ImportError:
+            raise ImportError("openai package not installed. Run: pip install openai")
+
+    def generate(self, prompt: str, max_tokens: int = 1000, temperature: float = 0.0,
+                 response_model=None, debug: bool = False):
+        if response_model:
+            # OpenAI tool calling for structured output — supported by Qwen and DeepSeek.
+            schema = response_model.model_json_schema()
+            response = self.client.chat.completions.create(
+                model=self.model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                messages=[{"role": "user", "content": prompt}],
+                tools=[{
+                    "type": "function",
+                    "function": {
+                        "name": "structured_output",
+                        "description": "Return structured data matching the schema",
+                        "parameters": schema,
+                    },
+                }],
+                tool_choice={"type": "function", "function": {"name": "structured_output"}},
+            )
+
+            if response.usage:
+                self._last_usage = {
+                    'input_tokens': response.usage.prompt_tokens,
+                    'output_tokens': response.usage.completion_tokens,
+                }
+
+            choice = response.choices[0]
+            if not choice.message.tool_calls:
+                raise ValueError(f"No tool_call in OpenRouter response. content={choice.message.content!r}")
+
+            import json as _json
+            tool_args = choice.message.tool_calls[0].function.arguments
+            try:
+                return _json.loads(tool_args) if isinstance(tool_args, str) else tool_args
+            except _json.JSONDecodeError as e:
+                raise ValueError(f"OpenRouter tool args were not valid JSON: {e}; raw={tool_args!r}")
+        else:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            if response.usage:
+                self._last_usage = {
+                    'input_tokens': response.usage.prompt_tokens,
+                    'output_tokens': response.usage.completion_tokens,
+                }
+            return response.choices[0].message.content.strip()
+
+
 class OpenAIInterface(LLMInterface):
     """OpenAI GPT interface"""
     
@@ -196,6 +272,9 @@ def get_llm_client(provider: Optional[str] = None) -> LLMInterface:
     if provider == 'claude':
         model = os.getenv('CLAUDE_MODEL', 'claude-3-5-sonnet-20241022')
         return ClaudeInterface(model=model)
+    elif provider == 'openrouter':
+        model = os.getenv('OPENROUTER_MODEL', 'qwen/qwen-2.5-72b-instruct')
+        return OpenRouterInterface(model=model)
     elif provider == 'openai':
         model = os.getenv('OPENAI_MODEL', 'gpt-4')
         return OpenAIInterface(model=model)

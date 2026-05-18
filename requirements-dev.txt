@@ -1,0 +1,23 @@
+# Dev tooling for the fashion-archive backend.
+# Install with: pip install -r requirements-dev.txt
+
+# Runtime deps (tests import backend code)
+-r requirements.txt
+
+# Scraper transitive deps. The scraper-specific requirements file
+# (backend/scraper/requirements.txt) lists these separately; tests need
+# the Python packages importable, but do NOT need `playwright install`
+# browser binaries — unit tests never launch a browser.
+playwright>=1.40.0
+pydantic>=2.0.0
+
+# Test runner
+pytest>=7.4.0
+pytest-cov>=4.1.0
+
+# Lint + format + typecheck
+ruff>=0.5.0
+mypy>=1.10.0
+
+# Pre-commit framework
+pre-commit>=3.7.0

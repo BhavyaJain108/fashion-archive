@@ -1,0 +1,7 @@
+{
+  "image_selectors": [
+    "div.carousel-inner img"
+  ],
+  "url_attribute": "src",
+  "image_count": 2
+}

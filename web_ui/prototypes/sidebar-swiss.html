@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Prototype - Swiss Modernist</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Helvetica+Neue:wght@300;400;500;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --bg: #fafafa;
+      --surface: #ffffff;
+      --text: #000000;
+      --text-light: #999999;
+      --border: #e5e5e5;
+      --accent: #000000;
+    }
+
+    body {
+      font-family: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      overflow: hidden;
+      font-size: 12px;
+    }
+
+    .container {
+      display: flex;
+      height: 100vh;
+    }
+
+    .sidebar {
+      width: 240px;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .section {
+      border-bottom: 1px solid var(--border);
+    }
+
+    .section-header {
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      padding: 16px 20px 12px;
+      color: var(--text-light);
+    }
+
+    .items-scroll {
+      max-height: 140px;
+      overflow-y: auto;
+      padding: 0 20px 16px;
+    }
+
+    .items-scroll::-webkit-scrollbar {
+      width: 0;
+    }
+
+    .item {
+      font-size: 13px;
+      font-weight: 400;
+      padding: 6px 0;
+      cursor: pointer;
+      color: var(--text-light);
+      transition: all 0.15s ease;
+      position: relative;
+    }
+
+    .item:hover {
+      color: var(--text);
+    }
+
+    .item.selected {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .item.selected::before {
+      content: '';
+      position: absolute;
+      left: -20px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 4px;
+      height: 4px;
+      background: var(--accent);
+      border-radius: 50%;
+    }
+
+    .collections-section {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .collections-scroll {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0 20px 20px;
+    }
+
+    .collections-scroll::-webkit-scrollbar {
+      width: 4px;
+    }
+
+    .collections-scroll::-webkit-scrollbar-track {
+      background: var(--bg);
+    }
+
+    .collections-scroll::-webkit-scrollbar-thumb {
+      background: var(--border);
+    }
+
+    .collection-item {
+      font-size: 12px;
+      font-weight: 400;
+      padding: 5px 0;
+      cursor: pointer;
+      color: var(--text-light);
+      transition: all 0.15s ease;
+      position: relative;
+    }
+
+    .collection-item:hover {
+      color: var(--text);
+    }
+
+    .collection-item.selected {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .collection-item.selected::before {
+      content: '';
+      position: absolute;
+      left: -20px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 4px;
+      height: 4px;
+      background: var(--accent);
+      border-radius: 50%;
+    }
+
+    .main {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg);
+    }
+
+    .footer {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 40px;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      font-size: 10px;
+      color: var(--text-light);
+    }
+
+    .footer strong {
+      color: var(--text);
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="sidebar">
+      <div class="section">
+        <div class="section-header">Year</div>
+        <div class="items-scroll" id="years">
+          <div class="item selected">2025</div>
+          <div class="item">2024</div>
+          <div class="item">2023</div>
+          <div class="item">2022</div>
+          <div class="item">2021</div>
+          <div class="item">2020</div>
+          <div class="item">2019</div>
+          <div class="item">2018</div>
+          <div class="item">2017</div>
+          <div class="item">2016</div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">Season</div>
+        <div class="items-scroll" id="seasons">
+          <div class="item selected">Fall</div>
+          <div class="item">Spring</div>
+          <div class="item">Resort</div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">Category</div>
+        <div class="items-scroll" id="categories">
+          <div class="item selected">Ready to Wear</div>
+          <div class="item">Menswear</div>
+          <div class="item">Couture</div>
+        </div>
+      </div>
+
+      <div class="section collections-section">
+        <div class="section-header">Collections (142)</div>
+        <div class="collections-scroll" id="collections">
+          <div class="collection-item">Acne Studios</div>
+          <div class="collection-item">Alexander McQueen</div>
+          <div class="collection-item">Ann Demeulemeester</div>
+          <div class="collection-item">Balenciaga</div>
+          <div class="collection-item">Bottega Veneta</div>
+          <div class="collection-item">Burberry</div>
+          <div class="collection-item">Celine</div>
+          <div class="collection-item">Chanel</div>
+          <div class="collection-item">Comme des Garcons</div>
+          <div class="collection-item">Dior</div>
+          <div class="collection-item">Dries Van Noten</div>
+          <div class="collection-item">Givenchy</div>
+          <div class="collection-item">Gucci</div>
+          <div class="collection-item">Hermes</div>
+          <div class="collection-item">Issey Miyake</div>
+          <div class="collection-item">Jil Sander</div>
+          <div class="collection-item">Junya Watanabe</div>
+          <div class="collection-item">Lemaire</div>
+          <div class="collection-item">Loewe</div>
+          <div class="collection-item">Louis Vuitton</div>
+          <div class="collection-item selected">Maison Margiela</div>
+          <div class="collection-item">Marc Jacobs</div>
+          <div class="collection-item">Marni</div>
+          <div class="collection-item">Miu Miu</div>
+          <div class="collection-item">Prada</div>
+          <div class="collection-item">Raf Simons</div>
+          <div class="collection-item">Rick Owens</div>
+          <div class="collection-item">Sacai</div>
+          <div class="collection-item">Saint Laurent</div>
+          <div class="collection-item">The Row</div>
+          <div class="collection-item">Valentino</div>
+          <div class="collection-item">Vetements</div>
+          <div class="collection-item">Yohji Yamamoto</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="main"></div>
+  </div>
+
+  <div class="footer">
+    <span><strong>Maison Margiela</strong> — Fall 2025 Ready to Wear</span>
+    <span>Look <strong>01</strong> of <strong>45</strong></span>
+  </div>
+
+  <script>
+    document.querySelectorAll('.items-scroll, .collections-scroll').forEach(container => {
+      const items = container.querySelectorAll('.item, .collection-item');
+      items.forEach(item => {
+        item.addEventListener('click', () => {
+          items.forEach(i => i.classList.remove('selected'));
+          item.classList.add('selected');
+        });
+      });
+    });
+  </script>
+</body>
+</html>

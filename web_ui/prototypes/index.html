@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sidebar Prototypes</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: #0a0a0a;
+      color: #e0e0e0;
+      min-height: 100vh;
+      padding: 48px;
+    }
+
+    h1 {
+      font-size: 14px;
+      font-weight: 500;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: #666;
+      margin-bottom: 48px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 24px;
+    }
+
+    .card {
+      background: #111;
+      border: 1px solid #1a1a1a;
+      border-radius: 8px;
+      overflow: hidden;
+      transition: all 0.2s ease;
+    }
+
+    .card:hover {
+      border-color: #333;
+      transform: translateY(-2px);
+    }
+
+    .card a {
+      display: block;
+      text-decoration: none;
+      color: inherit;
+    }
+
+    .preview {
+      height: 200px;
+      background: #0a0a0a;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-bottom: 1px solid #1a1a1a;
+      font-size: 11px;
+      color: #444;
+    }
+
+    .info {
+      padding: 16px;
+    }
+
+    .name {
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .desc {
+      font-size: 11px;
+      color: #666;
+      line-height: 1.5;
+    }
+
+    .tag {
+      display: inline-block;
+      font-size: 9px;
+      padding: 3px 8px;
+      background: #1a1a1a;
+      border-radius: 4px;
+      margin-top: 8px;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+  </style>
+</head>
+<body>
+  <h1>Sidebar Prototypes — High Fashion Archive</h1>
+
+  <div class="grid">
+    <div class="card">
+      <a href="sidebar-e.html" target="_blank">
+        <div class="preview">
+          <iframe src="sidebar-e.html" style="width: 100%; height: 100%; border: none; pointer-events: none; transform: scale(0.5); transform-origin: top left; width: 200%; height: 200%;"></iframe>
+        </div>
+        <div class="info">
+          <div class="name">E — Vertical Regions</div>
+          <div class="desc">Stacked vertical sections for Year, Season, Category, Collections. Each scrolls independently.</div>
+          <span class="tag">Dark</span>
+          <span class="tag">Dock Effect</span>
+        </div>
+      </a>
+    </div>
+
+    <div class="card">
+      <a href="sidebar-j.html" target="_blank">
+        <div class="preview">
+          <iframe src="sidebar-j.html" style="width: 100%; height: 100%; border: none; pointer-events: none; transform: scale(0.5); transform-origin: top left; width: 200%; height: 200%;"></iframe>
+        </div>
+        <div class="info">
+          <div class="name">J — Timeline</div>
+          <div class="desc">Vertical timeline with year markers. All seasons nested under years with dot indicators.</div>
+          <span class="tag">Dark</span>
+          <span class="tag">Timeline</span>
+        </div>
+      </a>
+    </div>
+
+    <div class="card">
+      <a href="sidebar-ultra-minimal.html" target="_blank">
+        <div class="preview">
+          <iframe src="sidebar-ultra-minimal.html" style="width: 100%; height: 100%; border: none; pointer-events: none; transform: scale(0.5); transform-origin: top left; width: 200%; height: 200%;"></iframe>
+        </div>
+        <div class="info">
+          <div class="name">Ultra Minimal</div>
+          <div class="desc">Extreme minimalism. No labels, no borders. Just text that responds to selection.</div>
+          <span class="tag">Dark</span>
+          <span class="tag">Minimal</span>
+        </div>
+      </a>
+    </div>
+
+    <div class="card">
+      <a href="sidebar-brutalist.html" target="_blank">
+        <div class="preview">
+          <iframe src="sidebar-brutalist.html" style="width: 100%; height: 100%; border: none; pointer-events: none; transform: scale(0.5); transform-origin: top left; width: 200%; height: 200%;"></iframe>
+        </div>
+        <div class="info">
+          <div class="name">Brutalist Dense</div>
+          <div class="desc">Three-column nav grid. Numbered collections. Status bar at bottom. Dense information.</div>
+          <span class="tag">Dark</span>
+          <span class="tag">Dense</span>
+        </div>
+      </a>
+    </div>
+
+    <div class="card">
+      <a href="sidebar-dock.html" target="_blank">
+        <div class="preview">
+          <iframe src="sidebar-dock.html" style="width: 100%; height: 100%; border: none; pointer-events: none; transform: scale(0.5); transform-origin: top left; width: 200%; height: 200%;"></iframe>
+        </div>
+        <div class="info">
+          <div class="name">Dock Magnification</div>
+          <div class="desc">Strong macOS dock-style magnification. Items scale up smoothly as cursor approaches.</div>
+          <span class="tag">Dark</span>
+          <span class="tag">Dock Effect</span>
+        </div>
+      </a>
+    </div>
+
+    <div class="card">
+      <a href="sidebar-swiss.html" target="_blank">
+        <div class="preview">
+          <iframe src="sidebar-swiss.html" style="width: 100%; height: 100%; border: none; pointer-events: none; transform: scale(0.5); transform-origin: top left; width: 200%; height: 200%;"></iframe>
+        </div>
+        <div class="info">
+          <div class="name">Swiss Modernist</div>
+          <div class="desc">Clean light theme. Helvetica. Dot indicators for selection. Structured sections.</div>
+          <span class="tag">Light</span>
+          <span class="tag">Clean</span>
+        </div>
+      </a>
+    </div>
+
+    <div class="card">
+      <a href="sidebar-dark-clean.html" target="_blank">
+        <div class="preview">
+          <iframe src="sidebar-dark-clean.html" style="width: 100%; height: 100%; border: none; pointer-events: none; transform: scale(0.5); transform-origin: top left; width: 200%; height: 200%;"></iframe>
+        </div>
+        <div class="info">
+          <div class="name">Dark Clean</div>
+          <div class="desc">Swiss aesthetic in dark mode. Inter font. Subtle magnification. Very refined.</div>
+          <span class="tag">Dark</span>
+          <span class="tag">Clean</span>
+          <span class="tag">Recommended</span>
+        </div>
+      </a>
+    </div>
+  </div>
+</body>
+</html>

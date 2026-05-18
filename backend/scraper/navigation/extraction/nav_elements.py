@@ -33,9 +33,16 @@ from playwright.async_api import Page
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent.parent.parent.parent / 'config' / '.env')
 
-from anthropic import Anthropic
+# Route through LLMHandler so LLM_PROVIDER (claude / openrouter) is respected.
+# Lazy import to avoid circular dependency at module load.
+def _get_handler():
+    global _handler
+    if _handler is None:
+        from scraper.llm_handler import LLMHandler
+        _handler = LLMHandler()
+    return _handler
 
-client = Anthropic(api_key=os.getenv('CLAUDE_API_KEY'))
+_handler = None
 
 # Cache LLM exclusion decisions by CSS group keys (frozenset of group names)
 # This avoids repeated LLM calls when the same CSS groups appear
@@ -429,13 +436,12 @@ or if all are navigation:
 {{"exclude": [], "reason": "all are product categories"}}"""
 
     try:
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=100,
-            messages=[{"role": "user", "content": prompt}]
-        )
-
-        result = response.content[0].text.strip()
+        handler = _get_handler()
+        call_result = handler.call_text(prompt, max_tokens=100, operation="nav_group_exclusion")
+        if not call_result.get("success"):
+            print(f"    LLM exclusion call failed: {call_result.get('error')}")
+            return set()
+        result = call_result.get("response", "").strip()
         print(f"    LLM exclusion response: {result}")
 
         # Parse JSON response

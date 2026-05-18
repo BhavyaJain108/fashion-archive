@@ -7,14 +7,20 @@ Simple DFS model:
 3. Extract links + children
 4. Push children to stack
 5. Mark explored
+
+State Management:
+- SiteSession: Per-site state (menu cache, hover stats) - passed in or created
+- NavExplorer instance: Per-exploration state (stack, explored, categories)
+- LLMClient: Process-level singleton for LLM access
 """
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 from playwright.async_api import Page
 from pydantic import BaseModel, Field
 
 from scraper.navigation.extraction.nav_elements import extract_and_filter_nav_elements
 from scraper.navigation.llm.client import get_llm_handler
+from scraper.navigation.session import SiteSession, set_current_session
 from scraper.navigation.dynamic_explorer import (
     open_menu_and_capture,
     click_button,
@@ -49,6 +55,12 @@ class NavExplorer:
     Simple DFS navigation explorer.
 
     Usage:
+        # New way (explicit session)
+        session = SiteSession("https://example.com")
+        explorer = NavExplorer(page, session)
+        await explorer.setup(session.base_url)
+
+        # Old way (session created internally)
         explorer = NavExplorer(page)
         await explorer.setup(url)
 
@@ -57,12 +69,15 @@ class NavExplorer:
             print(result)
     """
 
-    def __init__(self, page: Page):
+    def __init__(self, page: Page, session: SiteSession = None):
         self.page = page
-        self.base_url: str = None
-        self.menu_selector: str = None
 
-        # DFS state
+        # Session for per-site state (menu cache, hover stats)
+        # Create internally if not provided (backwards compatible)
+        self._session = session
+        self._owns_session = session is None  # Track if we created it
+
+        # DFS state (per-exploration)
         self.stack: list[tuple] = []  # [(path, name, role, expands_info, is_tab), ...] where expands_info is None or {'link_name': str, 'link_url': str}
         self.explored: set = set()    # path tuples we've clicked
         self.categories: dict = {}    # path_key -> url
@@ -83,6 +98,38 @@ class NavExplorer:
 
         # LLM exclusion cache per depth level (CSS classes reused differently at each level)
         self.excluded_groups_cache: dict = {}  # {depth: set of excluded groups}
+
+    @property
+    def session(self) -> SiteSession:
+        """Get the site session, creating if needed."""
+        if self._session is None:
+            self._session = SiteSession(self.base_url or "")
+            set_current_session(self._session)  # For backwards compat
+        return self._session
+
+    @property
+    def base_url(self) -> str:
+        """Get base URL from session."""
+        return self.session.base_url
+
+    @base_url.setter
+    def base_url(self, value: str):
+        """Set base URL in session."""
+        if self._session is None:
+            self._session = SiteSession(value)
+            set_current_session(self._session)
+        else:
+            self._session.base_url = value
+
+    @property
+    def menu_selector(self) -> str | None:
+        """Get menu container selector from session."""
+        return self.session.menu.container_selector
+
+    @menu_selector.setter
+    def menu_selector(self, value: str):
+        """Set menu container selector in session."""
+        self.session.menu.container_selector = value
 
 
     def _add_to_tree(self, path: list[str], name: str, url: str):
@@ -1037,6 +1084,7 @@ async def run_exploration(
     url: str,
     max_steps: int = 200,
     max_errors: int = 5,
+    session: SiteSession = None,
 ) -> dict:
     """
     Run full navigation exploration with proper error handling.
@@ -1046,6 +1094,8 @@ async def run_exploration(
         url: URL to explore
         max_steps: Maximum steps before stopping
         max_errors: Maximum consecutive errors before stopping
+        session: Optional SiteSession for state management. If not provided,
+                 one will be created automatically.
 
     Returns:
         {
@@ -1061,7 +1111,15 @@ async def run_exploration(
             'error': str or None,
         }
     """
-    explorer = NavExplorer(page)
+    # Create session if not provided
+    if session is None:
+        session = SiteSession(url)
+
+    # Set as current session for backwards compatibility with code
+    # that uses module-level state (e.g., dynamic_explorer functions)
+    set_current_session(session)
+
+    explorer = NavExplorer(page, session)
     consecutive_errors = 0
     total_errors = 0
     step_count = 0
@@ -1190,9 +1248,13 @@ def categories_to_tree(categories: dict, tabs: list = None) -> dict:
     return root
 
 
-async def explore(url: str) -> tuple:
+async def explore(url: str, session: SiteSession = None) -> tuple:
     """
     Main entry point - creates browser, runs exploration, returns tree.
+
+    Args:
+        url: URL to explore
+        session: Optional SiteSession for state management
 
     Returns:
         tuple: (tree_dict, stats_dict)
@@ -1200,18 +1262,27 @@ async def explore(url: str) -> tuple:
             stats_dict: {'total_links': int, 'total_steps': int, ...}
     """
     from playwright.async_api import async_playwright
+    from scraper.navigation.llm.client import LLMClient, get_llm_usage
+    from scraper.navigation.session import clear_current_session
 
     print(f"\n{'='*70}")
     print("STEP EXPLORER")
     print(f"{'='*70}")
     print(f"URL: {url}\n")
 
+    # Create session if not provided
+    if session is None:
+        session = SiteSession(url)
+
+    # Reset LLM usage tracking for this exploration
+    LLMClient().reset_usage()
+
     playwright = await async_playwright().start()
     browser = await playwright.chromium.launch(headless=False)
     page = await browser.new_page(viewport={'width': 768, 'height': 900})
 
     try:
-        result = await run_exploration(page, url, max_steps=200, max_errors=5)
+        result = await run_exploration(page, url, max_steps=200, max_errors=5, session=session)
 
         if not result['success']:
             print(f"\n[ERROR] {result['error']}")
@@ -1220,12 +1291,20 @@ async def explore(url: str) -> tuple:
         # Convert to tree format
         tree = categories_to_tree(result['categories'], result.get('tabs', []))
 
+        # Report LLM usage
+        llm_usage = get_llm_usage()
         print(f"\n{'='*70}")
         print(f"COMPLETE: {result['stats']['total_links']} links in {result['stats']['total_steps']} steps")
+        print(f"LLM: {llm_usage.get('call_count', 0)} calls, {llm_usage.get('input_tokens', 0)} in, {llm_usage.get('output_tokens', 0)} out")
         print(f"{'='*70}")
+
+        # Add LLM usage to stats
+        result['stats']['llm_usage'] = llm_usage
 
         return tree, result['stats']
 
     finally:
         await browser.close()
         await playwright.stop()
+        # Clear session to avoid state leakage
+        clear_current_session()

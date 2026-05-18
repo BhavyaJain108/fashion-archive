@@ -28,6 +28,16 @@ try:
 except ImportError:
     ClaudeInterface = None
 
+# Opt-in fixture recorder (LLM_RECORD=1). No side effects unless enabled.
+try:
+    from llm_recorder import get_recorder
+except ImportError:
+    try:
+        from .llm_recorder import get_recorder  # relative-import fallback
+    except ImportError:
+        def get_recorder():  # type: ignore[no-redef]
+            return None
+
 
 # Per-model pricing (USD per 1M tokens). Used wherever we need to convert
 # token counts to dollar cost. Keep keys aligned with the Anthropic model
@@ -235,15 +245,21 @@ class LLMHandler:
         """
         Initialize LLM Handler.
 
-        Args:
-            model: Claude model to use (default: Sonnet 4)
+        Default provider is Claude. Set LLM_PROVIDER=openrouter (and optionally
+        OPENROUTER_MODEL=...) in the environment to route all structured /
+        text calls through OpenRouter instead. Vision (call_with_image) still
+        uses Claude directly for now — keep CLAUDE_API_KEY set either way.
         """
+        provider = os.getenv('LLM_PROVIDER', 'claude').lower()
         self.model = model
-        if ClaudeInterface:
-            self.client = ClaudeInterface(model=model)
-        else:
+        try:
+            from high_fashion.tools.llm_interface import get_llm_client
+            self.client = get_llm_client(provider)
+            # Mirror the actual model used by the client (so fixture metadata is honest)
+            self.model = getattr(self.client, 'model', model)
+        except Exception as e:
             self.client = None
-            print("⚠️  ClaudeInterface not available - WebFetch calls will be used")
+            print(f"⚠️  LLM client init failed ({provider}): {e} - WebFetch fallback")
 
     @classmethod
     def get_total_usage(cls) -> Dict[str, Any]:
@@ -372,13 +388,20 @@ class LLMHandler:
                         usage = self.client.get_last_usage() if hasattr(self.client, 'get_last_usage') else None
                         self._track_usage(usage, operation)
 
-                        return {
+                        final = {
                             "data": result,
                             "latency_ms": latency_ms,
                             "success": True,
                             "attempts": attempt + 1,
                             "usage": usage
                         }
+                        self._record_fixture(
+                            method="call", prompt=prompt, output=final,
+                            operation=operation, model=self.model,
+                            max_tokens=max_tokens,
+                            response_model=response_model.__name__ if response_model else None,
+                        )
+                        return final
                     else:
                         # Regular text generation
                         response = self.client.generate(prompt, max_tokens=max_tokens)
@@ -388,13 +411,19 @@ class LLMHandler:
                         usage = self.client.get_last_usage() if hasattr(self.client, 'get_last_usage') else None
                         self._track_usage(usage, operation)
 
-                        return {
+                        final = {
                             "response": response,
                             "latency_ms": latency_ms,
                             "success": True,
                             "attempts": attempt + 1,
                             "usage": usage
                         }
+                        self._record_fixture(
+                            method="call", prompt=prompt, output=final,
+                            operation=operation, model=self.model,
+                            max_tokens=max_tokens,
+                        )
+                        return final
                 else:
                     raise NotImplementedError("No LLM client available - use WebFetch externally")
                     
@@ -491,12 +520,18 @@ class LLMHandler:
 
             result_text = response.content[0].text.strip()
 
-            return {
+            final = {
                 "response": result_text,
                 "latency_ms": latency_ms,
                 "success": True,
                 "usage": usage
             }
+            self._record_fixture(
+                method="call_with_image", prompt=prompt, output=final,
+                operation=operation, model=self.model, max_tokens=max_tokens,
+                image_b64=image_b64, image_media_type=media_type,
+            )
+            return final
 
         except Exception as e:
             latency_ms = (time.time() - start_time) * 1000
@@ -537,11 +572,17 @@ class LLMHandler:
         start_time = time.time()
         schema = response_model.model_json_schema()
 
+        # Vision calls always go to Claude directly — self.model might point
+        # at a non-Claude model (e.g. when LLM_PROVIDER=openrouter routes
+        # text calls through Qwen for fixture work). Hard-code a Claude
+        # vision-capable model here instead of inheriting self.model.
+        vision_model = os.getenv('CLAUDE_VISION_MODEL', 'claude-sonnet-4-20250514')
+
         try:
             client = Anthropic(api_key=os.getenv('CLAUDE_API_KEY'))
 
             response = client.messages.create(
-                model=self.model,
+                model=vision_model,
                 max_tokens=max_tokens,
                 messages=[{
                     "role": "user",
@@ -625,40 +666,34 @@ class LLMHandler:
         Returns:
             Dictionary with response text and metadata
         """
-        import os
-        from anthropic import Anthropic
-
         start_time = time.time()
 
         try:
-            client = Anthropic(api_key=os.getenv('CLAUDE_API_KEY'))
+            if not self.client:
+                raise RuntimeError("LLM client not initialized")
 
-            response = client.messages.create(
-                model=self.model,
-                max_tokens=max_tokens,
-                messages=[{"role": "user", "content": prompt}]
-            )
+            # Route through the configured provider (Claude or OpenRouter/Qwen).
+            # Both ClaudeInterface.generate and OpenRouterInterface.generate return
+            # a string and stash usage on _last_usage when called without response_model.
+            result_text = self.client.generate(prompt, max_tokens=max_tokens).strip()
 
             latency_ms = (time.time() - start_time) * 1000
 
-            # Track usage
-            if response.usage:
-                usage = {
-                    "input_tokens": response.usage.input_tokens,
-                    "output_tokens": response.usage.output_tokens
-                }
+            usage = getattr(self.client, '_last_usage', None)
+            if usage:
                 self._track_usage(usage, operation)
-            else:
-                usage = None
 
-            result_text = response.content[0].text.strip()
-
-            return {
+            final = {
                 "response": result_text,
                 "latency_ms": latency_ms,
                 "success": True,
                 "usage": usage
             }
+            self._record_fixture(
+                method="call_text", prompt=prompt, output=final,
+                operation=operation, model=self.model, max_tokens=max_tokens,
+            )
+            return final
 
         except Exception as e:
             latency_ms = (time.time() - start_time) * 1000
@@ -667,4 +702,29 @@ class LLMHandler:
                 "latency_ms": latency_ms,
                 "success": False
             }
-    
+
+    # ---- Fixture recording -------------------------------------------------
+
+    def _record_fixture(self, *, method, prompt, output, operation, model,
+                        max_tokens, response_model=None, image_b64=None,
+                        image_media_type=None):
+        """Best-effort fixture recording. No-op unless LLM_RECORD=1."""
+        rec = get_recorder()
+        if rec is None:
+            return
+        try:
+            rec.record_call(
+                method=method,
+                prompt=prompt,
+                output=output,
+                operation=operation,
+                stage=LLMUsageTracker.get_current_stage(),
+                model=model,
+                max_tokens=max_tokens,
+                response_model=response_model,
+                image_b64=image_b64,
+                image_media_type=image_media_type,
+            )
+        except Exception as e:  # noqa: BLE001
+            print(f"[llm_handler] fixture record failed: {e}")
+

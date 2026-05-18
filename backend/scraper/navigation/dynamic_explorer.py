@@ -651,7 +651,155 @@ def find_root_role_in_diff(new_lines: list[str]) -> list[str]:
     return [r for r in container_roles if r in found_roles]
 
 
-async def find_menu_from_aria_diff(page: Page, before_aria: str, after_aria: str) -> tuple[str | None, str | None]:
+async def _visual_menu_fallback(
+    page: Page,
+    before_png: bytes,
+    after_png: bytes,
+    before_aria: str,
+) -> tuple[str | None, str | None]:
+    """Visual fallback when ARIA diff is too thin to identify the menu.
+
+    Pipeline:
+      1. Pixel diff (raw + contrast-enhanced, in parallel) -> change bbox.
+      2. If no significant change, give up.
+      3. Run OCR on the cropped change region.
+      4. Scan visible overlays, pick the one whose bbox best overlaps the
+         change region (IoU).
+      5. Synthesize an ARIA-format string from OCR text so downstream
+         extraction has something to chew on.
+
+    Returns (synthesized_aria, selector) or (None, None) if no signal.
+    """
+    from scraper.navigation.visual_diff import (
+        compute_visual_diff,
+        bbox_overlap_ratio,
+        ocr_text_to_aria_lines,
+    )
+
+    try:
+        vd = compute_visual_diff(before_png, after_png)
+    except Exception as e:
+        print(f"    [VISUAL] diff failed: {e}")
+        return None, None
+
+    print(
+        f"    [VISUAL] union={vd.union_fraction:.1%} "
+        f"(raw={vd.changed_fraction:.1%}, contrast={vd.changed_fraction_contrast:.1%}) "
+        f"bbox={vd.bbox} ocr_lines={vd.line_change}"
+    )
+
+    if not vd.menu_opened or vd.bbox is None:
+        print(f"    [VISUAL] no menu-open signal (need >=15% pixel change + >=3 OCR lines)")
+        return None, None
+
+    print(f"    [VISUAL] OCR preview: {vd.ocr_text[:200]!r}")
+
+    # Scan overlays WITH positions and find best-IoU match against change bbox.
+    overlay_info = await page.evaluate("""() => {
+        const results = [];
+        const tagCounts = {};
+        document.querySelectorAll('div, aside, section, nav, header').forEach((el) => {
+            const tag = el.tagName.toLowerCase();
+            tagCounts[tag] = (tagCounts[tag] || 0);
+            const tagIdx = tagCounts[tag];
+            tagCounts[tag]++;
+            const style = getComputedStyle(el);
+            const rect = el.getBoundingClientRect();
+            if (style.display === 'none' || style.visibility === 'hidden') return;
+            if (parseFloat(style.opacity) === 0) return;
+            if (rect.width < 200 || rect.height < 200) return;
+            const isOverlay = style.position === 'fixed' || style.position === 'absolute';
+            results.push({
+                tag, tagIdx, isOverlay,
+                x: Math.round(rect.x), y: Math.round(rect.y),
+                w: Math.round(rect.width), h: Math.round(rect.height),
+            });
+        });
+        return results;
+    }""")
+
+    # Score every overlap-candidate by how many clickable items it contains.
+    # IoU alone picks the outermost wrapper (often a backdrop); we want the
+    # richest inner panel that sits inside the change region.
+    overlap_candidates = []
+    for info in overlay_info:
+        iou = bbox_overlap_ratio(
+            (info['x'], info['y'], info['w'], info['h']), vd.bbox
+        )
+        if iou >= 0.2:
+            overlap_candidates.append((info, iou))
+
+    scored = []
+    for info, iou in overlap_candidates:
+        try:
+            items = await page.evaluate(
+                """({tag, idx}) => {
+                    const els = document.getElementsByTagName(tag);
+                    if (idx >= els.length) return [];
+                    const root = els[idx];
+                    const sel = 'a, button, [role="button"], [role="menuitem"], [role="tab"], [onclick], [tabindex]';
+                    const seen = new Set();
+                    const out = [];
+                    root.querySelectorAll(sel).forEach((el) => {
+                        const rect = el.getBoundingClientRect();
+                        if (rect.width === 0 || rect.height === 0) return;
+                        const text = (el.textContent || '').trim().replace(/\\s+/g, ' ');
+                        if (!text || text.length > 60) return;
+                        if (seen.has(text)) return;
+                        seen.add(text);
+                        out.push(text);
+                    });
+                    return out;
+                }""",
+                {"tag": info["tag"], "idx": info["tagIdx"]},
+            )
+        except Exception:
+            items = []
+        scored.append((info, iou, items))
+        print(
+            f"    [VISUAL] candidate {info['tag']}[{info['tagIdx']}] "
+            f"IoU={iou:.2f} ({info['w']}x{info['h']}) clickables={len(items)}"
+        )
+
+    # Pick overlay with the most clickables; break ties on tighter IoU.
+    scored.sort(key=lambda t: (len(t[2]), t[1]), reverse=True)
+    selector = None
+    clickables = []
+    if scored and len(scored[0][2]) > 0:
+        best, best_iou, clickables = scored[0]
+        selector = f"{best['tag']} >> nth={best['tagIdx']}"
+        print(
+            f"    [VISUAL] picked {best['tag']}[{best['tagIdx']}] "
+            f"({len(clickables)} clickables, IoU={best_iou:.2f})"
+        )
+    else:
+        print(f"    [VISUAL] no overlay yielded clickables in change region")
+
+    if clickables:
+        # Filter obvious utility items so DFS doesn't waste clicks on them.
+        SKIP = {
+            'close mobile menu', 'close', 'back', 'search', 'cart', 'account',
+            'sign in', 'log in', 'menu',
+        }
+        kept = [c for c in clickables if c.lower() not in SKIP]
+        synthesized = "\n".join(f'  - button "{c}"' for c in kept)
+    else:
+        # Last resort: OCR text only — parser won't extract links but at least
+        # downstream logs show what was visible.
+        synthesized = ocr_text_to_aria_lines(vd.ocr_text)
+
+    if not synthesized:
+        return None, None
+    return synthesized, selector
+
+
+async def find_menu_from_aria_diff(
+    page: Page,
+    before_aria: str,
+    after_aria: str,
+    before_png: bytes | None = None,
+    after_png: bytes | None = None,
+) -> tuple[str | None, str | None, list]:
     """
     Find the menu element by using ARIA diff to map back to DOM.
 
@@ -681,6 +829,13 @@ async def find_menu_from_aria_diff(page: Page, before_aria: str, after_aria: str
         # Fallback: discover menu container by matching ARIA content
         print(f"    [ARIA-DIFF] No standard roles, discovering container by content...")
         selector = await _discover_menu_container(page, diff_text, before_aria)
+        if selector is None and before_png and after_png:
+            # ARIA is too thin AND content-matching found nothing — visual diff fallback.
+            visual_aria, visual_selector = await _visual_menu_fallback(
+                page, before_png, after_png, before_aria
+            )
+            if visual_aria:
+                return visual_aria, visual_selector, []
         return diff_text, selector, []
 
     print(f"    [ARIA-DIFF] Container roles found: {candidate_roles}")
@@ -870,8 +1025,12 @@ async def open_menu_and_capture(page: Page) -> dict:
         - menu_container_found: bool - whether we found the specific menu element
         - menu_container_selector: str - CSS selector for menu element (if found)
     """
-    # Capture BEFORE state
+    # Capture BEFORE state (ARIA + screenshot for visual diff fallback)
     before_aria = await page.locator('body').aria_snapshot()
+    try:
+        before_png = await page.screenshot()
+    except Exception:
+        before_png = None
 
     # Try cached menu button first (fast path)
     opened = await reopen_menu_fast(page)
@@ -892,8 +1051,12 @@ async def open_menu_and_capture(page: Page) -> dict:
 
     await page.wait_for_timeout(300)
 
-    # Capture AFTER state (full body)
+    # Capture AFTER state (full body + screenshot)
     after_aria = await page.locator('body').aria_snapshot()
+    try:
+        after_png = await page.screenshot()
+    except Exception:
+        after_png = None
 
     # Try to find the menu element
     # 1. First try aria-controls (semantic link from button)
@@ -912,7 +1075,10 @@ async def open_menu_and_capture(page: Page) -> dict:
         }
 
     # 2. Find menu by ARIA diff - what became visible after clicking
-    menu_aria, menu_selector, additional_branches = await find_menu_from_aria_diff(page, before_aria, after_aria)
+    menu_aria, menu_selector, additional_branches = await find_menu_from_aria_diff(
+        page, before_aria, after_aria,
+        before_png=before_png, after_png=after_png,
+    )
 
     if menu_aria:
         print(f"    [MENU] Using ARIA diff menu ({len(menu_aria)} chars)")

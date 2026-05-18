@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import Fuse from 'fuse.js';
 import { FashionArchiveAPI } from '../services/api';
 import ProductDetailPanel from './ProductDetailPanel';
+import ScrapeConsole from './ScrapeConsole';
 
 function MyBrandsPanel() {
   const [brands, setBrands] = useState([]);
@@ -177,6 +178,29 @@ function MyBrandsPanel() {
   // Stream products via SSE as they're extracted
   const streamProducts = (brandId) => {
     setStreamingBrandId(brandId);
+
+    // Backfill: products that were already extracted before this SSE
+    // connection opened. Without this the grid stays empty until new
+    // products arrive — and the first 30–60 from a fresh scrape would
+    // be invisible to the user.
+    fetch(`http://localhost:8081/api/products?brand_id=${brandId}&limit=500`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!data || !data.products) return;
+        const noSelection = selectedLeavesRef.current.size === 0;
+        if (noSelection) {
+          setProducts(prev => {
+            const existingUrls = new Set(prev.map(p => p.itemurl || p.url || p.product_url || ''));
+            const fresh = data.products.filter(p => {
+              const u = p.itemurl || p.url || p.product_url || '';
+              return u && !existingUrls.has(u);
+            });
+            return [...fresh, ...prev];
+          });
+        }
+      })
+      .catch(() => {});
+
     const source = new EventSource(`http://localhost:8081/api/brands/${brandId}/scrape/stream`);
 
     source.onmessage = (event) => {
@@ -193,12 +217,16 @@ function MyBrandsPanel() {
           }));
         }
 
-        // Only add to product grid if this product's category is currently selected
-        if (categoryUrl) {
-          const leafKey = `${brandId}::${categoryUrl}`;
-          if (selectedLeavesRef.current.has(leafKey)) {
-            setProducts(prev => [product, ...prev]);
-          }
+        // Append to grid when:
+        //  - this product's category is currently selected, OR
+        //  - no categories are selected yet (live-feed mode during scrape so
+        //    the user actually sees products without waiting for urls.json
+        //    to land at the end of Stage 2).
+        const noSelection = selectedLeavesRef.current.size === 0;
+        const inSelected = categoryUrl &&
+          selectedLeavesRef.current.has(`${brandId}::${categoryUrl}`);
+        if (noSelection || inSelected) {
+          setProducts(prev => [product, ...prev]);
         }
       } catch (e) {
         console.error('Error parsing streamed product:', e);
@@ -466,8 +494,6 @@ function MyBrandsPanel() {
   const renderCategoryTree = (brand, categories, level = 0) => {
     if (!categories || categories.length === 0) return null;
 
-    const isScraping = scrapingBrands.has(brand.brand_id);
-
     // Sort categories: parents with children first, then leaf categories
     const sortedCategories = [...categories].sort((a, b) => {
       const aHasChildren = a.children && a.children.length > 0;
@@ -478,8 +504,14 @@ function MyBrandsPanel() {
       return 0;
     });
 
-    // During scraping, filter to only categories with products
-    const visibleCategories = isScraping
+    // Hide categories with zero products whenever we have any product-count
+    // info for this brand (i.e. counts have loaded OR streaming has begun
+    // emitting them). On a freshly-clicked brand with no counts loaded yet,
+    // show everything so the tree isn't blank.
+    const brandHasAnyCounts = Object.keys(productCounts).some(
+      k => k.startsWith(`${brand.brand_id}::`)
+    );
+    const visibleCategories = brandHasAnyCounts
       ? sortedCategories.filter(cat => hasProductsInSubtree(brand, cat))
       : sortedCategories;
 
@@ -624,13 +656,13 @@ function MyBrandsPanel() {
     const results = [];
     for (let i = 0; i < productArrays.length; i++) {
       for (const p of productArrays[i]) {
-        const url = p.url || p.product_url || '';
+        const url = p.itemurl || p.url || p.product_url || '';
         if (url && seenUrl.has(url)) continue;
         if (url) seenUrl.add(url);
 
         // Cross-category name dedup: skip if same brand+name from a DIFFERENT array
         const brand = (p.brand || p.brand_id || '').toLowerCase();
-        const name = (p.name || p.product_name || '').toLowerCase();
+        const name = (p.product_title || p.name || p.product_name || '').toLowerCase();
         if (brand && name) {
           const key = `${brand}::${name}`;
           if (brandNameSource.has(key) && brandNameSource.get(key) !== i) continue;
@@ -700,7 +732,13 @@ function MyBrandsPanel() {
 
       // Fuzzy re-rank the merged set
       const fuse = new Fuse(merged, {
-        keys: ['name', 'product_name', 'brand', 'brand_id', 'description', 'category'],
+        keys: [
+          'product_title', 'name', 'product_name',
+          'brand', 'brand_id',
+          'description', 'specifications', 'material_info',
+          'category', 'category1', 'category2', 'category3',
+          'color_info', 'additional_tags',
+        ],
         threshold: 0.5,
         ignoreLocation: true,
         minMatchCharLength: 2,
@@ -756,9 +794,9 @@ function MyBrandsPanel() {
     }
   }, [searchQuery, selectedDropdownIdx, matchingCategories, loadCategoryProducts, executeSearch]);
 
-  // Parse price to number for sorting
+  // Parse price to number for sorting (E0005 price → legacy fallback)
   const parsePrice = useCallback((product) => {
-    const raw = product.price || product.attributes?.price || '';
+    const raw = product.price ?? product.full_price ?? product.attributes?.price ?? '';
     const num = parseFloat(String(raw).replace(/[^0-9.]/g, ''));
     return isNaN(num) ? 0 : num;
   }, []);
@@ -770,8 +808,8 @@ function MyBrandsPanel() {
     // Sort
     if (sortBy) {
       result = [...result].sort((a, b) => {
-        const nameA = (a.name || a.product_name || '').toLowerCase();
-        const nameB = (b.name || b.product_name || '').toLowerCase();
+        const nameA = (a.product_title || a.name || a.product_name || '').toLowerCase();
+        const nameB = (b.product_title || b.name || b.product_name || '').toLowerCase();
         switch (sortBy) {
           case 'name-asc': return nameA.localeCompare(nameB);
           case 'name-desc': return nameB.localeCompare(nameA);
@@ -1001,48 +1039,111 @@ function MyBrandsPanel() {
             </select>
           </div>
 
+        {/* Live scrape console — shown above the grid while any brand is mid-scrape */}
+        {[...scrapingBrands].map(bid => (
+          <ScrapeConsole key={bid} brandId={bid} active={true} />
+        ))}
+
         {(searchLoading || loadingProducts) ? (
           <div className="gallery-loading">Loading products...</div>
         ) : displayProducts.length > 0 ? (
           <div className="product-grid" ref={gridRef}>
             {displayProducts.map((product, idx) => {
-              const brandName = product.brand
-                ? product.brand.toUpperCase()
-                : (product.brand_id ? product.brand_id.replace(/_/g, ' ').toUpperCase() : '');
-              const productName = product.name || product.product_name || 'Unknown Product';
-              const productUrl = product.url || product.product_url || '';
-              let imageUrl = null;
-              if (product.images && product.images.length > 0) {
-                const firstImage = product.images[0];
-                imageUrl = typeof firstImage === 'string' ? firstImage : firstImage.src;
+              // E0005 field names with legacy aliases as fallback.
+              const brandRaw = product.brand || product.brand_id || '';
+              const brandName = brandRaw ? brandRaw.toString().replace(/_/g, ' ').toUpperCase() : '';
+              const productName = product.product_title || product.name || product.product_name || 'Unknown Product';
+              const productUrl = product.itemurl || product.url || product.product_url || '';
+
+              // images: prefer E0005 all_images / main_image_url, then legacy images[]
+              let imageUrl = product.main_image_url || null;
+              if (!imageUrl) {
+                const rawImages = Array.isArray(product.all_images)
+                  ? product.all_images
+                  : (typeof product.all_images === 'string' && product.all_images.startsWith('[')
+                      ? (() => { try { return JSON.parse(product.all_images); } catch { return []; } })()
+                      : (product.images || []));
+                if (rawImages.length > 0) {
+                  const first = rawImages[0];
+                  imageUrl = typeof first === 'string' ? first : first && first.src;
+                }
               }
-              const priceDisplay = product.price
-                ? `${product.currency || ''} ${product.price}`.trim()
-                : product.attributes?.price;
+
+              // price: prefer e0005 price + full_price for sale-strike
+              const price = product.price ?? null;
+              const fullPrice = product.full_price ?? null;
+              const onSale = fullPrice && price && Number(fullPrice) > Number(price);
+              const priceDisplay = price !== null
+                ? formatTilePrice(price)
+                : (product.attributes?.price || '');
+
+              // Per-size availability quick badges
+              const sizeBadges = buildTileSizes(product);
+
+              // Stock badge: in-stock / sold-out
+              const stock = product.in_stock;
+              const allSoldOut = sizeBadges.length > 0 && sizeBadges.every(s => s.gone);
 
               const rowIdx = Math.floor(idx / GRID_COLS);
               const rowHeight = rowImageHeights[rowIdx];
 
+              const cardClass =
+                'product-card' +
+                (selectedProduct && (selectedProduct.itemurl || selectedProduct.url || selectedProduct.product_url) === productUrl ? ' selected' : '') +
+                (!imageUrl ? ' product-card-no-image' : '');
+
               return (
                 <div
                   key={`${productUrl}-${idx}`}
-                  className={`product-card ${selectedProduct && (selectedProduct.url || selectedProduct.product_url) === productUrl ? 'selected' : ''}`}
+                  className={cardClass}
                   onClick={() => setSelectedProduct(product)}
                 >
-                  {imageUrl && (
-                    <div className="product-image" style={rowHeight ? { height: rowHeight } : undefined}>
+                  <div className="product-image" style={rowHeight ? { height: rowHeight } : undefined}>
+                    {imageUrl ? (
                       <img
                         src={imageUrl}
                         alt={productName}
                         loading="lazy"
                         onLoad={(e) => handleImageLoad(idx, e)}
+                        onError={(e) => {
+                          // Swap to no-image placeholder if the image 404s.
+                          const card = e.currentTarget.closest('.product-card');
+                          if (card) card.classList.add('product-card-no-image');
+                          e.currentTarget.style.display = 'none';
+                          const sib = e.currentTarget.parentElement.querySelector('.no-image-placeholder');
+                          if (sib) sib.style.display = 'flex';
+                        }}
                       />
+                    ) : null}
+                    <div className="no-image-placeholder" style={{ display: imageUrl ? 'none' : 'flex' }}>
+                      <div className="no-image-icon">⊘</div>
+                      <div className="no-image-text">No image</div>
                     </div>
-                  )}
+                    {imageUrl && onSale && <div className="tile-badge tile-badge-sale">Sale</div>}
+                    {imageUrl && !onSale && allSoldOut && <div className="tile-badge tile-badge-bad">Sold out</div>}
+                    {imageUrl && !onSale && !allSoldOut && stock === 1 && <div className="tile-badge">In stock</div>}
+                    {!imageUrl && <div className="tile-badge tile-badge-flag">Missing image</div>}
+                  </div>
                   <div className="product-info">
                     <div className="product-brand">{brandName}</div>
                     <div className="product-name">{productName}</div>
-                    {priceDisplay && <div className="product-price">{priceDisplay}</div>}
+                    {priceDisplay && (
+                      <div className="product-price">
+                        {onSale && <span className="product-price-strike">{formatTilePrice(fullPrice)}</span>}
+                        {priceDisplay}
+                      </div>
+                    )}
+                    {sizeBadges.length > 0 && (
+                      <div className="tile-sizes">
+                        {sizeBadges.map((s, i) => (
+                          <span key={i}
+                                className={`tile-size${s.gone ? ' gone' : ''}${s.low ? ' low' : ''}`}
+                                title={s.label + (s.gone ? ' — sold out' : (s.count ? ` — ${s.count} left` : ''))}>
+                            {s.short}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -1158,6 +1259,54 @@ function MyBrandsPanel() {
       )}
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Tile helpers (E0005-aware)
+// ---------------------------------------------------------------------------
+
+function formatTilePrice(p) {
+  if (p === null || p === undefined || p === '') return '';
+  const n = typeof p === 'string' ? parseFloat(p.replace(/[^\d.]/g, '')) : Number(p);
+  if (!isFinite(n)) return String(p);
+  return '$' + n.toLocaleString('en-US', { maximumFractionDigits: 2 });
+}
+
+/** Compact per-size badge list for a tile.
+ *  Returns [{short:"38", gone:false, low:true, count:1, label:"38 / US 2"}, ...]
+ *  Prefers E0005 size_info / size_availability / size_stock_counts; falls
+ *  back to legacy variants[]. Caps at 6 entries to keep tile compact. */
+function buildTileSizes(product) {
+  const sizes = (product.size_info || '').split(/,\s*/).map(s => s.trim()).filter(Boolean);
+  const avails = (product.size_availability || '').split(/,\s*/).map(s => s.trim()).filter(Boolean);
+  const counts = (product.size_stock_counts || '').split(/,\s*/).map(s => s.trim()).filter(Boolean);
+
+  let entries = [];
+  if (sizes.length > 0) {
+    entries = sizes.map((label, i) => {
+      const avail = (avails[i] || '').toLowerCase();
+      const cnt = parseInt(counts[i], 10);
+      const stockCount = isFinite(cnt) ? cnt : undefined;
+      const gone = avail
+        ? ['out_of_stock', 'false', '0', 'no'].includes(avail)
+        : (stockCount === 0);
+      const low = !gone && stockCount !== undefined && stockCount > 0 && stockCount <= 2;
+      const short = label.split('/')[0].trim();   // "38 / US 2" → "38"
+      return { label, short, gone, low, count: stockCount };
+    });
+  } else {
+    const variants = product.variants || [];
+    entries = variants
+      .filter(v => v.size)
+      .map(v => ({
+        label: v.size,
+        short: String(v.size).split('/')[0].trim(),
+        gone: v.available === false,
+        low: v.available !== false && typeof v.stock_count === 'number' && v.stock_count <= 2,
+        count: v.stock_count,
+      }));
+  }
+  return entries.slice(0, 6);
 }
 
 export default MyBrandsPanel;

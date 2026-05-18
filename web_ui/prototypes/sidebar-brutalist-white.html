@@ -1,0 +1,894 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Prototype - Brutalist White (API Connected)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --bg: #ffffff;
+      --surface: #fafafa;
+      --text: #666666;
+      --text-active: #000000;
+      --border: #e0e0e0;
+    }
+
+    body {
+      font-family: 'JetBrains Mono', monospace;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      overflow: hidden;
+      font-size: 10px;
+    }
+
+    .container {
+      display: flex;
+      height: 100vh;
+    }
+
+    .sidebar {
+      width: 280px;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .nav-row {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .nav-col {
+      flex: 1;
+      border-right: 1px solid var(--border);
+      max-height: 200px;
+      overflow-y: auto;
+      min-width: 0;
+    }
+
+    .nav-col:last-child {
+      border-right: none;
+    }
+
+    .nav-col::-webkit-scrollbar {
+      width: 0;
+    }
+
+    .nav-col.disabled {
+      opacity: 0.3;
+      pointer-events: none;
+    }
+
+    .nav-header {
+      font-size: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.15em;
+      padding: 8px 10px 6px;
+      color: #999;
+      position: sticky;
+      top: 0;
+      background: var(--surface);
+      z-index: 1;
+    }
+
+    .nav-item {
+      font-size: 10px;
+      padding: 4px 10px;
+      cursor: pointer;
+      transition: all 0.1s ease;
+      border-left: 2px solid transparent;
+    }
+
+    .nav-item:hover {
+      color: var(--text-active);
+      background: rgba(0,0,0,0.02);
+    }
+
+    .nav-item.selected {
+      color: var(--text-active);
+      font-weight: 700;
+      border-left-color: var(--text-active);
+      background: rgba(0,0,0,0.03);
+    }
+
+    .nav-empty {
+      font-size: 9px;
+      padding: 8px 10px;
+      color: #ccc;
+      font-style: italic;
+    }
+
+    .collections-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .collections-header {
+      font-size: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.15em;
+      padding: 12px 10px 8px;
+      color: #999;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .collections-header .count {
+      color: #bbb;
+    }
+
+    .collections-scroll {
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    .collections-scroll::-webkit-scrollbar {
+      width: 4px;
+    }
+
+    .collections-scroll::-webkit-scrollbar-thumb {
+      background: #ddd;
+    }
+
+    .collection-item {
+      font-size: 10px;
+      padding: 4px 10px;
+      cursor: pointer;
+      transition: all 0.1s ease;
+      border-left: 2px solid transparent;
+      display: flex;
+      align-items: center;
+    }
+
+    .collection-item:hover {
+      color: var(--text-active);
+      background: rgba(0,0,0,0.02);
+    }
+
+    .collection-item.selected {
+      color: var(--text-active);
+      font-weight: 500;
+      border-left-color: var(--text-active);
+      background: rgba(0,0,0,0.03);
+    }
+
+    .collection-item .num {
+      width: 28px;
+      color: #ccc;
+      font-size: 9px;
+      flex-shrink: 0;
+    }
+
+    .collection-item .name {
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .collections-empty {
+      padding: 20px 10px;
+      text-align: center;
+      color: #ccc;
+      font-size: 9px;
+    }
+
+    .collections-loading {
+      padding: 20px 10px;
+      text-align: center;
+      color: #999;
+      font-size: 9px;
+    }
+
+    .main {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .main-placeholder {
+      color: #ccc;
+      font-size: 10px;
+      text-align: center;
+    }
+
+    /* Single image view */
+    .single-view {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .single-view img {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+    }
+
+    /* Grid view */
+    .grid-view {
+      width: 100%;
+      height: 100%;
+      overflow-y: auto;
+      padding: 12px;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      align-content: start;
+    }
+
+    .grid-view::-webkit-scrollbar {
+      width: 4px;
+    }
+
+    .grid-view::-webkit-scrollbar-thumb {
+      background: #ddd;
+    }
+
+    .grid-item {
+      aspect-ratio: 3/4;
+      cursor: pointer;
+      overflow: hidden;
+      background: #f5f5f5;
+      position: relative;
+    }
+
+    .grid-item img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transition: opacity 0.15s ease;
+    }
+
+    .grid-item:hover img {
+      opacity: 0.8;
+    }
+
+    .grid-item.selected {
+      outline: 2px solid #000;
+    }
+
+    .grid-item .look-num {
+      position: absolute;
+      bottom: 4px;
+      left: 4px;
+      font-size: 8px;
+      color: #fff;
+      background: rgba(0,0,0,0.5);
+      padding: 2px 4px;
+    }
+
+    /* View toggle */
+    .view-toggle {
+      position: fixed;
+      top: 12px;
+      right: 12px;
+      display: flex;
+      gap: 1px;
+      background: var(--border);
+      padding: 1px;
+      display: none;
+    }
+
+    .view-toggle.visible {
+      display: flex;
+    }
+
+    .view-btn {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      padding: 6px 12px;
+      border: none;
+      background: var(--surface);
+      color: var(--text);
+      cursor: pointer;
+      letter-spacing: 0.05em;
+    }
+
+    .view-btn:hover {
+      background: #f0f0f0;
+    }
+
+    .view-btn.active {
+      background: #000;
+      color: #fff;
+    }
+
+    /* Navigation arrows */
+    .nav-arrow {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 40px;
+      height: 80px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: transparent;
+      border: none;
+      font-size: 20px;
+      color: #ccc;
+      cursor: pointer;
+      transition: color 0.15s ease;
+      z-index: 10;
+    }
+
+    .nav-arrow:hover {
+      color: #000;
+    }
+
+    .nav-arrow.prev { left: 8px; }
+    .nav-arrow.next { right: 8px; }
+
+    /* Loading spinner */
+    .loading-images {
+      color: #999;
+      font-size: 10px;
+    }
+
+    .status-bar {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 28px;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 0 12px;
+      font-size: 9px;
+      color: #999;
+    }
+
+    .status-bar span {
+      margin-right: 24px;
+    }
+
+    .status-bar .active {
+      color: var(--text-active);
+      font-weight: 500;
+    }
+
+    .status-bar .right {
+      margin-left: auto;
+      margin-right: 0;
+    }
+
+    /* Loading state */
+    @keyframes pulse {
+      0%, 100% { opacity: 0.5; }
+      50% { opacity: 1; }
+    }
+
+    .loading {
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="sidebar">
+      <div class="nav-row">
+        <!-- Years Column -->
+        <div class="nav-col" id="years-col">
+          <div class="nav-header">Year</div>
+          <div id="years-list"></div>
+        </div>
+
+        <!-- Seasons Column -->
+        <div class="nav-col disabled" id="seasons-col">
+          <div class="nav-header">Season</div>
+          <div id="seasons-list">
+            <div class="nav-empty">Select year</div>
+          </div>
+        </div>
+
+        <!-- Categories Column -->
+        <div class="nav-col disabled" id="categories-col">
+          <div class="nav-header">Type</div>
+          <div id="categories-list">
+            <div class="nav-empty">Select season</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="collections-area">
+        <div class="collections-header">
+          <span>Collections</span>
+          <span class="count" id="collections-count"></span>
+        </div>
+        <div class="collections-scroll" id="collections-scroll">
+          <div class="collections-empty">Select year, season, and type</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="main" id="main-area">
+      <div class="main-placeholder">
+        Select a collection to view looks
+      </div>
+    </div>
+
+    <!-- View mode toggle -->
+    <div class="view-toggle" id="view-toggle">
+      <button class="view-btn active" data-view="single">SINGLE</button>
+      <button class="view-btn" data-view="grid">GRID</button>
+    </div>
+  </div>
+
+  <div class="status-bar">
+    <span id="status-selection">No selection</span>
+    <span class="right" id="status-look"></span>
+  </div>
+
+  <script>
+    const API_BASE = 'http://localhost:8081';
+
+    // State
+    let allSeasons = [];
+    let parsedSeasons = {};  // { year: { season: { category: seasonData } } }
+    let selectedYear = null;
+    let selectedSeason = null;
+    let selectedCategory = null;
+    let selectedCollection = null;
+    let collections = [];
+
+    // Image state
+    let images = [];
+    let currentImageIndex = 0;
+    let viewMode = 'single';  // 'single' or 'grid'
+    let isLoadingImages = false;
+
+    // DOM elements
+    const yearsList = document.getElementById('years-list');
+    const seasonsList = document.getElementById('seasons-list');
+    const categoriesList = document.getElementById('categories-list');
+    const seasonsCol = document.getElementById('seasons-col');
+    const categoriesCol = document.getElementById('categories-col');
+    const collectionsScroll = document.getElementById('collections-scroll');
+    const collectionsCount = document.getElementById('collections-count');
+    const statusSelection = document.getElementById('status-selection');
+    const statusLook = document.getElementById('status-look');
+    const mainArea = document.getElementById('main-area');
+    const viewToggle = document.getElementById('view-toggle');
+
+    // Parse season name into components
+    function parseSeason(season) {
+      const name = season.name.toLowerCase();
+
+      let year = null;
+      let seasonType = null;
+      let category = null;
+
+      // Extract year
+      const yearMatch = name.match(/20\d{2}/);
+      if (yearMatch) year = yearMatch[0];
+
+      // Extract season type
+      if (name.includes('fall') || name.includes('fw')) {
+        seasonType = 'Fall';
+      } else if (name.includes('spring') || name.includes('ss')) {
+        seasonType = 'Spring';
+      } else if (name.includes('resort')) {
+        seasonType = 'Resort';
+      }
+
+      // Extract category
+      if (name.includes('ready to wear') || name.includes('rtw')) {
+        category = 'RTW';
+      } else if (name.includes('menswear') || name.includes('men')) {
+        category = 'Menswear';
+      } else if (name.includes('couture')) {
+        category = 'Couture';
+      }
+
+      return { year, seasonType, category, original: season };
+    }
+
+    // Build hierarchical structure from seasons
+    function buildHierarchy(seasons) {
+      const hierarchy = {};
+
+      seasons.forEach(season => {
+        const parsed = parseSeason(season);
+        if (!parsed.year || !parsed.seasonType || !parsed.category) return;
+
+        if (!hierarchy[parsed.year]) {
+          hierarchy[parsed.year] = {};
+        }
+        if (!hierarchy[parsed.year][parsed.seasonType]) {
+          hierarchy[parsed.year][parsed.seasonType] = {};
+        }
+        hierarchy[parsed.year][parsed.seasonType][parsed.category] = parsed.original;
+      });
+
+      return hierarchy;
+    }
+
+    // Render years
+    function renderYears() {
+      const years = Object.keys(parsedSeasons).sort((a, b) => b - a);
+
+      yearsList.innerHTML = years.map(year => `
+        <div class="nav-item ${year === selectedYear ? 'selected' : ''}" data-year="${year}">
+          ${year}
+        </div>
+      `).join('');
+
+      // Add click handlers
+      yearsList.querySelectorAll('.nav-item').forEach(item => {
+        item.addEventListener('click', () => selectYear(item.dataset.year));
+      });
+    }
+
+    // Select year
+    function selectYear(year) {
+      selectedYear = year;
+      selectedSeason = null;
+      selectedCategory = null;
+      selectedCollection = null;
+      collections = [];
+
+      renderYears();
+      renderSeasons();
+      renderCategories();
+      renderCollections();
+      updateStatus();
+    }
+
+    // Render seasons for selected year
+    function renderSeasons() {
+      if (!selectedYear || !parsedSeasons[selectedYear]) {
+        seasonsCol.classList.add('disabled');
+        seasonsList.innerHTML = '<div class="nav-empty">Select year</div>';
+        return;
+      }
+
+      seasonsCol.classList.remove('disabled');
+      const seasons = Object.keys(parsedSeasons[selectedYear]).sort();
+
+      seasonsList.innerHTML = seasons.map(season => `
+        <div class="nav-item ${season === selectedSeason ? 'selected' : ''}" data-season="${season}">
+          ${season}
+        </div>
+      `).join('');
+
+      seasonsList.querySelectorAll('.nav-item').forEach(item => {
+        item.addEventListener('click', () => selectSeason(item.dataset.season));
+      });
+    }
+
+    // Select season
+    function selectSeason(season) {
+      selectedSeason = season;
+      selectedCategory = null;
+      selectedCollection = null;
+      collections = [];
+
+      renderSeasons();
+      renderCategories();
+      renderCollections();
+      updateStatus();
+    }
+
+    // Render categories for selected year + season
+    function renderCategories() {
+      if (!selectedYear || !selectedSeason || !parsedSeasons[selectedYear]?.[selectedSeason]) {
+        categoriesCol.classList.add('disabled');
+        categoriesList.innerHTML = '<div class="nav-empty">Select season</div>';
+        return;
+      }
+
+      categoriesCol.classList.remove('disabled');
+      const categories = Object.keys(parsedSeasons[selectedYear][selectedSeason]).sort();
+
+      categoriesList.innerHTML = categories.map(cat => `
+        <div class="nav-item ${cat === selectedCategory ? 'selected' : ''}" data-category="${cat}">
+          ${cat}
+        </div>
+      `).join('');
+
+      categoriesList.querySelectorAll('.nav-item').forEach(item => {
+        item.addEventListener('click', () => selectCategory(item.dataset.category));
+      });
+    }
+
+    // Select category and load collections
+    async function selectCategory(category) {
+      selectedCategory = category;
+      selectedCollection = null;
+
+      renderCategories();
+      updateStatus();
+
+      // Get the season URL
+      const seasonData = parsedSeasons[selectedYear]?.[selectedSeason]?.[selectedCategory];
+      if (!seasonData) return;
+
+      // Load collections
+      collectionsScroll.innerHTML = '<div class="collections-loading loading">Loading collections...</div>';
+      collectionsCount.textContent = '';
+
+      try {
+        const response = await fetch(`${API_BASE}/api/collections`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ seasonUrl: seasonData.url })
+        });
+
+        const data = await response.json();
+        collections = data.collections || [];
+        renderCollections();
+      } catch (error) {
+        console.error('Failed to load collections:', error);
+        collectionsScroll.innerHTML = '<div class="collections-empty">Failed to load</div>';
+      }
+    }
+
+    // Clean designer name (remove season/city info)
+    function cleanDesignerName(fullName) {
+      // Remove common suffixes like "Ready To Wear Fall Winter 2025 Paris"
+      return fullName
+        .replace(/\s+(Ready To Wear|Menswear|Couture|Men & Women)\s+.*/i, '')
+        .replace(/\s+(Fall|Spring|Winter|Summer)\s+.*/i, '')
+        .trim();
+    }
+
+    // Render collections
+    function renderCollections() {
+      if (!selectedCategory || collections.length === 0) {
+        if (selectedCategory) {
+          collectionsScroll.innerHTML = '<div class="collections-empty">No collections found</div>';
+        } else {
+          collectionsScroll.innerHTML = '<div class="collections-empty">Select year, season, and type</div>';
+        }
+        collectionsCount.textContent = '';
+        return;
+      }
+
+      collectionsCount.textContent = collections.length;
+
+      collectionsScroll.innerHTML = collections.map((col, idx) => `
+        <div class="collection-item ${col.url === selectedCollection?.url ? 'selected' : ''}" data-idx="${idx}">
+          <span class="num">${String(idx + 1).padStart(3, '0')}</span>
+          <span class="name">${cleanDesignerName(col.designer)}</span>
+        </div>
+      `).join('');
+
+      collectionsScroll.querySelectorAll('.collection-item').forEach(item => {
+        item.addEventListener('click', () => {
+          const idx = parseInt(item.dataset.idx);
+          selectCollection(collections[idx]);
+        });
+      });
+    }
+
+    // Select collection and load images
+    async function selectCollection(collection) {
+      if (isLoadingImages) return;
+
+      selectedCollection = collection;
+      images = [];
+      currentImageIndex = 0;
+      renderCollections();
+      updateStatus();
+
+      const cleanName = cleanDesignerName(collection.designer);
+
+      // Show loading state
+      mainArea.innerHTML = '<div class="loading-images">Loading images...</div>';
+      viewToggle.classList.remove('visible');
+      isLoadingImages = true;
+
+      try {
+        const response = await fetch(`${API_BASE}/api/download-images`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            collectionUrl: collection.url,
+            designerName: cleanName
+          })
+        });
+
+        const data = await response.json();
+        images = data.images || [];
+
+        if (images.length > 0) {
+          viewToggle.classList.add('visible');
+          renderImages();
+        } else {
+          mainArea.innerHTML = '<div class="main-placeholder">No images found</div>';
+        }
+      } catch (error) {
+        console.error('Failed to load images:', error);
+        mainArea.innerHTML = '<div class="main-placeholder">Failed to load images</div>';
+      } finally {
+        isLoadingImages = false;
+        updateStatus();
+      }
+    }
+
+    // Render images based on view mode
+    function renderImages() {
+      if (images.length === 0) return;
+
+      if (viewMode === 'single') {
+        renderSingleView();
+      } else {
+        renderGridView();
+      }
+    }
+
+    // Single image view
+    function renderSingleView() {
+      const img = images[currentImageIndex];
+      const imgUrl = `${API_BASE}/api/image?path=${encodeURIComponent(img.path)}`;
+
+      mainArea.innerHTML = `
+        <button class="nav-arrow prev" onclick="prevImage()">‹</button>
+        <div class="single-view">
+          <img src="${imgUrl}" alt="Look ${currentImageIndex + 1}" />
+        </div>
+        <button class="nav-arrow next" onclick="nextImage()">›</button>
+      `;
+
+      updateStatus();
+    }
+
+    // Grid view
+    function renderGridView() {
+      const gridHtml = images.map((img, idx) => {
+        const imgUrl = `${API_BASE}/api/image?path=${encodeURIComponent(img.path)}`;
+        const lookNum = extractLookNumber(img.path, idx);
+        return `
+          <div class="grid-item ${idx === currentImageIndex ? 'selected' : ''}" onclick="selectImage(${idx})">
+            <img src="${imgUrl}" alt="Look ${lookNum}" loading="lazy" />
+            <span class="look-num">${lookNum}</span>
+          </div>
+        `;
+      }).join('');
+
+      mainArea.innerHTML = `<div class="grid-view">${gridHtml}</div>`;
+      updateStatus();
+    }
+
+    // Extract look number from filename
+    function extractLookNumber(path, fallbackIdx) {
+      const filename = path.split('/').pop() || '';
+      const match = filename.match(/-(\d+)\./);
+      return match ? parseInt(match[1]) : fallbackIdx + 1;
+    }
+
+    // Navigation functions
+    function prevImage() {
+      if (images.length === 0) return;
+      currentImageIndex = (currentImageIndex - 1 + images.length) % images.length;
+      renderImages();
+    }
+
+    function nextImage() {
+      if (images.length === 0) return;
+      currentImageIndex = (currentImageIndex + 1) % images.length;
+      renderImages();
+    }
+
+    function selectImage(idx) {
+      currentImageIndex = idx;
+      if (viewMode === 'grid') {
+        // Double-click in grid switches to single
+        viewMode = 'single';
+        updateViewToggle();
+      }
+      renderImages();
+    }
+
+    // View mode toggle
+    function setViewMode(mode) {
+      viewMode = mode;
+      updateViewToggle();
+      renderImages();
+    }
+
+    function updateViewToggle() {
+      viewToggle.querySelectorAll('.view-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.view === viewMode);
+      });
+    }
+
+    // Keyboard navigation
+    document.addEventListener('keydown', (e) => {
+      if (images.length === 0) return;
+
+      if (e.key === 'ArrowLeft') {
+        prevImage();
+      } else if (e.key === 'ArrowRight') {
+        nextImage();
+      } else if (e.key === 'g') {
+        setViewMode(viewMode === 'grid' ? 'single' : 'grid');
+      }
+    });
+
+    // Update status bar
+    function updateStatus() {
+      const parts = [];
+      if (selectedYear) parts.push(selectedYear);
+      if (selectedSeason) parts.push(selectedSeason);
+      if (selectedCategory) parts.push(selectedCategory);
+      if (selectedCollection) parts.push(cleanDesignerName(selectedCollection.designer));
+
+      if (parts.length === 0) {
+        statusSelection.textContent = 'No selection';
+        statusSelection.classList.remove('active');
+      } else {
+        statusSelection.innerHTML = parts.map((p, i) =>
+          i === parts.length - 1 ? `<span class="active">${p}</span>` : p
+        ).join(' / ');
+      }
+
+      // Update look counter
+      if (images.length > 0) {
+        const lookNum = extractLookNumber(images[currentImageIndex]?.path, currentImageIndex);
+        statusLook.innerHTML = `LOOK <span class="active">${String(lookNum).padStart(2, '0')}</span> / ${images.length}`;
+      } else if (isLoadingImages) {
+        statusLook.textContent = 'Loading...';
+      } else {
+        statusLook.textContent = '';
+      }
+    }
+
+    // Initialize
+    async function init() {
+      yearsList.innerHTML = '<div class="nav-empty loading">Loading...</div>';
+
+      try {
+        const response = await fetch(`${API_BASE}/api/seasons`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+
+        const data = await response.json();
+        allSeasons = data.seasons || [];
+        parsedSeasons = buildHierarchy(allSeasons);
+
+        console.log('Parsed seasons:', parsedSeasons);
+
+        renderYears();
+        renderSeasons();
+        renderCategories();
+
+      } catch (error) {
+        console.error('Failed to load seasons:', error);
+        yearsList.innerHTML = '<div class="nav-empty">Failed to load</div>';
+      }
+    }
+
+    // View toggle click handlers
+    viewToggle.querySelectorAll('.view-btn').forEach(btn => {
+      btn.addEventListener('click', () => setViewMode(btn.dataset.view));
+    });
+
+    init();
+  </script>
+</body>
+</html>

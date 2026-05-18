@@ -1510,3 +1510,373 @@ body {
 .detail-view-site:hover {
   opacity: 0.9;
 }
+/* ============================================================
+   E0005 product detail — new sections (Phase 2A)
+   ============================================================ */
+
+.detail-breadcrumb {
+  font-size: 14px;
+  color: var(--macos-text-secondary);
+  margin: 4px 0 12px;
+  text-transform: capitalize;
+}
+
+.detail-breadcrumb-sep {
+  margin: 0 6px;
+  color: var(--macos-border);
+}
+
+.detail-price-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.detail-price-strike {
+  text-decoration: line-through;
+  color: var(--macos-text-secondary);
+  font-size: 18px;
+  margin-right: 8px;
+  font-weight: 400;
+}
+
+.detail-tag {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  padding: 4px 8px;
+  border: 1px solid var(--macos-text-secondary);
+  color: var(--macos-text-secondary);
+  background: transparent;
+}
+.detail-tag-good { border-color: #1f7a3f; color: #1f7a3f; }
+.detail-tag-bad  { border-color: #b00020; color: #b00020; }
+.detail-tag-promo { background: #b00020; color: white; border-color: #b00020; }
+.detail-tag-neutral { font-size: 10px; font-weight: 500; }
+
+.detail-block {
+  margin: 16px 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--macos-border);
+  font-size: 18px;
+  line-height: 1.5;
+  color: var(--macos-text-secondary);
+}
+
+.detail-section-head {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--macos-text);
+  margin-bottom: 10px;
+}
+
+/* Size grid */
+.detail-size-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 6px;
+}
+.s-cell {
+  border: 1px solid var(--macos-border);
+  padding: 12px 10px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.s-cell:hover { border-color: var(--macos-text); }
+.s-cell.gone {
+  color: var(--macos-text-secondary);
+  background: #f3f3f3;
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+.s-cell.gone:hover { border-color: var(--macos-border); }
+.s-cell.gone .s-label { text-decoration: line-through; }
+.s-cell.low { border-color: #b85c00; }
+.s-cell .s-label { font-size: 16px; font-weight: 500; color: var(--macos-text); }
+.s-cell.gone .s-label { color: var(--macos-text-secondary); }
+.s-cell .s-meta {
+  font-size: 11px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--macos-text-secondary);
+  margin-top: 4px;
+}
+.s-cell.low .s-meta { color: #b85c00; }
+
+/* Material composition */
+.detail-composition {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.detail-composition-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 0;
+  border-bottom: 1px dotted var(--macos-border);
+  font-size: 16px;
+}
+.detail-composition-row:last-child { border-bottom: 0; }
+.detail-composition-label {
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  font-size: 12px;
+  color: var(--macos-text);
+  font-weight: 600;
+}
+.detail-composition-value {
+  color: var(--macos-text-secondary);
+  text-align: right;
+}
+
+/* Specifications */
+.detail-specs-list {
+  margin: 0;
+  padding-left: 20px;
+}
+.detail-specs-list li {
+  margin-bottom: 4px;
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+/* Tags */
+.detail-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* SKU footer */
+.detail-sku {
+  font-size: 11px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--macos-text-secondary);
+  margin: 16px 0 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--macos-border);
+}
+
+/* ============================================================
+   E0005 tile chrome — badges + per-size chips (MyBrandsPanel)
+   ============================================================ */
+
+.product-image { position: relative; }
+
+.tile-badge {
+  position: absolute;
+  top: 8px; left: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 4px 7px;
+  background: rgba(255,255,255,0.95);
+  border: 1px solid var(--macos-text);
+  color: var(--macos-text);
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  z-index: 2;
+}
+.tile-badge-bad { background: var(--macos-text); color: white; }
+.tile-badge-sale { background: #b00020; color: white; border-color: #b00020; }
+
+.product-price-strike {
+  text-decoration: line-through;
+  color: var(--macos-text-secondary);
+  font-size: 0.85em;
+  margin-right: 6px;
+  font-weight: 400;
+}
+
+.tile-sizes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-top: 6px;
+}
+.tile-size {
+  font-size: 10px;
+  padding: 2px 5px;
+  border: 1px solid var(--macos-border);
+  color: var(--macos-text-secondary);
+  letter-spacing: 0.5px;
+}
+.tile-size.gone {
+  color: #aaa;
+  text-decoration: line-through;
+  background: #f6f6f6;
+}
+.tile-size.low {
+  border-color: #b85c00;
+  color: #b85c00;
+}
+
+/* ============================================================
+   Missing-image placeholder + flag (MyBrandsPanel)
+   ============================================================ */
+
+.product-card-no-image {
+  /* dim the whole card slightly so it's clear something's wrong */
+  opacity: 0.85;
+}
+.product-card-no-image .product-image {
+  background: repeating-linear-gradient(
+    45deg,
+    #f6f6f6,
+    #f6f6f6 6px,
+    #efefef 6px,
+    #efefef 12px
+  );
+}
+
+.no-image-placeholder {
+  /* show: flex is set inline when there is no image */
+  width: 100%;
+  height: 100%;
+  min-height: 180px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--macos-text-secondary);
+  pointer-events: none;
+}
+.no-image-icon {
+  font-size: 32px;
+  font-weight: 300;
+  opacity: 0.55;
+  margin-bottom: 4px;
+}
+.no-image-text {
+  font-size: 10px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+
+.tile-badge-flag {
+  background: #fff;
+  color: #b00020;
+  border-color: #b00020;
+  /* Sit at the top-right so it's distinct from sale/stock badges. */
+  left: auto;
+  right: 8px;
+}
+
+/* ============================================================
+   ScrapeConsole — live scrape status panel
+   ============================================================ */
+
+.scrape-console {
+  background: #0a0a0a;
+  color: #d4d4d4;
+  border: 1px solid #1f1f1f;
+  font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+  font-size: 12px;
+  padding: 14px 16px;
+  margin: 0 0 12px;
+  line-height: 1.4;
+}
+
+.scrape-console-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #1f1f1f;
+}
+
+.scrape-console-led {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: #21d07a;
+  box-shadow: 0 0 8px #21d07a;
+  animation: scrape-blink 1.2s ease-in-out infinite;
+}
+@keyframes scrape-blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0.35; }
+}
+
+.scrape-console-title {
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  flex: 1;
+  color: #f0f0f0;
+}
+
+.scrape-console-status {
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border: 1px solid #21d07a;
+  color: #21d07a;
+}
+
+.scrape-console-stage {
+  padding: 10px 0;
+  color: #9c9c9c;
+  font-size: 12px;
+}
+
+.scrape-console-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  padding: 8px 0 12px;
+  border-bottom: 1px solid #1f1f1f;
+}
+
+.scrape-stat {
+  text-align: left;
+}
+.scrape-stat-num {
+  font-size: 22px;
+  font-weight: 600;
+  color: #f0f0f0;
+  line-height: 1.1;
+}
+.scrape-stat-label {
+  font-size: 9px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: #7c7c7c;
+  margin-top: 2px;
+}
+
+.scrape-console-recent {
+  padding-top: 10px;
+}
+.scrape-console-recent-head {
+  font-size: 9px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: #7c7c7c;
+  margin-bottom: 6px;
+}
+.scrape-console-recent-empty {
+  color: #7c7c7c;
+  font-style: italic;
+}
+.scrape-console-recent-row {
+  display: flex;
+  gap: 8px;
+  padding: 2px 0;
+  font-size: 11px;
+}
+.scrape-console-check {
+  color: #21d07a;
+  font-weight: 700;
+}
+.scrape-console-name {
+  color: #d4d4d4;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.scrape-console-cat {
+  color: #7c7c7c;
+  font-size: 10px;
+}

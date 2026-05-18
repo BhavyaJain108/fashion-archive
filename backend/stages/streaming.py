@@ -7,6 +7,7 @@ become available, rather than waiting for all URL extraction to complete.
 """
 
 import asyncio
+import json
 import queue
 import sys
 import threading
@@ -511,7 +512,11 @@ class StreamingOrchestrator:
         - Rate limiter: Prevents HTTP 429 errors from the target site
         - Browser pool: Caps memory usage (10 browsers = ~1.5GB max)
         """
-        from prod_page_v2.extractor import ProductExtractor
+        # e0005 product extractor — drop-in replacement for the legacy
+        # prod_page_v2.extractor.ProductExtractor. Same method surface;
+        # internally uses discover_oneshot + FieldOrchestrator and pulls
+        # prefill from upstream pipeline state (brand + category_path).
+        from prod_page_v2.e0005.extractor import ProductExtractor, prefill_from_pipeline
         from prod_page_v2.browser_pool import BrowserPool
         from stages.storage import save_product
         from stages.rate_limiter import AdaptiveRateLimiter
@@ -615,7 +620,12 @@ class StreamingOrchestrator:
         try:
             # Extract and save discovery products (not using pool yet - these were already loaded)
             for url, category_path in self.discovery_urls:
-                result = await extractor.extract_single(url, self.config)
+                prefill = prefill_from_pipeline(
+                    url=url,
+                    brand=self.domain.replace("_", "."),
+                    category_path=category_path,
+                )
+                result = await extractor.extract_single(url, self.config, prefill=prefill)
                 with self._stats_lock:
                     self.products_extracted += 1
                 if result.success and result.product:
@@ -708,10 +718,16 @@ class StreamingOrchestrator:
                     async with await rate_limiter.acquire() as token:
                         try:
                             async with browser_pool.acquire() as page:
+                                prefill = prefill_from_pipeline(
+                                    url=url,
+                                    brand=self.domain.replace("_", "."),
+                                    category_path=category_path,
+                                )
                                 result = await extractor.extract_single_pooled(
                                     url, page, self.config,
                                     wait_time=attempt_wait,
                                     gallery_selector=gallery_selector,
+                                    prefill=prefill,
                                 )
 
                             # Fix 4: Use real HTTP status for rate limiter
@@ -1003,29 +1019,32 @@ class StreamingOrchestrator:
         return filtered
 
     def _product_to_dict(self, product, source_url: str) -> dict:
-        """Convert Product object to dictionary for saving."""
-        return {
-            "name": product.name,
-            "price": product.price,
-            "currency": product.currency,
-            "images": self._filter_images(product.images, source_url),
-            "description": product.description,
-            "url": product.url,
-            "source_url": source_url,
-            "brand": product.brand,
-            "sku": product.sku,
-            "category": product.category,
-            "variants": [
-                {
-                    "size": v.size,
-                    "color": v.color,
-                    "sku": v.sku,
-                    "price": v.price,
-                    "available": v.available,
-                }
-                for v in product.variants
-            ],
-        }
+        """Convert an E0005 product dict into the saved row.
+
+        `product` is the full ProductFields.model_dump() from e0005.
+        We save every E0005 field verbatim. Image filtering is the only
+        post-process — removes tracking pixels / tiny thumbs / logos from
+        the canonical `all_images` list.
+
+        No legacy field aliases are written. The frontend reads E0005
+        field names directly; old records on disk are handled via
+        fallback paths in the React components themselves.
+        """
+        if not isinstance(product, dict):
+            return {}
+
+        row = dict(product)
+        row["source_url"] = source_url
+
+        all_images = row.get("all_images") or []
+        if isinstance(all_images, str):
+            # network_api with json transform can stringify a list; defensively parse.
+            try:
+                all_images = json.loads(all_images) if all_images.startswith("[") else [all_images]
+            except Exception:
+                all_images = [all_images]
+        row["all_images"] = self._filter_images(list(all_images), source_url)
+        return row
 
     def _save_urls_json(self):
         """

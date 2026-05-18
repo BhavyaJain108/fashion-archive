@@ -1,0 +1,5 @@
+{
+  "title_pattern": "\"@type\":\"Product\",\"name\":\"([^\"]+)\"",
+  "price_pattern": "\"offers\":\\{\"@type\":\"Offer\",\"price\":\"([0-9.]+)\"",
+  "image_pattern": "\"@type\":\"Product\",\"name\":\"NINA\\ MIDI\\ DRESS\",\"image\":\"([^\"]+)\""
+}

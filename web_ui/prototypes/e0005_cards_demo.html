@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>E0005 product card demo</title>
+<style>
+:root {
+  --ink: #000;
+  --ink-2: #444;
+  --ink-3: #888;
+  --ink-4: #bbb;
+  --bg: #fff;
+  --bg-2: #fafafa;
+  --bg-3: #f3f3f3;
+  --rule: #e3e3e3;
+  --good: #1f7a3f;
+  --warn: #b85c00;
+  --bad: #b00020;
+  --font: 'JetBrains Mono', 'SF Mono', 'Monaco', monospace;
+  --font-display: 'JetBrains Mono', 'SF Mono', 'Monaco', monospace;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  padding: 32px 24px 96px;
+  background: var(--bg-2);
+  font-family: var(--font);
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.4;
+}
+h1 {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0 0 6px;
+  letter-spacing: -0.5px;
+}
+.section-head {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--ink-3);
+  margin: 36px 0 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--rule);
+}
+.section-head:first-of-type { border-top: 0; padding-top: 0; margin-top: 16px; }
+
+/* ============ CARD 1 — Grid tile (MyBrandsPanel cell) ============ */
+.tile-row { display: flex; gap: 24px; flex-wrap: wrap; }
+.tile {
+  width: 220px;
+  background: var(--bg);
+  border: 1px solid var(--rule);
+  cursor: pointer;
+  transition: border-color .15s;
+}
+.tile:hover { border-color: var(--ink); }
+.tile-img {
+  width: 100%;
+  aspect-ratio: 3/4;
+  background: var(--bg-3) center/cover no-repeat;
+  position: relative;
+}
+.tile-badge {
+  position: absolute;
+  top: 8px; left: 8px;
+  font-size: 9px;
+  padding: 3px 6px;
+  background: var(--bg);
+  border: 1px solid var(--ink);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+.tile-badge.bad { color: var(--bg); background: var(--ink); }
+.tile-badge.sale { color: var(--bg); background: var(--bad); border-color: var(--bad); }
+.tile-meta {
+  padding: 10px 12px 12px;
+}
+.tile-brand {
+  font-size: 9px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 4px;
+}
+.tile-title {
+  font-size: 12px;
+  margin: 0 0 8px;
+  line-height: 1.3;
+  height: 32px;
+  overflow: hidden;
+}
+.tile-row-2 { display: flex; justify-content: space-between; align-items: baseline; }
+.tile-price { font-size: 13px; font-weight: 500; }
+.tile-price .strike { color: var(--ink-3); text-decoration: line-through; margin-right: 6px; }
+.tile-sizes {
+  display: flex;
+  gap: 4px;
+  margin-top: 8px;
+  font-size: 9px;
+  color: var(--ink-3);
+}
+.tile-sizes .size {
+  padding: 1px 4px;
+  border: 1px solid var(--rule);
+}
+.tile-sizes .size.gone {
+  color: var(--ink-4);
+  text-decoration: line-through;
+}
+.tile-sizes .size.low {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+/* ============ CARD 2 — Detail panel ============ */
+.detail {
+  display: grid;
+  grid-template-columns: 480px 1fr;
+  gap: 40px;
+  background: var(--bg);
+  border: 1px solid var(--rule);
+  padding: 32px;
+  max-width: 1080px;
+}
+.detail-gallery {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.detail-main-img {
+  width: 100%;
+  aspect-ratio: 3/4;
+  background: var(--bg-3) center/cover no-repeat;
+}
+.detail-thumbs {
+  display: flex;
+  gap: 6px;
+}
+.detail-thumbs .thumb {
+  flex: 1;
+  aspect-ratio: 3/4;
+  background: var(--bg-3) center/cover no-repeat;
+  cursor: pointer;
+  opacity: .55;
+  border: 1px solid transparent;
+}
+.detail-thumbs .thumb.active {
+  opacity: 1;
+  border-color: var(--ink);
+}
+
+.detail-info { display: flex; flex-direction: column; gap: 24px; }
+.detail-brand {
+  font-size: 10px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.detail-title {
+  font-size: 22px;
+  font-weight: 500;
+  margin: 4px 0 0;
+  letter-spacing: -0.5px;
+}
+.detail-breadcrumb {
+  font-size: 10px;
+  color: var(--ink-3);
+  margin-top: 8px;
+}
+.detail-breadcrumb span:not(:last-child)::after { content: " › "; padding: 0 4px; color: var(--ink-4); }
+
+.detail-price-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+.detail-price { font-size: 18px; font-weight: 500; }
+.detail-price-strike { color: var(--ink-3); text-decoration: line-through; font-size: 13px; }
+.detail-price-tag {
+  font-size: 9px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  padding: 3px 6px;
+  border: 1px solid var(--ink-3);
+  color: var(--ink-3);
+}
+.detail-price-tag.api { border-color: var(--good); color: var(--good); }
+
+.detail-section { border-top: 1px solid var(--rule); padding-top: 16px; }
+.detail-section-head {
+  font-size: 9px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 10px;
+}
+
+/* Size grid */
+.size-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.size-cell {
+  border: 1px solid var(--rule);
+  padding: 12px 10px;
+  text-align: center;
+  cursor: pointer;
+  transition: all .15s;
+}
+.size-cell:hover { border-color: var(--ink); }
+.size-cell.gone {
+  color: var(--ink-4);
+  background: var(--bg-3);
+  cursor: not-allowed;
+}
+.size-cell.gone:hover { border-color: var(--rule); }
+.size-cell.gone .size-label { text-decoration: line-through; }
+.size-cell.low { border-color: var(--warn); }
+.size-cell .size-label {
+  font-size: 13px;
+  font-weight: 500;
+}
+.size-cell .size-meta {
+  font-size: 9px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-top: 4px;
+}
+.size-cell.low .size-meta { color: var(--warn); }
+.size-cell.gone .size-meta { color: var(--ink-4); }
+
+/* Specs */
+.specs-list { margin: 0; padding-left: 16px; }
+.specs-list li { margin-bottom: 4px; }
+
+/* Material */
+.material-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.material-row .row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  padding: 6px 0;
+  border-bottom: 1px dotted var(--rule);
+}
+.material-row .row:last-child { border-bottom: 0; }
+.material-row .row .label {
+  color: var(--ink-3);
+  text-transform: uppercase;
+  font-size: 9px;
+  letter-spacing: 1.5px;
+}
+
+/* Color chip */
+.color-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.color-swatch {
+  width: 32px; height: 32px;
+  border-radius: 16px;
+  border: 1px solid var(--rule);
+}
+.color-name { font-size: 12px; }
+
+/* CTA */
+.detail-cta {
+  display: flex;
+  gap: 8px;
+}
+.btn {
+  padding: 14px 20px;
+  font-family: var(--font);
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  cursor: pointer;
+  background: var(--ink);
+  color: var(--bg);
+  border: 1px solid var(--ink);
+}
+.btn.ghost { background: var(--bg); color: var(--ink); }
+.btn:hover { opacity: .8; }
+.btn:disabled { background: var(--bg-3); color: var(--ink-4); border-color: var(--rule); cursor: not-allowed; }
+
+/* ============ CARD 3 — Compare row ============ */
+.compare-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  max-width: 1080px;
+}
+.compare-card {
+  background: var(--bg);
+  border: 1px solid var(--rule);
+  padding: 16px;
+  font-size: 11px;
+}
+.compare-card-img {
+  width: 100%;
+  aspect-ratio: 3/4;
+  background: var(--bg-3) center/cover no-repeat;
+  margin-bottom: 12px;
+}
+.compare-card-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  border-bottom: 1px dotted var(--rule);
+}
+.compare-card-row .k { color: var(--ink-3); }
+.compare-card-row .v { text-align: right; }
+.compare-card-name {
+  font-size: 12px;
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+.compare-card-tags {
+  display: flex; gap: 4px; flex-wrap: wrap; margin-top: 8px;
+}
+.tag {
+  font-size: 8px;
+  padding: 2px 5px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  border: 1px solid var(--rule);
+  color: var(--ink-3);
+}
+.tag.good { color: var(--good); border-color: var(--good); }
+.tag.warn { color: var(--warn); border-color: var(--warn); }
+.tag.bad { color: var(--bad); border-color: var(--bad); background: var(--bg); }
+
+/* ============ CARD 4 — Faceted browse ============ */
+.facet-bar {
+  display: flex;
+  gap: 8px;
+  font-size: 10px;
+  padding: 12px;
+  background: var(--bg);
+  border: 1px solid var(--rule);
+  max-width: 1080px;
+  flex-wrap: wrap;
+}
+.facet {
+  padding: 6px 10px;
+  border: 1px solid var(--rule);
+  cursor: pointer;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+.facet.active {
+  background: var(--ink);
+  color: var(--bg);
+  border-color: var(--ink);
+}
+.facet-count { color: var(--ink-3); margin-left: 4px; }
+.facet.active .facet-count { color: var(--bg); opacity: .7; }
+</style>
+</head>
+<body>
+
+<h1>E0005 product cards — display demos</h1>
+<div style="font-size: 11px; color: var(--ink-3); max-width: 720px; margin-bottom: 8px;">
+  All data below is real, extracted by e0005 from
+  <code>alexandermcqueen.com/.../folded-lapel-single-breasted-jacket-870312QJAAC4003</code>.
+  Per-size availability + stock counts come from McQueen's
+  <code>/api/v1/amq/availability/{sku}</code> endpoint.
+</div>
+
+<!-- ============ 1. Grid tile ============ -->
+<div class="section-head">1 · Grid tile · MyBrandsPanel</div>
+<div class="tile-row">
+
+  <div class="tile">
+    <div class="tile-img" style="background-image:url('https://amq-mcq.dam.kering.com/asset/09682286-3a5f-4cc5-b3b4-c364bd9250e8/eCom/870312QJAAC4003_F.jpg?v=1');">
+      <div class="tile-badge">In stock</div>
+    </div>
+    <div class="tile-meta">
+      <div class="tile-brand">Alexander McQueen</div>
+      <div class="tile-title">Folded Lapel Single-Breasted Jacket</div>
+      <div class="tile-row-2">
+        <div class="tile-price">$3,100</div>
+      </div>
+      <div class="tile-sizes">
+        <div class="size gone">38</div>
+        <div class="size low">40</div>
+        <div class="size">42</div>
+        <div class="size">44</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tile">
+    <div class="tile-img" style="background-image:url('https://amq-mcq.dam.kering.com/asset/3762c76c-93eb-4969-ab5c-d42fea2e4b86/eCom/870312QJAAC4003_R.jpg?v=1');">
+      <div class="tile-badge sale">−20%</div>
+    </div>
+    <div class="tile-meta">
+      <div class="tile-brand">Alexander McQueen</div>
+      <div class="tile-title">Folded Lapel Single-Breasted Jacket</div>
+      <div class="tile-row-2">
+        <div class="tile-price"><span class="strike">$3,100</span> $2,480</div>
+      </div>
+      <div class="tile-sizes">
+        <div class="size gone">38</div>
+        <div class="size low">40</div>
+        <div class="size">42</div>
+        <div class="size">44</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tile">
+    <div class="tile-img" style="background-image:url('https://amq-mcq.dam.kering.com/asset/c81dc6e3-9b64-4f50-8b43-38c1d940f6af/eCom/870312QJAAC4003_D.jpg?v=1');">
+      <div class="tile-badge bad">Sold out</div>
+    </div>
+    <div class="tile-meta">
+      <div class="tile-brand">Alexander McQueen</div>
+      <div class="tile-title">Folded Lapel Single-Breasted Jacket</div>
+      <div class="tile-row-2">
+        <div class="tile-price">$3,100</div>
+      </div>
+      <div class="tile-sizes">
+        <div class="size gone">38</div>
+        <div class="size gone">40</div>
+        <div class="size gone">42</div>
+        <div class="size gone">44</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ============ 2. Detail panel ============ -->
+<div class="section-head">2 · Detail panel · ProductDetailPanel</div>
+<div class="detail">
+
+  <div class="detail-gallery">
+    <div class="detail-main-img" id="mainImg" style="background-image:url('https://amq-mcq.dam.kering.com/asset/09682286-3a5f-4cc5-b3b4-c364bd9250e8/eCom/870312QJAAC4003_F.jpg?v=1');"></div>
+    <div class="detail-thumbs">
+      <div class="thumb active" style="background-image:url('https://amq-mcq.dam.kering.com/asset/09682286-3a5f-4cc5-b3b4-c364bd9250e8/eCom/870312QJAAC4003_F.jpg?v=1');"></div>
+      <div class="thumb" style="background-image:url('https://amq-mcq.dam.kering.com/asset/3762c76c-93eb-4969-ab5c-d42fea2e4b86/eCom/870312QJAAC4003_R.jpg?v=1');"></div>
+      <div class="thumb" style="background-image:url('https://amq-mcq.dam.kering.com/asset/c81dc6e3-9b64-4f50-8b43-38c1d940f6af/eCom/870312QJAAC4003_D.jpg?v=1');"></div>
+      <div class="thumb" style="background-image:url('https://amq-mcq.dam.kering.com/asset/f7b176d0-f68c-4c49-8c3b-8472a159940f/eCom/870312QJAAC4003_E.jpg?v=1');"></div>
+      <div class="thumb" style="background-image:url('https://amq-mcq.dam.kering.com/asset/849d39c8-aca8-443e-b192-27e8c1b8f73b/eCom/870312QJAAC4003_L.jpg?v=1');"></div>
+    </div>
+  </div>
+
+  <div class="detail-info">
+    <div>
+      <div class="detail-brand">Alexander McQueen</div>
+      <h2 class="detail-title">Folded Lapel Single-Breasted Jacket</h2>
+      <div class="detail-breadcrumb">
+        <span>Women</span>
+        <span>Ready-to-Wear</span>
+        <span>Jackets</span>
+      </div>
+    </div>
+
+    <div class="detail-price-row">
+      <div class="detail-price">$3,100</div>
+      <div class="detail-price-tag api">Live · API</div>
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-section-head">Color · Navy</div>
+      <div class="color-chip">
+        <div class="color-swatch" style="background:#282D3C"></div>
+        <div class="color-name">Navy <span style="color: var(--ink-3); margin-left: 8px;">#282D3C</span></div>
+      </div>
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-section-head">Size · 4 sizes</div>
+      <div class="size-grid">
+        <div class="size-cell gone">
+          <div class="size-label">38 / US 2</div>
+          <div class="size-meta">Sold out</div>
+        </div>
+        <div class="size-cell low">
+          <div class="size-label">40 / US 4</div>
+          <div class="size-meta">1 left</div>
+        </div>
+        <div class="size-cell">
+          <div class="size-label">42 / US 6</div>
+          <div class="size-meta">In stock</div>
+        </div>
+        <div class="size-cell">
+          <div class="size-label">44 / US 8</div>
+          <div class="size-meta">In stock</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-section-head">Description</div>
+      <div>Single-breasted jacket in navy grain de poudre featuring inward-pointing peak lapels. Chest pocket, cinched waist and two jetted pockets on the sides. Finished with a single button fastening.</div>
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-section-head">Material composition</div>
+      <div class="material-row">
+        <div class="row"><span class="label">Fabric</span><span>100% Wool</span></div>
+        <div class="row"><span class="label">Details</span><span>63% Wool · 37% Viscose</span></div>
+        <div class="row"><span class="label">Lining</span><span>100% Cupro</span></div>
+      </div>
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-section-head">Specifications</div>
+      <ul class="specs-list">
+        <li>Peak lapels</li>
+        <li>Side jetted pockets</li>
+        <li>Single button fastening</li>
+        <li>Made in Italy</li>
+      </ul>
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-section-head">Delivery</div>
+      <div>Complimentary express shipping and returns</div>
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-section-head">SKU · 870312QJAAC4003</div>
+      <div class="detail-cta">
+        <button class="btn">View on alexandermcqueen.com →</button>
+        <button class="btn ghost">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 3. Compare row ============ -->
+<div class="section-head">3 · Compare row · cross-product view</div>
+<div class="compare-grid">
+
+  <div class="compare-card">
+    <div class="compare-card-img" style="background-image:url('https://amq-mcq.dam.kering.com/asset/09682286-3a5f-4cc5-b3b4-c364bd9250e8/eCom/870312QJAAC4003_F.jpg?v=1');"></div>
+    <div class="compare-card-name">Folded Lapel Jacket</div>
+    <div class="compare-card-row"><span class="k">Brand</span><span class="v">Alexander McQueen</span></div>
+    <div class="compare-card-row"><span class="k">Price</span><span class="v">$3,100</span></div>
+    <div class="compare-card-row"><span class="k">Material</span><span class="v">100% Wool</span></div>
+    <div class="compare-card-row"><span class="k">Color</span><span class="v">Navy</span></div>
+    <div class="compare-card-row"><span class="k">Sizes</span><span class="v">38·40·42·44</span></div>
+    <div class="compare-card-row"><span class="k">Origin</span><span class="v">Italy</span></div>
+    <div class="compare-card-tags">
+      <span class="tag warn">1 size left</span>
+      <span class="tag good">In stock</span>
+      <span class="tag">Live price</span>
+    </div>
+  </div>
+
+  <div class="compare-card">
+    <div class="compare-card-img" style="background:#c8c8d4;"></div>
+    <div class="compare-card-name">Camero Camera Bag</div>
+    <div class="compare-card-row"><span class="k">Brand</span><span class="v">Acne Studios</span></div>
+    <div class="compare-card-row"><span class="k">Price</span><span class="v">$2,400</span></div>
+    <div class="compare-card-row"><span class="k">Material</span><span class="v">100% Calf Leather</span></div>
+    <div class="compare-card-row"><span class="k">Color</span><span class="v">Black</span></div>
+    <div class="compare-card-row"><span class="k">Sizes</span><span class="v">One size</span></div>
+    <div class="compare-card-row"><span class="k">Origin</span><span class="v">—</span></div>
+    <div class="compare-card-tags">
+      <span class="tag good">In stock</span>
+      <span class="tag">LWG leather</span>
+    </div>
+  </div>
+
+  <div class="compare-card">
+    <div class="compare-card-img" style="background:#1a1a1a;"></div>
+    <div class="compare-card-name">Glitter Logo Hoodie</div>
+    <div class="compare-card-row"><span class="k">Brand</span><span class="v">Named Collective</span></div>
+    <div class="compare-card-row"><span class="k">Price</span><span class="v">$130</span></div>
+    <div class="compare-card-row"><span class="k">Material</span><span class="v">100% Cotton</span></div>
+    <div class="compare-card-row"><span class="k">Color</span><span class="v">Black</span></div>
+    <div class="compare-card-row"><span class="k">Sizes</span><span class="v">XS · S/M · L/XL · 2XL/3XL</span></div>
+    <div class="compare-card-row"><span class="k">Origin</span><span class="v">London</span></div>
+    <div class="compare-card-tags">
+      <span class="tag good">In stock</span>
+      <span class="tag">Free ship · $330+</span>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 4. Faceted browse bar ============ -->
+<div class="section-head">4 · Faceted browse · MyBrandsPanel filter bar</div>
+<div class="facet-bar">
+  <div class="facet active">All <span class="facet-count">142</span></div>
+  <div class="facet">Women <span class="facet-count">94</span></div>
+  <div class="facet">Men <span class="facet-count">48</span></div>
+  <div class="facet">› Ready-to-Wear <span class="facet-count">62</span></div>
+  <div class="facet">› Bags <span class="facet-count">21</span></div>
+  <div class="facet">› Shoes <span class="facet-count">11</span></div>
+  <div class="facet">In stock <span class="facet-count">118</span></div>
+  <div class="facet">On sale <span class="facet-count">7</span></div>
+  <div class="facet">Wool <span class="facet-count">23</span></div>
+  <div class="facet">Leather <span class="facet-count">19</span></div>
+</div>
+
+</body>
+</html>
