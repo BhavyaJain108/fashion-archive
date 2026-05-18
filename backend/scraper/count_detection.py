@@ -150,14 +150,42 @@ logger = logging.getLogger(__name__)
 
 def _detect_count_from_vision(page, category_name: str, brand_instance, llm_handler) -> Optional[int]:
     """
-    Stage 3: screenshot the top of the page and ask the vision LLM for the
-    count. On high-confidence responses with a non-null selector, cache the
-    selector on brand_instance for cheap reuse on subsequent categories.
+    Stage 3: screenshot the TOP of the page and ask the vision LLM for the
+    product count via tool-forced structured output (pydantic schema).
+
+    On high-confidence responses with a non-null selector, cache the selector
+    on brand_instance for cheap reuse on subsequent categories.
 
     Returns the count, or None if the LLM couldn't find one.
+
+    IMPORTANT: We scroll to the top of the page before screenshotting because
+    `page.screenshot(clip=...)` clips from the *viewport*, not the page. After
+    our scroll-to-bottom loop the viewport sits at the page footer; without
+    scrolling back up we'd send the LLM an image of the footer instead of the
+    collection header where the count actually lives.
     """
     from prompts.collection_count_detection import CollectionCountResponse, get_prompt
 
+    # 1. Scroll back to the top so the screenshot clip captures the header,
+    #    where the collection title and count are typically rendered.
+    try:
+        page.evaluate("window.scrollTo(0, 0)")
+        page.wait_for_timeout(500)
+    except Exception as e:
+        logger.warning(f"Scroll-to-top failed before vision screenshot: {e}")
+        # Continue anyway — the screenshot might still be usable.
+
+    # 2. Re-dismiss popups: some sites re-show the email-signup modal after
+    #    scrolling. Best-effort — import locally to avoid circular imports.
+    try:
+        from url_extractor import _dismiss_popups_sync
+        _dismiss_popups_sync(page)
+        page.wait_for_timeout(300)
+    except Exception:
+        # Popup dismissal is best-effort; don't fail count detection over it.
+        pass
+
+    # 3. Screenshot the top viewport region.
     try:
         screenshot_bytes = page.screenshot(
             clip={"x": 0, "y": 0, "width": 1280, "height": 900},
@@ -170,12 +198,15 @@ def _detect_count_from_vision(page, category_name: str, brand_instance, llm_hand
     image_b64 = base64.standard_b64encode(screenshot_bytes).decode("ascii")
     prompt = get_prompt(category_name)
 
+    # 4. Call vision with tool-forced pydantic structured output — no manual
+    #    JSON parsing, no "the model wrote prose" failure mode.
     try:
-        result = llm_handler.call_with_image(
+        result = llm_handler.call_with_image_structured(
             prompt=prompt,
             image_b64=image_b64,
+            response_model=CollectionCountResponse,
             media_type="image/png",
-            max_tokens=1000,
+            max_tokens=1500,
             operation="collection_count_detection",
         )
     except Exception as e:
@@ -183,39 +214,23 @@ def _detect_count_from_vision(page, category_name: str, brand_instance, llm_hand
         return None
 
     if not result.get("success"):
+        logger.warning(f"Vision count detection unsuccessful: {result.get('error')}")
         return None
 
-    response_text = result.get("response", "")
-    parsed = _parse_vision_response(response_text)
-    if parsed is None:
-        return None
+    data = result.get("data", {})
+    count = data.get("count")
+    selector = data.get("selector")
+    confidence = data.get("confidence")
 
-    count = parsed.count
     if count is None or not (_MIN_PLAUSIBLE_COUNT <= count <= _MAX_PLAUSIBLE_COUNT):
         return None
 
-    if brand_instance and parsed.selector and parsed.confidence == "high":
-        brand_instance.collection_count_selector = parsed.selector
+    # Cache the selector only if we're confident in it.
+    if brand_instance and selector and confidence == "high":
+        brand_instance.collection_count_selector = selector
         brand_instance._count_selector_miss_count = 0
 
     return count
-
-
-def _parse_vision_response(response_text: str):
-    """Parse the LLM response into a CollectionCountResponse. Returns None on failure."""
-    from prompts.collection_count_detection import CollectionCountResponse
-
-    text = response_text.strip()
-    if text.startswith("```"):
-        lines = text.split("\n")
-        text = "\n".join(lines[1:-1]) if len(lines) > 2 else text
-
-    try:
-        data = json.loads(text)
-        return CollectionCountResponse(**data)
-    except (json.JSONDecodeError, TypeError, ValueError) as e:
-        logger.warning(f"Failed to parse vision response: {e}; response was: {response_text[:200]}")
-        return None
 
 
 def detect_collection_count(page, category_name: str, brand_instance, llm_handler) -> Optional[CountResult]:

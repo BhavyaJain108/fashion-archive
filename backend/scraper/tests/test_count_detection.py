@@ -168,23 +168,39 @@ def test_cached_selector_returns_none_for_implausible_number():
 
 
 class _FakeLLMHandler:
-    """Captures the call and returns a canned response dict."""
+    """Captures the structured vision call and returns a canned response dict.
+
+    Mirrors LLMHandler.call_with_image_structured: caller passes a pydantic
+    `response_model`; we return `{"data": <pre-validated dict>, "success": True}`
+    on success or `{"success": False, "error": ...}` on failure. This matches
+    the contract the production code now relies on.
+    """
     def __init__(self, canned_response):
         self._canned = canned_response
         self.last_prompt = None
         self.last_image_b64 = None
+        self.last_response_model = None
 
-    def call_with_image(self, prompt, image_b64, media_type="image/png",
-                        max_tokens=8000, operation="vision_call"):
+    def call_with_image_structured(self, prompt, image_b64, response_model,
+                                   media_type="image/png", max_tokens=1500,
+                                   operation="vision_structured"):
         self.last_prompt = prompt
         self.last_image_b64 = image_b64
+        self.last_response_model = response_model
         return self._canned
 
 
 class _FakePageScreenshot:
-    """Fake page with a screenshot() method returning bytes."""
+    """Fake page with screenshot(), evaluate(), and wait_for_timeout()."""
     def screenshot(self, **kwargs):
         return b"\x89PNG\r\n\x1a\nfake-screenshot-bytes"
+
+    def evaluate(self, _js):
+        # Scroll-to-top no-op for tests.
+        return None
+
+    def wait_for_timeout(self, _ms):
+        return None
 
 
 def test_vision_stage_returns_count_and_caches_selector_on_high_confidence():
@@ -193,7 +209,8 @@ def test_vision_stage_returns_count_and_caches_selector_on_high_confidence():
     b = Brand("https://example.com")
     llm = _FakeLLMHandler({
         "success": True,
-        "response": '{"count":47,"selector":".collection-count","confidence":"high","reasoning":"saw it"}',
+        "data": {"count": 47, "selector": ".collection-count",
+                 "confidence": "high", "reasoning": "saw it"},
         "usage": {"input_tokens": 100, "output_tokens": 20},
     })
     page = _FakePageScreenshot()
@@ -209,7 +226,8 @@ def test_vision_stage_does_not_cache_on_medium_confidence():
     b = Brand("https://example.com")
     llm = _FakeLLMHandler({
         "success": True,
-        "response": '{"count":47,"selector":".count","confidence":"medium","reasoning":"maybe"}',
+        "data": {"count": 47, "selector": ".count",
+                 "confidence": "medium", "reasoning": "maybe"},
         "usage": {"input_tokens": 100, "output_tokens": 20},
     })
     page = _FakePageScreenshot()
@@ -225,7 +243,8 @@ def test_vision_stage_returns_none_when_llm_returns_null_count():
     b = Brand("https://example.com")
     llm = _FakeLLMHandler({
         "success": True,
-        "response": '{"count":null,"selector":null,"confidence":"low","reasoning":"no count visible"}',
+        "data": {"count": None, "selector": None,
+                 "confidence": "low", "reasoning": "no count visible"},
         "usage": {"input_tokens": 100, "output_tokens": 20},
     })
     page = _FakePageScreenshot()
@@ -262,6 +281,9 @@ class _StagedFakePage:
     def screenshot(self, **kwargs):
         return b"\x89PNG\r\n\x1a\nfake"
 
+    def wait_for_timeout(self, _ms):
+        return None
+
 
 def test_orchestrator_returns_jsonld_result_when_available():
     from count_detection import detect_collection_count, CountResult
@@ -291,7 +313,8 @@ def test_orchestrator_falls_through_to_vision():
     page = _StagedFakePage(jsonld_texts=[], selector_text=None)
     llm = _FakeLLMHandler({
         "success": True,
-        "response": '{"count":18,"selector":".c","confidence":"high","reasoning":"x"}',
+        "data": {"count": 18, "selector": ".c",
+                 "confidence": "high", "reasoning": "x"},
         "usage": {"input_tokens": 50, "output_tokens": 10},
     })
     result = detect_collection_count(page, "THORN", b, llm)
@@ -305,7 +328,8 @@ def test_orchestrator_returns_none_when_all_stages_miss():
     page = _StagedFakePage(jsonld_texts=[], selector_text=None)
     llm = _FakeLLMHandler({
         "success": True,
-        "response": '{"count":null,"selector":null,"confidence":"low","reasoning":"none"}',
+        "data": {"count": None, "selector": None,
+                 "confidence": "low", "reasoning": "none"},
         "usage": {"input_tokens": 50, "output_tokens": 10},
     })
     assert detect_collection_count(page, "Mystery", b, llm) is None

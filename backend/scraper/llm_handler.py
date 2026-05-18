@@ -488,6 +488,112 @@ class LLMHandler:
                 "success": False
             }
 
+    def call_with_image_structured(self, prompt: str, image_b64: str,
+                                   response_model, media_type: str = "image/png",
+                                   max_tokens: int = 1500,
+                                   operation: str = "vision_structured") -> Dict[str, Any]:
+        """
+        Vision LLM call with tool-forced structured output (pydantic).
+
+        Guarantees the response matches `response_model`'s schema — no manual
+        JSON parsing, no markdown-fence stripping, no "the model decided to
+        write prose instead" failure mode. Uses Anthropic's tool_choice to
+        force the model to invoke a tool whose input_schema IS the pydantic
+        schema.
+
+        Args:
+            prompt: Text prompt to send alongside the image
+            image_b64: Base64-encoded image data
+            response_model: Pydantic BaseModel subclass for the response shape
+            media_type: Image media type
+            max_tokens: Max tokens for the model's reasoning
+            operation: Operation name for usage tracking
+
+        Returns:
+            {"data": parsed_pydantic_dict, "success": True, "usage": {...}, "latency_ms": ...}
+            or {"error": str, "success": False, "latency_ms": ...} on failure.
+        """
+        import os
+        from anthropic import Anthropic
+
+        start_time = time.time()
+        schema = response_model.model_json_schema()
+
+        try:
+            client = Anthropic(api_key=os.getenv('CLAUDE_API_KEY'))
+
+            response = client.messages.create(
+                model=self.model,
+                max_tokens=max_tokens,
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {"type": "image", "source": {"type": "base64",
+                                                     "media_type": media_type,
+                                                     "data": image_b64}},
+                        {"type": "text", "text": prompt}
+                    ]
+                }],
+                tool_choice={"type": "tool", "name": "structured_output"},
+                tools=[{
+                    "name": "structured_output",
+                    "description": "Return structured data matching the schema",
+                    "input_schema": schema
+                }]
+            )
+
+            latency_ms = (time.time() - start_time) * 1000
+
+            if response.usage:
+                usage = {
+                    "input_tokens": response.usage.input_tokens,
+                    "output_tokens": response.usage.output_tokens,
+                }
+                self._track_usage(usage, operation)
+            else:
+                usage = None
+
+            # Extract the forced tool-use block
+            tool_input = None
+            if response.content:
+                for block in response.content:
+                    if getattr(block, "type", None) == "tool_use" and getattr(block, "input", None):
+                        tool_input = block.input
+                        break
+
+            if tool_input is None:
+                return {
+                    "error": "No tool_use block in vision response",
+                    "latency_ms": latency_ms,
+                    "success": False,
+                }
+
+            # Validate against the pydantic model
+            try:
+                validated = response_model(**tool_input)
+            except Exception as e:
+                return {
+                    "error": f"Pydantic validation failed: {e}",
+                    "raw": tool_input,
+                    "latency_ms": latency_ms,
+                    "success": False,
+                }
+
+            return {
+                "data": validated.model_dump(),
+                "latency_ms": latency_ms,
+                "success": True,
+                "usage": usage,
+            }
+
+        except Exception as e:
+            latency_ms = (time.time() - start_time) * 1000
+            return {
+                "error": str(e),
+                "latency_ms": latency_ms,
+                "success": False,
+            }
+
     def call_text(self, prompt: str, max_tokens: int = 1500,
                   operation: str = "text_call") -> Dict[str, Any]:
         """
