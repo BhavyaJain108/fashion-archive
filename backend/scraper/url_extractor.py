@@ -504,7 +504,8 @@ def classify_product_links(
     links: List[Dict],
     page_url: str,
     category_name: str,
-    brand_instance=None
+    brand_instance=None,
+    expected_count: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     Use LLM to classify links as products vs navigation/recommendations.
@@ -552,6 +553,23 @@ def classify_product_links(
     _log(f"   ❌ Pre-rejected: {len(known_rejected_links)} links ({len([l for l in lineage_groups if l in rejected_lineages])} lineages)")
     _log(f"   ❓ Unknown: {len(unknown_lineage_links)} links need classification")
 
+    # Memory-gate: if expected_count is known and pre-approved memory wildly
+    # disagrees with it, distrust memory for this category and re-classify the
+    # approved links as unknown.
+    force_reclassify_memory = False
+    if expected_count is not None and known_approved_links:
+        approved_total = len(known_approved_links)
+        low_threshold = expected_count * 0.8
+        high_threshold = expected_count * 1.3
+        if approved_total < low_threshold or approved_total > high_threshold:
+            force_reclassify_memory = True
+            _log(
+                f"   ⚠️  Lineage memory disagrees with expected count "
+                f"({approved_total} approved vs {expected_count} expected); re-classifying."
+            )
+            unknown_lineage_links.extend(known_approved_links)
+            known_approved_links = []
+
     newly_approved_links = []
     newly_approved_lineages = set()
     newly_rejected_lineages = set()
@@ -585,7 +603,7 @@ def classify_product_links(
 
         # Call LLM
         llm_handler = LLMHandler()
-        prompt = url_classification.get_prompt(page_url, category_name, sampled_links)
+        prompt = url_classification.get_prompt(page_url, category_name, sampled_links, expected_count=expected_count)
         response = llm_handler.call(
             prompt,
             expected_format="json",
@@ -674,7 +692,8 @@ def classify_product_links(
         "lineages_rejected": list(rejected_lineages | newly_rejected_lineages),
         "pre_approved_count": len(known_approved_links),
         "newly_classified_count": len(newly_approved_links),
-        "rejected_by_lineage": rejected_by_lineage
+        "rejected_by_lineage": rejected_by_lineage,
+        "memory_disagreed_with_count": force_reclassify_memory,
     }
 
     _log(f"   ✅ Classification complete: {len(unique_product_links)} product URLs identified")
