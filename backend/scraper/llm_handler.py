@@ -536,33 +536,22 @@ class LLMHandler:
         Returns:
             Dictionary with response text and metadata
         """
-        import os
-        from anthropic import Anthropic
-
         start_time = time.time()
 
         try:
-            client = Anthropic(api_key=os.getenv('CLAUDE_API_KEY'))
+            if not self.client:
+                raise RuntimeError("LLM client not initialized")
 
-            response = client.messages.create(
-                model=self.model,
-                max_tokens=max_tokens,
-                messages=[{"role": "user", "content": prompt}]
-            )
+            # Route through the configured provider (Claude or OpenRouter/Qwen).
+            # Both ClaudeInterface.generate and OpenRouterInterface.generate return
+            # a string and stash usage on _last_usage when called without response_model.
+            result_text = self.client.generate(prompt, max_tokens=max_tokens).strip()
 
             latency_ms = (time.time() - start_time) * 1000
 
-            # Track usage
-            if response.usage:
-                usage = {
-                    "input_tokens": response.usage.input_tokens,
-                    "output_tokens": response.usage.output_tokens
-                }
+            usage = getattr(self.client, '_last_usage', None)
+            if usage:
                 self._track_usage(usage, operation)
-            else:
-                usage = None
-
-            result_text = response.content[0].text.strip()
 
             final = {
                 "response": result_text,
