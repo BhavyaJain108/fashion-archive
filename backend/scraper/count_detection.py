@@ -21,7 +21,11 @@ class CountResult:
     source: Literal["common_selector", "jsonld", "cached_selector", "vision"]
 
 
-_MIN_PLAUSIBLE_COUNT = 1
+# 0 is a valid count — it means the collection is visibly empty (e.g. the
+# vision LLM saw a "No products in this collection" empty state). Pages with
+# no count widget AND no empty-state message should return None (unknown),
+# not 0.
+_MIN_PLAUSIBLE_COUNT = 0
 _MAX_PLAUSIBLE_COUNT = 10_000
 
 
@@ -278,21 +282,28 @@ def _detect_count_from_vision(page, category_name: str, brand_instance, llm_hand
     Stage 3: screenshot the TOP of the page and ask the vision LLM for the
     product count via tool-forced structured output (pydantic schema).
 
+    The vision LLM is also our universal empty-collection detector — it
+    looks at whether there are product cards in the main grid (not in
+    "featured" or "you might also like" carousels) and returns count=0 if
+    the main grid is visibly empty. This works across platforms (Shopify,
+    BigCommerce, custom themes) because we're relying on the visual layout
+    of the page, not platform-specific text.
+
     On high-confidence responses with a non-null selector, cache the selector
     on brand_instance for cheap reuse on subsequent categories.
 
-    Returns the count, or None if the LLM couldn't find one.
+    Returns the count, or None if the LLM couldn't tell.
 
-    IMPORTANT: We scroll to the top of the page before screenshotting because
+    IMPORTANT: We scroll to the top before screenshotting because
     `page.screenshot(clip=...)` clips from the *viewport*, not the page. After
     our scroll-to-bottom loop the viewport sits at the page footer; without
     scrolling back up we'd send the LLM an image of the footer instead of the
-    collection header where the count actually lives.
+    collection header where the count and main grid live.
     """
     from prompts.collection_count_detection import CollectionCountResponse, get_prompt
 
-    # 1. Scroll back to the top so the screenshot clip captures the header,
-    #    where the collection title and count are typically rendered.
+    # 1. Scroll back to the top so the screenshot clip captures the header
+    #    and at least the start of the main product grid.
     try:
         page.evaluate("window.scrollTo(0, 0)")
         page.wait_for_timeout(500)
@@ -310,10 +321,16 @@ def _detect_count_from_vision(page, category_name: str, brand_instance, llm_hand
         # Popup dismissal is best-effort; don't fail count detection over it.
         pass
 
-    # 3. Screenshot the top viewport region.
+    # 3. Screenshot a tall slice (1280×2000) of the top of the page. The
+    #    extra height matters for empty-collection detection: on a page
+    #    where the top is a "Community Faves" / "Featured" carousel, the
+    #    main grid (which is empty) sits below the fold. A 1280×900 clip
+    #    would only show the carousel and miss the empty grid entirely,
+    #    causing vision to think there ARE products. 2000px reliably shows
+    #    the carousel + the start of the main grid (or its empty state).
     try:
         screenshot_bytes = page.screenshot(
-            clip={"x": 0, "y": 0, "width": 1280, "height": 900},
+            clip={"x": 0, "y": 0, "width": 1280, "height": 2000},
             type="png",
         )
     except Exception as e:
@@ -346,6 +363,14 @@ def _detect_count_from_vision(page, category_name: str, brand_instance, llm_hand
     count = data.get("count")
     selector = data.get("selector")
     confidence = data.get("confidence")
+    reasoning = data.get("reasoning") or ""
+
+    print(
+        f"   [count/stage3] vision result: count={count} conf={confidence} "
+        f"selector={selector!r}"
+    )
+    if reasoning:
+        print(f"   [count/stage3] reasoning: {reasoning[:200]}")
 
     if count is None or not (_MIN_PLAUSIBLE_COUNT <= count <= _MAX_PLAUSIBLE_COUNT):
         return None
@@ -375,7 +400,9 @@ def detect_collection_count(page, category_name: str, brand_instance, llm_handle
     Stage 0b: Generic text-pattern heuristic (free; catches custom themes).
     Stage 1:  JSON-LD structured data (free, instant).
     Stage 2:  Brand-cached CSS selector (free if cache hit).
-    Stage 3:  Vision LLM screenshot of the page (paid; caches a selector).
+    Stage 3:  Vision LLM screenshot of the page (paid; caches a selector,
+              and also detects visibly-empty collections — returns count=0
+              when the main product grid has no cards, regardless of platform).
 
     Returns CountResult(count, source) or None if the count is honestly unknown.
     """

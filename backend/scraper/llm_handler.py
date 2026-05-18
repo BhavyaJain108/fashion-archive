@@ -572,11 +572,17 @@ class LLMHandler:
         start_time = time.time()
         schema = response_model.model_json_schema()
 
+        # Vision calls always go to Claude directly — self.model might point
+        # at a non-Claude model (e.g. when LLM_PROVIDER=openrouter routes
+        # text calls through Qwen for fixture work). Hard-code a Claude
+        # vision-capable model here instead of inheriting self.model.
+        vision_model = os.getenv('CLAUDE_VISION_MODEL', 'claude-sonnet-4-20250514')
+
         try:
             client = Anthropic(api_key=os.getenv('CLAUDE_API_KEY'))
 
             response = client.messages.create(
-                model=self.model,
+                model=vision_model,
                 max_tokens=max_tokens,
                 messages=[{
                     "role": "user",

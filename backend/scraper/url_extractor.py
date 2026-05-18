@@ -828,14 +828,13 @@ def classify_product_links(
                     newly_approved_links.append(link)
                     newly_approved_lineages.add(link.get("lineage", "unknown"))
 
-    # Update brand instance with new lineage knowledge
+    # Rejected lineages are always safe to remember — nav/footer/utility
+    # lineages don't change role across categories on the same site.
     if brand_instance:
         if not hasattr(brand_instance, 'approved_url_lineages'):
             brand_instance.approved_url_lineages = set()
         if not hasattr(brand_instance, 'rejected_url_lineages'):
             brand_instance.rejected_url_lineages = set()
-
-        brand_instance.approved_url_lineages.update(newly_approved_lineages)
         brand_instance.rejected_url_lineages.update(newly_rejected_lineages)
 
     # Combine all approved links
@@ -863,15 +862,18 @@ def classify_product_links(
                 f"other approved lineages."
             )
             all_product_links = filtered
-            # Record these as "winner" lineages — the only ones we should
-            # carry across runs in the persistent cache. Sibling lineages
-            # that were also classified as product but didn't drive the
-            # exact-count match are excluded, which prevents swatch
-            # contamination on subsequent brand-cache loads.
+            # Only WINNER lineages enter brand-wide product memory. Sibling
+            # lineages (image link, swatch, etc.) that were approved by the
+            # classifier but didn't drive the exact-count match are NOT
+            # propagated — they cause memory-gate firing on subsequent
+            # categories with reduced lineage context, which made Haiku
+            # reject the per-card "Full Product Details" lineage as utility
+            # and trip the +5 overshoot / -2 undershoot pattern.
             if brand_instance is not None:
                 if not hasattr(brand_instance, 'winner_url_lineages'):
                     brand_instance.winner_url_lineages = set()
                 brand_instance.winner_url_lineages.update(exact_match_lineages)
+                brand_instance.approved_url_lineages.update(exact_match_lineages)
 
     # Deduplicate by URL
     seen_urls = set()
@@ -1361,6 +1363,19 @@ def extract_urls_from_category(
         result.exact_match_lineage_count = int(
             stats_dict.get("exact_match_lineage_count") or 0
         )
+
+        # If the page declared itself empty (e.g. "No products in this
+        # collection"), drop everything the classifier picked up — those
+        # URLs come from "Community Faves" / "You might also like" featured
+        # sections that are NOT part of this category's catalog.
+        if result.expected_count == 0:
+            _log(
+                f"   🛑 Page is empty (expected_count=0 from "
+                f"{result.expected_count_source}); discarding "
+                f"{len(result.product_urls)} candidates from featured/related "
+                f"sections."
+            )
+            result.product_urls = []
 
         if page1_result.get("error"):
             result.errors.append(f"Page 1: {page1_result['error']}")
