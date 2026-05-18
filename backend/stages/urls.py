@@ -142,6 +142,13 @@ def extract_urls_from_category(category_url: str, category_name: str, brand_inst
         log_lines.append(f"Products found: {len(urls)}")
         log_lines.append(f"Extraction time: {result.extraction_time:.2f}s")
 
+        # Collection count detection
+        if result.expected_count is not None:
+            log_lines.append(f"Page count detection: {result.expected_count} (source: {result.expected_count_source})")
+        else:
+            log_lines.append("Page count detection: null (no count displayed)")
+        log_lines.append("")
+
         # Scroll/extraction stats
         discovery = getattr(result, 'discovery_info', {})
         if discovery:
@@ -198,6 +205,20 @@ def extract_urls_from_category(category_url: str, category_name: str, brand_inst
 
         log_lines.append("")
         log_lines.append("=" * 40)
+        log_lines.append("COVERAGE")
+        log_lines.append("=" * 40)
+        if result.expected_count is not None:
+            status_icon = {"ok": "✓", "low": "⚠ low", "high": "⚠ high"}.get(result.coverage_status, "?")
+            log_lines.append(f"Expected: {result.expected_count}")
+            log_lines.append(f"Extracted: {len(urls)}")
+            log_lines.append(f"Status: {status_icon}")
+            if result.coverage_retries > 0:
+                log_lines.append(f"Retries: {result.coverage_retries}")
+        else:
+            log_lines.append("Status: n/a (page count unknown)")
+
+        log_lines.append("")
+        log_lines.append("=" * 40)
         log_lines.append("PRODUCT URLs")
         log_lines.append("=" * 40)
         for url in urls:
@@ -207,7 +228,11 @@ def extract_urls_from_category(category_url: str, category_name: str, brand_inst
             "urls": urls,
             "logs": "\n".join(log_lines),
             "extraction_time": extraction_time,
-            "llm_usage": llm_usage
+            "llm_usage": llm_usage,
+            "expected_count": result.expected_count,
+            "expected_count_source": result.expected_count_source,
+            "coverage_status": result.coverage_status,
+            "coverage_retries": result.coverage_retries,
         }
     except Exception as e:
         import traceback
@@ -218,7 +243,11 @@ def extract_urls_from_category(category_url: str, category_name: str, brand_inst
             "logs": "\n".join(log_lines),
             "extraction_time": 0.0,
             "llm_usage": {"calls": 0, "input_tokens": 0, "output_tokens": 0},
-            "error": str(e)
+            "error": str(e),
+            "expected_count": None,
+            "expected_count_source": None,
+            "coverage_status": "unknown",
+            "coverage_retries": 0,
         }
 
 
