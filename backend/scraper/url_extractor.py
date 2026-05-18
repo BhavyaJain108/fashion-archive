@@ -576,34 +576,57 @@ def classify_product_links(
 
     # If there are unknown links, use LLM to classify
     if unknown_lineage_links:
-        # Limit to a reasonable sample for LLM (take representative links)
-        sample_size = min(50, len(unknown_lineage_links))
+        # Sampling strategy: show the LLM up to 3 examples per lineage so a
+        # single ambiguous sample can't kill a 60-link lineage. Cap total at 50
+        # to stay within prompt budget. With 27 lineages * 3 = 81 > 50, larger
+        # lineages get more samples (round-robin until budget is hit).
+        MAX_SAMPLES = 50
+        MAX_PER_LINEAGE = 3
 
-        # Sample links ensuring each lineage is represented
-        sampled_links = []
-        lineages_sampled = set()
-
+        # Group unknowns by lineage (preserving page-order within each group)
+        unknowns_by_lineage: Dict[str, List[Dict]] = {}
         for link in unknown_lineage_links:
-            lineage = link.get("lineage", "unknown")
-            if lineage not in lineages_sampled:
-                sampled_links.append(link)
-                lineages_sampled.add(lineage)
-                if len(sampled_links) >= sample_size:
-                    break
+            unknowns_by_lineage.setdefault(link.get("lineage", "unknown"), []).append(link)
 
-        # Add more links if we have room
-        if len(sampled_links) < sample_size:
-            for link in unknown_lineage_links:
-                if link not in sampled_links:
-                    sampled_links.append(link)
-                    if len(sampled_links) >= sample_size:
+        # Per-lineage link counts on the full page — passed to the prompt so
+        # the LLM can do coverage math (lineage X has 60 links, etc.).
+        lineage_counts: Dict[str, int] = {
+            lin: len(group) for lin, group in unknowns_by_lineage.items()
+        }
+        # Also include known-approved and known-rejected lineages in the
+        # breakdown so the LLM can see the FULL page picture when reasoning.
+        for lin in approved_lineages:
+            if lin in lineage_groups:
+                lineage_counts.setdefault(lin, len(lineage_groups[lin]))
+        for lin in rejected_lineages:
+            if lin in lineage_groups:
+                lineage_counts.setdefault(lin, len(lineage_groups[lin]))
+
+        # Round-robin sampling: first pass takes index 0 of every lineage,
+        # second pass takes index 1, etc., up to MAX_PER_LINEAGE per lineage
+        # or MAX_SAMPLES total — whichever hits first.
+        sampled_links: List[Dict] = []
+        for pass_n in range(MAX_PER_LINEAGE):
+            if len(sampled_links) >= MAX_SAMPLES:
+                break
+            for lin, group in unknowns_by_lineage.items():
+                if pass_n < len(group):
+                    sampled_links.append(group[pass_n])
+                    if len(sampled_links) >= MAX_SAMPLES:
                         break
 
-        _log(f"   🧠 Sending {len(sampled_links)} sample links to LLM for classification...")
+        total_page_links = len(known_approved_links) + len(known_rejected_links) + len(unknown_lineage_links)
+
+        _log(f"   🧠 Sending {len(sampled_links)} samples ({len(unknowns_by_lineage)} lineages × up to {MAX_PER_LINEAGE}) to LLM for classification...")
 
         # Call LLM
         llm_handler = LLMHandler()
-        prompt = url_classification.get_prompt(page_url, category_name, sampled_links, expected_count=expected_count)
+        prompt = url_classification.get_prompt(
+            page_url, category_name, sampled_links,
+            expected_count=expected_count,
+            total_page_links=total_page_links,
+            lineage_counts=lineage_counts,
+        )
         response = llm_handler.call(
             prompt,
             expected_format="json",

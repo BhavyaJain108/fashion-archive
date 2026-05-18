@@ -17,14 +17,27 @@ class URLClassification(BaseModel):
     confidence: str = Field(description="High/Medium/Low confidence in this classification")
 
 
-def get_prompt(page_url: str, category_name: str, links: List[Dict], expected_count: Optional[int] = None) -> str:
+def get_prompt(page_url: str, category_name: str, links: List[Dict],
+               expected_count: Optional[int] = None,
+               total_page_links: Optional[int] = None,
+               lineage_counts: Optional[Dict[str, int]] = None) -> str:
     """
     Generate URL classification prompt.
 
     Args:
         page_url: The category page URL
         category_name: Human-readable category name
-        links: List of link dicts with {url, lineage, link_text, position_index, in_carousel}
+        links: SAMPLE list of link dicts shown to the LLM. Each dict has
+            {url, lineage, link_text, position_index, in_carousel}.
+        expected_count: If known, the displayed product count on the page —
+            used as a quantitative anchor for lineage coverage.
+        total_page_links: Total number of links found across the WHOLE page
+            (before sampling). Critical context: without this, the LLM thinks
+            the sample size is the entire page and reasons incorrectly about
+            missing products / lazy loading.
+        lineage_counts: {lineage_string: count_on_page}. Lets the LLM see
+            "approving lineage X means approving 60 links" so it can target
+            ~expected_count coverage via lineage selection, not link selection.
 
     Returns:
         Formatted prompt string
@@ -39,41 +52,75 @@ def get_prompt(page_url: str, category_name: str, links: List[Dict], expected_co
         carousel_flag = " [CAROUSEL]" if link.get('in_carousel') else ""
         links_list += f"{i}. URL: {url}{carousel_flag}\n   Lineage: {lineage}\n   Text: \"{text}\"\n\n"
 
+    # Sampling context — this is the critical framing that prevents the LLM
+    # from reasoning "I only see 50 links so the page must be lazy-loaded".
+    sample_context = ""
+    if total_page_links is not None and total_page_links > len(links):
+        sample_context = (
+            f"- Samples shown below: {len(links)} (a representative subset; one "
+            f"or more per lineage)\n"
+            f"- Total links on the full page: {total_page_links}\n"
+            f"- **Your classification of each sample propagates to EVERY link "
+            f"with the same lineage on the full page.** Approving one link with "
+            f"lineage X approves all links with lineage X (potentially dozens).\n"
+        )
+    else:
+        sample_context = f"- Total links to analyze: {len(links)}\n"
+
+    # Per-lineage breakdown — gives the LLM the numbers it needs to do
+    # coverage math against expected_count.
+    lineage_breakdown = ""
+    if lineage_counts:
+        # Sort by count descending so the biggest patterns are visible first
+        sorted_lineages = sorted(lineage_counts.items(), key=lambda kv: -kv[1])
+        lines = ["**Lineage breakdown** (DOM lineage → number of links on full page):"]
+        for lin, n in sorted_lineages:
+            # Truncate lineage strings to keep the prompt readable
+            display_lin = lin if len(lin) <= 120 else lin[:117] + "..."
+            lines.append(f"  - [{n:>3} links] {display_lin}")
+        lineage_breakdown = "\n".join(lines) + "\n"
+
     count_hint = ""
     if expected_count is not None:
         count_hint = f"""
 **Expected collection count: {expected_count} products** (detected from page display)
 
-Use this as a quantitative anchor for your classification:
-- The main product grid's lineage should contain approximately {expected_count} links (within ±20%).
-- A lineage with substantially fewer links is most likely a side section (hero, featured, recommendations).
-- A lineage with substantially more links is most likely a navigation pattern.
-- Approve lineages that together sum to roughly {expected_count}, not more.
+Use this as a quantitative anchor — **think in lineages, not individual links**:
+- The main product grid is whichever lineage(s) collectively contain ~{expected_count} links.
+- Approve lineages so their total link count ≈ {expected_count} (within ±20%).
+- A lineage with substantially fewer links than {expected_count} is likely a side section (hero, featured, recommendations) — exclude unless it's clearly part of the main grid.
+- A lineage with substantially more links than {expected_count} is likely a navigation/utility pattern — exclude.
+- DO NOT reject a lineage just because the single sample looks ambiguous: check its link count against {expected_count} first.
 """
 
     return f"""
-You are analyzing links extracted from an e-commerce category page to identify which links lead to actual product pages.
+You are analyzing links extracted from an e-commerce category page to identify which **lineage patterns** correspond to product detail pages.
 
 **Context:**
 - Page URL: {page_url}
 - Category: {category_name}
-- Total links to analyze: {len(links)}
-- Links marked [CAROUSEL]: {carousel_count} (these are inside slider/carousel containers)
+{sample_context}- Links marked [CAROUSEL]: {carousel_count} (inside slider/carousel containers)
 {count_hint}
-**Goal:** Identify which links are genuine product detail pages for "{category_name}" products.
+{lineage_breakdown}
+**Goal:** Identify which links are genuine product detail pages for "{category_name}". Because each lineage will be applied to all links sharing it, your effective decision is per-lineage, not per-link.
 
-**Links to Classify (index, URL, DOM lineage, link text):**
+**Sample Links (index, URL, DOM lineage, link text):**
 {links_list.strip()}
 
 **Classification Instructions:**
-1. Identify links that lead to PRODUCT DETAIL PAGES - individual product pages where you can view/buy a specific product.
+1. Identify links that lead to PRODUCT DETAIL PAGES — individual product pages where you can view/buy a specific product.
 
-2. INCLUDE as product links:
+2. **Think in lineages first.** For each lineage in the breakdown:
+   - Look at its link count vs the expected collection count.
+   - Look at one or two representative samples from that lineage.
+   - Decide: is this the main product grid, a side section, or navigation?
+
+3. INCLUDE as product links:
    - Links with URL patterns like /products/, /p/, /item/, /shop/, /product-detail/
    - Links in product grid/listing containers (look for "product", "item", "card" in lineage)
    - Links where text looks like a product name
 
-3. EXCLUDE (not product links):
+4. EXCLUDE (not product links):
    - Category/collection navigation links (e.g., /collections/, /category/, /c/)
    - Utility links (cart, wishlist, login, account, search)
    - Footer/header navigation links
@@ -81,25 +128,19 @@ You are analyzing links extracted from an e-commerce category page to identify w
    - Recommendation section links if clearly separated from main grid
    - Social media, policy pages, contact links
    - Pagination links (page numbers, next/prev)
-   - **Small carousel/featured sections**: If only a few [CAROUSEL] links exist among many non-carousel products, exclude them (they're likely global featured products appearing on every page)
+   - **Small carousel/featured sections**: a lineage with only a few links among many non-carousel product links is likely a featured section, not the main grid.
 
-4. Use lineage patterns to identify:
-   - Main product grid: usually consistent lineage with "grid", "product", "item", "catalog", "collection"
-   - Recommendations: often in separate containers like "recommend", "also-like", "related"
-   - Navigation: typically in "nav", "header", "footer", "menu" containers
+5. **[CAROUSEL] flag interpretation**:
+   - If MOST links are [CAROUSEL]: the carousel IS the main product display — INCLUDE.
+   - If only a FEW links are [CAROUSEL] (small lineage, e.g. 5-10 links): these are usually featured/hero products on every page — EXCLUDE.
 
-5. **[CAROUSEL] flag interpretation** (IMPORTANT):
-   - Links marked [CAROUSEL] are inside slider/carousel/swiper containers
-   - If MOST links are [CAROUSEL]: the carousel IS the main product display - INCLUDE them
-   - If only a FEW links are [CAROUSEL] (minority): these are likely featured/hero products that appear on every page - EXCLUDE them
-   - Use the ratio: if >50% of product-like links are [CAROUSEL], it's the main grid; if <20%, it's a featured section
+6. **Coverage check** (do this before returning):
+   - Sum the link counts of the lineages you're approving.
+   - The sum should be close to {{expected_count or "the expected product count"}}.
+   - If your sum is much lower, you're missing a product lineage — reconsider rejected lineages whose link count is in the right ballpark.
+   - If your sum is much higher, you're including a navigation/utility lineage — reconsider.
 
-6. Position-based hints:
-   - If only a small number of [CAROUSEL] links appear at the start (low position indices), they're likely global featured products
-   - The main category products typically share a consistent lineage pattern
-   - Non-carousel links in product grids are usually the primary category products
-
-**Return:** The indices (0, 1, 2, etc.) of links that are genuine product pages. If links #0, #3, and #5 are products, return [0, 3, 5].
+**Return:** The indices (0, 1, 2, ...) from the SAMPLE list of links you classify as products. Your decision on each sample will be applied to all other links sharing its lineage.
 """.strip()
 
 
