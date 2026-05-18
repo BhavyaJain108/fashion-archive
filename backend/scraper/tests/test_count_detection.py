@@ -69,6 +69,42 @@ def test_jsonld_walker_handles_empty_list():
     assert _extract_count_from_jsonld_objects([]) is None
 
 
+class _FakePage:
+    """A minimal page stand-in for testing the JSON-LD stage."""
+    def __init__(self, jsonld_strings):
+        self._jsonld_strings = jsonld_strings
+
+    def evaluate(self, _js):
+        return self._jsonld_strings
+
+
+def test_jsonld_stage_returns_count_for_well_formed():
+    from count_detection import _detect_count_from_jsonld
+    page = _FakePage(['{"@type":"ItemList","numberOfItems":47}'])
+    assert _detect_count_from_jsonld(page) == 47
+
+
+def test_jsonld_stage_returns_none_when_no_scripts():
+    from count_detection import _detect_count_from_jsonld
+    page = _FakePage([])
+    assert _detect_count_from_jsonld(page) is None
+
+
+def test_jsonld_stage_skips_malformed_json():
+    from count_detection import _detect_count_from_jsonld
+    page = _FakePage([
+        'not valid json {',
+        '{"@type":"ItemList","numberOfItems":24}',
+    ])
+    assert _detect_count_from_jsonld(page) == 24
+
+
+def test_jsonld_stage_returns_none_when_only_malformed():
+    from count_detection import _detect_count_from_jsonld
+    page = _FakePage(['not valid', '{also not valid'])
+    assert _detect_count_from_jsonld(page) is None
+
+
 if __name__ == "__main__":
     test_brand_has_collection_count_selector_attribute()
     test_count_result_dataclass()
@@ -80,4 +116,8 @@ if __name__ == "__main__":
     test_jsonld_walker_implausible_count_returns_none()
     test_jsonld_walker_unrelated_schema_returns_none()
     test_jsonld_walker_handles_empty_list()
+    test_jsonld_stage_returns_count_for_well_formed()
+    test_jsonld_stage_returns_none_when_no_scripts()
+    test_jsonld_stage_skips_malformed_json()
+    test_jsonld_stage_returns_none_when_only_malformed()
     print("✅ all passed")

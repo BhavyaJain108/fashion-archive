@@ -9,6 +9,7 @@ vision LLM call. Returns None when the count cannot be determined.
 See docs/superpowers/specs/2026-05-14-collection-count-coverage-design.md
 """
 
+import json
 from dataclasses import dataclass
 from typing import Any, List, Literal, Optional
 
@@ -59,3 +60,33 @@ def _extract_count_from_jsonld_objects(objects: List[Any]) -> Optional[int]:
     if not candidates:
         return None
     return max(candidates)
+
+
+_JSONLD_QUERY_JS = """
+    Array.from(document.querySelectorAll('script[type="application/ld+json"]'))
+        .map(s => s.textContent)
+        .filter(t => t && t.trim().length > 0)
+"""
+
+
+def _detect_count_from_jsonld(page) -> Optional[int]:
+    """
+    Stage 1: parse all <script type="application/ld+json"> blocks on the page
+    and look for a plausible product count.
+
+    Robust to malformed JSON: silently skips bad blocks rather than raising.
+    """
+    try:
+        script_texts = page.evaluate(_JSONLD_QUERY_JS)
+    except Exception:
+        return None
+
+    objects: List[Any] = []
+    for text in script_texts or []:
+        try:
+            obj = json.loads(text)
+            objects.append(obj)
+        except (json.JSONDecodeError, TypeError):
+            continue
+
+    return _extract_count_from_jsonld_objects(objects)
