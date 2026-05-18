@@ -13,6 +13,15 @@ def test_brand_has_collection_count_selector_attribute():
     assert b._count_selector_miss_count == 0
 
 
+def test_count_result_dataclass():
+    """CountResult should be a dataclass with count and source."""
+    from count_detection import CountResult
+    r = CountResult(count=47, source="jsonld")
+    assert r.count == 47
+    assert r.source == "jsonld"
+
+
 if __name__ == "__main__":
     test_brand_has_collection_count_selector_attribute()
+    test_count_result_dataclass()
     print("✅ all passed")
