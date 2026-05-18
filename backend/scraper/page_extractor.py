@@ -1963,39 +1963,201 @@ def _click_load_more_button(page, selector: str) -> bool:
 
 def _detect_pagination_element(page):
     """
-    Detect if pagination elements exist on the page (one-time detection).
-    
+    Detect the load-more / infinite-scroll trigger element on the page.
+
+    Hunts by FUNCTIONAL SIGNALS, not hardcoded class names. The element that
+    triggers more product loading on scroll typically advertises itself with
+    several independent signals — custom tag name, semantic data attributes,
+    non-standard HTML attributes that reference the products container,
+    visible "Loading more..." text, etc.
+
+    Each candidate element is scored on which signals it exhibits; the
+    highest-scoring element above a confidence threshold is returned as a
+    CSS selector. This is robust to a dev renaming any single class or
+    attribute — the element would still light up on the other signals.
+
     Returns:
-        str or None: The selector of the first pagination element found, or None
+        str or None: A CSS selector targeting the detected trigger element,
+        or None if no element scored above the confidence threshold.
     """
     try:
-        pagination_trigger_selectors = [
-            '.pagination',
-            '.pager', 
-            '.page-navigation',
-            '[class*="pagination"]',
-            '[class*="pager"]',
-            '.infinite-scroll',
-            '.scroll-trigger', 
-            '[class*="infinite"]',
-            '[class*="scroll-trigger"]',
-            '[data-infinite]',
-            'nav[role="navigation"]',
-            '[role="navigation"]',
-            '.nav-pagination',
-            '.pagination-wrapper'
-        ]
-        
-        # Find the FIRST pagination element
-        for selector in pagination_trigger_selectors:
-            try:
-                elements = page.locator(selector)
-                if elements.count() > 0 and elements.last.is_visible():
-                    return selector  # Return the first found selector
-            except:
-                continue
-        
-        return None
+        # The scoring runs entirely in the browser for speed. We walk every
+        # element, score it on independent signals, return the top one above
+        # threshold along with a stable CSS selector for it.
+        result = page.evaluate(r"""
+        () => {
+            // Patterns that announce "I am the lazy-load / pagination trigger".
+            // These are functional words — sites use them in tag names, class
+            // names, data attribute names and values, etc.
+            const TRIGGER_RE = /infinite[-_]?scroll|scroll[-_]?trigger|load[-_]?more|lazy[-_]?load|next[-_]?page|pagination[-_]?trigger|load[-_]?next|paginate[-_]?trigger|loadmoretrigger|infinitescrolltrigger/i;
+
+            // Attribute NAMES that strongly suggest pagination state-keeping.
+            // Used as custom attributes by infinite-scroll components (e.g.
+            // <infinite-scroll-trigger current-page="1" item-selector="...">).
+            const SEMANTIC_ATTR_NAMES = [
+                'current-page', 'total-pages', 'next-page', 'next-url',
+                'next-page-url', 'item-selector', 'item-container-selector',
+                'has-next-page', 'has-more', 'is-loading',
+                'data-has-loading-listener', 'data-infinite-scroll',
+                'data-load-more', 'data-load-trigger', 'data-paginate',
+                'data-pagination', 'data-pagination-trigger',
+                'data-next-page', 'data-next-url'
+            ];
+
+            // Visible-text patterns that betray a load trigger UI.
+            const TEXT_RE = /loading\s*(more|next)?|load\s+more|show\s+more|view\s+more|see\s+more|load\s+next|next\s+page|loading\.\.\./i;
+
+            // Standard HTML tag names — anything else is a custom element.
+            const STANDARD_TAGS = new Set([
+                'a','abbr','address','area','article','aside','audio','b','base','bdi','bdo','blockquote',
+                'body','br','button','canvas','caption','cite','code','col','colgroup','data','datalist',
+                'dd','del','details','dfn','dialog','div','dl','dt','em','embed','fieldset','figcaption',
+                'figure','footer','form','h1','h2','h3','h4','h5','h6','head','header','hgroup','hr','html',
+                'i','iframe','img','input','ins','kbd','label','legend','li','link','main','map','mark',
+                'menu','meta','meter','nav','noscript','object','ol','optgroup','option','output','p',
+                'picture','pre','progress','q','rp','rt','ruby','s','samp','script','section','select',
+                'slot','small','source','span','strong','style','sub','summary','sup','table','tbody',
+                'td','template','textarea','tfoot','th','thead','time','title','tr','track','u','ul',
+                'var','video','wbr','svg','path','g','rect','circle','line','polyline','polygon','text'
+            ]);
+
+            // Build a stable CSS selector for an element, preferring stable
+            // identifiers and falling back to tag + nth-of-type.
+            function selectorFor(el) {
+                if (el.id) return `#${CSS.escape(el.id)}`;
+                const tag = el.tagName.toLowerCase();
+                // Prefer a unique data-ref or unique class
+                if (el.getAttribute('data-ref')) {
+                    const dr = el.getAttribute('data-ref');
+                    const sel = `${tag}[data-ref="${CSS.escape(dr)}"]`;
+                    if (document.querySelectorAll(sel).length === 1) return sel;
+                }
+                if (el.className && typeof el.className === 'string') {
+                    // First single class that's unique
+                    for (const c of el.className.split(/\s+/).filter(Boolean)) {
+                        const sel = `${tag}.${CSS.escape(c)}`;
+                        try {
+                            if (document.querySelectorAll(sel).length === 1) return sel;
+                        } catch (e) {}
+                    }
+                }
+                // Fallback: a custom tag is itself often unique enough
+                if (!STANDARD_TAGS.has(tag) && document.querySelectorAll(tag).length === 1) {
+                    return tag;
+                }
+                // Last resort: structural selector
+                let path = tag;
+                let parent = el.parentElement;
+                let depth = 0;
+                while (parent && depth < 4 && parent.tagName.toLowerCase() !== 'body') {
+                    const idx = Array.from(parent.children)
+                        .filter(c => c.tagName === el.tagName).indexOf(el) + 1;
+                    path = `${parent.tagName.toLowerCase()} > ${path}:nth-of-type(${idx})`;
+                    el = parent;
+                    parent = parent.parentElement;
+                    depth++;
+                }
+                return path;
+            }
+
+            const candidates = [];
+            for (const el of document.querySelectorAll('*')) {
+                // Skip enormous containers — triggers are leaf-ish elements.
+                if (el.children.length > 30) continue;
+
+                const tag = el.tagName.toLowerCase();
+                const cls = (el.className && typeof el.className === 'string') ? el.className : '';
+                const text = (el.innerText || '').trim();
+
+                let score = 0;
+                const reasons = [];
+
+                // 1. Custom tag name with trigger pattern (+5)
+                if (!STANDARD_TAGS.has(tag) && TRIGGER_RE.test(tag)) {
+                    score += 5;
+                    reasons.push(`custom-tag:${tag}`);
+                }
+
+                // 2. Class name with trigger pattern (+3)
+                if (TRIGGER_RE.test(cls)) {
+                    score += 3;
+                    reasons.push('class-match');
+                }
+
+                // 3. Semantic attribute names (+3 each, capped at +9 to avoid
+                //    runaway scores on heavily-attributed elements)
+                let semanticHits = 0;
+                for (const attr of el.attributes) {
+                    const name = attr.name.toLowerCase();
+                    if (SEMANTIC_ATTR_NAMES.includes(name)) {
+                        semanticHits++;
+                        reasons.push(`attr:${name}`);
+                    }
+                    // data-ref values that mention triggers
+                    if (name === 'data-ref' && TRIGGER_RE.test(attr.value)) {
+                        score += 3;
+                        reasons.push(`data-ref:${attr.value}`);
+                    }
+                }
+                score += Math.min(semanticHits * 3, 9);
+
+                // 4. Visible text content match (+2)
+                if (text && text.length < 80 && TEXT_RE.test(text)) {
+                    score += 2;
+                    reasons.push(`text:"${text.slice(0, 40)}"`);
+                }
+
+                // 5. Position sanity: must be below page top (not in header)
+                //    and have a reasonable bounding box.
+                const rect = el.getBoundingClientRect();
+                const absTop = rect.top + window.scrollY;
+                if (absTop < 200) {
+                    // In header area; nav-pagination unlikely to be a trigger
+                    continue;
+                }
+
+                if (score > 0) {
+                    candidates.push({
+                        tag,
+                        score,
+                        reasons,
+                        absTop,
+                        selector: selectorFor(el),
+                        cls: cls.slice(0, 120),
+                        text: text.slice(0, 60),
+                    });
+                }
+            }
+
+            // Sort by score descending, then by document position (earlier wins ties)
+            candidates.sort((a, b) => (b.score - a.score) || (a.absTop - b.absTop));
+
+            return {
+                top: candidates.slice(0, 5),  // for debug logs
+                best: candidates[0] || null,
+            };
+        }
+        """)
+
+        if not result or not result.get("best"):
+            return None
+
+        best = result["best"]
+        # Confidence threshold: a real trigger usually exhibits multiple
+        # signals. Random elements score 0-3. Anything 5+ is confident.
+        CONFIDENCE_THRESHOLD = 5
+        if best["score"] < CONFIDENCE_THRESHOLD:
+            return None
+
+        # Verify the selector is actually reachable and visible
+        try:
+            loc = page.locator(best["selector"])
+            if loc.count() == 0:
+                return None
+        except Exception:
+            return None
+
+        return best["selector"]
     except Exception:
         return None
 
@@ -2328,63 +2490,96 @@ def _find_next_page_url_from_current(bottom_links: List[str], current_url: str, 
 
 def _scroll_using_pagination_element(page, pagination_selector, _pagination_triggers_found):
     """
-    Pagination-based scrolling: Keep scrolling to pagination element until it stops moving.
+    Scroll the load-more trigger into view, repeatedly, until no further loading
+    is happening.
+
+    Each iteration:
+      1. Re-detect the current trigger element from scratch (using the functional
+         scoring from _detect_pagination_element). This is essential because
+         many infinite-scroll implementations destroy the old trigger after it
+         fires and insert a fresh one for the next page — the locator passed
+         in as `pagination_selector` becomes stale after one firing.
+      2. Scroll that trigger into view via Playwright's scroll_into_view_if_needed.
+      3. Wait for the lazy-load network round-trip + render.
+      4. Compare document.body.scrollHeight to the previous iteration. If the
+         page hasn't grown after two consecutive scrolls, we're done.
+
+    Why this differs from the previous implementation:
+      - Old version: cached one locator + checked is_visible(). When the
+        trigger was replaced post-firing, is_visible() flipped to False
+        because the original element was detached from the DOM. The loop
+        exited after 1 scroll even though more pages were available.
+      - New version: re-finds the current trigger each iteration. If a new
+        trigger now exists (next page available), we keep going. If the
+        functional detector returns None, the site has run out of pages.
     """
     try:
+        # First iteration uses the selector we were called with; subsequent
+        # iterations re-detect to handle trigger replacement.
+        current_selector = pagination_selector
+        _log(f"   🎯 Using pagination element as scroll target: {current_selector}")
+
+        last_height = page.evaluate("document.body.scrollHeight")
+        no_growth_count = 0
+        max_no_growth = 2
         scroll_count = 0
-        last_pagination_position = None
-        stable_count = 0
-        max_stable_attempts = 2  # Need 2 consecutive stable checks to confirm loading complete
-        
-        _log(f"   🎯 Using pagination element as scroll target: {pagination_selector}")
-        
-        while True:
+        max_scrolls = 50  # safety
+
+        while scroll_count < max_scrolls:
             scroll_count += 1
-            
-            # Get pagination element position before scrolling
-            pagination_element = page.locator(pagination_selector).last
-            if not pagination_element.is_visible():
-                _log(f"   ❌ Pagination element no longer visible after {scroll_count} scrolls")
-                break
-                
-            pagination_position = pagination_element.bounding_box()
-            if not pagination_position:
-                _log(f"   ❌ Cannot get pagination element position after {scroll_count} scrolls")
-                break
-                
-            current_pagination_y = pagination_position['y'] + pagination_position['height']
-            page_bottom = page.evaluate("document.body.scrollHeight")
-            
-            _log(f"   📏 Scroll #{scroll_count}: Pagination at {current_pagination_y:.0f}px, page bottom {page_bottom}px")
-            
-            # Check if pagination element has stopped moving
-            if last_pagination_position is not None:
-                position_diff = abs(current_pagination_y - last_pagination_position)
-                if position_diff < 10:  # Element hasn't moved significantly
-                    stable_count += 1
-                    _log(f"   ⏸️  Pagination element stable (attempt {stable_count}/{max_stable_attempts})")
-                    if stable_count >= max_stable_attempts:
-                        _log(f"   ✅ Pagination element stopped moving after {scroll_count} scrolls")
-                        break
 
-                    # Scroll up to re-trigger lazy loading instead of just waiting
-                    _log(f"   🔄 Scrolling up to re-trigger lazy load...")
-                    page.evaluate("window.scrollBy(0, -500)")
-                    page.wait_for_timeout(500)
-                else:
-                    stable_count = 0  # Reset if element moved
+            # Confirm the current selector still matches SOMETHING. If not,
+            # re-run the functional detector to find the next-page trigger
+            # (which may be a freshly-inserted element).
+            try:
+                count = page.locator(current_selector).count()
+            except Exception:
+                count = 0
 
-            # Scroll to pagination element
-            pagination_element.scroll_into_view_if_needed()
-            page.wait_for_timeout(2000)  # Wait for content to load and render
-            
-            last_pagination_position = current_pagination_y
-            
-            # Safety check to prevent infinite loops
-            if scroll_count > 50:
-                _log(f"   ⚠️  Reached maximum scroll attempts ({scroll_count})")
-                break
-                
+            if count == 0:
+                fresh = _detect_pagination_element(page)
+                if not fresh:
+                    _log(f"   ✅ No trigger element found after {scroll_count - 1} scrolls — collection fully loaded")
+                    break
+                current_selector = fresh
+                _log(f"   🔁 Re-detected trigger: {current_selector}")
+
+            try:
+                el = page.locator(current_selector).last
+                el.scroll_into_view_if_needed(timeout=5000)
+            except Exception as e:
+                # Element vanished mid-scroll. Try one re-detect; if that also
+                # fails, we're done.
+                fresh = _detect_pagination_element(page)
+                if not fresh or fresh == current_selector:
+                    _log(f"   ✅ Trigger no longer reachable ({e.__class__.__name__}) — assuming fully loaded")
+                    break
+                current_selector = fresh
+                _log(f"   🔁 Re-detected trigger after error: {current_selector}")
+                continue
+
+            page.wait_for_timeout(2000)  # let the AJAX + render complete
+
+            new_height = page.evaluate("document.body.scrollHeight")
+            _log(f"   📏 Scroll #{scroll_count}: scrollHeight {last_height} → {new_height}")
+
+            if new_height <= last_height + 50:  # tolerance for layout shifts
+                no_growth_count += 1
+                if no_growth_count >= max_no_growth:
+                    _log(f"   ✅ Page height stable for {max_no_growth} scrolls — fully loaded")
+                    break
+                # Nudge up then down to re-engage any IntersectionObserver
+                # that didn't fire on the last scroll-into-view.
+                page.evaluate("window.scrollBy(0, -300)")
+                page.wait_for_timeout(400)
+            else:
+                no_growth_count = 0
+
+            last_height = new_height
+
+        if scroll_count >= max_scrolls:
+            _log(f"   ⚠️  Reached max scroll attempts ({max_scrolls}) — stopping")
+
     except Exception as e:
         _log(f"   ❌ Error in pagination scrolling: {e}")
 

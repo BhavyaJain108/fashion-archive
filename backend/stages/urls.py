@@ -34,6 +34,34 @@ def _is_all_category(name: str) -> bool:
     return bool(re.search(r'\ball\b', name, re.IGNORECASE))
 
 
+# Path substrings that identify non-product utility pages — never contain a product catalog
+_NON_PRODUCT_PATH_FRAGMENTS = [
+    '/account',
+    'swym',       # wishlist service (e.g. /pages/swym-wishlist)
+    '/wishlist',
+    '/cart',
+    '/login',
+    '/register',
+    '/blogs/',
+    '/pages/named-community',
+    '/pages/about',
+    '/pages/contact',
+    '/pages/faq',
+    '/pages/privacy',
+    '/pages/terms',
+    '/pages/shipping',
+    '/pages/returns',
+]
+
+
+def _is_product_category_url(url: str) -> bool:
+    """Return False for URLs that clearly don't host a product catalog."""
+    if not url:
+        return False
+    path = urlparse(url).path.lower()
+    return not any(fragment in path for fragment in _NON_PRODUCT_PATH_FRAGMENTS)
+
+
 def get_leaf_categories(tree: list, parent_path: str = "", _skipped: list = None) -> List[Dict]:
     """Extract all leaf categories (no children) from tree.
 
@@ -64,6 +92,10 @@ def get_leaf_categories(tree: list, parent_path: str = "", _skipped: list = None
         else:
             # This is a leaf
             if url:
+                # Skip utility/account pages that never contain a product catalog
+                if not _is_product_category_url(url):
+                    _skipped.append({"name": name, "path": current_path})
+                    continue
                 # Skip "all" categories if they have 2+ siblings (3+ leaves at this level)
                 if _is_all_category(name) and len(leaves_at_level) >= 3:
                     _skipped.append({"name": name, "path": current_path})
@@ -87,8 +119,17 @@ def get_leaf_categories_with_stats(tree: list) -> tuple:
     return leaves, len(skipped), [s["name"] for s in skipped]
 
 
-def extract_urls_from_category(category_url: str, category_name: str, brand_instance=None) -> Dict:
+def extract_urls_from_category(category_url: str, category_name: str, brand_instance=None,
+                               nav_path: str = None) -> Dict:
     """Extract product URLs from a single category page.
+
+    Args:
+        category_url: The category page URL.
+        category_name: Leaf category name from the nav tree.
+        brand_instance: Brand state (caches, lineage memory).
+        nav_path: Full nav-tree path (e.g. "Women / Tops / Hoodies") to pass
+            through to the LLM classifier and pruner — gives the model
+            category context beyond the URL slug.
 
     Returns dict with: urls, logs, extraction_time, llm_usage.
     """
@@ -98,17 +139,27 @@ def extract_urls_from_category(category_url: str, category_name: str, brand_inst
     # Generate a simple log entry instead
     log_lines = []
     log_lines.append(f"Category: {category_name}")
+    if nav_path:
+        log_lines.append(f"Nav path: {nav_path}")
     log_lines.append(f"URL: {category_url}")
     log_lines.append("=" * 60)
 
     try:
-        result = extract_category(category_url, brand_instance=brand_instance, quiet=True)
+        result = extract_category(category_url, brand_instance=brand_instance,
+                                  quiet=True, nav_path=nav_path)
         urls = [p.url for p in result.product_urls]
         extraction_time = result.extraction_time
         llm_usage = getattr(result, 'llm_usage', {"calls": 0, "input_tokens": 0, "output_tokens": 0})
 
         log_lines.append(f"Products found: {len(urls)}")
         log_lines.append(f"Extraction time: {result.extraction_time:.2f}s")
+
+        # Collection count detection
+        if result.expected_count is not None:
+            log_lines.append(f"Page count detection: {result.expected_count} (source: {result.expected_count_source})")
+        else:
+            log_lines.append("Page count detection: null (no count displayed)")
+        log_lines.append("")
 
         # Scroll/extraction stats
         discovery = getattr(result, 'discovery_info', {})
@@ -138,31 +189,96 @@ def extract_urls_from_category(category_url: str, category_name: str, brand_inst
             log_lines.append(f"Pre-approved (from memory): {stats.get('pre_approved_count', 0)}")
             log_lines.append(f"Newly classified by LLM: {stats.get('newly_classified_count', 0)}")
 
-            # Show approved lineages (DOM patterns that are products)
-            approved_lineages = stats.get('lineages_approved', [])
-            if approved_lineages:
+            # Per-lineage LLM decisions with reasoning (the new structured output)
+            lineage_decisions = stats.get('lineage_decisions', [])
+            if lineage_decisions:
+                # Sort by count descending so the biggest patterns appear first
+                sorted_decisions = sorted(
+                    lineage_decisions, key=lambda d: -d.get("count", 0)
+                )
+
+                # Group by classification for readability
+                from collections import OrderedDict
+                by_class: "OrderedDict[str, list]" = OrderedDict()
+                for cls in ["product", "navigation", "featured", "recommendation", "utility", "other"]:
+                    by_class[cls] = []
+                for d in sorted_decisions:
+                    by_class.setdefault(d.get("classification", "other"), []).append(d)
+
                 log_lines.append("")
-                log_lines.append(f"APPROVED LINEAGES ({len(approved_lineages)}):")
-                for lineage in approved_lineages:
+                log_lines.append("=" * 40)
+                log_lines.append(f"LINEAGE DECISIONS (LLM classified {len(lineage_decisions)} lineages)")
+                log_lines.append("=" * 40)
+                icons = {
+                    "product": "✓",
+                    "navigation": "→",
+                    "featured": "★",
+                    "recommendation": "↪",
+                    "utility": "⚙",
+                    "other": "•",
+                }
+                for cls, decisions_in_cls in by_class.items():
+                    if not decisions_in_cls:
+                        continue
+                    icon = icons.get(cls, "•")
+                    log_lines.append("")
+                    log_lines.append(f"{icon} {cls.upper()} ({len(decisions_in_cls)} lineages)")
+                    for d in decisions_in_cls:
+                        count = d.get("count", 0)
+                        lineage = d.get("lineage", "")
+                        lid = d.get("lineage_id", "")
+                        reasoning = d.get("reasoning", "")
+                        log_lines.append(f"  [{lid}] count={count}")
+                        log_lines.append(f"     lineage: {lineage}")
+                        if reasoning:
+                            log_lines.append(f"     reason:  {reasoning}")
+
+            # Memory-derived approvals/rejections (when LLM was skipped because
+            # all lineages came from prior categories) — show the lineage strings
+            # only, since we don't have per-lineage reasoning for them.
+            approved_from_memory = [
+                lin for lin in stats.get('lineages_approved', [])
+                if not any(d.get("lineage") == lin for d in lineage_decisions)
+            ]
+            if approved_from_memory:
+                log_lines.append("")
+                log_lines.append(f"APPROVED FROM MEMORY ({len(approved_from_memory)}):")
+                for lineage in approved_from_memory:
                     log_lines.append(f"  ✓ {lineage}")
 
-            # Show rejected lineages with their URLs
+            # Rejected URL listing (kept for forensics — actual URLs we filtered out)
             rejected_by_lineage = stats.get('rejected_by_lineage', {})
             if rejected_by_lineage:
                 log_lines.append("")
-                log_lines.append(f"REJECTED LINEAGES ({len(rejected_by_lineage)}):")
+                log_lines.append(f"REJECTED URL LISTING ({len(rejected_by_lineage)} lineages):")
                 for lineage, rejected_links in rejected_by_lineage.items():
                     log_lines.append(f"")
                     log_lines.append(f"  ✗ LINEAGE: {lineage}")
                     log_lines.append(f"    URLs ({len(rejected_links)}):")
-                    for link in rejected_links:
+                    for link in rejected_links[:10]:  # Cap at 10 per lineage; logs were huge
                         text = link.get('link_text', '')[:50]
                         text_display = f' "{text}"' if text else ''
                         log_lines.append(f"      - {link.get('url', '')}{text_display}")
+                    if len(rejected_links) > 10:
+                        log_lines.append(f"      ... and {len(rejected_links) - 10} more")
 
         if result.errors:
             log_lines.append("")
             log_lines.append(f"ERRORS: {result.errors}")
+
+        log_lines.append("")
+        log_lines.append("=" * 40)
+        log_lines.append("COVERAGE")
+        log_lines.append("=" * 40)
+        if result.expected_count is not None:
+            status_icon = {"ok": "✓", "low": "⚠ low", "high": "⚠ high"}.get(result.coverage_status, "?")
+            log_lines.append(f"Expected: {result.expected_count}")
+            log_lines.append(f"Extracted: {len(urls)}")
+            log_lines.append(f"Status: {status_icon}")
+            if result.coverage_retries > 0:
+                log_lines.append(f"Retries: {result.coverage_retries}")
+        else:
+            log_lines.append("Status: n/a (page count unknown)")
 
         log_lines.append("")
         log_lines.append("=" * 40)
@@ -175,7 +291,16 @@ def extract_urls_from_category(category_url: str, category_name: str, brand_inst
             "urls": urls,
             "logs": "\n".join(log_lines),
             "extraction_time": extraction_time,
-            "llm_usage": llm_usage
+            "llm_usage": llm_usage,
+            "expected_count": result.expected_count,
+            "expected_count_source": result.expected_count_source,
+            "coverage_status": result.coverage_status,
+            "coverage_retries": result.coverage_retries,
+            "exact_match_fired": getattr(result, "exact_match_fired", False),
+            "exact_match_lineage_count": getattr(result, "exact_match_lineage_count", 0),
+            "pruner_fired": getattr(result, "pruner_fired", False),
+            "pruner_kept": getattr(result, "pruner_kept", 0),
+            "pruner_removed": getattr(result, "pruner_removed", 0),
         }
     except Exception as e:
         import traceback
@@ -186,7 +311,11 @@ def extract_urls_from_category(category_url: str, category_name: str, brand_inst
             "logs": "\n".join(log_lines),
             "extraction_time": 0.0,
             "llm_usage": {"calls": 0, "input_tokens": 0, "output_tokens": 0},
-            "error": str(e)
+            "error": str(e),
+            "expected_count": None,
+            "expected_count_source": None,
+            "coverage_status": "unknown",
+            "coverage_retries": 0,
         }
 
 
@@ -373,6 +502,142 @@ def dedupe_urls_by_path(urls: List[str]) -> Tuple[List[str], int, int]:
     return deduped, original_count, removed_count
 
 
+def print_vision_verification(results: List[Dict]) -> str:
+    """
+    Print a verification-focused summary of vision/page count vs the count
+    we actually extracted, per category. This is the single most important
+    table for confirming the pipeline got the FULL set of products the page
+    claims to have — anything in the UNDER bucket is the failure case.
+
+    UNDER  : extracted < page count    → MISSING products. Must investigate.
+    MATCH  : extracted == page count   → got exactly what the page shows.
+    OVER   : extracted > page count    → safe; usually variant URLs not
+                                         deduped by the brand's own grid.
+    UNKNOWN: no page count detected    → can't verify. Inspect manually.
+    """
+    print()
+    print("=" * 78)
+    print("VISION → EXTRACTED VERIFICATION  (the count match is the truth check)")
+    print("=" * 78)
+    print(f"  {'Category':<32} {'Page':>6}  →  {'Got':<6} {'Δ':>5}  Verdict")
+    print(f"  {'-'*32} {'-'*6}     {'-'*6} {'-'*5}  -------")
+
+    under = []
+    match = []
+    over = []
+    unknown = []
+
+    for r in results:
+        name = (r.get("name") or "")[:32]
+        page = r.get("expected_count")
+        got = r.get("count", 0)
+
+        if page is None:
+            verdict = "UNKNOWN"
+            delta_str = "—"
+            unknown.append((name, got))
+            page_str = "n/a"
+        else:
+            page_str = str(page)
+            delta = got - page
+            if delta == 0:
+                verdict = "MATCH ✓"
+                delta_str = "+0"
+                match.append((name, page, got))
+            elif delta > 0:
+                verdict = f"OVER +{delta}"
+                delta_str = f"+{delta}"
+                over.append((name, page, got, delta))
+            else:
+                verdict = f"UNDER {delta}   ⚠⚠⚠"
+                delta_str = f"{delta}"
+                under.append((name, page, got, delta))
+
+        print(f"  {name:<32} {page_str:>6}     {got:<6} {delta_str:>5}  {verdict}")
+
+    total_page = sum(p for _, p, *_ in match) + sum(p for _, p, *_ in over) + sum(p for _, p, *_ in under)
+    total_got_with_known = (
+        sum(g for _, _, g in match)
+        + sum(g for _, _, g, _ in over)
+        + sum(g for _, _, g, _ in under)
+    )
+    total_got_all = total_got_with_known + sum(g for _, g in unknown)
+
+    print(f"  {'-'*32} {'-'*6}     {'-'*6} {'-'*5}  -------")
+    print(f"  TOTAL across categories with a detected page count:")
+    print(f"    Pages reported:    {total_page} products")
+    print(f"    We extracted:      {total_got_with_known} products  "
+          f"(Δ = {total_got_with_known - total_page:+d})")
+    if unknown:
+        print(f"    (+{sum(g for _, g in unknown)} more from {len(unknown)} categories with no page count)")
+    print()
+    print(f"  {'MATCH ✓':<22} {len(match):>3} / {len(results)} categories")
+    print(f"  {'OVER (safe, over)':<22} {len(over):>3} / {len(results)} categories")
+    print(f"  {'UNKNOWN (no page count)':<22} {len(unknown):>3} / {len(results)} categories")
+    if under:
+        print(f"  {'UNDER ⚠⚠ MISSING':<22} {len(under):>3} / {len(results)} categories"
+              "   ← INVESTIGATE")
+        print()
+        print("  Categories where we missed products:")
+        for name, page, got, delta in under:
+            print(f"    • {name:<32}  page={page}  got={got}  missing={-delta}")
+    else:
+        print(f"  {'UNDER ⚠⚠ MISSING':<22}   0 / {len(results)} categories  ← clean ✓")
+    print("=" * 78)
+
+
+def print_coverage_summary(results: List[Dict], url_map: Dict[str, List[str]]) -> str:
+    """
+    Build a brand-level URL extraction coverage summary table.
+
+    Args:
+        results: list of {"name": str, "url": str, "count": int, ...} entries
+                 in extraction order, each carrying coverage metadata.
+        url_map: {category_url: [product_urls]} after dedupe.
+
+    Returns:
+        The summary text (also printed to stdout).
+    """
+    lines = []
+    lines.append("\n" + "─" * 65)
+    lines.append("URL EXTRACTION COVERAGE SUMMARY")
+    lines.append("─" * 65)
+    lines.append(f"{'Category':<28}{'Page':>6}{'Found':>8}  Status")
+    lines.append("─" * 65)
+
+    ok = warn = unknown = 0
+    for r in results:
+        name = (r.get("name") or "")[:27]
+        page_count = r.get("expected_count")
+        found = r.get("count", 0)
+        status = r.get("coverage_status", "unknown")
+        retries = r.get("coverage_retries", 0)
+
+        page_str = str(page_count) if page_count is not None else "n/a"
+        if status == "ok":
+            symbol = "✓"
+            ok += 1
+        elif status == "low":
+            symbol = f"⚠ low" + (f" (after {retries} retries)" if retries else "")
+            warn += 1
+        elif status == "high":
+            symbol = "⚠ high"
+            warn += 1
+        else:
+            symbol = "—"
+            unknown += 1
+
+        lines.append(f"{name:<28}{page_str:>6}{found:>8}  {symbol}")
+
+    lines.append("─" * 65)
+    lines.append(
+        f"Total: {ok}/{len(results)} ok | {warn} warning(s) | {unknown} page-count unknown"
+    )
+    text = "\n".join(lines)
+    print(text)
+    return text
+
+
 def extract_urls(domain: str, max_workers: int = 4) -> dict:
     """
     Extract product URLs from all categories.
@@ -456,23 +721,54 @@ def extract_urls(domain: str, max_workers: int = 4) -> dict:
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_leaf = {}
+        # Seed: run the first category to completion before submitting the
+        # rest. Without this, all workers in the first batch race against an
+        # empty brand cache and each makes its own classifier + vision calls.
+        # Running one synchronously populates approved_url_lineages and the
+        # cached count selector so every subsequent category benefits.
+        seed_done = False
         for leaf in leaves:
             if leaf["url"] in submitted_urls:
                 # Reuse the existing future for this URL
                 future_to_leaf[submitted_urls[leaf["url"]]].append(leaf)
             else:
-                # Submit new extraction task
-                future = executor.submit(extract_urls_from_category, leaf["url"], leaf["name"], brand_instance)
+                # Submit new extraction task. Pass nav_path from the leaf's
+                # full tree path so the classifier+pruner can use category
+                # context beyond the URL slug.
+                future = executor.submit(
+                    extract_urls_from_category,
+                    leaf["url"], leaf["name"], brand_instance,
+                    leaf.get("path"),
+                )
                 future_to_leaf[future] = [leaf]  # List to handle multiple leaves with same URL
                 submitted_urls[leaf["url"]] = future
 
+                if not seed_done:
+                    # Block here so the brand cache is warm before we submit
+                    # the parallel batch. The future stays in future_to_leaf
+                    # and the as_completed loop below picks it up normally.
+                    print(f"\r  Seeding cache: {leaf['name']}...", end="", flush=True)
+                    future.result()
+                    seed_done = True
+
+        # Header for the live per-category status table.
+        # The vision-vs-extracted comparison is the most important column for
+        # verification — that's what tells you the pipeline got the full set
+        # of products the page says exist. Putting Page→Got first makes it
+        # the first thing you scan.
+        print(f"\n  {'#':>3}  {'Page':>5} → {'Got':<5} {'Δ':<5} {'':2} "
+              f"{'Category':<28} "
+              f"{'Time':>6}  {'Src':<5} {'Mechanism':<24} "
+              f"{'Cost':>8} {'Total':>8}")
+        print(f"  {'-'*3}  {'-'*5}   {'-'*5} {'-'*5} {'':2} "
+              f"{'-'*28} "
+              f"{'-'*6}  {'-'*5} {'-'*24} {'-'*8} {'-'*8}")
+
         completed = 0
+        running_cost = 0.0
         for future in as_completed(future_to_leaf):
             leaves_for_future = future_to_leaf[future]
             completed += len(leaves_for_future)
-
-            # Show progress counter (same line)
-            print(f"\r  Extracting... {completed}/{len(leaves)}", end="", flush=True)
 
             try:
                 result_data = future.result()
@@ -495,8 +791,24 @@ def extract_urls(domain: str, max_workers: int = 4) -> dict:
                     url_map[leaf["url"]] = urls
                     all_urls.update(urls)
                     dedup_note = f" (deduped from {raw_count})" if removed_count > 0 else ""
-                    results.append({"name": leaf["name"], "count": len(urls), "raw_count": raw_count, "error": None})
+                    results.append({
+                        "name": leaf["name"],
+                        "count": len(urls),
+                        "raw_count": raw_count,
+                        "error": None,
+                        "expected_count": result_data.get("expected_count"),
+                        "expected_count_source": result_data.get("expected_count_source"),
+                        "coverage_status": result_data.get("coverage_status", "unknown"),
+                        "coverage_retries": result_data.get("coverage_retries", 0),
+                    })
                     category_logs[leaf["name"]] = logs
+
+                # Compute per-category cost for the live status line.
+                cat_cost = calculate_cost(
+                    llm_usage.get("input_tokens", 0),
+                    llm_usage.get("output_tokens", 0),
+                )
+                running_cost += cat_cost
 
                 # Track metrics only once per actual extraction
                 category_metrics.append({
@@ -504,15 +816,73 @@ def extract_urls(domain: str, max_workers: int = 4) -> dict:
                     "duration": extraction_time,
                     "products": len(urls),
                     "llm_calls": llm_usage.get("calls", 0),
-                    "llm_cost": calculate_cost(
-                        llm_usage.get("input_tokens", 0),
-                        llm_usage.get("output_tokens", 0)
-                    )
+                    "llm_cost": cat_cost,
                 })
+
+                # Live one-line status. Vision-vs-extracted comparison
+                # leads — that's what tells you whether the pipeline got the
+                # full set of products the page claims to have. UNDER
+                # (extracted < expected) is the one case to watch for —
+                # everything else is safe.
+                expected = result_data.get("expected_count")
+                source = result_data.get("expected_count_source") or "?"
+                src_tag = {
+                    "common_selector": "text",
+                    "jsonld": "ld+j",
+                    "cached_selector": "cache",
+                    "vision": "VISN",
+                }.get(source, "?")
+
+                got = len(urls)
+                if expected is None:
+                    page_str = "?"
+                    delta_str = ""
+                    icon = "·"
+                else:
+                    page_str = str(expected)
+                    delta = got - expected
+                    if delta == 0:
+                        delta_str = ""
+                        icon = "✓"
+                    elif delta > 0:
+                        delta_str = f"+{delta}"
+                        icon = " "
+                    else:
+                        delta_str = f"{delta}"
+                        icon = "⚠ UNDER"
+
+                # Build a "mechanism" cell describing what produced the result.
+                mech_parts = []
+                if result_data.get("exact_match_fired"):
+                    n = result_data.get("exact_match_lineage_count") or 1
+                    mech_parts.append(f"exact-match×{n}" if n > 1 else "exact-match")
+                if result_data.get("pruner_fired"):
+                    kept = result_data.get("pruner_kept", 0)
+                    removed = result_data.get("pruner_removed", 0)
+                    mech_parts.append(f"pruner kept {kept}/-{removed}")
+                if not mech_parts:
+                    mech_parts.append("(no filter / no prune)")
+                mech_str = ", ".join(mech_parts)
+
+                name_short = (leaves_for_future[0]["name"] or "")[:28]
+                print(
+                    f"  {completed:>3}  {page_str:>5} → {got:<5} {delta_str:<5} {icon:<2} "
+                    f"{name_short:<28} "
+                    f"{extraction_time:>5.1f}s  {src_tag:<5} {mech_str:<24} "
+                    f"${cat_cost:>6.4f} ${running_cost:>7.4f}"
+                )
             except Exception as e:
                 for leaf in leaves_for_future:
                     url_map[leaf["url"]] = []
-                    results.append({"name": leaf["name"], "count": 0, "error": str(e)})
+                    results.append({
+                        "name": leaf["name"],
+                        "count": 0,
+                        "error": str(e),
+                        "expected_count": None,
+                        "expected_count_source": None,
+                        "coverage_status": "unknown",
+                        "coverage_retries": 0,
+                    })
                     category_logs[leaf["name"]] = f"Error: {e}"
                 category_metrics.append({
                     "name": leaves_for_future[0]["name"],
@@ -521,8 +891,13 @@ def extract_urls(domain: str, max_workers: int = 4) -> dict:
                     "llm_calls": 0,
                     "llm_cost": 0.0
                 })
-
-    print()  # Newline after progress
+                name_short = (leaves_for_future[0]["name"] or "")[:28]
+                print(
+                    f"  {completed:>3}  {'—':>5}   {'—':<5} {'':<5} ❌ "
+                    f"{name_short:<28} "
+                    f"   —    —    ERROR: {str(e)[:18]:<24} "
+                    f"${0.0:>6.4f} ${running_cost:>7.4f}"
+                )
 
     # Capture stage timing and LLM usage
     stage_duration = time.time() - stage_start_time
@@ -669,6 +1044,19 @@ def extract_urls(domain: str, max_workers: int = 4) -> dict:
     print(f"Saved: {full_urls_path}")
     print(f"Metrics: {metrics_path}")
     print(f"{'='*60}\n")
+
+    # Vision/page count vs extracted — the verification table. UNDER
+    # is the failure mode to investigate; everything else is safe.
+    print_vision_verification(results)
+
+    print_coverage_summary(results, url_map)
+
+    # Persist the brand cache (winner lineages + count selector +
+    # pagination pattern) so the next run for this brand benefits.
+    try:
+        brand_instance.save_persisted_cache()
+    except Exception as e:
+        print(f"   ⚠️  Could not save brand cache: {e}")
 
     return result
 
