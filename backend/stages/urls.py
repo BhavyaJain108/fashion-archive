@@ -434,6 +434,58 @@ def dedupe_urls_by_path(urls: List[str]) -> Tuple[List[str], int, int]:
     return deduped, original_count, removed_count
 
 
+def print_coverage_summary(results: List[Dict], url_map: Dict[str, List[str]]) -> str:
+    """
+    Build a brand-level URL extraction coverage summary table.
+
+    Args:
+        results: list of {"name": str, "url": str, "count": int, ...} entries
+                 in extraction order, each carrying coverage metadata.
+        url_map: {category_url: [product_urls]} after dedupe.
+
+    Returns:
+        The summary text (also printed to stdout).
+    """
+    lines = []
+    lines.append("\n" + "─" * 65)
+    lines.append("URL EXTRACTION COVERAGE SUMMARY")
+    lines.append("─" * 65)
+    lines.append(f"{'Category':<28}{'Page':>6}{'Found':>8}  Status")
+    lines.append("─" * 65)
+
+    ok = warn = unknown = 0
+    for r in results:
+        name = (r.get("name") or "")[:27]
+        page_count = r.get("expected_count")
+        found = r.get("count", 0)
+        status = r.get("coverage_status", "unknown")
+        retries = r.get("coverage_retries", 0)
+
+        page_str = str(page_count) if page_count is not None else "n/a"
+        if status == "ok":
+            symbol = "✓"
+            ok += 1
+        elif status == "low":
+            symbol = f"⚠ low" + (f" (after {retries} retries)" if retries else "")
+            warn += 1
+        elif status == "high":
+            symbol = "⚠ high"
+            warn += 1
+        else:
+            symbol = "—"
+            unknown += 1
+
+        lines.append(f"{name:<28}{page_str:>6}{found:>8}  {symbol}")
+
+    lines.append("─" * 65)
+    lines.append(
+        f"Total: {ok}/{len(results)} ok | {warn} warning(s) | {unknown} page-count unknown"
+    )
+    text = "\n".join(lines)
+    print(text)
+    return text
+
+
 def extract_urls(domain: str, max_workers: int = 4) -> dict:
     """
     Extract product URLs from all categories.
@@ -556,7 +608,16 @@ def extract_urls(domain: str, max_workers: int = 4) -> dict:
                     url_map[leaf["url"]] = urls
                     all_urls.update(urls)
                     dedup_note = f" (deduped from {raw_count})" if removed_count > 0 else ""
-                    results.append({"name": leaf["name"], "count": len(urls), "raw_count": raw_count, "error": None})
+                    results.append({
+                        "name": leaf["name"],
+                        "count": len(urls),
+                        "raw_count": raw_count,
+                        "error": None,
+                        "expected_count": result_data.get("expected_count"),
+                        "expected_count_source": result_data.get("expected_count_source"),
+                        "coverage_status": result_data.get("coverage_status", "unknown"),
+                        "coverage_retries": result_data.get("coverage_retries", 0),
+                    })
                     category_logs[leaf["name"]] = logs
 
                 # Track metrics only once per actual extraction
@@ -573,7 +634,15 @@ def extract_urls(domain: str, max_workers: int = 4) -> dict:
             except Exception as e:
                 for leaf in leaves_for_future:
                     url_map[leaf["url"]] = []
-                    results.append({"name": leaf["name"], "count": 0, "error": str(e)})
+                    results.append({
+                        "name": leaf["name"],
+                        "count": 0,
+                        "error": str(e),
+                        "expected_count": None,
+                        "expected_count_source": None,
+                        "coverage_status": "unknown",
+                        "coverage_retries": 0,
+                    })
                     category_logs[leaf["name"]] = f"Error: {e}"
                 category_metrics.append({
                     "name": leaves_for_future[0]["name"],
@@ -730,6 +799,8 @@ def extract_urls(domain: str, max_workers: int = 4) -> dict:
     print(f"Saved: {full_urls_path}")
     print(f"Metrics: {metrics_path}")
     print(f"{'='*60}\n")
+
+    print_coverage_summary(results, url_map)
 
     return result
 

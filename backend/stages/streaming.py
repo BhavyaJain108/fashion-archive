@@ -189,7 +189,7 @@ class StreamingOrchestrator:
 
         Runs in main thread with ThreadPoolExecutor for parallel category extraction.
         """
-        from stages.urls import get_leaf_categories_with_stats, extract_urls_from_category, clean_redundant_parent_urls, dedupe_urls_by_path
+        from stages.urls import get_leaf_categories_with_stats, extract_urls_from_category, clean_redundant_parent_urls, dedupe_urls_by_path, print_coverage_summary
         from stages.storage import ensure_domain_dir
         from stages.metrics import update_stage_metrics, calculate_cost, set_current_stage, get_stage_metrics_from_tracker
         from scraper.llm_handler import LLMHandler
@@ -311,7 +311,11 @@ class StreamingOrchestrator:
                             "name": leaf["name"],
                             "url": leaf["url"],
                             "path": leaf["path"],
-                            "products": urls
+                            "products": urls,
+                            "expected_count": result.get("expected_count"),
+                            "expected_count_source": result.get("expected_count_source"),
+                            "coverage_status": result.get("coverage_status", "unknown"),
+                            "coverage_retries": result.get("coverage_retries", 0),
                         }
 
                 except Exception as e:
@@ -1037,10 +1041,13 @@ class StreamingOrchestrator:
         }
         """
         from stages.storage import save_urls
+        from stages.urls import print_coverage_summary
 
         # Build flat category list (we don't have tree hierarchy in streaming mode)
         category_tree = []
         all_urls = set()
+        url_map: Dict[str, List[str]] = {}
+        coverage_results: List[Dict] = []
 
         for path, data in self.category_urls.items():
             category_tree.append({
@@ -1052,12 +1059,24 @@ class StreamingOrchestrator:
                 "children": []
             })
             all_urls.update(data["products"])
+            url_map[data["url"]] = data["products"]
+            coverage_results.append({
+                "name": data["name"],
+                "count": len(data["products"]),
+                "expected_count": data.get("expected_count"),
+                "expected_count_source": data.get("expected_count_source"),
+                "coverage_status": data.get("coverage_status", "unknown"),
+                "coverage_retries": data.get("coverage_retries", 0),
+            })
 
         urls_tree = {
             "category_tree": category_tree,
             "total_products": sum(len(d["products"]) for d in self.category_urls.values()),
             "unique_products": len(all_urls)
         }
+
+        # Print brand-level coverage summary before persisting
+        print_coverage_summary(coverage_results, url_map)
 
         json_path, txt_path = save_urls(self.domain, urls_tree)
         print(f"[URL Producer] Saved urls.json: {json_path}")
