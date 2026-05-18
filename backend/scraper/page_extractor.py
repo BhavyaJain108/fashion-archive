@@ -1963,39 +1963,201 @@ def _click_load_more_button(page, selector: str) -> bool:
 
 def _detect_pagination_element(page):
     """
-    Detect if pagination elements exist on the page (one-time detection).
-    
+    Detect the load-more / infinite-scroll trigger element on the page.
+
+    Hunts by FUNCTIONAL SIGNALS, not hardcoded class names. The element that
+    triggers more product loading on scroll typically advertises itself with
+    several independent signals — custom tag name, semantic data attributes,
+    non-standard HTML attributes that reference the products container,
+    visible "Loading more..." text, etc.
+
+    Each candidate element is scored on which signals it exhibits; the
+    highest-scoring element above a confidence threshold is returned as a
+    CSS selector. This is robust to a dev renaming any single class or
+    attribute — the element would still light up on the other signals.
+
     Returns:
-        str or None: The selector of the first pagination element found, or None
+        str or None: A CSS selector targeting the detected trigger element,
+        or None if no element scored above the confidence threshold.
     """
     try:
-        pagination_trigger_selectors = [
-            '.pagination',
-            '.pager', 
-            '.page-navigation',
-            '[class*="pagination"]',
-            '[class*="pager"]',
-            '.infinite-scroll',
-            '.scroll-trigger', 
-            '[class*="infinite"]',
-            '[class*="scroll-trigger"]',
-            '[data-infinite]',
-            'nav[role="navigation"]',
-            '[role="navigation"]',
-            '.nav-pagination',
-            '.pagination-wrapper'
-        ]
-        
-        # Find the FIRST pagination element
-        for selector in pagination_trigger_selectors:
-            try:
-                elements = page.locator(selector)
-                if elements.count() > 0 and elements.last.is_visible():
-                    return selector  # Return the first found selector
-            except:
-                continue
-        
-        return None
+        # The scoring runs entirely in the browser for speed. We walk every
+        # element, score it on independent signals, return the top one above
+        # threshold along with a stable CSS selector for it.
+        result = page.evaluate(r"""
+        () => {
+            // Patterns that announce "I am the lazy-load / pagination trigger".
+            // These are functional words — sites use them in tag names, class
+            // names, data attribute names and values, etc.
+            const TRIGGER_RE = /infinite[-_]?scroll|scroll[-_]?trigger|load[-_]?more|lazy[-_]?load|next[-_]?page|pagination[-_]?trigger|load[-_]?next|paginate[-_]?trigger|loadmoretrigger|infinitescrolltrigger/i;
+
+            // Attribute NAMES that strongly suggest pagination state-keeping.
+            // Used as custom attributes by infinite-scroll components (e.g.
+            // <infinite-scroll-trigger current-page="1" item-selector="...">).
+            const SEMANTIC_ATTR_NAMES = [
+                'current-page', 'total-pages', 'next-page', 'next-url',
+                'next-page-url', 'item-selector', 'item-container-selector',
+                'has-next-page', 'has-more', 'is-loading',
+                'data-has-loading-listener', 'data-infinite-scroll',
+                'data-load-more', 'data-load-trigger', 'data-paginate',
+                'data-pagination', 'data-pagination-trigger',
+                'data-next-page', 'data-next-url'
+            ];
+
+            // Visible-text patterns that betray a load trigger UI.
+            const TEXT_RE = /loading\s*(more|next)?|load\s+more|show\s+more|view\s+more|see\s+more|load\s+next|next\s+page|loading\.\.\./i;
+
+            // Standard HTML tag names — anything else is a custom element.
+            const STANDARD_TAGS = new Set([
+                'a','abbr','address','area','article','aside','audio','b','base','bdi','bdo','blockquote',
+                'body','br','button','canvas','caption','cite','code','col','colgroup','data','datalist',
+                'dd','del','details','dfn','dialog','div','dl','dt','em','embed','fieldset','figcaption',
+                'figure','footer','form','h1','h2','h3','h4','h5','h6','head','header','hgroup','hr','html',
+                'i','iframe','img','input','ins','kbd','label','legend','li','link','main','map','mark',
+                'menu','meta','meter','nav','noscript','object','ol','optgroup','option','output','p',
+                'picture','pre','progress','q','rp','rt','ruby','s','samp','script','section','select',
+                'slot','small','source','span','strong','style','sub','summary','sup','table','tbody',
+                'td','template','textarea','tfoot','th','thead','time','title','tr','track','u','ul',
+                'var','video','wbr','svg','path','g','rect','circle','line','polyline','polygon','text'
+            ]);
+
+            // Build a stable CSS selector for an element, preferring stable
+            // identifiers and falling back to tag + nth-of-type.
+            function selectorFor(el) {
+                if (el.id) return `#${CSS.escape(el.id)}`;
+                const tag = el.tagName.toLowerCase();
+                // Prefer a unique data-ref or unique class
+                if (el.getAttribute('data-ref')) {
+                    const dr = el.getAttribute('data-ref');
+                    const sel = `${tag}[data-ref="${CSS.escape(dr)}"]`;
+                    if (document.querySelectorAll(sel).length === 1) return sel;
+                }
+                if (el.className && typeof el.className === 'string') {
+                    // First single class that's unique
+                    for (const c of el.className.split(/\s+/).filter(Boolean)) {
+                        const sel = `${tag}.${CSS.escape(c)}`;
+                        try {
+                            if (document.querySelectorAll(sel).length === 1) return sel;
+                        } catch (e) {}
+                    }
+                }
+                // Fallback: a custom tag is itself often unique enough
+                if (!STANDARD_TAGS.has(tag) && document.querySelectorAll(tag).length === 1) {
+                    return tag;
+                }
+                // Last resort: structural selector
+                let path = tag;
+                let parent = el.parentElement;
+                let depth = 0;
+                while (parent && depth < 4 && parent.tagName.toLowerCase() !== 'body') {
+                    const idx = Array.from(parent.children)
+                        .filter(c => c.tagName === el.tagName).indexOf(el) + 1;
+                    path = `${parent.tagName.toLowerCase()} > ${path}:nth-of-type(${idx})`;
+                    el = parent;
+                    parent = parent.parentElement;
+                    depth++;
+                }
+                return path;
+            }
+
+            const candidates = [];
+            for (const el of document.querySelectorAll('*')) {
+                // Skip enormous containers — triggers are leaf-ish elements.
+                if (el.children.length > 30) continue;
+
+                const tag = el.tagName.toLowerCase();
+                const cls = (el.className && typeof el.className === 'string') ? el.className : '';
+                const text = (el.innerText || '').trim();
+
+                let score = 0;
+                const reasons = [];
+
+                // 1. Custom tag name with trigger pattern (+5)
+                if (!STANDARD_TAGS.has(tag) && TRIGGER_RE.test(tag)) {
+                    score += 5;
+                    reasons.push(`custom-tag:${tag}`);
+                }
+
+                // 2. Class name with trigger pattern (+3)
+                if (TRIGGER_RE.test(cls)) {
+                    score += 3;
+                    reasons.push('class-match');
+                }
+
+                // 3. Semantic attribute names (+3 each, capped at +9 to avoid
+                //    runaway scores on heavily-attributed elements)
+                let semanticHits = 0;
+                for (const attr of el.attributes) {
+                    const name = attr.name.toLowerCase();
+                    if (SEMANTIC_ATTR_NAMES.includes(name)) {
+                        semanticHits++;
+                        reasons.push(`attr:${name}`);
+                    }
+                    // data-ref values that mention triggers
+                    if (name === 'data-ref' && TRIGGER_RE.test(attr.value)) {
+                        score += 3;
+                        reasons.push(`data-ref:${attr.value}`);
+                    }
+                }
+                score += Math.min(semanticHits * 3, 9);
+
+                // 4. Visible text content match (+2)
+                if (text && text.length < 80 && TEXT_RE.test(text)) {
+                    score += 2;
+                    reasons.push(`text:"${text.slice(0, 40)}"`);
+                }
+
+                // 5. Position sanity: must be below page top (not in header)
+                //    and have a reasonable bounding box.
+                const rect = el.getBoundingClientRect();
+                const absTop = rect.top + window.scrollY;
+                if (absTop < 200) {
+                    // In header area; nav-pagination unlikely to be a trigger
+                    continue;
+                }
+
+                if (score > 0) {
+                    candidates.push({
+                        tag,
+                        score,
+                        reasons,
+                        absTop,
+                        selector: selectorFor(el),
+                        cls: cls.slice(0, 120),
+                        text: text.slice(0, 60),
+                    });
+                }
+            }
+
+            // Sort by score descending, then by document position (earlier wins ties)
+            candidates.sort((a, b) => (b.score - a.score) || (a.absTop - b.absTop));
+
+            return {
+                top: candidates.slice(0, 5),  // for debug logs
+                best: candidates[0] || null,
+            };
+        }
+        """)
+
+        if not result or not result.get("best"):
+            return None
+
+        best = result["best"]
+        # Confidence threshold: a real trigger usually exhibits multiple
+        # signals. Random elements score 0-3. Anything 5+ is confident.
+        CONFIDENCE_THRESHOLD = 5
+        if best["score"] < CONFIDENCE_THRESHOLD:
+            return None
+
+        # Verify the selector is actually reachable and visible
+        try:
+            loc = page.locator(best["selector"])
+            if loc.count() == 0:
+                return None
+        except Exception:
+            return None
+
+        return best["selector"]
     except Exception:
         return None
 
