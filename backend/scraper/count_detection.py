@@ -1,0 +1,402 @@
+"""
+Collection Count Detection
+==========================
+
+Detects the displayed product count on collection pages using a three-stage
+fallback: JSON-LD structured data, then a brand-cached CSS selector, then a
+vision LLM call. Returns None when the count cannot be determined.
+
+See docs/superpowers/specs/2026-05-14-collection-count-coverage-design.md
+"""
+
+import json
+from dataclasses import dataclass
+from typing import Any, List, Literal, Optional
+
+
+@dataclass
+class CountResult:
+    """A detected product count and the stage that produced it."""
+    count: int
+    source: Literal["common_selector", "jsonld", "cached_selector", "vision"]
+
+
+_MIN_PLAUSIBLE_COUNT = 1
+_MAX_PLAUSIBLE_COUNT = 10_000
+
+
+def _extract_count_from_jsonld_objects(objects: List[Any]) -> Optional[int]:
+    """
+    Walk a list of parsed JSON-LD objects looking for a plausible product count.
+
+    Strategy: collect every plausible `numberOfItems` value found anywhere in
+    the tree (including inside `@graph`, `mainEntity`, `hasPart`, nested lists),
+    then return the LARGEST one. The main product grid is typically larger than
+    side sections (related products, breadcrumbs), so max() is a reasonable
+    heuristic when multiple ItemLists are present.
+
+    Returns None if no plausible count is found.
+    """
+    candidates: List[int] = []
+
+    def _walk(node: Any) -> None:
+        if isinstance(node, dict):
+            n = node.get("numberOfItems")
+            if isinstance(n, int) and _MIN_PLAUSIBLE_COUNT <= n <= _MAX_PLAUSIBLE_COUNT:
+                t = node.get("@type", "")
+                if isinstance(t, str) and ("ItemList" in t or "Collection" in t or "Catalog" in t):
+                    candidates.append(n)
+                elif t == "":
+                    candidates.append(n)
+            for v in node.values():
+                _walk(v)
+        elif isinstance(node, list):
+            for item in node:
+                _walk(item)
+
+    for obj in objects:
+        _walk(obj)
+
+    if not candidates:
+        return None
+    return max(candidates)
+
+
+# Common CSS selectors used by Shopify, BigCommerce, WooCommerce, Magento,
+# and other popular ecom platforms to display the displayed product count
+# on a collection page. Tried in order — first one that returns a plausible
+# integer wins. Free (no LLM call), so this runs before everything else.
+_COMMON_COUNT_SELECTORS: List[str] = [
+    # Shopify-ish
+    "[data-product-count]",
+    ".collection-count",
+    ".collection__count",
+    ".collection-meta__count",
+    ".filters-toolbar__product-count",
+    ".product-count",
+    ".product-count__text",
+    ".product-grid-count",
+    ".results-count",
+    ".results__count",
+    ".filter__count",
+    ".filter-count",
+    # BigCommerce / WooCommerce / generic
+    ".count-bar__count",
+    ".toolbar-amount",
+    ".woocommerce-result-count",
+    "[data-results-count]",
+]
+
+
+def _detect_count_from_text_pattern(page) -> Optional[int]:
+    """
+    Stage 0b: walk small text nodes in the page looking for the
+    canonical count widget pattern: a short label like "23 products",
+    "47 items", "104 styles", "12 results", or just "23" inside an
+    element whose class name contains "count".
+
+    Generic across ecom platforms. Catches custom Shopify themes that
+    don't use the standard class names. Free, no LLM.
+
+    Returns the first plausible match.
+    """
+    js = r"""
+        (() => {
+            const re = /^\s*(\d{1,4})\s*(styles?|items?|products?|results?|matches?|pieces?)?\s*$/i;
+            // Scope the search: don't blindly walk every element. Look at
+            // elements that either (a) live in the top half of the page,
+            // (b) have a class/data attr suggesting they're a count widget,
+            // or (c) are inside a header/title/filter container.
+            const candidates = [];
+            const elements = document.querySelectorAll(
+                'span, div, p, small, strong, [class*=count i], [class*=Count], ' +
+                '[data-count], [data-products-count]'
+            );
+            for (const el of elements) {
+                const text = (el.textContent || '').trim();
+                if (!text || text.length > 40) continue;
+                const m = text.match(re);
+                if (!m) continue;
+                const n = parseInt(m[1], 10);
+                if (!Number.isInteger(n) || n < 1 || n > 10000) continue;
+                // If the label is purely a number, the element class must
+                // suggest a count, OR the element must be visible near the
+                // top of the page — otherwise we'd match prices, year, etc.
+                const hasUnit = !!m[2];
+                const cls = (typeof el.className === 'string' ? el.className : '').toLowerCase();
+                const looksLikeCount = cls.includes('count') || cls.includes('total')
+                    || cls.includes('result') || cls.includes('amount');
+                const rect = el.getBoundingClientRect();
+                const nearTop = rect.top < window.innerHeight * 0.7;
+                if (!hasUnit && !looksLikeCount) continue;
+                if (!nearTop) continue;
+                candidates.push({n: n, text: text, hasUnit: hasUnit, looksLikeCount: looksLikeCount});
+            }
+            // Prefer candidates with units (less ambiguous), then by smallest number.
+            candidates.sort((a, b) => (b.hasUnit - a.hasUnit) || (a.n - b.n));
+            return candidates[0] || null;
+        })()
+    """
+    try:
+        result = page.evaluate(js)
+    except Exception:
+        return None
+    if not result:
+        print("   [count/stage0b] text pattern: no match")
+        return None
+    n = result.get("n")
+    if not isinstance(n, int) or not (_MIN_PLAUSIBLE_COUNT <= n <= _MAX_PLAUSIBLE_COUNT):
+        return None
+    print(f"   [count/stage0b] text pattern hit: {result.get('text')!r} -> {n}")
+    return n
+
+
+def _detect_count_from_common_selectors(page) -> Optional[int]:
+    """
+    Stage 0: try a small list of CSS selectors that ecom platforms
+    commonly use to render the displayed product count. Free, instant,
+    no LLM call. Returns the first plausible integer found.
+
+    This catches the case where the brand sits on a stock theme — most
+    of Shopify, BigCommerce, etc. The vision call then becomes a true
+    fallback for sites with bespoke layouts.
+    """
+    js = f"""
+        (() => {{
+            const selectors = {json.dumps(_COMMON_COUNT_SELECTORS)};
+            for (const sel of selectors) {{
+                const el = document.querySelector(sel);
+                if (!el) continue;
+                const text = (el.textContent || '').trim();
+                if (!text) continue;
+                const m = text.match(/\\d+/);
+                if (m) return {{selector: sel, count: parseInt(m[0], 10), text: text.slice(0, 80)}};
+            }}
+            return null;
+        }})()
+    """
+    try:
+        result = page.evaluate(js)
+    except Exception:
+        return None
+    if not result:
+        print("   [count/stage0] common selectors: no match")
+        return None
+    count = result.get("count")
+    if not isinstance(count, int) or not (_MIN_PLAUSIBLE_COUNT <= count <= _MAX_PLAUSIBLE_COUNT):
+        return None
+    print(
+        f"   [count/stage0] common selector hit: {result.get('selector')!r} "
+        f"-> {count}"
+    )
+    return count
+
+
+_JSONLD_QUERY_JS = """
+    Array.from(document.querySelectorAll('script[type="application/ld+json"]'))
+        .map(s => s.textContent)
+        .filter(t => t && t.trim().length > 0)
+"""
+
+
+def _detect_count_from_jsonld(page) -> Optional[int]:
+    """
+    Stage 1: parse all <script type="application/ld+json"> blocks on the page
+    and look for a plausible product count.
+
+    Robust to malformed JSON: silently skips bad blocks rather than raising.
+    """
+    try:
+        script_texts = page.evaluate(_JSONLD_QUERY_JS)
+    except Exception:
+        return None
+
+    objects: List[Any] = []
+    for text in script_texts or []:
+        try:
+            obj = json.loads(text)
+            objects.append(obj)
+        except (json.JSONDecodeError, TypeError):
+            continue
+
+    return _extract_count_from_jsonld_objects(objects)
+
+
+import re
+
+
+def _detect_count_from_cached_selector(page, brand_instance) -> Optional[int]:
+    """
+    Stage 2: query the brand's cached CSS selector for the count. Parse the
+    first integer from its textContent.
+
+    Returns None if no cached selector exists or the selector doesn't match
+    on this page. A null result is treated as "this page genuinely doesn't
+    display a count" — not as a sign that the cached selector is wrong — so
+    the selector is left intact for subsequent categories that may display
+    the count normally.
+    """
+    if not brand_instance:
+        return None
+    selector = getattr(brand_instance, "collection_count_selector", None)
+    if not selector:
+        return None
+
+    try:
+        text = page.evaluate(
+            f"document.querySelector({json.dumps(selector)})?.textContent"
+        )
+    except Exception:
+        text = None
+
+    count = _parse_first_int(text) if isinstance(text, str) else None
+
+    if count is not None and _MIN_PLAUSIBLE_COUNT <= count <= _MAX_PLAUSIBLE_COUNT:
+        print(f"   [count/stage2] cached selector hit: {selector!r} -> {count}")
+        return count
+
+    print(f"   [count/stage2] cached selector returned no number: {selector!r} (text={text!r})")
+    return None
+
+
+def _parse_first_int(text: Optional[str]) -> Optional[int]:
+    """Return the first integer found in text, or None."""
+    if not text:
+        return None
+    m = re.search(r"\d+", text)
+    return int(m.group()) if m else None
+
+
+import base64
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def _detect_count_from_vision(page, category_name: str, brand_instance, llm_handler) -> Optional[int]:
+    """
+    Stage 3: screenshot the TOP of the page and ask the vision LLM for the
+    product count via tool-forced structured output (pydantic schema).
+
+    On high-confidence responses with a non-null selector, cache the selector
+    on brand_instance for cheap reuse on subsequent categories.
+
+    Returns the count, or None if the LLM couldn't find one.
+
+    IMPORTANT: We scroll to the top of the page before screenshotting because
+    `page.screenshot(clip=...)` clips from the *viewport*, not the page. After
+    our scroll-to-bottom loop the viewport sits at the page footer; without
+    scrolling back up we'd send the LLM an image of the footer instead of the
+    collection header where the count actually lives.
+    """
+    from prompts.collection_count_detection import CollectionCountResponse, get_prompt
+
+    # 1. Scroll back to the top so the screenshot clip captures the header,
+    #    where the collection title and count are typically rendered.
+    try:
+        page.evaluate("window.scrollTo(0, 0)")
+        page.wait_for_timeout(500)
+    except Exception as e:
+        logger.warning(f"Scroll-to-top failed before vision screenshot: {e}")
+        # Continue anyway — the screenshot might still be usable.
+
+    # 2. Re-dismiss popups: some sites re-show the email-signup modal after
+    #    scrolling. Best-effort — import locally to avoid circular imports.
+    try:
+        from url_extractor import _dismiss_popups_sync
+        _dismiss_popups_sync(page)
+        page.wait_for_timeout(300)
+    except Exception:
+        # Popup dismissal is best-effort; don't fail count detection over it.
+        pass
+
+    # 3. Screenshot the top viewport region.
+    try:
+        screenshot_bytes = page.screenshot(
+            clip={"x": 0, "y": 0, "width": 1280, "height": 900},
+            type="png",
+        )
+    except Exception as e:
+        logger.warning(f"Screenshot failed for vision count detection: {e}")
+        return None
+
+    image_b64 = base64.standard_b64encode(screenshot_bytes).decode("ascii")
+    prompt = get_prompt(category_name)
+
+    # 4. Call vision with tool-forced pydantic structured output — no manual
+    #    JSON parsing, no "the model wrote prose" failure mode.
+    try:
+        result = llm_handler.call_with_image_structured(
+            prompt=prompt,
+            image_b64=image_b64,
+            response_model=CollectionCountResponse,
+            media_type="image/png",
+            max_tokens=1500,
+            operation="collection_count_detection",
+        )
+    except Exception as e:
+        logger.warning(f"Vision LLM call failed: {e}")
+        return None
+
+    if not result.get("success"):
+        logger.warning(f"Vision count detection unsuccessful: {result.get('error')}")
+        return None
+
+    data = result.get("data", {})
+    count = data.get("count")
+    selector = data.get("selector")
+    confidence = data.get("confidence")
+
+    if count is None or not (_MIN_PLAUSIBLE_COUNT <= count <= _MAX_PLAUSIBLE_COUNT):
+        return None
+
+    # Cache the selector when the vision model is reasonably confident.
+    # "high" is the ideal signal but "medium" still beats re-paying for
+    # vision on every subsequent page — the worst case is a cache miss
+    # (selector returns null on a later page → we fall back to vision),
+    # which is no worse than not caching at all. Once cached, the selector
+    # sticks for the rest of the brand run.
+    if brand_instance and selector and confidence in ("high", "medium"):
+        brand_instance.collection_count_selector = selector
+        print(f"   [count/stage3] cached selector (conf={confidence}): {selector!r}")
+    elif brand_instance and selector:
+        print(f"   [count/stage3] NOT caching (conf={confidence}): {selector!r}")
+    elif brand_instance:
+        print(f"   [count/stage3] vision returned no selector (conf={confidence})")
+
+    return count
+
+
+def detect_collection_count(page, category_name: str, brand_instance, llm_handler) -> Optional[CountResult]:
+    """
+    Three-stage collection count detection.
+
+    Stage 0a: Common platform CSS selectors (free; covers Shopify / BC / etc.).
+    Stage 0b: Generic text-pattern heuristic (free; catches custom themes).
+    Stage 1:  JSON-LD structured data (free, instant).
+    Stage 2:  Brand-cached CSS selector (free if cache hit).
+    Stage 3:  Vision LLM screenshot of the page (paid; caches a selector).
+
+    Returns CountResult(count, source) or None if the count is honestly unknown.
+    """
+    n = _detect_count_from_common_selectors(page)
+    if n is not None:
+        return CountResult(count=n, source="common_selector")
+
+    n = _detect_count_from_text_pattern(page)
+    if n is not None:
+        return CountResult(count=n, source="common_selector")
+
+    n = _detect_count_from_jsonld(page)
+    if n is not None:
+        return CountResult(count=n, source="jsonld")
+
+    n = _detect_count_from_cached_selector(page, brand_instance)
+    if n is not None:
+        return CountResult(count=n, source="cached_selector")
+
+    n = _detect_count_from_vision(page, category_name, brand_instance, llm_handler)
+    if n is not None:
+        return CountResult(count=n, source="vision")
+
+    return None

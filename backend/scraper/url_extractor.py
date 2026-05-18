@@ -12,14 +12,15 @@ import time
 import json
 import threading
 from dataclasses import dataclass, field, asdict
-from typing import Dict, List, Any, Optional, Set
+from typing import Dict, List, Any, Optional, Set, Tuple
 from datetime import datetime
 from urllib.parse import urljoin, urlparse
 from playwright.sync_api import sync_playwright
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from llm_handler import LLMHandler
-from prompts import url_classification
+from prompts import url_classification, url_pruning
+from count_detection import detect_collection_count, CountResult
 
 # Thread-local storage for quiet mode
 _thread_local = threading.local()
@@ -143,6 +144,17 @@ class URLExtractionResult:
     })
     errors: List[str] = field(default_factory=list)
     discovery_info: Dict = field(default_factory=dict)  # Scroll/extraction stats
+    # Coverage tracking (added 2026-05-14)
+    expected_count: Optional[int] = None
+    expected_count_source: Optional[str] = None  # "common_selector" | "jsonld" | "cached_selector" | "vision" | None
+    coverage_status: str = "unknown"             # "ok" | "low" | "high" | "unknown"
+    coverage_retries: int = 0
+    # Diagnostics for per-category live output
+    exact_match_fired: bool = False              # exact-count lineage filter picked a subset
+    exact_match_lineage_count: int = 0           # how many lineages in the winning subset
+    pruner_fired: bool = False                   # the second-pass LLM prune call ran
+    pruner_kept: int = 0                          # number kept by the pruner (== len(product_urls) if it ran)
+    pruner_removed: int = 0                       # number dropped by the pruner
 
     def to_dict(self) -> Dict:
         return {
@@ -153,7 +165,11 @@ class URLExtractionResult:
             "extraction_time": self.extraction_time,
             "llm_filtering_stats": self.llm_filtering_stats,
             "llm_usage": self.llm_usage,
-            "errors": self.errors
+            "errors": self.errors,
+            "expected_count": self.expected_count,
+            "expected_count_source": self.expected_count_source,
+            "coverage_status": self.coverage_status,
+            "coverage_retries": self.coverage_retries,
         }
 
     def add_llm_usage(self, usage: Dict):
@@ -346,6 +362,8 @@ def _scroll_and_extract_links(page_url: str, brand_instance=None, skip_paginatio
         )
         page = context.new_page()
 
+        count_result: Optional[CountResult] = None  # populated after scroll completes
+
         try:
             # Navigate to page
             _log(f"   🌐 Loading: {page_url}")
@@ -446,6 +464,27 @@ def _scroll_and_extract_links(page_url: str, brand_instance=None, skip_paginatio
 
             all_links = final_links
 
+            # Detect collection count from the page (after scroll/load-more completed)
+            category_name_arg = (
+                brand_instance.brand_id if brand_instance and getattr(brand_instance, "brand_id", None)
+                else "this collection"
+            )
+            try:
+                if brand_instance and getattr(brand_instance, "llm_handler", None):
+                    count_result = detect_collection_count(
+                        page,
+                        category_name_arg,
+                        brand_instance,
+                        brand_instance.llm_handler,
+                    )
+                    if count_result:
+                        _log(f"   🔢 Collection count detected: {count_result.count} (source: {count_result.source})")
+                    else:
+                        _log(f"   🔢 Collection count: not displayed")
+            except Exception as e:
+                _log(f"   ⚠️  Count detection error (non-fatal): {e}")
+                count_result = None
+
             # Detect pagination for multi-page extraction (skip on pages 2+ where we already know the pattern)
             if not skip_pagination_detection:
                 # If brand has a cached pagination pattern, use fast detection (no LLM)
@@ -462,15 +501,96 @@ def _scroll_and_extract_links(page_url: str, brand_instance=None, skip_paginatio
 
     return {
         "links": all_links,
-        "discovery_info": discovery_info
+        "discovery_info": discovery_info,
+        "count_result": count_result,
     }
+
+
+def _exact_count_lineage_filter(
+    approved_links: List[Dict],
+    expected_count: int,
+) -> Tuple[List[Dict], Optional[List[str]]]:
+    """
+    If, among the approved product lineages, there exists a subset whose
+    deduped-URL union exactly equals expected_count, return only the links
+    belonging to that subset.
+
+    Why: e-commerce product cards typically carry multiple anchor lineages
+    per card (image link + title link + "Full Product Details" button +
+    color swatch). All four get classified as `product` by the per-lineage
+    classifier, but their unique-URL counts differ:
+
+      - The "details" or "title" lineage is usually 1:1 with the displayed
+        products (each card has exactly one).
+      - The "swatch" lineage adds variant URLs, some of which point to
+        items in OTHER collections — this is the contamination source.
+      - Image and title lineages each have one URL per card but the same
+        URL across both.
+
+    When one lineage (or a small combination) yields a unique-URL count
+    that exactly equals what the page shows, that's an extremely strong
+    signal that it represents the real catalog. Restricting to that subset
+    eliminates swatch contamination structurally — no slug-matching, no
+    second LLM call.
+
+    Preference order:
+      1. Single-lineage exact match (cleanest).
+      2. Smallest multi-lineage combination whose union exactly equals
+         expected_count. If a single lineage already matches, we never
+         consider combinations.
+
+    Returns:
+        (filtered_links, [lineage_strings]) when a match is found.
+        (approved_links_unchanged, None) when no exact match exists.
+    """
+    if not approved_links or expected_count <= 0:
+        return approved_links, None
+
+    # Group URLs by lineage, deduplicating within each lineage so the count
+    # reflects unique URLs (not raw anchor tags).
+    by_lineage: Dict[str, Set[str]] = {}
+    for link in approved_links:
+        lin = link.get("lineage", "unknown")
+        url = link.get("url")
+        if url:
+            by_lineage.setdefault(lin, set()).add(url)
+
+    if not by_lineage:
+        return approved_links, None
+
+    lineages = list(by_lineage.items())
+
+    # Stage 1: single-lineage exact match.
+    for lin, urls in lineages:
+        if len(urls) == expected_count:
+            kept = [l for l in approved_links if l.get("lineage", "unknown") == lin]
+            return kept, [lin]
+
+    # Stage 2: combinations of size 2..N. Stop at first exact match.
+    from itertools import combinations
+    for size in range(2, len(lineages) + 1):
+        for combo in combinations(lineages, size):
+            union: Set[str] = set()
+            for _, urls in combo:
+                union |= urls
+            if len(union) == expected_count:
+                chosen = {c[0] for c in combo}
+                kept = [
+                    l for l in approved_links
+                    if l.get("lineage", "unknown") in chosen
+                ]
+                return kept, list(chosen)
+
+    return approved_links, None
 
 
 def classify_product_links(
     links: List[Dict],
     page_url: str,
     category_name: str,
-    brand_instance=None
+    brand_instance=None,
+    expected_count: Optional[int] = None,
+    nav_path: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Use LLM to classify links as products vs navigation/recommendations.
@@ -518,40 +638,96 @@ def classify_product_links(
     _log(f"   ❌ Pre-rejected: {len(known_rejected_links)} links ({len([l for l in lineage_groups if l in rejected_lineages])} lineages)")
     _log(f"   ❓ Unknown: {len(unknown_lineage_links)} links need classification")
 
+    # Memory-gate: if expected_count is known and pre-approved memory wildly
+    # disagrees with it, distrust memory for this category and re-classify the
+    # approved links as unknown.
+    force_reclassify_memory = False
+    if expected_count is not None and known_approved_links:
+        approved_total = len(known_approved_links)
+        low_threshold = expected_count * 0.8
+        high_threshold = expected_count * 1.3
+        if approved_total < low_threshold or approved_total > high_threshold:
+            force_reclassify_memory = True
+            _log(
+                f"   ⚠️  Lineage memory disagrees with expected count "
+                f"({approved_total} approved vs {expected_count} expected); re-classifying."
+            )
+            unknown_lineage_links.extend(known_approved_links)
+            known_approved_links = []
+
     newly_approved_links = []
     newly_approved_lineages = set()
     newly_rejected_lineages = set()
+    # Per-lineage decisions returned by the LLM, for surfacing in logs.
+    # Each entry: {lineage, classification, reasoning, count, samples}
+    lineage_decisions_log: List[Dict] = []
 
     # If there are unknown links, use LLM to classify
     if unknown_lineage_links:
-        # Limit to a reasonable sample for LLM (take representative links)
-        sample_size = min(50, len(unknown_lineage_links))
+        MAX_SAMPLES_PER_LINEAGE = 3
 
-        # Sample links ensuring each lineage is represented
-        sampled_links = []
-        lineages_sampled = set()
-
+        # Group unknowns by lineage (preserving page-order within each group)
+        unknowns_by_lineage: Dict[str, List[Dict]] = {}
         for link in unknown_lineage_links:
-            lineage = link.get("lineage", "unknown")
-            if lineage not in lineages_sampled:
-                sampled_links.append(link)
-                lineages_sampled.add(lineage)
-                if len(sampled_links) >= sample_size:
-                    break
+            unknowns_by_lineage.setdefault(link.get("lineage", "unknown"), []).append(link)
 
-        # Add more links if we have room
-        if len(sampled_links) < sample_size:
-            for link in unknown_lineage_links:
-                if link not in sampled_links:
-                    sampled_links.append(link)
-                    if len(sampled_links) >= sample_size:
-                        break
+        # Build the lineage_info list the prompt expects. Each lineage is a
+        # self-contained block with id, DOM path, count, carousel ratio, and
+        # 1-3 sample URLs + link text. The LLM returns one decision per block.
+        #
+        # IMPORTANT: dedupe each group by URL before computing count and
+        # samples. Otherwise a swatch lineage that has e.g. 6 anchor tags per
+        # product card inflates `count` 6x relative to the unique-URL count
+        # the LLM should actually be reasoning about. The downstream dedup
+        # collapses these anyway, so the inflated count just misleads the
+        # classifier.
+        lineage_info: List[Dict] = []
+        id_to_lineage: Dict[str, str] = {}
+        for idx, (lineage_str, group) in enumerate(unknowns_by_lineage.items()):
+            lid = f"L{idx + 1}"
+            id_to_lineage[lid] = lineage_str
 
-        _log(f"   🧠 Sending {len(sampled_links)} sample links to LLM for classification...")
+            seen_urls: Set[str] = set()
+            unique_links: List[Dict] = []
+            for link in group:
+                u = link.get("url")
+                if u and u not in seen_urls:
+                    seen_urls.add(u)
+                    unique_links.append(link)
 
-        # Call LLM
-        llm_handler = LLMHandler()
-        prompt = url_classification.get_prompt(page_url, category_name, sampled_links)
+            carousel_count = sum(1 for link in unique_links if link.get("in_carousel"))
+            samples = [
+                {"url": link.get("url", ""), "link_text": link.get("link_text", "")}
+                for link in unique_links[:MAX_SAMPLES_PER_LINEAGE]
+            ]
+            lineage_info.append({
+                "id": lid,
+                "lineage": lineage_str,
+                "count": len(unique_links),
+                "carousel_count": carousel_count,
+                "samples": samples,
+            })
+
+        total_page_links = (
+            len(known_approved_links) + len(known_rejected_links) + len(unknown_lineage_links)
+        )
+
+        _log(
+            f"   🧠 Sending {len(lineage_info)} lineages "
+            f"({total_page_links} total links) to LLM for per-lineage classification..."
+        )
+
+        # Call LLM. Haiku is sufficient for this task: structured pydantic
+        # output classifying a list of DOM lineages by category. Sonnet was
+        # ~3x more expensive without measurably better accuracy on the test
+        # cases that motivated this optimization (see test_triplet baselines).
+        llm_handler = LLMHandler(model="claude-haiku-4-5")
+        prompt = url_classification.get_prompt(
+            page_url, category_name, lineage_info,
+            expected_count=expected_count,
+            total_page_links=total_page_links,
+            nav_path=nav_path,
+        )
         response = llm_handler.call(
             prompt,
             expected_format="json",
@@ -561,33 +737,93 @@ def classify_product_links(
 
         if response.get("success"):
             data = response.get("data", {})
-            product_indices = set(data.get("product_link_indices", []))
+            decisions = data.get("lineage_decisions", [])
             confidence = data.get("confidence", "Medium")
-            analysis = data.get("analysis", "")
+            overall_analysis = data.get("overall_analysis", "")
 
-            _log(f"   📋 LLM classified {len(product_indices)} of {len(sampled_links)} as products (confidence: {confidence})")
-            _log(f"   📝 Analysis: {analysis[:200]}...")
+            # Build a {lineage_id -> decision} map
+            decision_by_id: Dict[str, Dict] = {}
+            for d in decisions:
+                lid = d.get("lineage_id")
+                if lid:
+                    decision_by_id[lid] = d
 
-            # Map indices back to lineages
-            for i, link in enumerate(sampled_links):
-                lineage = link.get("lineage", "unknown")
-                if i in product_indices:
-                    newly_approved_lineages.add(lineage)
+            # Apply each decision back to its lineage. Use unique-URL counts
+            # (from lineage_info) for the log so the displayed count matches
+            # what the LLM actually saw.
+            unique_count_by_id: Dict[str, int] = {
+                info["id"]: info["count"] for info in lineage_info
+            }
+            approved_lineage_strings = set()
+            for lid, lineage_str in id_to_lineage.items():
+                d = decision_by_id.get(lid)
+                if d is None:
+                    # LLM forgot to classify this lineage — log and default to reject
+                    classification = "other"
+                    reasoning = "(LLM did not return a decision for this lineage; defaulting to reject)"
                 else:
-                    newly_rejected_lineages.add(lineage)
+                    classification = d.get("classification", "other")
+                    reasoning = d.get("reasoning", "")
 
-            # Apply classification to ALL links with matching lineages
+                # Stash for the per-category log
+                lineage_decisions_log.append({
+                    "lineage": lineage_str,
+                    "lineage_id": lid,
+                    "classification": classification,
+                    "reasoning": reasoning,
+                    "count": unique_count_by_id.get(lid, 0),
+                })
+
+                if classification == "product":
+                    newly_approved_lineages.add(lineage_str)
+                    approved_lineage_strings.add(lineage_str)
+                else:
+                    newly_rejected_lineages.add(lineage_str)
+
+            # Collect links from every newly-approved lineage
             for link in unknown_lineage_links:
-                lineage = link.get("lineage", "unknown")
-                if lineage in newly_approved_lineages:
+                if link.get("lineage", "unknown") in approved_lineage_strings:
                     newly_approved_links.append(link)
+
+            approved_count = sum(
+                len(unknowns_by_lineage[lin]) for lin in approved_lineage_strings
+            )
+            _log(
+                f"   📋 LLM classified {len(approved_lineage_strings)} of "
+                f"{len(lineage_info)} lineages as product "
+                f"(covering {approved_count} of {total_page_links} links, confidence: {confidence})"
+            )
+            _log(f"   📝 Analysis: {overall_analysis[:300]}")
+
+            # Per-lineage decisions with reasoning, grouped by classification.
+            # This is the diagnostic surface — if the count is off, this is
+            # where you see *why* specific lineages got accepted or rejected.
+            from collections import OrderedDict
+            grouped: "OrderedDict[str, list]" = OrderedDict()
+            for cls_name in ["product", "navigation", "featured", "recommendation", "utility", "other"]:
+                grouped[cls_name] = []
+            for d in lineage_decisions_log:
+                grouped.setdefault(d["classification"], []).append(d)
+            icons = {"product": "✓", "navigation": "→", "featured": "★",
+                     "recommendation": "↪", "utility": "⚙", "other": "•"}
+            for cls_name, items in grouped.items():
+                if not items:
+                    continue
+                # Sort items by count descending for readability
+                items_sorted = sorted(items, key=lambda x: -x["count"])
+                icon = icons.get(cls_name, "•")
+                _log(f"   {icon} {cls_name.upper()} ({len(items)} lineages):")
+                for d in items_sorted:
+                    lid = d["lineage_id"]
+                    cnt = d["count"]
+                    reason = d["reasoning"][:140]
+                    _log(f"      [{lid}] {cnt:>3} links — {reason}")
         else:
             _log(f"   ❌ LLM classification failed: {response.get('error', 'Unknown error')}")
             # Fallback: use URL heuristics
             _log(f"   🔄 Using URL heuristics as fallback...")
             for link in unknown_lineage_links:
                 url = link.get("url", "")
-                # Common product URL patterns
                 if any(pattern in url.lower() for pattern in ['/products/', '/product/', '/p/', '/item/', '/shop/']):
                     newly_approved_links.append(link)
                     newly_approved_lineages.add(link.get("lineage", "unknown"))
@@ -604,6 +840,38 @@ def classify_product_links(
 
     # Combine all approved links
     all_product_links = known_approved_links + newly_approved_links
+
+    # Exact-count lineage filter (primary trimming mechanism).
+    # If among the approved product lineages there's a single lineage — or
+    # the smallest combination — whose unique-URL union exactly equals the
+    # displayed product count, that subset is by far the cleanest signal of
+    # which links are the real catalog. Sibling lineages (image link, title
+    # link, color swatch) typically link to the same products PLUS some
+    # contamination from variant/swatch lineages pointing into other
+    # collections; filtering to the exact-match subset eliminates that
+    # contamination structurally, without slug-matching.
+    exact_match_lineages: Optional[List[str]] = None
+    if expected_count is not None and all_product_links:
+        filtered, exact_match_lineages = _exact_count_lineage_filter(
+            all_product_links, expected_count
+        )
+        if exact_match_lineages is not None:
+            _log(
+                f"   🎯 Exact-count match: {len(exact_match_lineages)} lineage(s) "
+                f"yielded exactly {expected_count} unique URLs — using only those, "
+                f"discarding {len(all_product_links) - len(filtered)} links from "
+                f"other approved lineages."
+            )
+            all_product_links = filtered
+            # Record these as "winner" lineages — the only ones we should
+            # carry across runs in the persistent cache. Sibling lineages
+            # that were also classified as product but didn't drive the
+            # exact-count match are excluded, which prevents swatch
+            # contamination on subsequent brand-cache loads.
+            if brand_instance is not None:
+                if not hasattr(brand_instance, 'winner_url_lineages'):
+                    brand_instance.winner_url_lineages = set()
+                brand_instance.winner_url_lineages.update(exact_match_lineages)
 
     # Deduplicate by URL
     seen_urls = set()
@@ -640,7 +908,12 @@ def classify_product_links(
         "lineages_rejected": list(rejected_lineages | newly_rejected_lineages),
         "pre_approved_count": len(known_approved_links),
         "newly_classified_count": len(newly_approved_links),
-        "rejected_by_lineage": rejected_by_lineage
+        "rejected_by_lineage": rejected_by_lineage,
+        "memory_disagreed_with_count": force_reclassify_memory,
+        "lineage_decisions": lineage_decisions_log,  # per-lineage LLM reasoning
+        # Whether the exact-count filter picked a subset (and how many lineages)
+        "exact_match_fired": exact_match_lineages is not None,
+        "exact_match_lineage_count": len(exact_match_lineages) if exact_match_lineages else 0,
     }
 
     _log(f"   ✅ Classification complete: {len(unique_product_links)} product URLs identified")
@@ -657,7 +930,8 @@ def _extract_urls_from_single_page(
     category_name: str,
     page_num: int,
     brand_instance=None,
-    skip_pagination_detection: bool = False
+    skip_pagination_detection: bool = False,
+    nav_path: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Extract product URLs from a single page.
@@ -672,9 +946,16 @@ def _extract_urls_from_single_page(
         result = _scroll_and_extract_links(page_url, brand_instance, skip_pagination_detection=skip_pagination_detection)
         links = result.get("links", [])
         discovery_info = result.get("discovery_info", {})
+        count_result = result.get("count_result")  # may be None
+        expected_count = count_result.count if count_result else None
+        expected_count_source = count_result.source if count_result else None
 
         # Classify links to filter products
-        classification = classify_product_links(links, page_url, category_name, brand_instance)
+        classification = classify_product_links(
+            links, page_url, category_name, brand_instance,
+            expected_count=expected_count,
+            nav_path=nav_path,
+        )
         product_links = classification.get("product_links", [])
         stats = classification.get("stats", {})
 
@@ -702,7 +983,9 @@ def _extract_urls_from_single_page(
             "pagination_detected": discovery_info.get("pagination_detected") if not skip_pagination_detection else None,
             "extraction_time": extraction_time,
             "stats": stats,
-            "discovery_info": discovery_info
+            "discovery_info": discovery_info,
+            "expected_count": expected_count,
+            "expected_count_source": expected_count_source,
         }
 
     except Exception as e:
@@ -883,10 +1166,145 @@ def extract_multi_page_urls(
     }
 
 
+def prune_to_expected_count(
+    product_urls: List["ProductURL"],
+    category_name: str,
+    expected_count: int,
+    nav_path: Optional[str] = None,
+    page_url: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Second-pass LLM call: prune over-extracted product URLs down to the
+    expected count by category-matching the slug + link text.
+
+    Only called when len(product_urls) > expected_count. Sends ALL candidates
+    (no sampling) and asks the LLM to identify which subset truly belongs to
+    the category. If the LLM is uncertain it prefers excluding — better to
+    ship slightly under than to keep contamination.
+
+    Args:
+        product_urls: All ProductURL objects returned by the first-pass
+            classifier (already deduplicated).
+        category_name: Leaf category name ("Hoodies").
+        expected_count: How many products the page actually displays.
+        nav_path: Optional full navigation path ("Women > Tops > Hoodies").
+        page_url: Optional category page URL for prompt context.
+
+    Returns:
+        {
+            "kept": List[ProductURL],   # the pruned list
+            "removed_count": int,        # how many got dropped
+            "removed_urls": List[str],   # for the log
+            "reasoning": str,            # LLM's pruning logic
+            "llm_usage": Dict,           # for cost tracking
+        }
+    """
+    n = len(product_urls)
+    if n <= expected_count:
+        # Nothing to prune.
+        return {
+            "kept": product_urls,
+            "removed_count": 0,
+            "removed_urls": [],
+            "reasoning": "no pruning needed (extracted <= expected)",
+            "llm_usage": {},
+        }
+
+    _log(f"   ✂️  Pruning: {n} candidates > {expected_count} expected; sending all to LLM for category match...")
+
+    # Build the candidate list for the prompt (just url + link text).
+    candidates = [
+        {"url": p.url, "link_text": p.link_text}
+        for p in product_urls
+    ]
+
+    prompt = url_pruning.get_prompt(
+        category_name=category_name,
+        candidates=candidates,
+        expected_count=expected_count,
+        nav_path=nav_path,
+        page_url=page_url,
+    )
+    # Haiku for the second-pass prune — same reasoning as classifier: this is
+    # a structured pydantic-output task, deciding to keep/drop indices from
+    # a known list. No need for Sonnet here.
+    llm_handler = LLMHandler(model="claude-haiku-4-5")
+    response = llm_handler.call(
+        prompt,
+        expected_format="json",
+        response_model=url_pruning.get_response_model(),
+        operation="url_pruning",
+    )
+
+    if not response.get("success"):
+        _log(f"   ⚠️  Pruning LLM call failed ({response.get('error', 'unknown')}); keeping original {n} candidates")
+        return {
+            "kept": product_urls,
+            "removed_count": 0,
+            "removed_urls": [],
+            "reasoning": f"LLM call failed: {response.get('error')}",
+            "llm_usage": {},
+        }
+
+    data = response.get("data", {})
+    indices_to_keep = data.get("indices_to_keep", []) or []
+    reasoning = data.get("reasoning", "")
+
+    # Sanitize: deduplicate, drop out-of-range. We keep whatever the LLM said
+    # (per user direction: "prefer returning fewer rather than including
+    # doubtful ones") — no padding with rejected candidates.
+    seen_idx = set()
+    valid_indices = []
+    for idx in indices_to_keep:
+        if isinstance(idx, int) and 0 <= idx < n and idx not in seen_idx:
+            seen_idx.add(idx)
+            valid_indices.append(idx)
+
+    kept = [product_urls[i] for i in valid_indices]
+    removed_urls = [
+        product_urls[i].url for i in range(n) if i not in seen_idx
+    ]
+
+    _log(
+        f"   ✂️  Pruning kept {len(kept)} / {n} (target was {expected_count}); "
+        f"removed {len(removed_urls)} candidates"
+    )
+    _log(f"   📝 Pruning rationale: {reasoning[:240]}")
+
+    return {
+        "kept": kept,
+        "removed_count": len(removed_urls),
+        "removed_urls": removed_urls,
+        "reasoning": reasoning,
+        "llm_usage": response.get("usage") or {},
+    }
+
+
+def _classify_coverage(extracted: int, expected: Optional[int]) -> str:
+    """
+    Return one of: "ok", "low", "high", "unknown".
+
+    - unknown: no page count was detected.
+    - low: extracted < expected - max(2, expected*0.2)
+    - high: extracted > expected + max(3, expected*0.3)
+    - ok: within tolerance
+    """
+    if expected is None:
+        return "unknown"
+    tol_low = max(2, int(expected * 0.2))
+    tol_high = max(3, int(expected * 0.3))
+    if extracted < expected - tol_low:
+        return "low"
+    if extracted > expected + tol_high:
+        return "high"
+    return "ok"
+
+
 def extract_urls_from_category(
     category_url: str,
     brand_instance=None,
-    quiet: bool = False
+    quiet: bool = False,
+    nav_path: Optional[str] = None,
 ) -> URLExtractionResult:
     """
     Extract all product URLs from a single category.
@@ -897,6 +1315,11 @@ def extract_urls_from_category(
         category_url: URL of the category page
         brand_instance: Optional brand instance for shared state
         quiet: If True, suppress all log output (for parallel execution)
+        nav_path: Full navigation path for this category from the nav tree
+            (e.g. "Women > Tops > Hoodies"). Surfaced to the LLM classifier
+            and the pruning step so they have the human-meaningful category
+            context, not just the URL slug. None when called from a context
+            without nav-tree access (e.g. test_category.py).
     """
     # Set thread-local quiet flag
     _thread_local.quiet = quiet
@@ -906,6 +1329,8 @@ def extract_urls_from_category(
 
     _log(f"\n{'='*60}")
     _log(f"📁 Extracting URLs from: {category_name}")
+    if nav_path:
+        _log(f"   Nav path: {nav_path}")
     _log(f"   URL: {category_url}")
     _log(f"{'='*60}")
 
@@ -917,7 +1342,8 @@ def extract_urls_from_category(
     try:
         # Extract page 1
         page1_result = _extract_urls_from_single_page(
-            category_url, category_url, category_name, 1, brand_instance
+            category_url, category_url, category_name, 1, brand_instance,
+            nav_path=nav_path,
         )
 
         page1_urls = page1_result.get("product_urls", [])
@@ -926,6 +1352,15 @@ def extract_urls_from_category(
         result.product_urls.extend(page1_urls)
         result.llm_filtering_stats = page1_result.get("stats", {})
         result.discovery_info = page1_result.get("discovery_info", {})
+        result.expected_count = page1_result.get("expected_count")
+        result.expected_count_source = page1_result.get("expected_count_source")
+        # Surface the exact-count filter diagnostics on the top-level result
+        # so the pipeline's live status line can show whether it fired.
+        stats_dict = page1_result.get("stats", {}) or {}
+        result.exact_match_fired = bool(stats_dict.get("exact_match_fired"))
+        result.exact_match_lineage_count = int(
+            stats_dict.get("exact_match_lineage_count") or 0
+        )
 
         if page1_result.get("error"):
             result.errors.append(f"Page 1: {page1_result['error']}")
@@ -960,6 +1395,49 @@ def extract_urls_from_category(
                 seen.add(url.url)
                 unique_urls.append(url)
         result.product_urls = unique_urls
+
+        # Second-pass pruning: only when first-pass classification gave us
+        # MORE products than the page actually displays. This catches
+        # cross-category contamination — typically variant/swatch links that
+        # share a lineage with real product cards but point to items in other
+        # categories (e.g. a "color swatch" lineage on the hoodies page that
+        # links to bikinis and boxers).
+        if (result.expected_count is not None
+                and len(result.product_urls) > result.expected_count):
+            prune_result = prune_to_expected_count(
+                product_urls=result.product_urls,
+                category_name=category_name,
+                expected_count=result.expected_count,
+                nav_path=nav_path,
+                page_url=category_url,
+            )
+            result.product_urls = prune_result["kept"]
+            result.add_llm_usage(prune_result.get("llm_usage") or {})
+            result.pruner_fired = True
+            result.pruner_kept = len(prune_result["kept"])
+            result.pruner_removed = prune_result["removed_count"]
+            # Surface in the stats dict so the per-category log can show it.
+            if result.llm_filtering_stats is None:
+                result.llm_filtering_stats = {}
+            result.llm_filtering_stats["pruning"] = {
+                "removed_count": prune_result["removed_count"],
+                "removed_urls": prune_result["removed_urls"],
+                "reasoning": prune_result["reasoning"],
+            }
+
+        # Coverage check against detected page count.
+        # NOTE: this is observational only — we record the status so it shows
+        # up in the per-category log and the brand-level summary table. We
+        # do NOT retry extraction on LOW coverage: the previous run is
+        # deterministic for a given page state, so re-running it just re-uses
+        # the now-warm lineage memory and produces the identical answer at
+        # double the cost. If LOW coverage shows up, it's a signal that the
+        # underlying extraction (scroll / load-more / classifier) needs work
+        # — not a problem any retry can fix.
+        result.coverage_status = _classify_coverage(
+            extracted=len(result.product_urls),
+            expected=result.expected_count,
+        )
 
         result.extraction_time = time.time() - start_time
 

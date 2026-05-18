@@ -39,16 +39,33 @@ except ImportError:
             return None
 
 
-# Claude Sonnet 4 pricing (per 1M tokens)
-INPUT_COST_PER_M = 3.0   # $3 per 1M input tokens
-OUTPUT_COST_PER_M = 15.0  # $15 per 1M output tokens
+# Per-model pricing (USD per 1M tokens). Used wherever we need to convert
+# token counts to dollar cost. Keep keys aligned with the Anthropic model
+# identifiers we pass to the SDK.
+MODEL_RATES = {
+    # Sonnet 4 — default
+    "claude-sonnet-4-20250514": {"input": 3.0, "output": 15.0},
+    # Haiku 4.5 — ~3x cheaper than Sonnet, used for structured tasks where
+    # we don't need full Sonnet reasoning (URL classification, pruning, etc).
+    "claude-haiku-4-5": {"input": 1.0, "output": 5.0},
+    # Older models still appear in some test calls.
+    "claude-3-5-sonnet-20241022": {"input": 3.0, "output": 15.0},
+    "claude-3-5-haiku-20241022": {"input": 1.0, "output": 5.0},
+}
+_DEFAULT_MODEL = "claude-sonnet-4-20250514"
+
+# Backwards-compat: callers that ignore `model` get Sonnet 4 rates.
+INPUT_COST_PER_M = MODEL_RATES[_DEFAULT_MODEL]["input"]
+OUTPUT_COST_PER_M = MODEL_RATES[_DEFAULT_MODEL]["output"]
 
 
-def calculate_cost(input_tokens: int, output_tokens: int) -> float:
-    """Calculate cost in USD from token counts."""
-    input_cost = (input_tokens / 1_000_000) * INPUT_COST_PER_M
-    output_cost = (output_tokens / 1_000_000) * OUTPUT_COST_PER_M
-    return input_cost + output_cost
+def calculate_cost(input_tokens: int, output_tokens: int,
+                   model: Optional[str] = None) -> float:
+    """Calculate cost in USD from token counts, using the model's rates."""
+    rates = MODEL_RATES.get(model or _DEFAULT_MODEL,
+                            MODEL_RATES[_DEFAULT_MODEL])
+    return (input_tokens / 1_000_000) * rates["input"] \
+         + (output_tokens / 1_000_000) * rates["output"]
 
 
 # Pydantic models for structured outputs
@@ -110,8 +127,8 @@ class LLMUsageTracker:
 
     @classmethod
     def record_call(cls, operation: str, input_tokens: int, output_tokens: int,
-                    stage: str = None):
-        """Record an LLM call with its usage."""
+                    stage: str = None, model: str = None):
+        """Record an LLM call with its usage. `model` selects the rate table."""
         stage = stage or cls._current_stage
 
         if stage not in cls._operations:
@@ -129,7 +146,7 @@ class LLMUsageTracker:
         op["calls"] += 1
         op["input_tokens"] += input_tokens
         op["output_tokens"] += output_tokens
-        op["cost"] += calculate_cost(input_tokens, output_tokens)
+        op["cost"] += calculate_cost(input_tokens, output_tokens, model=model)
 
     @classmethod
     def get_stage_summary(cls, stage: str) -> Dict[str, Any]:
@@ -287,8 +304,9 @@ class LLMHandler:
             LLMHandler._total_output_tokens += output_tokens
             LLMHandler._call_count += 1
 
-            # New operation-level tracking
-            LLMUsageTracker.record_call(operation, input_tokens, output_tokens)
+            # New operation-level tracking — pass model so per-model rates apply.
+            LLMUsageTracker.record_call(operation, input_tokens, output_tokens,
+                                        model=self.model)
 
     def call(self, prompt: str, expected_format: str = "json", response_model: BaseModel = None,
              max_tokens: int = 8192, max_retries: int = 4, debug: bool = False,
@@ -521,6 +539,112 @@ class LLMHandler:
                 "error": str(e),
                 "latency_ms": latency_ms,
                 "success": False
+            }
+
+    def call_with_image_structured(self, prompt: str, image_b64: str,
+                                   response_model, media_type: str = "image/png",
+                                   max_tokens: int = 1500,
+                                   operation: str = "vision_structured") -> Dict[str, Any]:
+        """
+        Vision LLM call with tool-forced structured output (pydantic).
+
+        Guarantees the response matches `response_model`'s schema — no manual
+        JSON parsing, no markdown-fence stripping, no "the model decided to
+        write prose instead" failure mode. Uses Anthropic's tool_choice to
+        force the model to invoke a tool whose input_schema IS the pydantic
+        schema.
+
+        Args:
+            prompt: Text prompt to send alongside the image
+            image_b64: Base64-encoded image data
+            response_model: Pydantic BaseModel subclass for the response shape
+            media_type: Image media type
+            max_tokens: Max tokens for the model's reasoning
+            operation: Operation name for usage tracking
+
+        Returns:
+            {"data": parsed_pydantic_dict, "success": True, "usage": {...}, "latency_ms": ...}
+            or {"error": str, "success": False, "latency_ms": ...} on failure.
+        """
+        import os
+        from anthropic import Anthropic
+
+        start_time = time.time()
+        schema = response_model.model_json_schema()
+
+        try:
+            client = Anthropic(api_key=os.getenv('CLAUDE_API_KEY'))
+
+            response = client.messages.create(
+                model=self.model,
+                max_tokens=max_tokens,
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {"type": "image", "source": {"type": "base64",
+                                                     "media_type": media_type,
+                                                     "data": image_b64}},
+                        {"type": "text", "text": prompt}
+                    ]
+                }],
+                tool_choice={"type": "tool", "name": "structured_output"},
+                tools=[{
+                    "name": "structured_output",
+                    "description": "Return structured data matching the schema",
+                    "input_schema": schema
+                }]
+            )
+
+            latency_ms = (time.time() - start_time) * 1000
+
+            if response.usage:
+                usage = {
+                    "input_tokens": response.usage.input_tokens,
+                    "output_tokens": response.usage.output_tokens,
+                }
+                self._track_usage(usage, operation)
+            else:
+                usage = None
+
+            # Extract the forced tool-use block
+            tool_input = None
+            if response.content:
+                for block in response.content:
+                    if getattr(block, "type", None) == "tool_use" and getattr(block, "input", None):
+                        tool_input = block.input
+                        break
+
+            if tool_input is None:
+                return {
+                    "error": "No tool_use block in vision response",
+                    "latency_ms": latency_ms,
+                    "success": False,
+                }
+
+            # Validate against the pydantic model
+            try:
+                validated = response_model(**tool_input)
+            except Exception as e:
+                return {
+                    "error": f"Pydantic validation failed: {e}",
+                    "raw": tool_input,
+                    "latency_ms": latency_ms,
+                    "success": False,
+                }
+
+            return {
+                "data": validated.model_dump(),
+                "latency_ms": latency_ms,
+                "success": True,
+                "usage": usage,
+            }
+
+        except Exception as e:
+            latency_ms = (time.time() - start_time) * 1000
+            return {
+                "error": str(e),
+                "latency_ms": latency_ms,
+                "success": False,
             }
 
     def call_text(self, prompt: str, max_tokens: int = 1500,
