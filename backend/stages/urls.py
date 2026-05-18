@@ -34,6 +34,34 @@ def _is_all_category(name: str) -> bool:
     return bool(re.search(r'\ball\b', name, re.IGNORECASE))
 
 
+# Path substrings that identify non-product utility pages — never contain a product catalog
+_NON_PRODUCT_PATH_FRAGMENTS = [
+    '/account',
+    'swym',       # wishlist service (e.g. /pages/swym-wishlist)
+    '/wishlist',
+    '/cart',
+    '/login',
+    '/register',
+    '/blogs/',
+    '/pages/named-community',
+    '/pages/about',
+    '/pages/contact',
+    '/pages/faq',
+    '/pages/privacy',
+    '/pages/terms',
+    '/pages/shipping',
+    '/pages/returns',
+]
+
+
+def _is_product_category_url(url: str) -> bool:
+    """Return False for URLs that clearly don't host a product catalog."""
+    if not url:
+        return False
+    path = urlparse(url).path.lower()
+    return not any(fragment in path for fragment in _NON_PRODUCT_PATH_FRAGMENTS)
+
+
 def get_leaf_categories(tree: list, parent_path: str = "", _skipped: list = None) -> List[Dict]:
     """Extract all leaf categories (no children) from tree.
 
@@ -64,6 +92,10 @@ def get_leaf_categories(tree: list, parent_path: str = "", _skipped: list = None
         else:
             # This is a leaf
             if url:
+                # Skip utility/account pages that never contain a product catalog
+                if not _is_product_category_url(url):
+                    _skipped.append({"name": name, "path": current_path})
+                    continue
                 # Skip "all" categories if they have 2+ siblings (3+ leaves at this level)
                 if _is_all_category(name) and len(leaves_at_level) >= 3:
                     _skipped.append({"name": name, "path": current_path})
