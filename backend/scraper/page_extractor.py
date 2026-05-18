@@ -2490,63 +2490,96 @@ def _find_next_page_url_from_current(bottom_links: List[str], current_url: str, 
 
 def _scroll_using_pagination_element(page, pagination_selector, _pagination_triggers_found):
     """
-    Pagination-based scrolling: Keep scrolling to pagination element until it stops moving.
+    Scroll the load-more trigger into view, repeatedly, until no further loading
+    is happening.
+
+    Each iteration:
+      1. Re-detect the current trigger element from scratch (using the functional
+         scoring from _detect_pagination_element). This is essential because
+         many infinite-scroll implementations destroy the old trigger after it
+         fires and insert a fresh one for the next page — the locator passed
+         in as `pagination_selector` becomes stale after one firing.
+      2. Scroll that trigger into view via Playwright's scroll_into_view_if_needed.
+      3. Wait for the lazy-load network round-trip + render.
+      4. Compare document.body.scrollHeight to the previous iteration. If the
+         page hasn't grown after two consecutive scrolls, we're done.
+
+    Why this differs from the previous implementation:
+      - Old version: cached one locator + checked is_visible(). When the
+        trigger was replaced post-firing, is_visible() flipped to False
+        because the original element was detached from the DOM. The loop
+        exited after 1 scroll even though more pages were available.
+      - New version: re-finds the current trigger each iteration. If a new
+        trigger now exists (next page available), we keep going. If the
+        functional detector returns None, the site has run out of pages.
     """
     try:
+        # First iteration uses the selector we were called with; subsequent
+        # iterations re-detect to handle trigger replacement.
+        current_selector = pagination_selector
+        _log(f"   🎯 Using pagination element as scroll target: {current_selector}")
+
+        last_height = page.evaluate("document.body.scrollHeight")
+        no_growth_count = 0
+        max_no_growth = 2
         scroll_count = 0
-        last_pagination_position = None
-        stable_count = 0
-        max_stable_attempts = 2  # Need 2 consecutive stable checks to confirm loading complete
-        
-        _log(f"   🎯 Using pagination element as scroll target: {pagination_selector}")
-        
-        while True:
+        max_scrolls = 50  # safety
+
+        while scroll_count < max_scrolls:
             scroll_count += 1
-            
-            # Get pagination element position before scrolling
-            pagination_element = page.locator(pagination_selector).last
-            if not pagination_element.is_visible():
-                _log(f"   ❌ Pagination element no longer visible after {scroll_count} scrolls")
-                break
-                
-            pagination_position = pagination_element.bounding_box()
-            if not pagination_position:
-                _log(f"   ❌ Cannot get pagination element position after {scroll_count} scrolls")
-                break
-                
-            current_pagination_y = pagination_position['y'] + pagination_position['height']
-            page_bottom = page.evaluate("document.body.scrollHeight")
-            
-            _log(f"   📏 Scroll #{scroll_count}: Pagination at {current_pagination_y:.0f}px, page bottom {page_bottom}px")
-            
-            # Check if pagination element has stopped moving
-            if last_pagination_position is not None:
-                position_diff = abs(current_pagination_y - last_pagination_position)
-                if position_diff < 10:  # Element hasn't moved significantly
-                    stable_count += 1
-                    _log(f"   ⏸️  Pagination element stable (attempt {stable_count}/{max_stable_attempts})")
-                    if stable_count >= max_stable_attempts:
-                        _log(f"   ✅ Pagination element stopped moving after {scroll_count} scrolls")
-                        break
 
-                    # Scroll up to re-trigger lazy loading instead of just waiting
-                    _log(f"   🔄 Scrolling up to re-trigger lazy load...")
-                    page.evaluate("window.scrollBy(0, -500)")
-                    page.wait_for_timeout(500)
-                else:
-                    stable_count = 0  # Reset if element moved
+            # Confirm the current selector still matches SOMETHING. If not,
+            # re-run the functional detector to find the next-page trigger
+            # (which may be a freshly-inserted element).
+            try:
+                count = page.locator(current_selector).count()
+            except Exception:
+                count = 0
 
-            # Scroll to pagination element
-            pagination_element.scroll_into_view_if_needed()
-            page.wait_for_timeout(2000)  # Wait for content to load and render
-            
-            last_pagination_position = current_pagination_y
-            
-            # Safety check to prevent infinite loops
-            if scroll_count > 50:
-                _log(f"   ⚠️  Reached maximum scroll attempts ({scroll_count})")
-                break
-                
+            if count == 0:
+                fresh = _detect_pagination_element(page)
+                if not fresh:
+                    _log(f"   ✅ No trigger element found after {scroll_count - 1} scrolls — collection fully loaded")
+                    break
+                current_selector = fresh
+                _log(f"   🔁 Re-detected trigger: {current_selector}")
+
+            try:
+                el = page.locator(current_selector).last
+                el.scroll_into_view_if_needed(timeout=5000)
+            except Exception as e:
+                # Element vanished mid-scroll. Try one re-detect; if that also
+                # fails, we're done.
+                fresh = _detect_pagination_element(page)
+                if not fresh or fresh == current_selector:
+                    _log(f"   ✅ Trigger no longer reachable ({e.__class__.__name__}) — assuming fully loaded")
+                    break
+                current_selector = fresh
+                _log(f"   🔁 Re-detected trigger after error: {current_selector}")
+                continue
+
+            page.wait_for_timeout(2000)  # let the AJAX + render complete
+
+            new_height = page.evaluate("document.body.scrollHeight")
+            _log(f"   📏 Scroll #{scroll_count}: scrollHeight {last_height} → {new_height}")
+
+            if new_height <= last_height + 50:  # tolerance for layout shifts
+                no_growth_count += 1
+                if no_growth_count >= max_no_growth:
+                    _log(f"   ✅ Page height stable for {max_no_growth} scrolls — fully loaded")
+                    break
+                # Nudge up then down to re-engage any IntersectionObserver
+                # that didn't fire on the last scroll-into-view.
+                page.evaluate("window.scrollBy(0, -300)")
+                page.wait_for_timeout(400)
+            else:
+                no_growth_count = 0
+
+            last_height = new_height
+
+        if scroll_count >= max_scrolls:
+            _log(f"   ⚠️  Reached max scroll attempts ({max_scrolls}) — stopping")
+
     except Exception as e:
         _log(f"   ❌ Error in pagination scrolling: {e}")
 

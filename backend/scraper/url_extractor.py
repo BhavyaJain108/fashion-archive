@@ -1119,40 +1119,19 @@ def extract_urls_from_category(
                 unique_urls.append(url)
         result.product_urls = unique_urls
 
-        # Coverage check against detected page count
+        # Coverage check against detected page count.
+        # NOTE: this is observational only — we record the status so it shows
+        # up in the per-category log and the brand-level summary table. We
+        # do NOT retry extraction on LOW coverage: the previous run is
+        # deterministic for a given page state, so re-running it just re-uses
+        # the now-warm lineage memory and produces the identical answer at
+        # double the cost. If LOW coverage shows up, it's a signal that the
+        # underlying extraction (scroll / load-more / classifier) needs work
+        # — not a problem any retry can fix.
         result.coverage_status = _classify_coverage(
             extracted=len(result.product_urls),
             expected=result.expected_count,
         )
-
-        # LOW coverage: retry scroll + classify up to 2x
-        if result.coverage_status == "low" and result.expected_count is not None:
-            for retry_n in range(2):
-                _log(f"   🔁 LOW coverage ({len(result.product_urls)} / {result.expected_count}); retry {retry_n+1}/2...")
-                retry_result = _extract_urls_from_single_page(
-                    category_url, category_url, category_name, 1, brand_instance,
-                    skip_pagination_detection=True,
-                )
-                additional_urls = retry_result.get("product_urls", [])
-
-                # Merge & dedupe
-                seen_urls = {u.url for u in result.product_urls}
-                for url in additional_urls:
-                    if url.url not in seen_urls:
-                        result.product_urls.append(url)
-                        seen_urls.add(url.url)
-
-                result.coverage_retries += 1
-                result.coverage_status = _classify_coverage(
-                    extracted=len(result.product_urls),
-                    expected=result.expected_count,
-                )
-                if result.coverage_status == "ok":
-                    break
-
-        # HIGH coverage handling is left as-is for now: we log but do not
-        # auto-strip. The brand-level summary will surface HIGH status to the
-        # user for manual review.
 
         result.extraction_time = time.time() - start_time
 
