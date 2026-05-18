@@ -105,6 +105,68 @@ def test_jsonld_stage_returns_none_when_only_malformed():
     assert _detect_count_from_jsonld(page) is None
 
 
+class _FakePageWithSelector(_FakePage):
+    """Fake page that returns a textContent value for a queryable selector."""
+    def __init__(self, selector_text):
+        super().__init__([])
+        self._selector_text = selector_text
+
+    def evaluate(self, js):
+        if 'querySelector' in js:
+            return self._selector_text
+        return []
+
+
+def test_cached_selector_returns_count_when_text_has_number():
+    from count_detection import _detect_count_from_cached_selector
+    from brand import Brand
+    b = Brand("https://example.com")
+    b.collection_count_selector = ".count"
+    page = _FakePageWithSelector("47 products")
+    assert _detect_count_from_cached_selector(page, b) == 47
+    assert b._count_selector_miss_count == 0
+
+
+def test_cached_selector_returns_none_when_no_selector():
+    from count_detection import _detect_count_from_cached_selector
+    from brand import Brand
+    b = Brand("https://example.com")
+    page = _FakePageWithSelector("47 products")
+    assert _detect_count_from_cached_selector(page, b) is None
+
+
+def test_cached_selector_increments_miss_count_on_no_text():
+    from count_detection import _detect_count_from_cached_selector
+    from brand import Brand
+    b = Brand("https://example.com")
+    b.collection_count_selector = ".count"
+    page = _FakePageWithSelector(None)
+    assert _detect_count_from_cached_selector(page, b) is None
+    assert b._count_selector_miss_count == 1
+
+
+def test_cached_selector_invalidates_after_three_misses():
+    from count_detection import _detect_count_from_cached_selector
+    from brand import Brand
+    b = Brand("https://example.com")
+    b.collection_count_selector = ".count"
+    page = _FakePageWithSelector(None)
+    for _ in range(3):
+        _detect_count_from_cached_selector(page, b)
+    assert b.collection_count_selector is None
+    assert b._count_selector_miss_count == 0
+
+
+def test_cached_selector_returns_none_for_implausible_number():
+    from count_detection import _detect_count_from_cached_selector
+    from brand import Brand
+    b = Brand("https://example.com")
+    b.collection_count_selector = ".count"
+    page = _FakePageWithSelector("999999 reviews")
+    assert _detect_count_from_cached_selector(page, b) is None
+    assert b._count_selector_miss_count == 1
+
+
 if __name__ == "__main__":
     test_brand_has_collection_count_selector_attribute()
     test_count_result_dataclass()
@@ -120,4 +182,9 @@ if __name__ == "__main__":
     test_jsonld_stage_returns_none_when_no_scripts()
     test_jsonld_stage_skips_malformed_json()
     test_jsonld_stage_returns_none_when_only_malformed()
+    test_cached_selector_returns_count_when_text_has_number()
+    test_cached_selector_returns_none_when_no_selector()
+    test_cached_selector_increments_miss_count_on_no_text()
+    test_cached_selector_invalidates_after_three_misses()
+    test_cached_selector_returns_none_for_implausible_number()
     print("✅ all passed")

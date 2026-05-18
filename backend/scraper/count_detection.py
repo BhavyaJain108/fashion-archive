@@ -90,3 +90,53 @@ def _detect_count_from_jsonld(page) -> Optional[int]:
             continue
 
     return _extract_count_from_jsonld_objects(objects)
+
+
+import re
+
+_INVALIDATE_AFTER_MISSES = 3
+
+
+def _detect_count_from_cached_selector(page, brand_instance) -> Optional[int]:
+    """
+    Stage 2: query the brand's cached CSS selector for the count. Parse the
+    first integer from its textContent.
+
+    Increments brand_instance._count_selector_miss_count on failure. After 3
+    consecutive misses, clears brand_instance.collection_count_selector so
+    Stage 3 (vision) runs again.
+
+    Returns None if no cached selector exists or the lookup failed.
+    """
+    if not brand_instance:
+        return None
+    selector = getattr(brand_instance, "collection_count_selector", None)
+    if not selector:
+        return None
+
+    try:
+        text = page.evaluate(
+            f"document.querySelector({json.dumps(selector)})?.textContent"
+        )
+    except Exception:
+        text = None
+
+    count = _parse_first_int(text) if isinstance(text, str) else None
+
+    if count is not None and _MIN_PLAUSIBLE_COUNT <= count <= _MAX_PLAUSIBLE_COUNT:
+        brand_instance._count_selector_miss_count = 0
+        return count
+
+    brand_instance._count_selector_miss_count += 1
+    if brand_instance._count_selector_miss_count >= _INVALIDATE_AFTER_MISSES:
+        brand_instance.collection_count_selector = None
+        brand_instance._count_selector_miss_count = 0
+    return None
+
+
+def _parse_first_int(text: Optional[str]) -> Optional[int]:
+    """Return the first integer found in text, or None."""
+    if not text:
+        return None
+    m = re.search(r"\d+", text)
+    return int(m.group()) if m else None
