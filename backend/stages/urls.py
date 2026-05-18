@@ -296,6 +296,11 @@ def extract_urls_from_category(category_url: str, category_name: str, brand_inst
             "expected_count_source": result.expected_count_source,
             "coverage_status": result.coverage_status,
             "coverage_retries": result.coverage_retries,
+            "exact_match_fired": getattr(result, "exact_match_fired", False),
+            "exact_match_lineage_count": getattr(result, "exact_match_lineage_count", 0),
+            "pruner_fired": getattr(result, "pruner_fired", False),
+            "pruner_kept": getattr(result, "pruner_kept", 0),
+            "pruner_removed": getattr(result, "pruner_removed", 0),
         }
     except Exception as e:
         import traceback
@@ -497,6 +502,90 @@ def dedupe_urls_by_path(urls: List[str]) -> Tuple[List[str], int, int]:
     return deduped, original_count, removed_count
 
 
+def print_vision_verification(results: List[Dict]) -> str:
+    """
+    Print a verification-focused summary of vision/page count vs the count
+    we actually extracted, per category. This is the single most important
+    table for confirming the pipeline got the FULL set of products the page
+    claims to have — anything in the UNDER bucket is the failure case.
+
+    UNDER  : extracted < page count    → MISSING products. Must investigate.
+    MATCH  : extracted == page count   → got exactly what the page shows.
+    OVER   : extracted > page count    → safe; usually variant URLs not
+                                         deduped by the brand's own grid.
+    UNKNOWN: no page count detected    → can't verify. Inspect manually.
+    """
+    print()
+    print("=" * 78)
+    print("VISION → EXTRACTED VERIFICATION  (the count match is the truth check)")
+    print("=" * 78)
+    print(f"  {'Category':<32} {'Page':>6}  →  {'Got':<6} {'Δ':>5}  Verdict")
+    print(f"  {'-'*32} {'-'*6}     {'-'*6} {'-'*5}  -------")
+
+    under = []
+    match = []
+    over = []
+    unknown = []
+
+    for r in results:
+        name = (r.get("name") or "")[:32]
+        page = r.get("expected_count")
+        got = r.get("count", 0)
+
+        if page is None:
+            verdict = "UNKNOWN"
+            delta_str = "—"
+            unknown.append((name, got))
+            page_str = "n/a"
+        else:
+            page_str = str(page)
+            delta = got - page
+            if delta == 0:
+                verdict = "MATCH ✓"
+                delta_str = "+0"
+                match.append((name, page, got))
+            elif delta > 0:
+                verdict = f"OVER +{delta}"
+                delta_str = f"+{delta}"
+                over.append((name, page, got, delta))
+            else:
+                verdict = f"UNDER {delta}   ⚠⚠⚠"
+                delta_str = f"{delta}"
+                under.append((name, page, got, delta))
+
+        print(f"  {name:<32} {page_str:>6}     {got:<6} {delta_str:>5}  {verdict}")
+
+    total_page = sum(p for _, p, *_ in match) + sum(p for _, p, *_ in over) + sum(p for _, p, *_ in under)
+    total_got_with_known = (
+        sum(g for _, _, g in match)
+        + sum(g for _, _, g, _ in over)
+        + sum(g for _, _, g, _ in under)
+    )
+    total_got_all = total_got_with_known + sum(g for _, g in unknown)
+
+    print(f"  {'-'*32} {'-'*6}     {'-'*6} {'-'*5}  -------")
+    print(f"  TOTAL across categories with a detected page count:")
+    print(f"    Pages reported:    {total_page} products")
+    print(f"    We extracted:      {total_got_with_known} products  "
+          f"(Δ = {total_got_with_known - total_page:+d})")
+    if unknown:
+        print(f"    (+{sum(g for _, g in unknown)} more from {len(unknown)} categories with no page count)")
+    print()
+    print(f"  {'MATCH ✓':<22} {len(match):>3} / {len(results)} categories")
+    print(f"  {'OVER (safe, over)':<22} {len(over):>3} / {len(results)} categories")
+    print(f"  {'UNKNOWN (no page count)':<22} {len(unknown):>3} / {len(results)} categories")
+    if under:
+        print(f"  {'UNDER ⚠⚠ MISSING':<22} {len(under):>3} / {len(results)} categories"
+              "   ← INVESTIGATE")
+        print()
+        print("  Categories where we missed products:")
+        for name, page, got, delta in under:
+            print(f"    • {name:<32}  page={page}  got={got}  missing={-delta}")
+    else:
+        print(f"  {'UNDER ⚠⚠ MISSING':<22}   0 / {len(results)} categories  ← clean ✓")
+    print("=" * 78)
+
+
 def print_coverage_summary(results: List[Dict], url_map: Dict[str, List[str]]) -> str:
     """
     Build a brand-level URL extraction coverage summary table.
@@ -632,6 +721,12 @@ def extract_urls(domain: str, max_workers: int = 4) -> dict:
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_leaf = {}
+        # Seed: run the first category to completion before submitting the
+        # rest. Without this, all workers in the first batch race against an
+        # empty brand cache and each makes its own classifier + vision calls.
+        # Running one synchronously populates approved_url_lineages and the
+        # cached count selector so every subsequent category benefits.
+        seed_done = False
         for leaf in leaves:
             if leaf["url"] in submitted_urls:
                 # Reuse the existing future for this URL
@@ -648,13 +743,32 @@ def extract_urls(domain: str, max_workers: int = 4) -> dict:
                 future_to_leaf[future] = [leaf]  # List to handle multiple leaves with same URL
                 submitted_urls[leaf["url"]] = future
 
+                if not seed_done:
+                    # Block here so the brand cache is warm before we submit
+                    # the parallel batch. The future stays in future_to_leaf
+                    # and the as_completed loop below picks it up normally.
+                    print(f"\r  Seeding cache: {leaf['name']}...", end="", flush=True)
+                    future.result()
+                    seed_done = True
+
+        # Header for the live per-category status table.
+        # The vision-vs-extracted comparison is the most important column for
+        # verification — that's what tells you the pipeline got the full set
+        # of products the page says exist. Putting Page→Got first makes it
+        # the first thing you scan.
+        print(f"\n  {'#':>3}  {'Page':>5} → {'Got':<5} {'Δ':<5} {'':2} "
+              f"{'Category':<28} "
+              f"{'Time':>6}  {'Src':<5} {'Mechanism':<24} "
+              f"{'Cost':>8} {'Total':>8}")
+        print(f"  {'-'*3}  {'-'*5}   {'-'*5} {'-'*5} {'':2} "
+              f"{'-'*28} "
+              f"{'-'*6}  {'-'*5} {'-'*24} {'-'*8} {'-'*8}")
+
         completed = 0
+        running_cost = 0.0
         for future in as_completed(future_to_leaf):
             leaves_for_future = future_to_leaf[future]
             completed += len(leaves_for_future)
-
-            # Show progress counter (same line)
-            print(f"\r  Extracting... {completed}/{len(leaves)}", end="", flush=True)
 
             try:
                 result_data = future.result()
@@ -689,17 +803,74 @@ def extract_urls(domain: str, max_workers: int = 4) -> dict:
                     })
                     category_logs[leaf["name"]] = logs
 
+                # Compute per-category cost for the live status line.
+                cat_cost = calculate_cost(
+                    llm_usage.get("input_tokens", 0),
+                    llm_usage.get("output_tokens", 0),
+                )
+                running_cost += cat_cost
+
                 # Track metrics only once per actual extraction
                 category_metrics.append({
                     "name": leaves_for_future[0]["name"],
                     "duration": extraction_time,
                     "products": len(urls),
                     "llm_calls": llm_usage.get("calls", 0),
-                    "llm_cost": calculate_cost(
-                        llm_usage.get("input_tokens", 0),
-                        llm_usage.get("output_tokens", 0)
-                    )
+                    "llm_cost": cat_cost,
                 })
+
+                # Live one-line status. Vision-vs-extracted comparison
+                # leads — that's what tells you whether the pipeline got the
+                # full set of products the page claims to have. UNDER
+                # (extracted < expected) is the one case to watch for —
+                # everything else is safe.
+                expected = result_data.get("expected_count")
+                source = result_data.get("expected_count_source") or "?"
+                src_tag = {
+                    "common_selector": "text",
+                    "jsonld": "ld+j",
+                    "cached_selector": "cache",
+                    "vision": "VISN",
+                }.get(source, "?")
+
+                got = len(urls)
+                if expected is None:
+                    page_str = "?"
+                    delta_str = ""
+                    icon = "·"
+                else:
+                    page_str = str(expected)
+                    delta = got - expected
+                    if delta == 0:
+                        delta_str = ""
+                        icon = "✓"
+                    elif delta > 0:
+                        delta_str = f"+{delta}"
+                        icon = " "
+                    else:
+                        delta_str = f"{delta}"
+                        icon = "⚠ UNDER"
+
+                # Build a "mechanism" cell describing what produced the result.
+                mech_parts = []
+                if result_data.get("exact_match_fired"):
+                    n = result_data.get("exact_match_lineage_count") or 1
+                    mech_parts.append(f"exact-match×{n}" if n > 1 else "exact-match")
+                if result_data.get("pruner_fired"):
+                    kept = result_data.get("pruner_kept", 0)
+                    removed = result_data.get("pruner_removed", 0)
+                    mech_parts.append(f"pruner kept {kept}/-{removed}")
+                if not mech_parts:
+                    mech_parts.append("(no filter / no prune)")
+                mech_str = ", ".join(mech_parts)
+
+                name_short = (leaves_for_future[0]["name"] or "")[:28]
+                print(
+                    f"  {completed:>3}  {page_str:>5} → {got:<5} {delta_str:<5} {icon:<2} "
+                    f"{name_short:<28} "
+                    f"{extraction_time:>5.1f}s  {src_tag:<5} {mech_str:<24} "
+                    f"${cat_cost:>6.4f} ${running_cost:>7.4f}"
+                )
             except Exception as e:
                 for leaf in leaves_for_future:
                     url_map[leaf["url"]] = []
@@ -720,8 +891,13 @@ def extract_urls(domain: str, max_workers: int = 4) -> dict:
                     "llm_calls": 0,
                     "llm_cost": 0.0
                 })
-
-    print()  # Newline after progress
+                name_short = (leaves_for_future[0]["name"] or "")[:28]
+                print(
+                    f"  {completed:>3}  {'—':>5}   {'—':<5} {'':<5} ❌ "
+                    f"{name_short:<28} "
+                    f"   —    —    ERROR: {str(e)[:18]:<24} "
+                    f"${0.0:>6.4f} ${running_cost:>7.4f}"
+                )
 
     # Capture stage timing and LLM usage
     stage_duration = time.time() - stage_start_time
@@ -869,7 +1045,18 @@ def extract_urls(domain: str, max_workers: int = 4) -> dict:
     print(f"Metrics: {metrics_path}")
     print(f"{'='*60}\n")
 
+    # Vision/page count vs extracted — the verification table. UNDER
+    # is the failure mode to investigate; everything else is safe.
+    print_vision_verification(results)
+
     print_coverage_summary(results, url_map)
+
+    # Persist the brand cache (winner lineages + count selector +
+    # pagination pattern) so the next run for this brand benefits.
+    try:
+        brand_instance.save_persisted_cache()
+    except Exception as e:
+        print(f"   ⚠️  Could not save brand cache: {e}")
 
     return result
 

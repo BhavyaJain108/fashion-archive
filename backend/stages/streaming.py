@@ -1042,7 +1042,7 @@ class StreamingOrchestrator:
         }
         """
         from stages.storage import save_urls
-        from stages.urls import print_coverage_summary
+        from stages.urls import print_coverage_summary, print_vision_verification
 
         # Build flat category list (we don't have tree hierarchy in streaming mode)
         category_tree = []
@@ -1076,7 +1076,9 @@ class StreamingOrchestrator:
             "unique_products": len(all_urls)
         }
 
-        # Print brand-level coverage summary before persisting
+        # Vision-vs-extracted verification first (the truth check), then
+        # the broader coverage summary.
+        print_vision_verification(coverage_results)
         print_coverage_summary(coverage_results, url_map)
 
         json_path, txt_path = save_urls(self.domain, urls_tree)
