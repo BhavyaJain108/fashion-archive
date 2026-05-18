@@ -573,59 +573,55 @@ def classify_product_links(
     newly_approved_links = []
     newly_approved_lineages = set()
     newly_rejected_lineages = set()
+    # Per-lineage decisions returned by the LLM, for surfacing in logs.
+    # Each entry: {lineage, classification, reasoning, count, samples}
+    lineage_decisions_log: List[Dict] = []
 
     # If there are unknown links, use LLM to classify
     if unknown_lineage_links:
-        # Sampling strategy: show the LLM up to 3 examples per lineage so a
-        # single ambiguous sample can't kill a 60-link lineage. Cap total at 50
-        # to stay within prompt budget. With 27 lineages * 3 = 81 > 50, larger
-        # lineages get more samples (round-robin until budget is hit).
-        MAX_SAMPLES = 50
-        MAX_PER_LINEAGE = 3
+        MAX_SAMPLES_PER_LINEAGE = 3
 
         # Group unknowns by lineage (preserving page-order within each group)
         unknowns_by_lineage: Dict[str, List[Dict]] = {}
         for link in unknown_lineage_links:
             unknowns_by_lineage.setdefault(link.get("lineage", "unknown"), []).append(link)
 
-        # Per-lineage link counts on the full page — passed to the prompt so
-        # the LLM can do coverage math (lineage X has 60 links, etc.).
-        lineage_counts: Dict[str, int] = {
-            lin: len(group) for lin, group in unknowns_by_lineage.items()
-        }
-        # Also include known-approved and known-rejected lineages in the
-        # breakdown so the LLM can see the FULL page picture when reasoning.
-        for lin in approved_lineages:
-            if lin in lineage_groups:
-                lineage_counts.setdefault(lin, len(lineage_groups[lin]))
-        for lin in rejected_lineages:
-            if lin in lineage_groups:
-                lineage_counts.setdefault(lin, len(lineage_groups[lin]))
+        # Build the lineage_info list the prompt expects. Each lineage is a
+        # self-contained block with id, DOM path, count, carousel ratio, and
+        # 1-3 sample URLs + link text. The LLM returns one decision per block.
+        lineage_info: List[Dict] = []
+        id_to_lineage: Dict[str, str] = {}
+        for idx, (lineage_str, group) in enumerate(unknowns_by_lineage.items()):
+            lid = f"L{idx + 1}"
+            id_to_lineage[lid] = lineage_str
+            carousel_count = sum(1 for link in group if link.get("in_carousel"))
+            samples = [
+                {"url": link.get("url", ""), "link_text": link.get("link_text", "")}
+                for link in group[:MAX_SAMPLES_PER_LINEAGE]
+            ]
+            lineage_info.append({
+                "id": lid,
+                "lineage": lineage_str,
+                "count": len(group),
+                "carousel_count": carousel_count,
+                "samples": samples,
+            })
 
-        # Round-robin sampling: first pass takes index 0 of every lineage,
-        # second pass takes index 1, etc., up to MAX_PER_LINEAGE per lineage
-        # or MAX_SAMPLES total — whichever hits first.
-        sampled_links: List[Dict] = []
-        for pass_n in range(MAX_PER_LINEAGE):
-            if len(sampled_links) >= MAX_SAMPLES:
-                break
-            for lin, group in unknowns_by_lineage.items():
-                if pass_n < len(group):
-                    sampled_links.append(group[pass_n])
-                    if len(sampled_links) >= MAX_SAMPLES:
-                        break
+        total_page_links = (
+            len(known_approved_links) + len(known_rejected_links) + len(unknown_lineage_links)
+        )
 
-        total_page_links = len(known_approved_links) + len(known_rejected_links) + len(unknown_lineage_links)
-
-        _log(f"   🧠 Sending {len(sampled_links)} samples ({len(unknowns_by_lineage)} lineages × up to {MAX_PER_LINEAGE}) to LLM for classification...")
+        _log(
+            f"   🧠 Sending {len(lineage_info)} lineages "
+            f"({total_page_links} total links) to LLM for per-lineage classification..."
+        )
 
         # Call LLM
         llm_handler = LLMHandler()
         prompt = url_classification.get_prompt(
-            page_url, category_name, sampled_links,
+            page_url, category_name, lineage_info,
             expected_count=expected_count,
             total_page_links=total_page_links,
-            lineage_counts=lineage_counts,
         )
         response = llm_handler.call(
             prompt,
@@ -636,33 +632,88 @@ def classify_product_links(
 
         if response.get("success"):
             data = response.get("data", {})
-            product_indices = set(data.get("product_link_indices", []))
+            decisions = data.get("lineage_decisions", [])
             confidence = data.get("confidence", "Medium")
-            analysis = data.get("analysis", "")
+            overall_analysis = data.get("overall_analysis", "")
 
-            _log(f"   📋 LLM classified {len(product_indices)} of {len(sampled_links)} as products (confidence: {confidence})")
-            _log(f"   📝 Analysis: {analysis[:200]}...")
+            # Build a {lineage_id -> decision} map
+            decision_by_id: Dict[str, Dict] = {}
+            for d in decisions:
+                lid = d.get("lineage_id")
+                if lid:
+                    decision_by_id[lid] = d
 
-            # Map indices back to lineages
-            for i, link in enumerate(sampled_links):
-                lineage = link.get("lineage", "unknown")
-                if i in product_indices:
-                    newly_approved_lineages.add(lineage)
+            # Apply each decision back to its lineage
+            approved_lineage_strings = set()
+            for lid, lineage_str in id_to_lineage.items():
+                d = decision_by_id.get(lid)
+                if d is None:
+                    # LLM forgot to classify this lineage — log and default to reject
+                    classification = "other"
+                    reasoning = "(LLM did not return a decision for this lineage; defaulting to reject)"
                 else:
-                    newly_rejected_lineages.add(lineage)
+                    classification = d.get("classification", "other")
+                    reasoning = d.get("reasoning", "")
 
-            # Apply classification to ALL links with matching lineages
+                # Stash for the per-category log
+                lineage_decisions_log.append({
+                    "lineage": lineage_str,
+                    "lineage_id": lid,
+                    "classification": classification,
+                    "reasoning": reasoning,
+                    "count": len(unknowns_by_lineage.get(lineage_str, [])),
+                })
+
+                if classification == "product":
+                    newly_approved_lineages.add(lineage_str)
+                    approved_lineage_strings.add(lineage_str)
+                else:
+                    newly_rejected_lineages.add(lineage_str)
+
+            # Collect links from every newly-approved lineage
             for link in unknown_lineage_links:
-                lineage = link.get("lineage", "unknown")
-                if lineage in newly_approved_lineages:
+                if link.get("lineage", "unknown") in approved_lineage_strings:
                     newly_approved_links.append(link)
+
+            approved_count = sum(
+                len(unknowns_by_lineage[lin]) for lin in approved_lineage_strings
+            )
+            _log(
+                f"   📋 LLM classified {len(approved_lineage_strings)} of "
+                f"{len(lineage_info)} lineages as product "
+                f"(covering {approved_count} of {total_page_links} links, confidence: {confidence})"
+            )
+            _log(f"   📝 Analysis: {overall_analysis[:300]}")
+
+            # Per-lineage decisions with reasoning, grouped by classification.
+            # This is the diagnostic surface — if the count is off, this is
+            # where you see *why* specific lineages got accepted or rejected.
+            from collections import OrderedDict
+            grouped: "OrderedDict[str, list]" = OrderedDict()
+            for cls_name in ["product", "navigation", "featured", "recommendation", "utility", "other"]:
+                grouped[cls_name] = []
+            for d in lineage_decisions_log:
+                grouped.setdefault(d["classification"], []).append(d)
+            icons = {"product": "✓", "navigation": "→", "featured": "★",
+                     "recommendation": "↪", "utility": "⚙", "other": "•"}
+            for cls_name, items in grouped.items():
+                if not items:
+                    continue
+                # Sort items by count descending for readability
+                items_sorted = sorted(items, key=lambda x: -x["count"])
+                icon = icons.get(cls_name, "•")
+                _log(f"   {icon} {cls_name.upper()} ({len(items)} lineages):")
+                for d in items_sorted:
+                    lid = d["lineage_id"]
+                    cnt = d["count"]
+                    reason = d["reasoning"][:140]
+                    _log(f"      [{lid}] {cnt:>3} links — {reason}")
         else:
             _log(f"   ❌ LLM classification failed: {response.get('error', 'Unknown error')}")
             # Fallback: use URL heuristics
             _log(f"   🔄 Using URL heuristics as fallback...")
             for link in unknown_lineage_links:
                 url = link.get("url", "")
-                # Common product URL patterns
                 if any(pattern in url.lower() for pattern in ['/products/', '/product/', '/p/', '/item/', '/shop/']):
                     newly_approved_links.append(link)
                     newly_approved_lineages.add(link.get("lineage", "unknown"))
@@ -717,6 +768,7 @@ def classify_product_links(
         "newly_classified_count": len(newly_approved_links),
         "rejected_by_lineage": rejected_by_lineage,
         "memory_disagreed_with_count": force_reclassify_memory,
+        "lineage_decisions": lineage_decisions_log,  # per-lineage LLM reasoning
     }
 
     _log(f"   ✅ Classification complete: {len(unique_product_links)} product URLs identified")

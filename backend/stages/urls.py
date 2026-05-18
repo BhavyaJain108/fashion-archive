@@ -177,27 +177,78 @@ def extract_urls_from_category(category_url: str, category_name: str, brand_inst
             log_lines.append(f"Pre-approved (from memory): {stats.get('pre_approved_count', 0)}")
             log_lines.append(f"Newly classified by LLM: {stats.get('newly_classified_count', 0)}")
 
-            # Show approved lineages (DOM patterns that are products)
-            approved_lineages = stats.get('lineages_approved', [])
-            if approved_lineages:
+            # Per-lineage LLM decisions with reasoning (the new structured output)
+            lineage_decisions = stats.get('lineage_decisions', [])
+            if lineage_decisions:
+                # Sort by count descending so the biggest patterns appear first
+                sorted_decisions = sorted(
+                    lineage_decisions, key=lambda d: -d.get("count", 0)
+                )
+
+                # Group by classification for readability
+                from collections import OrderedDict
+                by_class: "OrderedDict[str, list]" = OrderedDict()
+                for cls in ["product", "navigation", "featured", "recommendation", "utility", "other"]:
+                    by_class[cls] = []
+                for d in sorted_decisions:
+                    by_class.setdefault(d.get("classification", "other"), []).append(d)
+
                 log_lines.append("")
-                log_lines.append(f"APPROVED LINEAGES ({len(approved_lineages)}):")
-                for lineage in approved_lineages:
+                log_lines.append("=" * 40)
+                log_lines.append(f"LINEAGE DECISIONS (LLM classified {len(lineage_decisions)} lineages)")
+                log_lines.append("=" * 40)
+                icons = {
+                    "product": "✓",
+                    "navigation": "→",
+                    "featured": "★",
+                    "recommendation": "↪",
+                    "utility": "⚙",
+                    "other": "•",
+                }
+                for cls, decisions_in_cls in by_class.items():
+                    if not decisions_in_cls:
+                        continue
+                    icon = icons.get(cls, "•")
+                    log_lines.append("")
+                    log_lines.append(f"{icon} {cls.upper()} ({len(decisions_in_cls)} lineages)")
+                    for d in decisions_in_cls:
+                        count = d.get("count", 0)
+                        lineage = d.get("lineage", "")
+                        lid = d.get("lineage_id", "")
+                        reasoning = d.get("reasoning", "")
+                        log_lines.append(f"  [{lid}] count={count}")
+                        log_lines.append(f"     lineage: {lineage}")
+                        if reasoning:
+                            log_lines.append(f"     reason:  {reasoning}")
+
+            # Memory-derived approvals/rejections (when LLM was skipped because
+            # all lineages came from prior categories) — show the lineage strings
+            # only, since we don't have per-lineage reasoning for them.
+            approved_from_memory = [
+                lin for lin in stats.get('lineages_approved', [])
+                if not any(d.get("lineage") == lin for d in lineage_decisions)
+            ]
+            if approved_from_memory:
+                log_lines.append("")
+                log_lines.append(f"APPROVED FROM MEMORY ({len(approved_from_memory)}):")
+                for lineage in approved_from_memory:
                     log_lines.append(f"  ✓ {lineage}")
 
-            # Show rejected lineages with their URLs
+            # Rejected URL listing (kept for forensics — actual URLs we filtered out)
             rejected_by_lineage = stats.get('rejected_by_lineage', {})
             if rejected_by_lineage:
                 log_lines.append("")
-                log_lines.append(f"REJECTED LINEAGES ({len(rejected_by_lineage)}):")
+                log_lines.append(f"REJECTED URL LISTING ({len(rejected_by_lineage)} lineages):")
                 for lineage, rejected_links in rejected_by_lineage.items():
                     log_lines.append(f"")
                     log_lines.append(f"  ✗ LINEAGE: {lineage}")
                     log_lines.append(f"    URLs ({len(rejected_links)}):")
-                    for link in rejected_links:
+                    for link in rejected_links[:10]:  # Cap at 10 per lineage; logs were huge
                         text = link.get('link_text', '')[:50]
                         text_display = f' "{text}"' if text else ''
                         log_lines.append(f"      - {link.get('url', '')}{text_display}")
+                    if len(rejected_links) > 10:
+                        log_lines.append(f"      ... and {len(rejected_links) - 10} more")
 
         if result.errors:
             log_lines.append("")
