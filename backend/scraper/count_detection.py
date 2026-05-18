@@ -216,3 +216,28 @@ def _parse_vision_response(response_text: str):
     except (json.JSONDecodeError, TypeError, ValueError) as e:
         logger.warning(f"Failed to parse vision response: {e}; response was: {response_text[:200]}")
         return None
+
+
+def detect_collection_count(page, category_name: str, brand_instance, llm_handler) -> Optional[CountResult]:
+    """
+    Three-stage collection count detection.
+
+    Stage 1: JSON-LD structured data (free, instant).
+    Stage 2: Brand-cached CSS selector (free if cache hit).
+    Stage 3: Vision LLM screenshot of the page (paid; caches a selector for next time).
+
+    Returns CountResult(count, source) or None if the count is honestly unknown.
+    """
+    n = _detect_count_from_jsonld(page)
+    if n is not None:
+        return CountResult(count=n, source="jsonld")
+
+    n = _detect_count_from_cached_selector(page, brand_instance)
+    if n is not None:
+        return CountResult(count=n, source="cached_selector")
+
+    n = _detect_count_from_vision(page, category_name, brand_instance, llm_handler)
+    if n is not None:
+        return CountResult(count=n, source="vision")
+
+    return None

@@ -246,6 +246,71 @@ def test_vision_stage_returns_none_on_llm_failure():
     assert count is None
 
 
+class _StagedFakePage:
+    """Fake page that responds differently depending on what's queried."""
+    def __init__(self, jsonld_texts=None, selector_text=None):
+        self._jsonld = jsonld_texts or []
+        self._selector_text = selector_text
+
+    def evaluate(self, js):
+        if 'application/ld+json' in js:
+            return self._jsonld
+        if 'querySelector' in js:
+            return self._selector_text
+        return None
+
+    def screenshot(self, **kwargs):
+        return b"\x89PNG\r\n\x1a\nfake"
+
+
+def test_orchestrator_returns_jsonld_result_when_available():
+    from count_detection import detect_collection_count, CountResult
+    from brand import Brand
+    b = Brand("https://example.com")
+    page = _StagedFakePage(jsonld_texts=['{"@type":"ItemList","numberOfItems":47}'])
+    llm = _FakeLLMHandler({"success": False})
+    result = detect_collection_count(page, "Hoodies", b, llm)
+    assert result == CountResult(count=47, source="jsonld")
+
+
+def test_orchestrator_falls_through_to_cached_selector():
+    from count_detection import detect_collection_count, CountResult
+    from brand import Brand
+    b = Brand("https://example.com")
+    b.collection_count_selector = ".count"
+    page = _StagedFakePage(jsonld_texts=[], selector_text="32 items")
+    llm = _FakeLLMHandler({"success": False})
+    result = detect_collection_count(page, "Tops", b, llm)
+    assert result == CountResult(count=32, source="cached_selector")
+
+
+def test_orchestrator_falls_through_to_vision():
+    from count_detection import detect_collection_count, CountResult
+    from brand import Brand
+    b = Brand("https://example.com")
+    page = _StagedFakePage(jsonld_texts=[], selector_text=None)
+    llm = _FakeLLMHandler({
+        "success": True,
+        "response": '{"count":18,"selector":".c","confidence":"high","reasoning":"x"}',
+        "usage": {"input_tokens": 50, "output_tokens": 10},
+    })
+    result = detect_collection_count(page, "THORN", b, llm)
+    assert result == CountResult(count=18, source="vision")
+
+
+def test_orchestrator_returns_none_when_all_stages_miss():
+    from count_detection import detect_collection_count
+    from brand import Brand
+    b = Brand("https://example.com")
+    page = _StagedFakePage(jsonld_texts=[], selector_text=None)
+    llm = _FakeLLMHandler({
+        "success": True,
+        "response": '{"count":null,"selector":null,"confidence":"low","reasoning":"none"}',
+        "usage": {"input_tokens": 50, "output_tokens": 10},
+    })
+    assert detect_collection_count(page, "Mystery", b, llm) is None
+
+
 if __name__ == "__main__":
     test_brand_has_collection_count_selector_attribute()
     test_count_result_dataclass()
@@ -270,4 +335,8 @@ if __name__ == "__main__":
     test_vision_stage_does_not_cache_on_medium_confidence()
     test_vision_stage_returns_none_when_llm_returns_null_count()
     test_vision_stage_returns_none_on_llm_failure()
+    test_orchestrator_returns_jsonld_result_when_available()
+    test_orchestrator_falls_through_to_cached_selector()
+    test_orchestrator_falls_through_to_vision()
+    test_orchestrator_returns_none_when_all_stages_miss()
     print("✅ all passed")
