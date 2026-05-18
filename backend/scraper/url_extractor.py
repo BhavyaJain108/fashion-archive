@@ -706,9 +706,15 @@ def _extract_urls_from_single_page(
         result = _scroll_and_extract_links(page_url, brand_instance, skip_pagination_detection=skip_pagination_detection)
         links = result.get("links", [])
         discovery_info = result.get("discovery_info", {})
+        count_result = result.get("count_result")  # may be None
+        expected_count = count_result.count if count_result else None
+        expected_count_source = count_result.source if count_result else None
 
         # Classify links to filter products
-        classification = classify_product_links(links, page_url, category_name, brand_instance)
+        classification = classify_product_links(
+            links, page_url, category_name, brand_instance,
+            expected_count=expected_count,
+        )
         product_links = classification.get("product_links", [])
         stats = classification.get("stats", {})
 
@@ -736,7 +742,9 @@ def _extract_urls_from_single_page(
             "pagination_detected": discovery_info.get("pagination_detected") if not skip_pagination_detection else None,
             "extraction_time": extraction_time,
             "stats": stats,
-            "discovery_info": discovery_info
+            "discovery_info": discovery_info,
+            "expected_count": expected_count,
+            "expected_count_source": expected_count_source,
         }
 
     except Exception as e:
@@ -960,6 +968,8 @@ def extract_urls_from_category(
         result.product_urls.extend(page1_urls)
         result.llm_filtering_stats = page1_result.get("stats", {})
         result.discovery_info = page1_result.get("discovery_info", {})
+        result.expected_count = page1_result.get("expected_count")
+        result.expected_count_source = page1_result.get("expected_count_source")
 
         if page1_result.get("error"):
             result.errors.append(f"Page 1: {page1_result['error']}")
