@@ -20,6 +20,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from llm_handler import LLMHandler
 from prompts import url_classification
+from count_detection import detect_collection_count, CountResult
 
 # Thread-local storage for quiet mode
 _thread_local = threading.local()
@@ -355,6 +356,8 @@ def _scroll_and_extract_links(page_url: str, brand_instance=None, skip_paginatio
         )
         page = context.new_page()
 
+        count_result: Optional[CountResult] = None  # populated after scroll completes
+
         try:
             # Navigate to page
             _log(f"   🌐 Loading: {page_url}")
@@ -455,6 +458,27 @@ def _scroll_and_extract_links(page_url: str, brand_instance=None, skip_paginatio
 
             all_links = final_links
 
+            # Detect collection count from the page (after scroll/load-more completed)
+            category_name_arg = (
+                brand_instance.brand_id if brand_instance and getattr(brand_instance, "brand_id", None)
+                else "this collection"
+            )
+            try:
+                if brand_instance and getattr(brand_instance, "llm_handler", None):
+                    count_result = detect_collection_count(
+                        page,
+                        category_name_arg,
+                        brand_instance,
+                        brand_instance.llm_handler,
+                    )
+                    if count_result:
+                        _log(f"   🔢 Collection count detected: {count_result.count} (source: {count_result.source})")
+                    else:
+                        _log(f"   🔢 Collection count: not displayed")
+            except Exception as e:
+                _log(f"   ⚠️  Count detection error (non-fatal): {e}")
+                count_result = None
+
             # Detect pagination for multi-page extraction (skip on pages 2+ where we already know the pattern)
             if not skip_pagination_detection:
                 # If brand has a cached pagination pattern, use fast detection (no LLM)
@@ -471,7 +495,8 @@ def _scroll_and_extract_links(page_url: str, brand_instance=None, skip_paginatio
 
     return {
         "links": all_links,
-        "discovery_info": discovery_info
+        "discovery_info": discovery_info,
+        "count_result": count_result,
     }
 
 
