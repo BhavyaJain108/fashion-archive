@@ -51,13 +51,14 @@ class URLClassification(BaseModel):
 def get_prompt(page_url: str, category_name: str,
                lineage_info: List[Dict],
                expected_count: Optional[int] = None,
-               total_page_links: Optional[int] = None) -> str:
+               total_page_links: Optional[int] = None,
+               nav_path: Optional[str] = None) -> str:
     """
     Generate the per-lineage URL classification prompt.
 
     Args:
         page_url: The category page URL
-        category_name: Human-readable category name
+        category_name: Human-readable category name (the leaf slug)
         lineage_info: One entry per lineage on the page (in the order the LLM
             will see them). Each dict has:
                 - id:              short label, e.g. "L1", "L2"
@@ -67,6 +68,8 @@ def get_prompt(page_url: str, category_name: str,
                 - samples:         list of {url, link_text} (1-3 representative)
         expected_count: If known, the displayed product count on the page.
         total_page_links: Total link count across all lineages.
+        nav_path: Optional full nav-tree path (e.g. "Women > Tops > Hoodies").
+            Gives the LLM richer category context than just the leaf slug.
 
     Returns:
         Formatted prompt string. The LLM is expected to return one
@@ -130,7 +133,7 @@ You are classifying the DOM **lineages** present on an e-commerce category page 
 **Context:**
 - Page URL: {page_url}
 - Category: {category_name}
-- Total links found on the page: {total_page_links if total_page_links is not None else "unknown"}
+{f"- Full nav path: {nav_path}" + chr(10) if nav_path else ""}- Total links found on the page: {total_page_links if total_page_links is not None else "unknown"}
 - Number of distinct lineages: {len(lineage_info)}
 - Expected products on this page: {expected_str}
 {count_hint}

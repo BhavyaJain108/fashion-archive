@@ -119,8 +119,17 @@ def get_leaf_categories_with_stats(tree: list) -> tuple:
     return leaves, len(skipped), [s["name"] for s in skipped]
 
 
-def extract_urls_from_category(category_url: str, category_name: str, brand_instance=None) -> Dict:
+def extract_urls_from_category(category_url: str, category_name: str, brand_instance=None,
+                               nav_path: str = None) -> Dict:
     """Extract product URLs from a single category page.
+
+    Args:
+        category_url: The category page URL.
+        category_name: Leaf category name from the nav tree.
+        brand_instance: Brand state (caches, lineage memory).
+        nav_path: Full nav-tree path (e.g. "Women / Tops / Hoodies") to pass
+            through to the LLM classifier and pruner — gives the model
+            category context beyond the URL slug.
 
     Returns dict with: urls, logs, extraction_time, llm_usage.
     """
@@ -130,11 +139,14 @@ def extract_urls_from_category(category_url: str, category_name: str, brand_inst
     # Generate a simple log entry instead
     log_lines = []
     log_lines.append(f"Category: {category_name}")
+    if nav_path:
+        log_lines.append(f"Nav path: {nav_path}")
     log_lines.append(f"URL: {category_url}")
     log_lines.append("=" * 60)
 
     try:
-        result = extract_category(category_url, brand_instance=brand_instance, quiet=True)
+        result = extract_category(category_url, brand_instance=brand_instance,
+                                  quiet=True, nav_path=nav_path)
         urls = [p.url for p in result.product_urls]
         extraction_time = result.extraction_time
         llm_usage = getattr(result, 'llm_usage', {"calls": 0, "input_tokens": 0, "output_tokens": 0})
@@ -625,8 +637,14 @@ def extract_urls(domain: str, max_workers: int = 4) -> dict:
                 # Reuse the existing future for this URL
                 future_to_leaf[submitted_urls[leaf["url"]]].append(leaf)
             else:
-                # Submit new extraction task
-                future = executor.submit(extract_urls_from_category, leaf["url"], leaf["name"], brand_instance)
+                # Submit new extraction task. Pass nav_path from the leaf's
+                # full tree path so the classifier+pruner can use category
+                # context beyond the URL slug.
+                future = executor.submit(
+                    extract_urls_from_category,
+                    leaf["url"], leaf["name"], brand_instance,
+                    leaf.get("path"),
+                )
                 future_to_leaf[future] = [leaf]  # List to handle multiple leaves with same URL
                 submitted_urls[leaf["url"]] = future
 

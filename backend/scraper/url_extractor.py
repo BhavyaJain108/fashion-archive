@@ -19,7 +19,7 @@ from playwright.sync_api import sync_playwright
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from llm_handler import LLMHandler
-from prompts import url_classification
+from prompts import url_classification, url_pruning
 from count_detection import detect_collection_count, CountResult
 
 # Thread-local storage for quiet mode
@@ -506,6 +506,7 @@ def classify_product_links(
     category_name: str,
     brand_instance=None,
     expected_count: Optional[int] = None,
+    nav_path: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Use LLM to classify links as products vs navigation/recommendations.
@@ -622,6 +623,7 @@ def classify_product_links(
             page_url, category_name, lineage_info,
             expected_count=expected_count,
             total_page_links=total_page_links,
+            nav_path=nav_path,
         )
         response = llm_handler.call(
             prompt,
@@ -785,7 +787,8 @@ def _extract_urls_from_single_page(
     category_name: str,
     page_num: int,
     brand_instance=None,
-    skip_pagination_detection: bool = False
+    skip_pagination_detection: bool = False,
+    nav_path: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Extract product URLs from a single page.
@@ -808,6 +811,7 @@ def _extract_urls_from_single_page(
         classification = classify_product_links(
             links, page_url, category_name, brand_instance,
             expected_count=expected_count,
+            nav_path=nav_path,
         )
         product_links = classification.get("product_links", [])
         stats = classification.get("stats", {})
@@ -1019,6 +1023,117 @@ def extract_multi_page_urls(
     }
 
 
+def prune_to_expected_count(
+    product_urls: List["ProductURL"],
+    category_name: str,
+    expected_count: int,
+    nav_path: Optional[str] = None,
+    page_url: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Second-pass LLM call: prune over-extracted product URLs down to the
+    expected count by category-matching the slug + link text.
+
+    Only called when len(product_urls) > expected_count. Sends ALL candidates
+    (no sampling) and asks the LLM to identify which subset truly belongs to
+    the category. If the LLM is uncertain it prefers excluding — better to
+    ship slightly under than to keep contamination.
+
+    Args:
+        product_urls: All ProductURL objects returned by the first-pass
+            classifier (already deduplicated).
+        category_name: Leaf category name ("Hoodies").
+        expected_count: How many products the page actually displays.
+        nav_path: Optional full navigation path ("Women > Tops > Hoodies").
+        page_url: Optional category page URL for prompt context.
+
+    Returns:
+        {
+            "kept": List[ProductURL],   # the pruned list
+            "removed_count": int,        # how many got dropped
+            "removed_urls": List[str],   # for the log
+            "reasoning": str,            # LLM's pruning logic
+            "llm_usage": Dict,           # for cost tracking
+        }
+    """
+    n = len(product_urls)
+    if n <= expected_count:
+        # Nothing to prune.
+        return {
+            "kept": product_urls,
+            "removed_count": 0,
+            "removed_urls": [],
+            "reasoning": "no pruning needed (extracted <= expected)",
+            "llm_usage": {},
+        }
+
+    _log(f"   ✂️  Pruning: {n} candidates > {expected_count} expected; sending all to LLM for category match...")
+
+    # Build the candidate list for the prompt (just url + link text).
+    candidates = [
+        {"url": p.url, "link_text": p.link_text}
+        for p in product_urls
+    ]
+
+    prompt = url_pruning.get_prompt(
+        category_name=category_name,
+        candidates=candidates,
+        expected_count=expected_count,
+        nav_path=nav_path,
+        page_url=page_url,
+    )
+    llm_handler = LLMHandler()
+    response = llm_handler.call(
+        prompt,
+        expected_format="json",
+        response_model=url_pruning.get_response_model(),
+        operation="url_pruning",
+    )
+
+    if not response.get("success"):
+        _log(f"   ⚠️  Pruning LLM call failed ({response.get('error', 'unknown')}); keeping original {n} candidates")
+        return {
+            "kept": product_urls,
+            "removed_count": 0,
+            "removed_urls": [],
+            "reasoning": f"LLM call failed: {response.get('error')}",
+            "llm_usage": {},
+        }
+
+    data = response.get("data", {})
+    indices_to_keep = data.get("indices_to_keep", []) or []
+    reasoning = data.get("reasoning", "")
+
+    # Sanitize: deduplicate, drop out-of-range. We keep whatever the LLM said
+    # (per user direction: "prefer returning fewer rather than including
+    # doubtful ones") — no padding with rejected candidates.
+    seen_idx = set()
+    valid_indices = []
+    for idx in indices_to_keep:
+        if isinstance(idx, int) and 0 <= idx < n and idx not in seen_idx:
+            seen_idx.add(idx)
+            valid_indices.append(idx)
+
+    kept = [product_urls[i] for i in valid_indices]
+    removed_urls = [
+        product_urls[i].url for i in range(n) if i not in seen_idx
+    ]
+
+    _log(
+        f"   ✂️  Pruning kept {len(kept)} / {n} (target was {expected_count}); "
+        f"removed {len(removed_urls)} candidates"
+    )
+    _log(f"   📝 Pruning rationale: {reasoning[:240]}")
+
+    return {
+        "kept": kept,
+        "removed_count": len(removed_urls),
+        "removed_urls": removed_urls,
+        "reasoning": reasoning,
+        "llm_usage": response.get("usage") or {},
+    }
+
+
 def _classify_coverage(extracted: int, expected: Optional[int]) -> str:
     """
     Return one of: "ok", "low", "high", "unknown".
@@ -1042,7 +1157,8 @@ def _classify_coverage(extracted: int, expected: Optional[int]) -> str:
 def extract_urls_from_category(
     category_url: str,
     brand_instance=None,
-    quiet: bool = False
+    quiet: bool = False,
+    nav_path: Optional[str] = None,
 ) -> URLExtractionResult:
     """
     Extract all product URLs from a single category.
@@ -1053,6 +1169,11 @@ def extract_urls_from_category(
         category_url: URL of the category page
         brand_instance: Optional brand instance for shared state
         quiet: If True, suppress all log output (for parallel execution)
+        nav_path: Full navigation path for this category from the nav tree
+            (e.g. "Women > Tops > Hoodies"). Surfaced to the LLM classifier
+            and the pruning step so they have the human-meaningful category
+            context, not just the URL slug. None when called from a context
+            without nav-tree access (e.g. test_category.py).
     """
     # Set thread-local quiet flag
     _thread_local.quiet = quiet
@@ -1062,6 +1183,8 @@ def extract_urls_from_category(
 
     _log(f"\n{'='*60}")
     _log(f"📁 Extracting URLs from: {category_name}")
+    if nav_path:
+        _log(f"   Nav path: {nav_path}")
     _log(f"   URL: {category_url}")
     _log(f"{'='*60}")
 
@@ -1073,7 +1196,8 @@ def extract_urls_from_category(
     try:
         # Extract page 1
         page1_result = _extract_urls_from_single_page(
-            category_url, category_url, category_name, 1, brand_instance
+            category_url, category_url, category_name, 1, brand_instance,
+            nav_path=nav_path,
         )
 
         page1_urls = page1_result.get("product_urls", [])
@@ -1118,6 +1242,32 @@ def extract_urls_from_category(
                 seen.add(url.url)
                 unique_urls.append(url)
         result.product_urls = unique_urls
+
+        # Second-pass pruning: only when first-pass classification gave us
+        # MORE products than the page actually displays. This catches
+        # cross-category contamination — typically variant/swatch links that
+        # share a lineage with real product cards but point to items in other
+        # categories (e.g. a "color swatch" lineage on the hoodies page that
+        # links to bikinis and boxers).
+        if (result.expected_count is not None
+                and len(result.product_urls) > result.expected_count):
+            prune_result = prune_to_expected_count(
+                product_urls=result.product_urls,
+                category_name=category_name,
+                expected_count=result.expected_count,
+                nav_path=nav_path,
+                page_url=category_url,
+            )
+            result.product_urls = prune_result["kept"]
+            result.add_llm_usage(prune_result.get("llm_usage") or {})
+            # Surface in the stats dict so the per-category log can show it.
+            if result.llm_filtering_stats is None:
+                result.llm_filtering_stats = {}
+            result.llm_filtering_stats["pruning"] = {
+                "removed_count": prune_result["removed_count"],
+                "removed_urls": prune_result["removed_urls"],
+                "reasoning": prune_result["reasoning"],
+            }
 
         # Coverage check against detected page count.
         # NOTE: this is observational only — we record the status so it shows

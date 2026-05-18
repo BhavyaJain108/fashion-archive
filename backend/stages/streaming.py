@@ -241,7 +241,8 @@ class StreamingOrchestrator:
                     extract_urls_from_category,
                     leaf["url"],
                     leaf["name"],
-                    brand
+                    brand,
+                    leaf.get("path"),   # nav_path → carries through to LLM classifier + pruner
                 ): leaf
                 for leaf in leaves
             }
