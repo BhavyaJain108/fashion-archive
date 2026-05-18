@@ -143,6 +143,11 @@ class URLExtractionResult:
     })
     errors: List[str] = field(default_factory=list)
     discovery_info: Dict = field(default_factory=dict)  # Scroll/extraction stats
+    # Coverage tracking (added 2026-05-14)
+    expected_count: Optional[int] = None
+    expected_count_source: Optional[str] = None  # "jsonld" | "cached_selector" | "vision" | None
+    coverage_status: str = "unknown"             # "ok" | "low" | "high" | "unknown"
+    coverage_retries: int = 0
 
     def to_dict(self) -> Dict:
         return {
@@ -153,7 +158,11 @@ class URLExtractionResult:
             "extraction_time": self.extraction_time,
             "llm_filtering_stats": self.llm_filtering_stats,
             "llm_usage": self.llm_usage,
-            "errors": self.errors
+            "errors": self.errors,
+            "expected_count": self.expected_count,
+            "expected_count_source": self.expected_count_source,
+            "coverage_status": self.coverage_status,
+            "coverage_retries": self.coverage_retries,
         }
 
     def add_llm_usage(self, usage: Dict):
