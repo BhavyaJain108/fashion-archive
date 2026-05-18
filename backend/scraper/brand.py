@@ -145,6 +145,11 @@ class Brand:
         self.pagination_pattern: Optional[Dict] = None  # {url_pattern, pagination_type} from first detection
         self._pagination_lock = threading.Lock()
 
+        # Collection count selector cache: reuse across categories.
+        # _count_selector_miss_count tracks consecutive failed lookups for 3-strike invalidation.
+        self.collection_count_selector: Optional[str] = None
+        self._count_selector_miss_count: int = 0
+
         # HTML processing pipeline
         self.html_queue = Queue()  # Queue of (html, source_url) tuples
         self.pattern_ready = threading.Event()  # Signal when pattern is detected
