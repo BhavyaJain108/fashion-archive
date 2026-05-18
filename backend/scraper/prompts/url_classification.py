@@ -6,7 +6,7 @@ Classifies links from a category page as product links vs navigation/recommendat
 Uses URL patterns, DOM lineage, and link text for classification.
 """
 
-from typing import Dict, List
+from typing import Dict, List, Optional
 from pydantic import BaseModel, Field
 
 
@@ -17,7 +17,7 @@ class URLClassification(BaseModel):
     confidence: str = Field(description="High/Medium/Low confidence in this classification")
 
 
-def get_prompt(page_url: str, category_name: str, links: List[Dict]) -> str:
+def get_prompt(page_url: str, category_name: str, links: List[Dict], expected_count: Optional[int] = None) -> str:
     """
     Generate URL classification prompt.
 
@@ -39,6 +39,18 @@ def get_prompt(page_url: str, category_name: str, links: List[Dict]) -> str:
         carousel_flag = " [CAROUSEL]" if link.get('in_carousel') else ""
         links_list += f"{i}. URL: {url}{carousel_flag}\n   Lineage: {lineage}\n   Text: \"{text}\"\n\n"
 
+    count_hint = ""
+    if expected_count is not None:
+        count_hint = f"""
+**Expected collection count: {expected_count} products** (detected from page display)
+
+Use this as a quantitative anchor for your classification:
+- The main product grid's lineage should contain approximately {expected_count} links (within ±20%).
+- A lineage with substantially fewer links is most likely a side section (hero, featured, recommendations).
+- A lineage with substantially more links is most likely a navigation pattern.
+- Approve lineages that together sum to roughly {expected_count}, not more.
+"""
+
     return f"""
 You are analyzing links extracted from an e-commerce category page to identify which links lead to actual product pages.
 
@@ -47,7 +59,7 @@ You are analyzing links extracted from an e-commerce category page to identify w
 - Category: {category_name}
 - Total links to analyze: {len(links)}
 - Links marked [CAROUSEL]: {carousel_count} (these are inside slider/carousel containers)
-
+{count_hint}
 **Goal:** Identify which links are genuine product detail pages for "{category_name}" products.
 
 **Links to Classify (index, URL, DOM lineage, link text):**
