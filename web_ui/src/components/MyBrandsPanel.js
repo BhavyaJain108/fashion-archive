@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import Fuse from 'fuse.js';
 import { FashionArchiveAPI } from '../services/api';
 import ProductDetailPanel from './ProductDetailPanel';
+import ScrapeConsole from './ScrapeConsole';
 
 function MyBrandsPanel() {
   const [brands, setBrands] = useState([]);
@@ -177,6 +178,29 @@ function MyBrandsPanel() {
   // Stream products via SSE as they're extracted
   const streamProducts = (brandId) => {
     setStreamingBrandId(brandId);
+
+    // Backfill: products that were already extracted before this SSE
+    // connection opened. Without this the grid stays empty until new
+    // products arrive — and the first 30–60 from a fresh scrape would
+    // be invisible to the user.
+    fetch(`http://localhost:8081/api/products?brand_id=${brandId}&limit=500`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!data || !data.products) return;
+        const noSelection = selectedLeavesRef.current.size === 0;
+        if (noSelection) {
+          setProducts(prev => {
+            const existingUrls = new Set(prev.map(p => p.itemurl || p.url || p.product_url || ''));
+            const fresh = data.products.filter(p => {
+              const u = p.itemurl || p.url || p.product_url || '';
+              return u && !existingUrls.has(u);
+            });
+            return [...fresh, ...prev];
+          });
+        }
+      })
+      .catch(() => {});
+
     const source = new EventSource(`http://localhost:8081/api/brands/${brandId}/scrape/stream`);
 
     source.onmessage = (event) => {
@@ -193,12 +217,16 @@ function MyBrandsPanel() {
           }));
         }
 
-        // Only add to product grid if this product's category is currently selected
-        if (categoryUrl) {
-          const leafKey = `${brandId}::${categoryUrl}`;
-          if (selectedLeavesRef.current.has(leafKey)) {
-            setProducts(prev => [product, ...prev]);
-          }
+        // Append to grid when:
+        //  - this product's category is currently selected, OR
+        //  - no categories are selected yet (live-feed mode during scrape so
+        //    the user actually sees products without waiting for urls.json
+        //    to land at the end of Stage 2).
+        const noSelection = selectedLeavesRef.current.size === 0;
+        const inSelected = categoryUrl &&
+          selectedLeavesRef.current.has(`${brandId}::${categoryUrl}`);
+        if (noSelection || inSelected) {
+          setProducts(prev => [product, ...prev]);
         }
       } catch (e) {
         console.error('Error parsing streamed product:', e);
@@ -1010,6 +1038,11 @@ function MyBrandsPanel() {
               <option value="price-desc">Price High → Low</option>
             </select>
           </div>
+
+        {/* Live scrape console — shown above the grid while any brand is mid-scrape */}
+        {[...scrapingBrands].map(bid => (
+          <ScrapeConsole key={bid} brandId={bid} active={true} />
+        ))}
 
         {(searchLoading || loadingProducts) ? (
           <div className="gallery-loading">Loading products...</div>

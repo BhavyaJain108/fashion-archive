@@ -1763,3 +1763,120 @@ body {
   left: auto;
   right: 8px;
 }
+
+/* ============================================================
+   ScrapeConsole — live scrape status panel
+   ============================================================ */
+
+.scrape-console {
+  background: #0a0a0a;
+  color: #d4d4d4;
+  border: 1px solid #1f1f1f;
+  font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+  font-size: 12px;
+  padding: 14px 16px;
+  margin: 0 0 12px;
+  line-height: 1.4;
+}
+
+.scrape-console-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #1f1f1f;
+}
+
+.scrape-console-led {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: #21d07a;
+  box-shadow: 0 0 8px #21d07a;
+  animation: scrape-blink 1.2s ease-in-out infinite;
+}
+@keyframes scrape-blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0.35; }
+}
+
+.scrape-console-title {
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  flex: 1;
+  color: #f0f0f0;
+}
+
+.scrape-console-status {
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border: 1px solid #21d07a;
+  color: #21d07a;
+}
+
+.scrape-console-stage {
+  padding: 10px 0;
+  color: #9c9c9c;
+  font-size: 12px;
+}
+
+.scrape-console-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  padding: 8px 0 12px;
+  border-bottom: 1px solid #1f1f1f;
+}
+
+.scrape-stat {
+  text-align: left;
+}
+.scrape-stat-num {
+  font-size: 22px;
+  font-weight: 600;
+  color: #f0f0f0;
+  line-height: 1.1;
+}
+.scrape-stat-label {
+  font-size: 9px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: #7c7c7c;
+  margin-top: 2px;
+}
+
+.scrape-console-recent {
+  padding-top: 10px;
+}
+.scrape-console-recent-head {
+  font-size: 9px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: #7c7c7c;
+  margin-bottom: 6px;
+}
+.scrape-console-recent-empty {
+  color: #7c7c7c;
+  font-style: italic;
+}
+.scrape-console-recent-row {
+  display: flex;
+  gap: 8px;
+  padding: 2px 0;
+  font-size: 11px;
+}
+.scrape-console-check {
+  color: #21d07a;
+  font-weight: 700;
+}
+.scrape-console-name {
+  color: #d4d4d4;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.scrape-console-cat {
+  color: #7c7c7c;
+  font-size: 10px;
+}

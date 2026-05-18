@@ -377,7 +377,7 @@ def download_video():
         video_info = search.get_streaming_url(search_query)
 
         if not video_info:
-            return jsonify({'error': 'No matching video found'}), 404
+            return jsonify({'success': False, 'error': 'No matching video found'})
 
         return jsonify({
             'success': True,

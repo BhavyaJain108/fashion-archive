@@ -7,6 +7,7 @@ import MenuBar from './components/MenuBar';
 import FavouritesPanel from './components/FavouritesPanel';
 import MyBrandsPanel from './components/MyBrandsPanel';
 import LoginModal from './components/LoginModal';
+import HighFashionV2 from './components/HighFashionV2';
 import { FashionArchiveAPI } from './services/api';
 
 function App() {
@@ -363,83 +364,44 @@ function App() {
 
   return (
     <div className="columns-container">
-      {/* Menu Bar - matches tkinter menu system */}
-      <MenuBar 
-        currentPage={currentPage}
-        onPageSwitch={handlePageSwitch}
-        currentView={currentView}
-        onViewChange={handleViewChange}
-        currentUser={currentUser}
-        onLogout={handleLogout}
-      />
-      
-      {/* Title Bar - scrolling marquee */}
-      <div className="mac-title-bar" style={{
-        position: 'fixed',
-        top: '42px',
-        left: 0,
-        right: 0,
-        zIndex: 100,
-        overflow: 'hidden',
-        whiteSpace: 'nowrap',
-      }}>
-        <div className="marquee-track">
-          {Array.from({ length: 20 }, (_, i) => (
-            <span key={i} className="marquee-item">Fashion Archive Browser</span>
-          ))}
-        </div>
-      </div>
+      {/* Menu Bar and Title Bar - hidden for new high-fashion UI */}
+      {currentPage !== 'high-fashion' && (
+        <>
+          <MenuBar
+            currentPage={currentPage}
+            onPageSwitch={handlePageSwitch}
+            currentView={currentView}
+            onViewChange={handleViewChange}
+            currentUser={currentUser}
+            onLogout={handleLogout}
+          />
 
-      {/* Main Content - offset by menu and title bars */}
-      {currentPage === 'high-fashion' ? (
-        <div style={{ display: 'flex', width: '100%', height: '100vh', paddingTop: '75px' }}>
-          
-          {/* Column 1: Seasons (Always visible) */}
-          <div className="column" style={{ width: '300px', flexShrink: 0 }}>
-            <SeasonsPanel 
-              seasons={seasons}
-              selectedSeason={selectedSeason}
-              onSeasonSelect={handleSeasonSelect}
-            />
+          <div className="mac-title-bar" style={{
+            position: 'fixed',
+            top: '42px',
+            left: 0,
+            right: 0,
+            zIndex: 100,
+            overflow: 'hidden',
+            whiteSpace: 'nowrap',
+          }}>
+            <div className="marquee-track">
+              {Array.from({ length: 20 }, (_, i) => (
+                <span key={i} className="marquee-item">Fashion Archive Browser</span>
+              ))}
+            </div>
           </div>
+        </>
+      )}
 
-          {/* Column 2: Collections (Visible after season selection) */}
-          {column2Activated && (
-            <div className="column" style={{ width: '30vw', minWidth: '300px', maxWidth: '500px', flexShrink: 0 }}>
-              <CollectionsPanel 
-                collections={collections}
-                selectedCollection={selectedCollection}
-                onCollectionSelect={handleCollectionSelect}
-                seasonTitle={selectedSeason?.name || ''}
-                isLoading={collectionsLoading}
-                loadingProgress={loadingProgress}
-              />
-            </div>
-          )}
-
-          {/* Column 3: Image Viewer (Visible after collection selection) */}
-          {column3Activated && (
-            <div className="column" style={{ flex: '1 1 auto', minWidth: 0 }}>
-              <ImageViewerPanel 
-                images={currentImages}
-                currentImageIndex={currentImageIndex}
-                galleryMode={galleryMode}
-                zoomMode={zoomMode}
-                isDownloading={isDownloading}
-                videoDownloadState={videoDownloadState}
-                designerName={selectedCollection?.designer || ''}
-                selectedSeason={selectedSeason}
-                selectedCollection={selectedCollection}
-                onPrevImage={handlePrevImage}
-                onNextImage={handleNextImage}
-                onToggleGallery={handleToggleGallery}
-                onCycleZoom={handleCycleZoom}
-                onVideoButton={handleVideoButton}
-                onImageSelect={setCurrentImageIndex}
-              />
-            </div>
-          )}
-        </div>
+      {/* Main Content */}
+      {currentPage === 'high-fashion' ? (
+        <HighFashionV2
+          currentPage={currentPage}
+          onPageSwitch={handlePageSwitch}
+          onLogout={handleLogout}
+          currentUser={currentUser}
+        />
       ) : currentPage === 'favourites' ? (
         <FavouritesPanel currentView={currentView} />
       ) : currentPage === 'my-brands' ? (

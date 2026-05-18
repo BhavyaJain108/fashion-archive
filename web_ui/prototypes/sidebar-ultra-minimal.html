@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Prototype - Ultra Minimal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --bg: #000000;
+      --text: #ffffff;
+      --text-dim: #333333;
+      --text-hover: #666666;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    .container {
+      display: flex;
+      height: 100vh;
+    }
+
+    .sidebar {
+      width: 200px;
+      padding: 32px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 32px;
+    }
+
+    .group {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .item {
+      font-size: 11px;
+      font-weight: 400;
+      padding: 4px 0;
+      cursor: pointer;
+      color: var(--text-dim);
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      transform-origin: left center;
+      letter-spacing: -0.01em;
+    }
+
+    .item:hover {
+      color: var(--text-hover);
+      transform: translateX(4px);
+    }
+
+    .item.selected {
+      color: var(--text);
+      font-weight: 500;
+      transform: translateX(8px);
+    }
+
+    .item.near {
+      color: var(--text-dim);
+      transform: translateX(2px);
+    }
+
+    .collections-group {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .collections-scroll {
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+    }
+
+    .collections-scroll::-webkit-scrollbar {
+      display: none;
+    }
+
+    .main {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .info {
+      position: fixed;
+      bottom: 24px;
+      left: 24px;
+      font-size: 10px;
+      color: var(--text-dim);
+      letter-spacing: 0.02em;
+    }
+
+    .counter {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      font-size: 10px;
+      color: var(--text-dim);
+      font-variant-numeric: tabular-nums;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="sidebar">
+      <div class="group" id="years">
+        <div class="item selected">2025</div>
+        <div class="item">2024</div>
+        <div class="item">2023</div>
+        <div class="item">2022</div>
+        <div class="item">2021</div>
+        <div class="item">2020</div>
+        <div class="item">2019</div>
+      </div>
+
+      <div class="group" id="seasons">
+        <div class="item selected">Fall</div>
+        <div class="item">Spring</div>
+      </div>
+
+      <div class="group" id="categories">
+        <div class="item selected">Ready to Wear</div>
+        <div class="item">Menswear</div>
+        <div class="item">Couture</div>
+      </div>
+
+      <div class="group collections-group">
+        <div class="collections-scroll" id="collections">
+          <div class="item">Acne Studios</div>
+          <div class="item">Alexander McQueen</div>
+          <div class="item">Ann Demeulemeester</div>
+          <div class="item">Balenciaga</div>
+          <div class="item">Bottega Veneta</div>
+          <div class="item">Celine</div>
+          <div class="item">Chanel</div>
+          <div class="item">Comme des Garcons</div>
+          <div class="item">Dior</div>
+          <div class="item">Dries Van Noten</div>
+          <div class="item">Givenchy</div>
+          <div class="item">Gucci</div>
+          <div class="item">Hermes</div>
+          <div class="item">Issey Miyake</div>
+          <div class="item">Jil Sander</div>
+          <div class="item">Junya Watanabe</div>
+          <div class="item">Lemaire</div>
+          <div class="item">Loewe</div>
+          <div class="item">Louis Vuitton</div>
+          <div class="item selected">Maison Margiela</div>
+          <div class="item">Marc Jacobs</div>
+          <div class="item">Marni</div>
+          <div class="item">Miu Miu</div>
+          <div class="item">Prada</div>
+          <div class="item">Raf Simons</div>
+          <div class="item">Rick Owens</div>
+          <div class="item">Sacai</div>
+          <div class="item">Saint Laurent</div>
+          <div class="item">The Row</div>
+          <div class="item">Valentino</div>
+          <div class="item">Yohji Yamamoto</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="main"></div>
+  </div>
+
+  <div class="info">Maison Margiela / Fall 2025 / RTW</div>
+  <div class="counter">01/45</div>
+
+  <script>
+    document.querySelectorAll('.group').forEach(group => {
+      const items = group.querySelectorAll('.item');
+
+      // Click selection
+      items.forEach(item => {
+        item.addEventListener('click', () => {
+          items.forEach(i => i.classList.remove('selected'));
+          item.classList.add('selected');
+        });
+      });
+
+      // Proximity effect
+      group.addEventListener('mousemove', (e) => {
+        items.forEach(item => {
+          const rect = item.getBoundingClientRect();
+          const center = rect.top + rect.height / 2;
+          const dist = Math.abs(e.clientY - center);
+
+          item.classList.remove('near');
+          if (dist < 24 && dist > 0 && !item.matches(':hover')) {
+            item.classList.add('near');
+          }
+        });
+      });
+
+      group.addEventListener('mouseleave', () => {
+        items.forEach(item => item.classList.remove('near'));
+      });
+    });
+  </script>
+</body>
+</html>

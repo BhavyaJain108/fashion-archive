@@ -1,0 +1,7 @@
+{
+  "image_selectors": [
+    "ul#splide01-list img"
+  ],
+  "url_attribute": "src",
+  "image_count": 2
+}

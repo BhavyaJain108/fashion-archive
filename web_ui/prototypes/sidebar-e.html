@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Prototype E - Vertical Scroll Regions</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --bg: #0a0a0a;
+      --surface: #111111;
+      --border: #1a1a1a;
+      --text: #e0e0e0;
+      --text-muted: #555555;
+      --accent: #ffffff;
+    }
+
+    body {
+      font-family: 'JetBrains Mono', monospace;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    .container {
+      display: flex;
+      height: 100vh;
+    }
+
+    .sidebar {
+      width: 240px;
+      background: var(--surface);
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid var(--border);
+    }
+
+    .region {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .region:last-child {
+      border-bottom: none;
+      flex: 2;
+    }
+
+    .region-label {
+      font-size: 9px;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      padding: 12px 16px 8px;
+      flex-shrink: 0;
+    }
+
+    .region-scroll {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0 8px 12px;
+    }
+
+    .region-scroll::-webkit-scrollbar {
+      width: 2px;
+    }
+
+    .region-scroll::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .region-scroll::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 1px;
+    }
+
+    .item {
+      font-size: 12px;
+      padding: 6px 8px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      color: var(--text-muted);
+      transform-origin: left center;
+    }
+
+    .item:hover {
+      color: var(--text);
+      transform: scale(1.08);
+      padding-left: 12px;
+    }
+
+    .item.selected {
+      color: var(--accent);
+      font-weight: 600;
+      transform: scale(1.12);
+      padding-left: 14px;
+    }
+
+    /* Dock magnification effect */
+    .item.near-hover {
+      transform: scale(1.04);
+      color: var(--text);
+    }
+
+    .collections-region {
+      flex: 3;
+    }
+
+    .collection-item {
+      font-size: 11px;
+      padding: 5px 8px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      color: var(--text-muted);
+      transform-origin: left center;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .collection-item:hover {
+      color: var(--text);
+      transform: scale(1.06);
+      padding-left: 12px;
+    }
+
+    .collection-item.selected {
+      color: var(--accent);
+      font-weight: 500;
+      transform: scale(1.1);
+      padding-left: 14px;
+    }
+
+    .collection-item.near-hover {
+      transform: scale(1.03);
+      color: #888;
+    }
+
+    .main {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg);
+    }
+
+    .main-content {
+      text-align: center;
+      color: var(--text-muted);
+    }
+
+    .main-content .title {
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .main-content .subtitle {
+      font-size: 10px;
+      color: var(--text-muted);
+    }
+
+    .look-counter {
+      position: fixed;
+      top: 16px;
+      right: 24px;
+      font-size: 10px;
+      color: var(--text-muted);
+      letter-spacing: 0.05em;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="sidebar">
+      <!-- Years Region -->
+      <div class="region">
+        <div class="region-label">Year</div>
+        <div class="region-scroll" id="years-scroll">
+          <div class="item selected" data-year="2025">2025</div>
+          <div class="item" data-year="2024">2024</div>
+          <div class="item" data-year="2023">2023</div>
+          <div class="item" data-year="2022">2022</div>
+          <div class="item" data-year="2021">2021</div>
+          <div class="item" data-year="2020">2020</div>
+          <div class="item" data-year="2019">2019</div>
+          <div class="item" data-year="2018">2018</div>
+          <div class="item" data-year="2017">2017</div>
+          <div class="item" data-year="2016">2016</div>
+          <div class="item" data-year="2015">2015</div>
+          <div class="item" data-year="2014">2014</div>
+          <div class="item" data-year="2013">2013</div>
+          <div class="item" data-year="2012">2012</div>
+          <div class="item" data-year="2011">2011</div>
+        </div>
+      </div>
+
+      <!-- Seasons Region -->
+      <div class="region">
+        <div class="region-label">Season</div>
+        <div class="region-scroll" id="seasons-scroll">
+          <div class="item selected" data-season="fall">Fall</div>
+          <div class="item" data-season="spring">Spring</div>
+          <div class="item" data-season="resort">Resort</div>
+        </div>
+      </div>
+
+      <!-- Categories Region -->
+      <div class="region">
+        <div class="region-label">Category</div>
+        <div class="region-scroll" id="categories-scroll">
+          <div class="item selected" data-category="rtw">Ready to Wear</div>
+          <div class="item" data-category="menswear">Menswear</div>
+          <div class="item" data-category="couture">Couture</div>
+        </div>
+      </div>
+
+      <!-- Collections Region -->
+      <div class="region collections-region">
+        <div class="region-label">Collections <span id="collection-count" style="opacity: 0.5">142</span></div>
+        <div class="region-scroll" id="collections-scroll">
+          <div class="collection-item" data-designer="acne">Acne Studios</div>
+          <div class="collection-item" data-designer="alexander-mcqueen">Alexander McQueen</div>
+          <div class="collection-item" data-designer="ann-demeulemeester">Ann Demeulemeester</div>
+          <div class="collection-item" data-designer="balenciaga">Balenciaga</div>
+          <div class="collection-item" data-designer="bottega">Bottega Veneta</div>
+          <div class="collection-item" data-designer="burberry">Burberry</div>
+          <div class="collection-item" data-designer="celine">Celine</div>
+          <div class="collection-item" data-designer="chanel">Chanel</div>
+          <div class="collection-item" data-designer="comme">Comme des Garcons</div>
+          <div class="collection-item" data-designer="dior">Dior</div>
+          <div class="collection-item" data-designer="dries">Dries Van Noten</div>
+          <div class="collection-item" data-designer="givenchy">Givenchy</div>
+          <div class="collection-item" data-designer="gucci">Gucci</div>
+          <div class="collection-item" data-designer="hermes">Hermes</div>
+          <div class="collection-item" data-designer="issey">Issey Miyake</div>
+          <div class="collection-item" data-designer="jil">Jil Sander</div>
+          <div class="collection-item" data-designer="junya">Junya Watanabe</div>
+          <div class="collection-item" data-designer="lemaire">Lemaire</div>
+          <div class="collection-item" data-designer="loewe">Loewe</div>
+          <div class="collection-item" data-designer="louis">Louis Vuitton</div>
+          <div class="collection-item selected" data-designer="margiela">Maison Margiela</div>
+          <div class="collection-item" data-designer="marc">Marc Jacobs</div>
+          <div class="collection-item" data-designer="marni">Marni</div>
+          <div class="collection-item" data-designer="miu">Miu Miu</div>
+          <div class="collection-item" data-designer="prada">Prada</div>
+          <div class="collection-item" data-designer="raf">Raf Simons</div>
+          <div class="collection-item" data-designer="rick">Rick Owens</div>
+          <div class="collection-item" data-designer="sacai">Sacai</div>
+          <div class="collection-item" data-designer="saint">Saint Laurent</div>
+          <div class="collection-item" data-designer="row">The Row</div>
+          <div class="collection-item" data-designer="valentino">Valentino</div>
+          <div class="collection-item" data-designer="vetements">Vetements</div>
+          <div class="collection-item" data-designer="yohji">Yohji Yamamoto</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="main">
+      <div class="main-content">
+        <div class="title">Maison Margiela</div>
+        <div class="subtitle">Fall 2025 Ready to Wear</div>
+      </div>
+    </div>
+
+    <div class="look-counter">01 / 45</div>
+  </div>
+
+  <script>
+    // Dock magnification effect
+    function setupMagnification(container) {
+      const items = container.querySelectorAll('.item, .collection-item');
+
+      container.addEventListener('mousemove', (e) => {
+        items.forEach(item => {
+          const rect = item.getBoundingClientRect();
+          const itemCenter = rect.top + rect.height / 2;
+          const distance = Math.abs(e.clientY - itemCenter);
+
+          item.classList.remove('near-hover');
+
+          if (distance < 40 && distance > 0) {
+            item.classList.add('near-hover');
+          }
+        });
+      });
+
+      container.addEventListener('mouseleave', () => {
+        items.forEach(item => item.classList.remove('near-hover'));
+      });
+    }
+
+    // Selection handling
+    function setupSelection(container) {
+      const items = container.querySelectorAll('.item, .collection-item');
+      items.forEach(item => {
+        item.addEventListener('click', () => {
+          items.forEach(i => i.classList.remove('selected'));
+          item.classList.add('selected');
+        });
+      });
+    }
+
+    // Initialize
+    document.querySelectorAll('.region-scroll').forEach(scroll => {
+      setupMagnification(scroll);
+      setupSelection(scroll);
+    });
+  </script>
+</body>
+</html>

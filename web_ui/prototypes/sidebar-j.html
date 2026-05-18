@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Prototype J - Timeline Vertical</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --bg: #0a0a0a;
+      --surface: #111111;
+      --border: #1a1a1a;
+      --text: #e0e0e0;
+      --text-muted: #444444;
+      --accent: #ffffff;
+      --line: #222222;
+    }
+
+    body {
+      font-family: 'JetBrains Mono', monospace;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    .container {
+      display: flex;
+      height: 100vh;
+    }
+
+    .sidebar {
+      width: 280px;
+      background: var(--surface);
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid var(--border);
+    }
+
+    .timeline-scroll {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px 0;
+    }
+
+    .timeline-scroll::-webkit-scrollbar {
+      width: 0px;
+    }
+
+    .timeline {
+      position: relative;
+      padding-left: 32px;
+    }
+
+    .timeline::before {
+      content: '';
+      position: absolute;
+      left: 12px;
+      top: 0;
+      bottom: 0;
+      width: 1px;
+      background: var(--line);
+    }
+
+    .year-group {
+      margin-bottom: 8px;
+    }
+
+    .year-marker {
+      position: relative;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text-muted);
+      padding: 12px 0 8px;
+      letter-spacing: 0.1em;
+      transition: all 0.15s ease;
+      cursor: pointer;
+    }
+
+    .year-marker::before {
+      content: '';
+      position: absolute;
+      left: -24px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--line);
+      transition: all 0.15s ease;
+    }
+
+    .year-marker:hover {
+      color: var(--text);
+    }
+
+    .year-marker:hover::before {
+      background: var(--text-muted);
+      transform: translateY(-50%) scale(1.3);
+    }
+
+    .year-group.active .year-marker {
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    .year-group.active .year-marker::before {
+      background: var(--accent);
+      transform: translateY(-50%) scale(1.5);
+    }
+
+    .season-list {
+      padding-left: 8px;
+    }
+
+    .season-item {
+      position: relative;
+      font-size: 10px;
+      padding: 4px 8px;
+      margin: 2px 0;
+      cursor: pointer;
+      color: var(--text-muted);
+      transition: all 0.15s ease;
+      transform-origin: left center;
+      letter-spacing: 0.02em;
+    }
+
+    .season-item:hover {
+      color: var(--text);
+      transform: scale(1.06);
+      padding-left: 14px;
+    }
+
+    .season-item.selected {
+      color: var(--accent);
+      font-weight: 500;
+      transform: scale(1.1);
+      padding-left: 16px;
+    }
+
+    .season-item.near-hover {
+      color: #666;
+      transform: scale(1.03);
+    }
+
+    .season-item .count {
+      opacity: 0.4;
+      font-size: 9px;
+      margin-left: 4px;
+    }
+
+    .divider {
+      height: 1px;
+      background: var(--border);
+      margin: 16px 0;
+    }
+
+    .collections-panel {
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+      max-height: 40vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .collections-header {
+      font-size: 9px;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      padding: 12px 16px 8px;
+      flex-shrink: 0;
+    }
+
+    .collections-header span {
+      opacity: 0.5;
+    }
+
+    .collections-scroll {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0 8px 16px;
+    }
+
+    .collections-scroll::-webkit-scrollbar {
+      width: 2px;
+    }
+
+    .collections-scroll::-webkit-scrollbar-thumb {
+      background: var(--border);
+    }
+
+    .collection-item {
+      font-size: 10px;
+      padding: 5px 8px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      color: var(--text-muted);
+      transform-origin: left center;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .collection-item:hover {
+      color: var(--text);
+      transform: scale(1.05);
+      padding-left: 12px;
+    }
+
+    .collection-item.selected {
+      color: var(--accent);
+      font-weight: 500;
+      transform: scale(1.08);
+      padding-left: 14px;
+    }
+
+    .collection-item.near-hover {
+      transform: scale(1.02);
+      color: #666;
+    }
+
+    .main {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg);
+    }
+
+    .main-content {
+      text-align: center;
+      color: var(--text-muted);
+    }
+
+    .main-content .title {
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .main-content .subtitle {
+      font-size: 10px;
+      color: var(--text-muted);
+    }
+
+    .look-counter {
+      position: fixed;
+      top: 16px;
+      right: 24px;
+      font-size: 10px;
+      color: var(--text-muted);
+      letter-spacing: 0.05em;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="sidebar">
+      <div class="timeline-scroll">
+        <div class="timeline" id="timeline">
+          <!-- 2026 -->
+          <div class="year-group">
+            <div class="year-marker">2026</div>
+            <div class="season-list">
+              <div class="season-item" data-season="fw26-rtw">FW RTW</div>
+            </div>
+          </div>
+
+          <!-- 2025 -->
+          <div class="year-group active">
+            <div class="year-marker">2025</div>
+            <div class="season-list">
+              <div class="season-item selected" data-season="fw25-rtw">FW RTW <span class="count">142</span></div>
+              <div class="season-item" data-season="fw25-men">FW Menswear <span class="count">87</span></div>
+              <div class="season-item" data-season="fw25-cou">FW Couture <span class="count">34</span></div>
+              <div class="season-item" data-season="ss25-rtw">SS RTW <span class="count">138</span></div>
+              <div class="season-item" data-season="ss25-men">SS Menswear <span class="count">82</span></div>
+              <div class="season-item" data-season="ss25-cou">SS Couture <span class="count">31</span></div>
+            </div>
+          </div>
+
+          <!-- 2024 -->
+          <div class="year-group">
+            <div class="year-marker">2024</div>
+            <div class="season-list">
+              <div class="season-item" data-season="fw24-rtw">FW RTW <span class="count">156</span></div>
+              <div class="season-item" data-season="fw24-men">FW Menswear <span class="count">94</span></div>
+              <div class="season-item" data-season="fw24-cou">FW Couture <span class="count">38</span></div>
+              <div class="season-item" data-season="ss24-rtw">SS RTW <span class="count">148</span></div>
+              <div class="season-item" data-season="ss24-men">SS Menswear <span class="count">89</span></div>
+              <div class="season-item" data-season="ss24-cou">SS Couture <span class="count">35</span></div>
+            </div>
+          </div>
+
+          <!-- 2023 -->
+          <div class="year-group">
+            <div class="year-marker">2023</div>
+            <div class="season-list">
+              <div class="season-item" data-season="fw23-rtw">FW RTW <span class="count">152</span></div>
+              <div class="season-item" data-season="fw23-men">FW Menswear <span class="count">91</span></div>
+              <div class="season-item" data-season="fw23-cou">FW Couture <span class="count">36</span></div>
+              <div class="season-item" data-season="ss23-rtw">SS RTW <span class="count">145</span></div>
+              <div class="season-item" data-season="ss23-men">SS Menswear <span class="count">86</span></div>
+              <div class="season-item" data-season="ss23-cou">SS Couture <span class="count">33</span></div>
+            </div>
+          </div>
+
+          <!-- 2022 -->
+          <div class="year-group">
+            <div class="year-marker">2022</div>
+            <div class="season-list">
+              <div class="season-item" data-season="fw22-rtw">FW RTW <span class="count">148</span></div>
+              <div class="season-item" data-season="fw22-men">FW Menswear <span class="count">88</span></div>
+              <div class="season-item" data-season="fw22-cou">FW Couture <span class="count">34</span></div>
+              <div class="season-item" data-season="ss22-rtw">SS RTW <span class="count">142</span></div>
+              <div class="season-item" data-season="ss22-men">SS Menswear <span class="count">84</span></div>
+              <div class="season-item" data-season="ss22-cou">SS Couture <span class="count">32</span></div>
+            </div>
+          </div>
+
+          <!-- 2021 -->
+          <div class="year-group">
+            <div class="year-marker">2021</div>
+            <div class="season-list">
+              <div class="season-item" data-season="fw21-rtw">FW RTW <span class="count">134</span></div>
+              <div class="season-item" data-season="fw21-men">FW Menswear <span class="count">78</span></div>
+              <div class="season-item" data-season="fw21-cou">FW Couture <span class="count">28</span></div>
+              <div class="season-item" data-season="ss21-rtw">SS RTW <span class="count">128</span></div>
+              <div class="season-item" data-season="ss21-men">SS Menswear <span class="count">74</span></div>
+              <div class="season-item" data-season="ss21-cou">SS Couture <span class="count">26</span></div>
+            </div>
+          </div>
+
+          <!-- 2020 -->
+          <div class="year-group">
+            <div class="year-marker">2020</div>
+            <div class="season-list">
+              <div class="season-item" data-season="fw20-rtw">FW RTW <span class="count">142</span></div>
+              <div class="season-item" data-season="fw20-men">FW Menswear <span class="count">85</span></div>
+              <div class="season-item" data-season="fw20-cou">FW Couture <span class="count">32</span></div>
+              <div class="season-item" data-season="ss20-rtw">SS RTW <span class="count">138</span></div>
+              <div class="season-item" data-season="ss20-men">SS Menswear <span class="count">82</span></div>
+              <div class="season-item" data-season="ss20-cou">SS Couture <span class="count">30</span></div>
+            </div>
+          </div>
+
+          <!-- More years... -->
+          <div class="year-group">
+            <div class="year-marker">2019</div>
+            <div class="season-list">
+              <div class="season-item">FW RTW</div>
+              <div class="season-item">FW Menswear</div>
+              <div class="season-item">FW Couture</div>
+              <div class="season-item">SS RTW</div>
+              <div class="season-item">SS Menswear</div>
+              <div class="season-item">SS Couture</div>
+            </div>
+          </div>
+
+          <div class="year-group">
+            <div class="year-marker">2018</div>
+            <div class="season-list">
+              <div class="season-item">FW RTW</div>
+              <div class="season-item">FW Menswear</div>
+              <div class="season-item">FW Couture</div>
+              <div class="season-item">SS RTW</div>
+              <div class="season-item">SS Menswear</div>
+              <div class="season-item">SS Couture</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="collections-panel">
+        <div class="collections-header">Collections <span>142</span></div>
+        <div class="collections-scroll" id="collections-scroll">
+          <div class="collection-item">Acne Studios</div>
+          <div class="collection-item">Alexander McQueen</div>
+          <div class="collection-item">Ann Demeulemeester</div>
+          <div class="collection-item">Balenciaga</div>
+          <div class="collection-item">Bottega Veneta</div>
+          <div class="collection-item">Burberry</div>
+          <div class="collection-item">Celine</div>
+          <div class="collection-item">Chanel</div>
+          <div class="collection-item">Comme des Garcons</div>
+          <div class="collection-item">Dior</div>
+          <div class="collection-item">Dries Van Noten</div>
+          <div class="collection-item">Givenchy</div>
+          <div class="collection-item">Gucci</div>
+          <div class="collection-item">Hermes</div>
+          <div class="collection-item">Issey Miyake</div>
+          <div class="collection-item">Jil Sander</div>
+          <div class="collection-item">Junya Watanabe</div>
+          <div class="collection-item">Lemaire</div>
+          <div class="collection-item">Loewe</div>
+          <div class="collection-item">Louis Vuitton</div>
+          <div class="collection-item selected">Maison Margiela</div>
+          <div class="collection-item">Marc Jacobs</div>
+          <div class="collection-item">Marni</div>
+          <div class="collection-item">Miu Miu</div>
+          <div class="collection-item">Prada</div>
+          <div class="collection-item">Raf Simons</div>
+          <div class="collection-item">Rick Owens</div>
+          <div class="collection-item">Sacai</div>
+          <div class="collection-item">Saint Laurent</div>
+          <div class="collection-item">The Row</div>
+          <div class="collection-item">Valentino</div>
+          <div class="collection-item">Vetements</div>
+          <div class="collection-item">Yohji Yamamoto</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="main">
+      <div class="main-content">
+        <div class="title">Maison Margiela</div>
+        <div class="subtitle">Fall 2025 Ready to Wear</div>
+      </div>
+    </div>
+
+    <div class="look-counter">01 / 45</div>
+  </div>
+
+  <script>
+    // Dock magnification effect
+    function setupMagnification(container, selector) {
+      const items = container.querySelectorAll(selector);
+
+      container.addEventListener('mousemove', (e) => {
+        items.forEach(item => {
+          const rect = item.getBoundingClientRect();
+          const itemCenter = rect.top + rect.height / 2;
+          const distance = Math.abs(e.clientY - itemCenter);
+
+          item.classList.remove('near-hover');
+
+          if (distance < 30 && distance > 0 && !item.matches(':hover')) {
+            item.classList.add('near-hover');
+          }
+        });
+      });
+
+      container.addEventListener('mouseleave', () => {
+        items.forEach(item => item.classList.remove('near-hover'));
+      });
+    }
+
+    // Selection handling for seasons
+    const seasonItems = document.querySelectorAll('.season-item');
+    seasonItems.forEach(item => {
+      item.addEventListener('click', () => {
+        seasonItems.forEach(i => i.classList.remove('selected'));
+        document.querySelectorAll('.year-group').forEach(g => g.classList.remove('active'));
+
+        item.classList.add('selected');
+        item.closest('.year-group').classList.add('active');
+      });
+    });
+
+    // Selection handling for collections
+    const collectionItems = document.querySelectorAll('.collection-item');
+    collectionItems.forEach(item => {
+      item.addEventListener('click', () => {
+        collectionItems.forEach(i => i.classList.remove('selected'));
+        item.classList.add('selected');
+      });
+    });
+
+    // Initialize magnification
+    setupMagnification(document.getElementById('timeline'), '.season-item');
+    setupMagnification(document.getElementById('collections-scroll'), '.collection-item');
+  </script>
+</body>
+</html>

@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Prototype - Brutalist Dense</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --bg: #0a0a0a;
+      --surface: #0f0f0f;
+      --text: #888888;
+      --text-active: #ffffff;
+      --border: #1a1a1a;
+    }
+
+    body {
+      font-family: 'JetBrains Mono', monospace;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      overflow: hidden;
+      font-size: 10px;
+    }
+
+    .container {
+      display: flex;
+      height: 100vh;
+    }
+
+    .sidebar {
+      width: 260px;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .nav-row {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .nav-col {
+      flex: 1;
+      border-right: 1px solid var(--border);
+      max-height: 180px;
+      overflow-y: auto;
+    }
+
+    .nav-col:last-child {
+      border-right: none;
+    }
+
+    .nav-col::-webkit-scrollbar {
+      width: 0;
+    }
+
+    .nav-header {
+      font-size: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.15em;
+      padding: 8px 10px 6px;
+      color: #444;
+      position: sticky;
+      top: 0;
+      background: var(--surface);
+    }
+
+    .nav-item {
+      font-size: 10px;
+      padding: 3px 10px;
+      cursor: pointer;
+      transition: all 0.1s ease;
+      border-left: 2px solid transparent;
+    }
+
+    .nav-item:hover {
+      color: var(--text-active);
+      background: rgba(255,255,255,0.02);
+    }
+
+    .nav-item.selected {
+      color: var(--text-active);
+      font-weight: 700;
+      border-left-color: var(--text-active);
+      background: rgba(255,255,255,0.03);
+    }
+
+    .collections-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .collections-header {
+      font-size: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.15em;
+      padding: 12px 10px 8px;
+      color: #444;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .collections-scroll {
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    .collections-scroll::-webkit-scrollbar {
+      width: 4px;
+    }
+
+    .collections-scroll::-webkit-scrollbar-thumb {
+      background: #222;
+    }
+
+    .collection-item {
+      font-size: 10px;
+      padding: 4px 10px;
+      cursor: pointer;
+      transition: all 0.1s ease;
+      border-left: 2px solid transparent;
+      display: flex;
+      align-items: center;
+    }
+
+    .collection-item:hover {
+      color: var(--text-active);
+      background: rgba(255,255,255,0.02);
+    }
+
+    .collection-item.selected {
+      color: var(--text-active);
+      font-weight: 500;
+      border-left-color: var(--text-active);
+      background: rgba(255,255,255,0.03);
+    }
+
+    .collection-item .num {
+      width: 24px;
+      color: #333;
+      font-size: 9px;
+    }
+
+    .main {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg);
+    }
+
+    .status-bar {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 24px;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 0 12px;
+      font-size: 9px;
+      color: #444;
+    }
+
+    .status-bar span {
+      margin-right: 24px;
+    }
+
+    .status-bar .active {
+      color: var(--text);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="sidebar">
+      <div class="nav-row">
+        <div class="nav-col" id="years">
+          <div class="nav-header">Year</div>
+          <div class="nav-item selected">2025</div>
+          <div class="nav-item">2024</div>
+          <div class="nav-item">2023</div>
+          <div class="nav-item">2022</div>
+          <div class="nav-item">2021</div>
+          <div class="nav-item">2020</div>
+          <div class="nav-item">2019</div>
+          <div class="nav-item">2018</div>
+          <div class="nav-item">2017</div>
+          <div class="nav-item">2016</div>
+          <div class="nav-item">2015</div>
+          <div class="nav-item">2014</div>
+          <div class="nav-item">2013</div>
+          <div class="nav-item">2012</div>
+          <div class="nav-item">2011</div>
+        </div>
+        <div class="nav-col" id="seasons">
+          <div class="nav-header">Season</div>
+          <div class="nav-item selected">Fall</div>
+          <div class="nav-item">Spring</div>
+          <div class="nav-item">Resort</div>
+        </div>
+        <div class="nav-col" id="categories">
+          <div class="nav-header">Type</div>
+          <div class="nav-item selected">RTW</div>
+          <div class="nav-item">Menswear</div>
+          <div class="nav-item">Couture</div>
+        </div>
+      </div>
+
+      <div class="collections-area">
+        <div class="collections-header">
+          <span>Collections</span>
+          <span>142</span>
+        </div>
+        <div class="collections-scroll" id="collections">
+          <div class="collection-item"><span class="num">001</span>Acne Studios</div>
+          <div class="collection-item"><span class="num">002</span>Alexander McQueen</div>
+          <div class="collection-item"><span class="num">003</span>Ann Demeulemeester</div>
+          <div class="collection-item"><span class="num">004</span>Balenciaga</div>
+          <div class="collection-item"><span class="num">005</span>Bottega Veneta</div>
+          <div class="collection-item"><span class="num">006</span>Burberry</div>
+          <div class="collection-item"><span class="num">007</span>Celine</div>
+          <div class="collection-item"><span class="num">008</span>Chanel</div>
+          <div class="collection-item"><span class="num">009</span>Comme des Garcons</div>
+          <div class="collection-item"><span class="num">010</span>Dior</div>
+          <div class="collection-item"><span class="num">011</span>Dries Van Noten</div>
+          <div class="collection-item"><span class="num">012</span>Givenchy</div>
+          <div class="collection-item"><span class="num">013</span>Gucci</div>
+          <div class="collection-item"><span class="num">014</span>Hermes</div>
+          <div class="collection-item"><span class="num">015</span>Issey Miyake</div>
+          <div class="collection-item"><span class="num">016</span>Jil Sander</div>
+          <div class="collection-item"><span class="num">017</span>Junya Watanabe</div>
+          <div class="collection-item"><span class="num">018</span>Lemaire</div>
+          <div class="collection-item"><span class="num">019</span>Loewe</div>
+          <div class="collection-item"><span class="num">020</span>Louis Vuitton</div>
+          <div class="collection-item selected"><span class="num">021</span>Maison Margiela</div>
+          <div class="collection-item"><span class="num">022</span>Marc Jacobs</div>
+          <div class="collection-item"><span class="num">023</span>Marni</div>
+          <div class="collection-item"><span class="num">024</span>Miu Miu</div>
+          <div class="collection-item"><span class="num">025</span>Prada</div>
+          <div class="collection-item"><span class="num">026</span>Raf Simons</div>
+          <div class="collection-item"><span class="num">027</span>Rick Owens</div>
+          <div class="collection-item"><span class="num">028</span>Sacai</div>
+          <div class="collection-item"><span class="num">029</span>Saint Laurent</div>
+          <div class="collection-item"><span class="num">030</span>The Row</div>
+          <div class="collection-item"><span class="num">031</span>Valentino</div>
+          <div class="collection-item"><span class="num">032</span>Vetements</div>
+          <div class="collection-item"><span class="num">033</span>Yohji Yamamoto</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="main"></div>
+  </div>
+
+  <div class="status-bar">
+    <span class="active">MAISON MARGIELA</span>
+    <span>FALL 2025</span>
+    <span>RTW</span>
+    <span style="margin-left: auto;">LOOK 01/45</span>
+  </div>
+
+  <script>
+    document.querySelectorAll('.nav-col, .collections-scroll').forEach(container => {
+      const items = container.querySelectorAll('.nav-item, .collection-item');
+      items.forEach(item => {
+        item.addEventListener('click', () => {
+          items.forEach(i => i.classList.remove('selected'));
+          item.classList.add('selected');
+        });
+      });
+    });
+  </script>
+</body>
+</html>
