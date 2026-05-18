@@ -167,6 +167,85 @@ def test_cached_selector_returns_none_for_implausible_number():
     assert b._count_selector_miss_count == 1
 
 
+class _FakeLLMHandler:
+    """Captures the call and returns a canned response dict."""
+    def __init__(self, canned_response):
+        self._canned = canned_response
+        self.last_prompt = None
+        self.last_image_b64 = None
+
+    def call_with_image(self, prompt, image_b64, media_type="image/png",
+                        max_tokens=8000, operation="vision_call"):
+        self.last_prompt = prompt
+        self.last_image_b64 = image_b64
+        return self._canned
+
+
+class _FakePageScreenshot:
+    """Fake page with a screenshot() method returning bytes."""
+    def screenshot(self, **kwargs):
+        return b"\x89PNG\r\n\x1a\nfake-screenshot-bytes"
+
+
+def test_vision_stage_returns_count_and_caches_selector_on_high_confidence():
+    from count_detection import _detect_count_from_vision
+    from brand import Brand
+    b = Brand("https://example.com")
+    llm = _FakeLLMHandler({
+        "success": True,
+        "response": '{"count":47,"selector":".collection-count","confidence":"high","reasoning":"saw it"}',
+        "usage": {"input_tokens": 100, "output_tokens": 20},
+    })
+    page = _FakePageScreenshot()
+
+    count = _detect_count_from_vision(page, "Hoodies", b, llm)
+    assert count == 47
+    assert b.collection_count_selector == ".collection-count"
+
+
+def test_vision_stage_does_not_cache_on_medium_confidence():
+    from count_detection import _detect_count_from_vision
+    from brand import Brand
+    b = Brand("https://example.com")
+    llm = _FakeLLMHandler({
+        "success": True,
+        "response": '{"count":47,"selector":".count","confidence":"medium","reasoning":"maybe"}',
+        "usage": {"input_tokens": 100, "output_tokens": 20},
+    })
+    page = _FakePageScreenshot()
+
+    count = _detect_count_from_vision(page, "Hoodies", b, llm)
+    assert count == 47
+    assert b.collection_count_selector is None
+
+
+def test_vision_stage_returns_none_when_llm_returns_null_count():
+    from count_detection import _detect_count_from_vision
+    from brand import Brand
+    b = Brand("https://example.com")
+    llm = _FakeLLMHandler({
+        "success": True,
+        "response": '{"count":null,"selector":null,"confidence":"low","reasoning":"no count visible"}',
+        "usage": {"input_tokens": 100, "output_tokens": 20},
+    })
+    page = _FakePageScreenshot()
+
+    count = _detect_count_from_vision(page, "Hoodies", b, llm)
+    assert count is None
+    assert b.collection_count_selector is None
+
+
+def test_vision_stage_returns_none_on_llm_failure():
+    from count_detection import _detect_count_from_vision
+    from brand import Brand
+    b = Brand("https://example.com")
+    llm = _FakeLLMHandler({"success": False, "error": "API error"})
+    page = _FakePageScreenshot()
+
+    count = _detect_count_from_vision(page, "Hoodies", b, llm)
+    assert count is None
+
+
 if __name__ == "__main__":
     test_brand_has_collection_count_selector_attribute()
     test_count_result_dataclass()
@@ -187,4 +266,8 @@ if __name__ == "__main__":
     test_cached_selector_increments_miss_count_on_no_text()
     test_cached_selector_invalidates_after_three_misses()
     test_cached_selector_returns_none_for_implausible_number()
+    test_vision_stage_returns_count_and_caches_selector_on_high_confidence()
+    test_vision_stage_does_not_cache_on_medium_confidence()
+    test_vision_stage_returns_none_when_llm_returns_null_count()
+    test_vision_stage_returns_none_on_llm_failure()
     print("✅ all passed")

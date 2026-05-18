@@ -140,3 +140,79 @@ def _parse_first_int(text: Optional[str]) -> Optional[int]:
         return None
     m = re.search(r"\d+", text)
     return int(m.group()) if m else None
+
+
+import base64
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def _detect_count_from_vision(page, category_name: str, brand_instance, llm_handler) -> Optional[int]:
+    """
+    Stage 3: screenshot the top of the page and ask the vision LLM for the
+    count. On high-confidence responses with a non-null selector, cache the
+    selector on brand_instance for cheap reuse on subsequent categories.
+
+    Returns the count, or None if the LLM couldn't find one.
+    """
+    from prompts.collection_count_detection import CollectionCountResponse, get_prompt
+
+    try:
+        screenshot_bytes = page.screenshot(
+            clip={"x": 0, "y": 0, "width": 1280, "height": 900},
+            type="png",
+        )
+    except Exception as e:
+        logger.warning(f"Screenshot failed for vision count detection: {e}")
+        return None
+
+    image_b64 = base64.standard_b64encode(screenshot_bytes).decode("ascii")
+    prompt = get_prompt(category_name)
+
+    try:
+        result = llm_handler.call_with_image(
+            prompt=prompt,
+            image_b64=image_b64,
+            media_type="image/png",
+            max_tokens=1000,
+            operation="collection_count_detection",
+        )
+    except Exception as e:
+        logger.warning(f"Vision LLM call failed: {e}")
+        return None
+
+    if not result.get("success"):
+        return None
+
+    response_text = result.get("response", "")
+    parsed = _parse_vision_response(response_text)
+    if parsed is None:
+        return None
+
+    count = parsed.count
+    if count is None or not (_MIN_PLAUSIBLE_COUNT <= count <= _MAX_PLAUSIBLE_COUNT):
+        return None
+
+    if brand_instance and parsed.selector and parsed.confidence == "high":
+        brand_instance.collection_count_selector = parsed.selector
+        brand_instance._count_selector_miss_count = 0
+
+    return count
+
+
+def _parse_vision_response(response_text: str):
+    """Parse the LLM response into a CollectionCountResponse. Returns None on failure."""
+    from prompts.collection_count_detection import CollectionCountResponse
+
+    text = response_text.strip()
+    if text.startswith("```"):
+        lines = text.split("\n")
+        text = "\n".join(lines[1:-1]) if len(lines) > 2 else text
+
+    try:
+        data = json.loads(text)
+        return CollectionCountResponse(**data)
+    except (json.JSONDecodeError, TypeError, ValueError) as e:
+        logger.warning(f"Failed to parse vision response: {e}; response was: {response_text[:200]}")
+        return None
