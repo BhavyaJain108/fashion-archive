@@ -29,16 +29,33 @@ except ImportError:
     ClaudeInterface = None
 
 
-# Claude Sonnet 4 pricing (per 1M tokens)
-INPUT_COST_PER_M = 3.0   # $3 per 1M input tokens
-OUTPUT_COST_PER_M = 15.0  # $15 per 1M output tokens
+# Per-model pricing (USD per 1M tokens). Used wherever we need to convert
+# token counts to dollar cost. Keep keys aligned with the Anthropic model
+# identifiers we pass to the SDK.
+MODEL_RATES = {
+    # Sonnet 4 — default
+    "claude-sonnet-4-20250514": {"input": 3.0, "output": 15.0},
+    # Haiku 4.5 — ~3x cheaper than Sonnet, used for structured tasks where
+    # we don't need full Sonnet reasoning (URL classification, pruning, etc).
+    "claude-haiku-4-5": {"input": 1.0, "output": 5.0},
+    # Older models still appear in some test calls.
+    "claude-3-5-sonnet-20241022": {"input": 3.0, "output": 15.0},
+    "claude-3-5-haiku-20241022": {"input": 1.0, "output": 5.0},
+}
+_DEFAULT_MODEL = "claude-sonnet-4-20250514"
+
+# Backwards-compat: callers that ignore `model` get Sonnet 4 rates.
+INPUT_COST_PER_M = MODEL_RATES[_DEFAULT_MODEL]["input"]
+OUTPUT_COST_PER_M = MODEL_RATES[_DEFAULT_MODEL]["output"]
 
 
-def calculate_cost(input_tokens: int, output_tokens: int) -> float:
-    """Calculate cost in USD from token counts."""
-    input_cost = (input_tokens / 1_000_000) * INPUT_COST_PER_M
-    output_cost = (output_tokens / 1_000_000) * OUTPUT_COST_PER_M
-    return input_cost + output_cost
+def calculate_cost(input_tokens: int, output_tokens: int,
+                   model: Optional[str] = None) -> float:
+    """Calculate cost in USD from token counts, using the model's rates."""
+    rates = MODEL_RATES.get(model or _DEFAULT_MODEL,
+                            MODEL_RATES[_DEFAULT_MODEL])
+    return (input_tokens / 1_000_000) * rates["input"] \
+         + (output_tokens / 1_000_000) * rates["output"]
 
 
 # Pydantic models for structured outputs
@@ -100,8 +117,8 @@ class LLMUsageTracker:
 
     @classmethod
     def record_call(cls, operation: str, input_tokens: int, output_tokens: int,
-                    stage: str = None):
-        """Record an LLM call with its usage."""
+                    stage: str = None, model: str = None):
+        """Record an LLM call with its usage. `model` selects the rate table."""
         stage = stage or cls._current_stage
 
         if stage not in cls._operations:
@@ -119,7 +136,7 @@ class LLMUsageTracker:
         op["calls"] += 1
         op["input_tokens"] += input_tokens
         op["output_tokens"] += output_tokens
-        op["cost"] += calculate_cost(input_tokens, output_tokens)
+        op["cost"] += calculate_cost(input_tokens, output_tokens, model=model)
 
     @classmethod
     def get_stage_summary(cls, stage: str) -> Dict[str, Any]:
@@ -271,8 +288,9 @@ class LLMHandler:
             LLMHandler._total_output_tokens += output_tokens
             LLMHandler._call_count += 1
 
-            # New operation-level tracking
-            LLMUsageTracker.record_call(operation, input_tokens, output_tokens)
+            # New operation-level tracking — pass model so per-model rates apply.
+            LLMUsageTracker.record_call(operation, input_tokens, output_tokens,
+                                        model=self.model)
 
     def call(self, prompt: str, expected_format: str = "json", response_model: BaseModel = None,
              max_tokens: int = 8192, max_retries: int = 4, debug: bool = False,

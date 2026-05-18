@@ -10,7 +10,6 @@ def test_brand_has_collection_count_selector_attribute():
     """New attributes should exist on Brand with correct defaults."""
     b = Brand("https://example.com")
     assert b.collection_count_selector is None
-    assert b._count_selector_miss_count == 0
 
 
 def test_count_result_dataclass():
@@ -124,7 +123,6 @@ def test_cached_selector_returns_count_when_text_has_number():
     b.collection_count_selector = ".count"
     page = _FakePageWithSelector("47 products")
     assert _detect_count_from_cached_selector(page, b) == 47
-    assert b._count_selector_miss_count == 0
 
 
 def test_cached_selector_returns_none_when_no_selector():
@@ -135,26 +133,19 @@ def test_cached_selector_returns_none_when_no_selector():
     assert _detect_count_from_cached_selector(page, b) is None
 
 
-def test_cached_selector_increments_miss_count_on_no_text():
+def test_cached_selector_preserves_selector_on_null_text():
+    """A null/empty page result means 'no count on this page' — the cached
+    selector must NOT be invalidated, since other categories may still show
+    the count via the same selector."""
     from count_detection import _detect_count_from_cached_selector
     from brand import Brand
     b = Brand("https://example.com")
     b.collection_count_selector = ".count"
     page = _FakePageWithSelector(None)
-    assert _detect_count_from_cached_selector(page, b) is None
-    assert b._count_selector_miss_count == 1
-
-
-def test_cached_selector_invalidates_after_three_misses():
-    from count_detection import _detect_count_from_cached_selector
-    from brand import Brand
-    b = Brand("https://example.com")
-    b.collection_count_selector = ".count"
-    page = _FakePageWithSelector(None)
-    for _ in range(3):
-        _detect_count_from_cached_selector(page, b)
-    assert b.collection_count_selector is None
-    assert b._count_selector_miss_count == 0
+    for _ in range(5):
+        assert _detect_count_from_cached_selector(page, b) is None
+    # Selector survives indefinitely.
+    assert b.collection_count_selector == ".count"
 
 
 def test_cached_selector_returns_none_for_implausible_number():
@@ -164,7 +155,8 @@ def test_cached_selector_returns_none_for_implausible_number():
     b.collection_count_selector = ".count"
     page = _FakePageWithSelector("999999 reviews")
     assert _detect_count_from_cached_selector(page, b) is None
-    assert b._count_selector_miss_count == 1
+    # Implausible counts also don't invalidate the selector.
+    assert b.collection_count_selector == ".count"
 
 
 if __name__ == "__main__":
@@ -184,7 +176,6 @@ if __name__ == "__main__":
     test_jsonld_stage_returns_none_when_only_malformed()
     test_cached_selector_returns_count_when_text_has_number()
     test_cached_selector_returns_none_when_no_selector()
-    test_cached_selector_increments_miss_count_on_no_text()
-    test_cached_selector_invalidates_after_three_misses()
+    test_cached_selector_preserves_selector_on_null_text()
     test_cached_selector_returns_none_for_implausible_number()
     print("✅ all passed")

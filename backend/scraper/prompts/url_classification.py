@@ -121,7 +121,7 @@ def get_prompt(page_url: str, category_name: str,
 **Expected collection count: {expected_count} products** (read from the page itself).
 
 Use this as a quantitative anchor:
-- The main product grid is whichever lineage(s) collectively contain ~{expected_count} links.
+- The canonical product grid is usually the lineage (or tightly paired lineages like image+title links) whose counts most closely match the expected product count {expected_count}. If one lineage uniquely matches the expected count exactly, strongly prefer it over other PDP-like lineages with mismatched counts.
 - The sum of `count` over your `product`-classified lineages should be close to {expected_count} (±20%).
 - A small lineage (count << {expected_count}) sitting next to the main grid is usually `featured` or `recommendation`, not `product`.
 - A very large lineage (count >> {expected_count}) is usually `navigation` (categories, menus).

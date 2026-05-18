@@ -141,14 +141,36 @@ class Brand:
         self.approved_lineages = set()  # Global approved lineages across all categories
         self.rejected_lineages = set()  # Global rejected lineages across all categories
 
+        # URL-classifier lineage memory (separate from product-pattern lineages
+        # above — these are the per-lineage decisions the URL classifier
+        # makes). Used by url_extractor.classify_product_links().
+        self.approved_url_lineages: set = set()
+        self.rejected_url_lineages: set = set()
+
+        # "Winner" lineages: the subset of approved_url_lineages that the
+        # exact-count filter actually picked for at least one category in
+        # this run. These are the cleanest signal of a real product-grid
+        # lineage — sibling lineages (swatch, image, title) that get
+        # approved-as-product but never win the exact-count match shouldn't
+        # be persisted across runs, because pre-approving them on the next
+        # run causes the swatch contamination problem.
+        self.winner_url_lineages: set = set()
+
         # Pagination cache: reuse pagination pattern across categories
         self.pagination_pattern: Optional[Dict] = None  # {url_pattern, pagination_type} from first detection
         self._pagination_lock = threading.Lock()
 
-        # Collection count selector cache: reuse across categories.
-        # _count_selector_miss_count tracks consecutive failed lookups for 3-strike invalidation.
+        # Collection count selector cache: reuse across categories. Cached
+        # once at high or medium confidence and kept for the rest of the
+        # brand run — null returns on individual pages are treated as
+        # "no count displayed there," not as a reason to invalidate.
         self.collection_count_selector: Optional[str] = None
-        self._count_selector_miss_count: int = 0
+
+        # Try to load any persisted cache for this brand from disk. If the
+        # brand has been scraped before, the URL-classifier lineages and the
+        # count selector survive across runs — first run pays full LLM cost,
+        # subsequent runs are nearly free.
+        self._load_persisted_cache()
 
         # HTML processing pipeline
         self.html_queue = Queue()  # Queue of (html, source_url) tuples
@@ -1688,6 +1710,107 @@ Return JSON:
     def has_lineage_memory(self, category_url: str) -> bool:
         """Check if we have any lineage memory"""
         return len(self.approved_lineages) > 0 or len(self.rejected_lineages) > 0
+
+    # ----- Persistent cache (across pipeline runs) -----
+    # First run learns the URL-classifier lineages and the count selector;
+    # subsequent runs load them from disk and skip the LLM entirely for any
+    # category whose lineages are already known. The cache is a small JSON
+    # file scoped per brand.
+
+    def _cache_path(self):
+        """Where to persist this brand's scraper-side cache. Falls back to
+        a URL-derived directory name (e.g. namedcollective_com) when no
+        explicit brand_id was set on construction — happens in tests and
+        ad-hoc scripts that create Brand directly without going through
+        brand_manager."""
+        import os as _os
+        try:
+            brand_dir = self.brand_id
+            if not brand_dir:
+                from urllib.parse import urlparse as _urlparse
+                netloc = _urlparse(self.url).netloc.replace("www.", "")
+                brand_dir = netloc.replace(".", "_")
+            if not brand_dir:
+                return None
+            extractions_dir = _os.path.join(
+                _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))),
+                "extractions",
+                brand_dir,
+            )
+            _os.makedirs(extractions_dir, exist_ok=True)
+            return _os.path.join(extractions_dir, "scraper_cache.json")
+        except Exception as e:
+            print(f"   ⚠️  _cache_path failed: {e}")
+            return None
+
+    def _load_persisted_cache(self):
+        """Load the winner lineages + count selector + pagination pattern
+        from disk if a previous run left a cache file for this brand. Safe
+        no-op when nothing exists.
+
+        Winners are seeded into approved_url_lineages so the classifier
+        pre-approves them on the next run. We deliberately do NOT persist
+        the full approved/rejected sets — those were noisy across LLM
+        calls (a swatch lineage gets approved on one category, rejected
+        on another, ends up in both sets, and on reload it pre-approves
+        contamination URLs that defeat the exact-count filter)."""
+        path = self._cache_path()
+        if not path:
+            return
+        import os as _os
+        import json as _json
+        if not _os.path.exists(path):
+            return
+        try:
+            with open(path) as f:
+                data = _json.load(f)
+            winners = data.get("winner_url_lineages") or []
+            selector = data.get("collection_count_selector")
+            pagination = data.get("pagination_pattern")
+            if winners:
+                # Seed both: the classifier reads approved_url_lineages,
+                # and we keep winner_url_lineages updated so a re-save
+                # preserves them.
+                self.approved_url_lineages = set(winners)
+                self.winner_url_lineages = set(winners)
+            if selector:
+                self.collection_count_selector = selector
+            if pagination:
+                self.pagination_pattern = pagination
+            print(
+                f"   💾 Loaded scraper cache: "
+                f"{len(self.winner_url_lineages)} winner lineage(s), "
+                f"selector={'yes' if selector else 'no'}, "
+                f"pagination={'yes' if pagination else 'no'}"
+            )
+        except Exception as e:
+            print(f"   ⚠️  Failed to load scraper cache from {path}: {e}")
+
+    def save_persisted_cache(self):
+        """Persist the winner lineages + count selector + pagination
+        pattern to disk for the next run. Call this at the end of a
+        successful URL-extraction stage. We only save winners (lineages
+        that drove an exact-count match) — never the full approved set,
+        which is noisy and causes swatch contamination on reload."""
+        path = self._cache_path()
+        if not path:
+            return
+        import json as _json
+        winners = getattr(self, "winner_url_lineages", set()) or set()
+        data = {
+            "winner_url_lineages": sorted(winners),
+            "collection_count_selector": self.collection_count_selector,
+            "pagination_pattern": self.pagination_pattern,
+        }
+        try:
+            with open(path, "w") as f:
+                _json.dump(data, f, indent=2)
+            print(
+                f"   💾 Saved scraper cache to {path} "
+                f"({len(winners)} winner lineage(s))"
+            )
+        except Exception as e:
+            print(f"   ⚠️  Failed to save scraper cache to {path}: {e}")
 
     def run_full_extraction_pipeline(self) -> dict:
         """

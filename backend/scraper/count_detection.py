@@ -18,7 +18,7 @@ from typing import Any, List, Literal, Optional
 class CountResult:
     """A detected product count and the stage that produced it."""
     count: int
-    source: Literal["jsonld", "cached_selector", "vision"]
+    source: Literal["common_selector", "jsonld", "cached_selector", "vision"]
 
 
 _MIN_PLAUSIBLE_COUNT = 1
@@ -62,6 +62,136 @@ def _extract_count_from_jsonld_objects(objects: List[Any]) -> Optional[int]:
     return max(candidates)
 
 
+# Common CSS selectors used by Shopify, BigCommerce, WooCommerce, Magento,
+# and other popular ecom platforms to display the displayed product count
+# on a collection page. Tried in order — first one that returns a plausible
+# integer wins. Free (no LLM call), so this runs before everything else.
+_COMMON_COUNT_SELECTORS: List[str] = [
+    # Shopify-ish
+    "[data-product-count]",
+    ".collection-count",
+    ".collection__count",
+    ".collection-meta__count",
+    ".filters-toolbar__product-count",
+    ".product-count",
+    ".product-count__text",
+    ".product-grid-count",
+    ".results-count",
+    ".results__count",
+    ".filter__count",
+    ".filter-count",
+    # BigCommerce / WooCommerce / generic
+    ".count-bar__count",
+    ".toolbar-amount",
+    ".woocommerce-result-count",
+    "[data-results-count]",
+]
+
+
+def _detect_count_from_text_pattern(page) -> Optional[int]:
+    """
+    Stage 0b: walk small text nodes in the page looking for the
+    canonical count widget pattern: a short label like "23 products",
+    "47 items", "104 styles", "12 results", or just "23" inside an
+    element whose class name contains "count".
+
+    Generic across ecom platforms. Catches custom Shopify themes that
+    don't use the standard class names. Free, no LLM.
+
+    Returns the first plausible match.
+    """
+    js = r"""
+        (() => {
+            const re = /^\s*(\d{1,4})\s*(styles?|items?|products?|results?|matches?|pieces?)?\s*$/i;
+            // Scope the search: don't blindly walk every element. Look at
+            // elements that either (a) live in the top half of the page,
+            // (b) have a class/data attr suggesting they're a count widget,
+            // or (c) are inside a header/title/filter container.
+            const candidates = [];
+            const elements = document.querySelectorAll(
+                'span, div, p, small, strong, [class*=count i], [class*=Count], ' +
+                '[data-count], [data-products-count]'
+            );
+            for (const el of elements) {
+                const text = (el.textContent || '').trim();
+                if (!text || text.length > 40) continue;
+                const m = text.match(re);
+                if (!m) continue;
+                const n = parseInt(m[1], 10);
+                if (!Number.isInteger(n) || n < 1 || n > 10000) continue;
+                // If the label is purely a number, the element class must
+                // suggest a count, OR the element must be visible near the
+                // top of the page — otherwise we'd match prices, year, etc.
+                const hasUnit = !!m[2];
+                const cls = (typeof el.className === 'string' ? el.className : '').toLowerCase();
+                const looksLikeCount = cls.includes('count') || cls.includes('total')
+                    || cls.includes('result') || cls.includes('amount');
+                const rect = el.getBoundingClientRect();
+                const nearTop = rect.top < window.innerHeight * 0.7;
+                if (!hasUnit && !looksLikeCount) continue;
+                if (!nearTop) continue;
+                candidates.push({n: n, text: text, hasUnit: hasUnit, looksLikeCount: looksLikeCount});
+            }
+            // Prefer candidates with units (less ambiguous), then by smallest number.
+            candidates.sort((a, b) => (b.hasUnit - a.hasUnit) || (a.n - b.n));
+            return candidates[0] || null;
+        })()
+    """
+    try:
+        result = page.evaluate(js)
+    except Exception:
+        return None
+    if not result:
+        print("   [count/stage0b] text pattern: no match")
+        return None
+    n = result.get("n")
+    if not isinstance(n, int) or not (_MIN_PLAUSIBLE_COUNT <= n <= _MAX_PLAUSIBLE_COUNT):
+        return None
+    print(f"   [count/stage0b] text pattern hit: {result.get('text')!r} -> {n}")
+    return n
+
+
+def _detect_count_from_common_selectors(page) -> Optional[int]:
+    """
+    Stage 0: try a small list of CSS selectors that ecom platforms
+    commonly use to render the displayed product count. Free, instant,
+    no LLM call. Returns the first plausible integer found.
+
+    This catches the case where the brand sits on a stock theme — most
+    of Shopify, BigCommerce, etc. The vision call then becomes a true
+    fallback for sites with bespoke layouts.
+    """
+    js = f"""
+        (() => {{
+            const selectors = {json.dumps(_COMMON_COUNT_SELECTORS)};
+            for (const sel of selectors) {{
+                const el = document.querySelector(sel);
+                if (!el) continue;
+                const text = (el.textContent || '').trim();
+                if (!text) continue;
+                const m = text.match(/\\d+/);
+                if (m) return {{selector: sel, count: parseInt(m[0], 10), text: text.slice(0, 80)}};
+            }}
+            return null;
+        }})()
+    """
+    try:
+        result = page.evaluate(js)
+    except Exception:
+        return None
+    if not result:
+        print("   [count/stage0] common selectors: no match")
+        return None
+    count = result.get("count")
+    if not isinstance(count, int) or not (_MIN_PLAUSIBLE_COUNT <= count <= _MAX_PLAUSIBLE_COUNT):
+        return None
+    print(
+        f"   [count/stage0] common selector hit: {result.get('selector')!r} "
+        f"-> {count}"
+    )
+    return count
+
+
 _JSONLD_QUERY_JS = """
     Array.from(document.querySelectorAll('script[type="application/ld+json"]'))
         .map(s => s.textContent)
@@ -94,19 +224,17 @@ def _detect_count_from_jsonld(page) -> Optional[int]:
 
 import re
 
-_INVALIDATE_AFTER_MISSES = 3
-
 
 def _detect_count_from_cached_selector(page, brand_instance) -> Optional[int]:
     """
     Stage 2: query the brand's cached CSS selector for the count. Parse the
     first integer from its textContent.
 
-    Increments brand_instance._count_selector_miss_count on failure. After 3
-    consecutive misses, clears brand_instance.collection_count_selector so
-    Stage 3 (vision) runs again.
-
-    Returns None if no cached selector exists or the lookup failed.
+    Returns None if no cached selector exists or the selector doesn't match
+    on this page. A null result is treated as "this page genuinely doesn't
+    display a count" — not as a sign that the cached selector is wrong — so
+    the selector is left intact for subsequent categories that may display
+    the count normally.
     """
     if not brand_instance:
         return None
@@ -124,13 +252,10 @@ def _detect_count_from_cached_selector(page, brand_instance) -> Optional[int]:
     count = _parse_first_int(text) if isinstance(text, str) else None
 
     if count is not None and _MIN_PLAUSIBLE_COUNT <= count <= _MAX_PLAUSIBLE_COUNT:
-        brand_instance._count_selector_miss_count = 0
+        print(f"   [count/stage2] cached selector hit: {selector!r} -> {count}")
         return count
 
-    brand_instance._count_selector_miss_count += 1
-    if brand_instance._count_selector_miss_count >= _INVALIDATE_AFTER_MISSES:
-        brand_instance.collection_count_selector = None
-        brand_instance._count_selector_miss_count = 0
+    print(f"   [count/stage2] cached selector returned no number: {selector!r} (text={text!r})")
     return None
 
 
@@ -225,10 +350,19 @@ def _detect_count_from_vision(page, category_name: str, brand_instance, llm_hand
     if count is None or not (_MIN_PLAUSIBLE_COUNT <= count <= _MAX_PLAUSIBLE_COUNT):
         return None
 
-    # Cache the selector only if we're confident in it.
-    if brand_instance and selector and confidence == "high":
+    # Cache the selector when the vision model is reasonably confident.
+    # "high" is the ideal signal but "medium" still beats re-paying for
+    # vision on every subsequent page — the worst case is a cache miss
+    # (selector returns null on a later page → we fall back to vision),
+    # which is no worse than not caching at all. Once cached, the selector
+    # sticks for the rest of the brand run.
+    if brand_instance and selector and confidence in ("high", "medium"):
         brand_instance.collection_count_selector = selector
-        brand_instance._count_selector_miss_count = 0
+        print(f"   [count/stage3] cached selector (conf={confidence}): {selector!r}")
+    elif brand_instance and selector:
+        print(f"   [count/stage3] NOT caching (conf={confidence}): {selector!r}")
+    elif brand_instance:
+        print(f"   [count/stage3] vision returned no selector (conf={confidence})")
 
     return count
 
@@ -237,12 +371,22 @@ def detect_collection_count(page, category_name: str, brand_instance, llm_handle
     """
     Three-stage collection count detection.
 
-    Stage 1: JSON-LD structured data (free, instant).
-    Stage 2: Brand-cached CSS selector (free if cache hit).
-    Stage 3: Vision LLM screenshot of the page (paid; caches a selector for next time).
+    Stage 0a: Common platform CSS selectors (free; covers Shopify / BC / etc.).
+    Stage 0b: Generic text-pattern heuristic (free; catches custom themes).
+    Stage 1:  JSON-LD structured data (free, instant).
+    Stage 2:  Brand-cached CSS selector (free if cache hit).
+    Stage 3:  Vision LLM screenshot of the page (paid; caches a selector).
 
     Returns CountResult(count, source) or None if the count is honestly unknown.
     """
+    n = _detect_count_from_common_selectors(page)
+    if n is not None:
+        return CountResult(count=n, source="common_selector")
+
+    n = _detect_count_from_text_pattern(page)
+    if n is not None:
+        return CountResult(count=n, source="common_selector")
+
     n = _detect_count_from_jsonld(page)
     if n is not None:
         return CountResult(count=n, source="jsonld")
