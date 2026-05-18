@@ -11,8 +11,13 @@ Examples:
 """
 
 import sys
+import os
 import argparse
-sys.path.insert(0, '/Users/bhavyajain/Code/fashion_archive/backend/scraper')
+# Use the scraper directory next to THIS file, not a hardcoded absolute path.
+# (The previous absolute path silently imported main-repo code when this script
+# was run from a worktree, masking any local changes — including the
+# count-detection feature this script is supposed to exercise.)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'scraper'))
 
 from url_extractor import extract_urls_from_category
 from brand import Brand
