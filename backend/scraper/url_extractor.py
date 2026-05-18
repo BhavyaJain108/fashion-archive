@@ -394,40 +394,12 @@ def _scroll_and_extract_links(page_url: str, brand_instance=None, skip_paginatio
                 _log(f"   📍 Using pagination element for scroll targeting")
                 _scroll_using_pagination_element(page, pagination_element, [])
 
-            # Height-based scrolling (fallback or additional).
-            #
-            # IMPORTANT: we scroll INCREMENTALLY (one viewport at a time) rather
-            # than teleporting straight to document.body.scrollHeight. Many
-            # modern stores (Shopify, etc.) use IntersectionObserver to lazy-load
-            # the next batch of products: a sentinel element near the end of
-            # the visible grid fires when it scrolls INTO the viewport. If we
-            # teleport past the sentinel, the observer never sees it crossing
-            # the viewport boundary and the lazy-load never triggers.
-            # Stepping through the page in ~80%-viewport chunks ensures every
-            # sentinel position gets a chance to fire.
+            # Height-based scrolling (fallback or additional)
             while True:
                 current_height = page.evaluate("document.body.scrollHeight")
                 scroll_count += 1
 
-                page.evaluate("""
-                    async () => {
-                        const step = window.innerHeight * 0.8;
-                        // Use scrollHeight at the start of each pass — if new
-                        // content loads mid-pass and grows the page, the
-                        // OUTER while loop catches it on the next iteration.
-                        const targetY = document.body.scrollHeight;
-                        let y = window.scrollY;
-                        while (y < targetY - window.innerHeight) {
-                            window.scrollBy({top: step, behavior: 'instant'});
-                            y += step;
-                            // Pause to let any IntersectionObserver fire and
-                            // the next batch of products to render.
-                            await new Promise(r => setTimeout(r, 250));
-                        }
-                        // Final nudge to the absolute bottom.
-                        window.scrollTo(0, document.body.scrollHeight);
-                    }
-                """)
+                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                 page.wait_for_timeout(2000)
 
                 new_height = page.evaluate("document.body.scrollHeight")
