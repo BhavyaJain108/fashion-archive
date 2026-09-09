@@ -10,9 +10,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-SCHEMA_PATH = Path(__file__).with_name("schema.sql")
+# Order matters: user data tables reference users(id), so auth goes first.
+SCHEMA_PATHS = (
+    Path(__file__).with_name("schema.sql"),
+    Path(__file__).parent.parent / "userdata" / "schema.sql",
+)
 
 
 def apply_schema(conn) -> None:
-    """Create any missing auth tables, extensions and indexes."""
-    conn.execute(SCHEMA_PATH.read_text())
+    """Create any missing tables, extensions and indexes."""
+    for path in SCHEMA_PATHS:
+        conn.execute(path.read_text())

@@ -121,15 +121,19 @@ email_tokens
   consumed_at  timestamptz
 
 favourites
-  id            bigserial primary key
-  user_id       uuid not null references users(id) on delete cascade
-  season        jsonb not null
-  collection    jsonb not null
-  look          jsonb not null
-  image_key     text not null              -- R2 object key
-  notes         text
-  created_at    timestamptz not null default now()
-  unique (user_id, image_key)
+  id                  bigserial primary key
+  user_id             uuid not null references users(id) on delete cascade
+  season_name         text not null
+  season_url          text not null
+  season_link_text    text
+  collection_designer text not null
+  collection_url      text not null
+  look_number         integer not null
+  look_total          integer
+  image_path          text not null       -- API path now, R2 object key later
+  notes               text
+  created_at          timestamptz not null default now()
+  unique (user_id, season_url, collection_url, look_number)
 
 brand_following
   user_id                uuid not null references users(id) on delete cascade
@@ -143,6 +147,11 @@ brand_following
 ```
 
 Only token *hashes* are stored. A database read no longer allows impersonation.
+
+Favourites use flat columns rather than the jsonb documents first sketched here,
+and are keyed on the look rather than the image. The API queries favourites by
+`season_url` / `collection_url` / `look_number` — that triple is a look's real
+identity, and it is indexable as columns where it would not be inside jsonb.
 
 ## Auth flows
 
