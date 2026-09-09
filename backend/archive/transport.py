@@ -28,10 +28,20 @@ class Response(Protocol):
     call site duck-types.
     """
 
-    url: Any
-    status_code: int
-    text: str
-    headers: Any
+    # Read-only members throughout: a plain attribute satisfies a property, but not
+    # the other way round, and httpx exposes several of these as properties while the
+    # browser response sets them in __init__.
+    @property
+    def url(self) -> Any: ...
+
+    @property
+    def status_code(self) -> int: ...
+
+    @property
+    def text(self) -> str: ...
+
+    @property
+    def headers(self) -> Any: ...
 
     @property
     def content(self) -> bytes: ...
