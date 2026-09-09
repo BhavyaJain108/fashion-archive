@@ -1,19 +1,19 @@
 # High Fashion Module
 
-This module contains all high-fashion (nowfashion.com) related functionality, including favorites management and user authentication.
+High-fashion collections, sourced from firstVIEW. See FIRSTVIEW.md for the
+site structure the adapter depends on.
+
+User authentication lives in `backend/auth/user_system/`, not here.
 
 ## Structure
 
 ```
 backend/high_fashion/
 ├── __init__.py                 # Module init
+├── firstview.py                # firstVIEW source adapter
+├── FIRSTVIEW.md                # Site structure the adapter relies on
 ├── favourites_db.py            # Favorites database operations
-├── user_system/                # User authentication & sessions
-│   ├── __init__.py
-│   ├── models.py               # User & Session models
-│   ├── auth.py                 # Authentication logic
-│   ├── middleware.py           # Auth middleware (@require_auth)
-│   └── manager.py              # User management
+├── tools/                      # Video search & LLM helpers
 ├── favourites/                 # Favorites data storage
 │   ├── favourites.db           # SQLite database
 │   └── images/                 # Cached favorite images
@@ -48,7 +48,7 @@ is_fav = favourites_db.is_favourite(season_url, collection_url, look_number)
 favorites = favourites_db.get_all_favourites()
 ```
 
-### User System (`user_system/`)
+### User System (`backend/auth/user_system/`)
 
 Complete user authentication and session management.
 
@@ -60,8 +60,8 @@ Complete user authentication and session management.
 
 **Usage:**
 ```python
-from backend.high_fashion.user_system.auth import UserAuth
-from backend.high_fashion.user_system.middleware import require_auth, get_current_user
+from backend.auth.user_system.auth import UserAuth
+from backend.auth.user_system.middleware import require_auth, get_current_user
 
 # Initialize auth
 user_auth = UserAuth()
@@ -106,18 +106,3 @@ This module is used by:
 **Users:**
 - Location: `users.db` (in project root)
 - Schema: Users and Sessions tables
-
-## Migration Notes
-
-**Moved from project root:**
-- `favourites_db.py` → `backend/high_fashion/favourites_db.py`
-- `user_system/` → `backend/high_fashion/user_system/`
-- `favourites/` → `backend/high_fashion/favourites/`
-- `high_fashion_cache/` → `backend/high_fashion/cache/`
-
-**Imports updated in:**
-- `backend/api/favorites_routes.py`
-- `backend/api/auth_routes.py`
-- `backend/api/high_fashion_routes.py`
-
-All functionality preserved and tested working.
