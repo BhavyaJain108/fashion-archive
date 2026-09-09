@@ -1,0 +1,66 @@
+{
+  "products": [
+    {
+      "id": 1,
+      "title": "Nemo Hoodie",
+      "handle": "nemo-hoodie",
+      "vendor": "KUURTH",
+      "product_type": "Hoodies",
+      "tags": [
+        "unisex",
+        "fleece"
+      ],
+      "updated_at": "2026-08-20T09:30:00-04:00",
+      "body_html": "<p>Heavy fleece.</p>",
+      "variants": [
+        {
+          "title": "M",
+          "option1": "M",
+          "price": "126.00",
+          "compare_at_price": "180.00",
+          "available": true,
+          "sku": "NEMO-M",
+          "barcode": "4901234567894"
+        },
+        {
+          "title": "L",
+          "option1": "L",
+          "price": "126.00",
+          "compare_at_price": "180.00",
+          "available": false,
+          "sku": "NEMO-L"
+        }
+      ],
+      "images": [
+        {
+          "src": "https://cdn.shopify.com/s/files/nemo-1.jpg"
+        }
+      ],
+      "options": [
+        {
+          "name": "Size"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Ring One",
+      "handle": "ring-one",
+      "vendor": "KUURTH",
+      "product_type": "Jewelry",
+      "tags": [],
+      "updated_at": "2026-08-01T10:00:00-04:00",
+      "body_html": "",
+      "variants": [
+        {
+          "title": "Default",
+          "option1": "Default",
+          "price": "95.00",
+          "compare_at_price": null,
+          "available": true
+        }
+      ],
+      "images": []
+    }
+  ]
+}

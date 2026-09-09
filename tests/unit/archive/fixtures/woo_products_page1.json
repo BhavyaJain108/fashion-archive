@@ -1,0 +1,16 @@
+[
+  {"id": 11, "name": "Wia Jacket", "sku": "WIA-J1",
+   "permalink": "https://wiacollections.com/product/wia-jacket/",
+   "description": "<p>Wool twill.</p>", "is_in_stock": true,
+   "prices": {"price": "19900", "regular_price": "25000", "sale_price": "19900",
+              "currency_code": "EUR", "currency_minor_unit": 2},
+   "images": [{"src": "https://wiacollections.com/wp-content/uploads/jacket.jpg"}],
+   "categories": [{"name": "Jackets"}],
+   "attributes": [{"name": "Size", "terms": [{"name": "S"}, {"name": "M"}, {"name": "L"}]}]},
+  {"id": 12, "name": "Wia Tee", "sku": null,
+   "permalink": "https://wiacollections.com/product/wia-tee/",
+   "description": "", "is_in_stock": false,
+   "prices": {"price": "4500", "regular_price": "4500", "sale_price": null,
+              "currency_code": "EUR", "currency_minor_unit": 2},
+   "images": [], "categories": [], "attributes": []}
+]
