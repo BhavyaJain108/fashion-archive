@@ -81,6 +81,7 @@ cross-*site*, not cross-origin, and these are the same site.
 | `db.py` | psycopg3 connection pool |
 | `schema.sql`, `migrate.py` | table definitions, applied on boot |
 | `passwords.py` | argon2id hash / verify |
+| `tokens.py` | opaque token generation + SHA-256 hashing |
 | `repository.py` | every SQL statement for users, sessions, tokens |
 | `service.py` | register, verify, login, logout, request-reset, reset |
 | `email.py` | Resend client and the two message bodies |
