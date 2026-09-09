@@ -1,0 +1,15 @@
+{
+  // Cloudflare Workers static assets. Pages and Workers were merged, and the
+  // Workers asset handler rejects a `_redirects` file containing the usual SPA
+  // rule (`/*  /index.html  200`) as an infinite loop, because it already
+  // strips `/index` and `.html` itself. SPA fallback is declared here instead.
+  "name": "fashion-archive-web",
+  "compatibility_date": "2026-01-01",
+  "assets": {
+    "directory": "./build",
+    // Serve index.html for any path with no matching file, so opening a
+    // password-reset link directly returns the app rather than a 404 —
+    // /reset-password is a client-side route, not a file in the build.
+    "not_found_handling": "single-page-application"
+  }
+}

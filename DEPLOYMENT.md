@@ -41,9 +41,16 @@ Check it:
 curl -i https://api.premiumpropogandafashion.studio/api/health
 ```
 
-## 2. Frontend on Cloudflare Pages
+## 2. Frontend on Cloudflare Workers
 
-Cloudflare -> Workers & Pages -> Create -> Pages -> Connect to Git.
+Pages and Workers are merged now, so a static site deploys as a Worker with
+assets. `web_ui/wrangler.jsonc` declares the build output and the SPA fallback.
+
+Do NOT add a `_redirects` file with the usual `/*  /index.html  200` rule — the
+Workers asset handler rejects it as an infinite loop, because it already strips
+`/index` and `.html`. `not_found_handling` in wrangler.jsonc does that job.
+
+Cloudflare -> Workers & Pages -> Create -> Connect to Git.
 
 | Setting | Value |
 |---|---|
