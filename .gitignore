@@ -127,3 +127,6 @@ extractions/
 # Node dependencies. No trailing slash: a worktree symlinks this to the
 # main checkout, and `node_modules/` matches directories only.
 node_modules
+
+# archive v2 runtime data
+backend/archive/data/
