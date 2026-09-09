@@ -1,0 +1,69 @@
+# Render Blueprint. Creates the database and the API service together, with the
+# connection string wired between them.
+#
+# There is no persistent disk: images live in Cloudflare R2 and everything else
+# is in Postgres. A disk would pin the service to a single instance and turn
+# every deploy into a brief outage.
+#
+# The frontend is not here — it is a Cloudflare Pages project, so that DNS,
+# image storage and the static build stay in one account.
+
+databases:
+  - name: fashion-archive-db
+    plan: basic-256mb
+    region: oregon
+
+services:
+  - type: web
+    name: fashion-archive-api
+    runtime: docker
+    region: oregon
+    # Chromium will not fit in the smaller plans; it gets OOM-killed mid-scrape.
+    plan: standard
+    healthCheckPath: /api/health
+    domains:
+      - api.premiumpropogandafashion.studio
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: fashion-archive-db
+          property: connectionString
+
+      # 0.0.0.0, or the health check cannot reach the process and the deploy fails.
+      - key: HOST
+        value: 0.0.0.0
+      # Never true here: the Werkzeug debugger is an interactive Python console,
+      # which on a public URL is remote code execution.
+      - key: DEBUG
+        value: "false"
+
+      - key: APP_BASE_URL
+        value: https://premiumpropogandafashion.studio
+      - key: API_BASE_URL
+        value: https://api.premiumpropogandafashion.studio
+
+      # Leading dot: the cookie must be sent to both the site and the api
+      # subdomain. They are the same site, so SameSite=Lax is enough.
+      - key: COOKIE_DOMAIN
+        value: .premiumpropogandafashion.studio
+      - key: COOKIE_SECURE
+        value: "true"
+
+      - key: MAIL_FROM
+        value: no-reply@premiumpropogandafashion.studio
+      - key: R2_BUCKET
+        value: fashion-archive
+      - key: R2_PUBLIC_BASE
+        value: https://images.premiumpropogandafashion.studio
+
+      # sync: false means Render prompts for these and they never enter the repo.
+      - key: RESEND_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false

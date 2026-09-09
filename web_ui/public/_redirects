@@ -1,0 +1,4 @@
+# Single-page app: every path is served by index.html and routed in the browser.
+# Without this, opening a password-reset link directly returns 404, because
+# /reset-password is not a file in the build.
+/*    /index.html   200

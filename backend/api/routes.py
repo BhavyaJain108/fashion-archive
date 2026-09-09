@@ -926,12 +926,6 @@ def analyze_brand():
 # IMAGES API
 # =============================================================================
 
-def serve_image(brand_id, category_slug, filename):
-    """GET /api/images/{brand}/{category}/{filename} - Serve image"""
-    # Local image storage is deprecated - products now use remote URLs
-    return jsonify({"error": "Local image storage not available. Use product image URLs directly."}), 404
-
-
 def get_product_images(product_url_encoded):
     """GET /api/products/{product_url}/images - Get product images"""
     try:
@@ -992,7 +986,6 @@ def register_routes(app):
     app.add_url_rule('/api/brands/analyze', 'analyze_brand', analyze_brand, methods=['POST'])
 
     # Images
-    app.add_url_rule('/api/images/<brand_id>/<category_slug>/<filename>', 'serve_image', serve_image, methods=['GET'])
     app.add_url_rule('/api/products/<path:product_url_encoded>/images', 'get_product_images', get_product_images, methods=['GET'])
 
     print("✅ Unified API endpoints registered (22 endpoints)")

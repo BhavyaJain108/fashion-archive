@@ -1,31 +1,93 @@
 // Fashion Archive API Service
-// Bridges React UI to Python backend maintaining exact same functionality
+// Bridges the React UI to the Python backend.
+//
+// Every request sends `credentials: 'include'` so the browser attaches the
+// session cookie. The cookie is HttpOnly, which means this file cannot read it
+// and neither can anything else running on the page — that is the point. The
+// previous version read a token out of localStorage and set an Authorization
+// header by hand in eight separate places; any XSS on the page could have read
+// that token straight out of storage.
 
 class FashionArchiveAPI {
   static BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8081';
 
+  // Called when the API reports the session is gone, so the app can show the
+  // login screen instead of rendering empty data. Set once by App.js.
+  static onUnauthorized = null;
+
+  // Single place that notices a dead session. Handlers below call this rather
+  // than each deciding for themselves what a 401 means.
+  static checkAuth(response) {
+    if (response.status === 401 && this.onUnauthorized) {
+      this.onUnauthorized();
+    }
+    return response;
+  }
+
+  // ---------------------------------------------------------------- auth ---
+
+  static async authRequest(path, body) {
+    const response = await fetch(`${this.BASE_URL}/api/auth/${path}`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {}),
+    });
+    const data = await response.json().catch(() => ({}));
+    return { ok: response.ok, status: response.status, ...data };
+  }
+
+  // Who am I? A 200 here is what "remembered the user" looks like on boot.
+  static async getMe() {
+    const response = await fetch(`${this.BASE_URL}/api/auth/me`, {
+      credentials: 'include',
+    });
+    if (!response.ok) return null;
+    const data = await response.json();
+    return data.user || null;
+  }
+
+  static login(email, password) {
+    return this.authRequest('login', { email, password });
+  }
+
+  static register(email, password, displayName) {
+    return this.authRequest('register', {
+      email, password, display_name: displayName,
+    });
+  }
+
+  static logout() {
+    return this.authRequest('logout', {});
+  }
+
+  static resendVerification(email) {
+    return this.authRequest('resend-verification', { email });
+  }
+
+  static requestPasswordReset(email) {
+    return this.authRequest('request-reset', { email });
+  }
+
+  static resetPassword(token, password) {
+    return this.authRequest('reset', { token, password });
+  }
+
   // Helper to call Python backend
   static async callPython(endpoint, data = {}) {
     try {
-      // Get session token from localStorage
-      const token = localStorage.getItem('fashionArchiveToken');
-
-      // Build headers with optional Authorization
-      const headers = {
-        'Content-Type': 'application/json',
-      };
-
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
+      // The session cookie rides along via credentials: 'include'.
+      const headers = { 'Content-Type': 'application/json' };
 
       const response = await fetch(`${this.BASE_URL}${endpoint}`, {
+        credentials: 'include',
         method: 'POST',
         headers: headers,
         body: JSON.stringify(data),
       });
 
       if (!response.ok) {
+        this.checkAuth(response);
         throw new Error(`API call failed: ${response.statusText}`);
       }
 
@@ -87,9 +149,15 @@ class FashionArchiveAPI {
     }
   }
 
-  // Get image file (for display)
+  // Image locations are already URLs — from R2 in production, from the API's
+  // local store in development. The backend used to return an absolute
+  // filesystem path that this turned into /api/image?path=..., asking the
+  // server to read that path off disk.
   static getImageUrl(imagePath) {
-    return `${this.BASE_URL}/api/image?path=${encodeURIComponent(imagePath)}`;
+    if (!imagePath) return '';
+    if (/^https?:\/\//i.test(imagePath)) return imagePath;
+    // Legacy value from an older cached response.
+    return `${this.BASE_URL}/api/images/${imagePath.replace(/^\/+/, '')}`;
   }
 
   // Get video file (for playback)
@@ -108,11 +176,15 @@ class FashionArchiveAPI {
   static async consumeSSE(endpoint, body, onEvent, signal) {
     const response = await fetch(`${this.BASE_URL}${endpoint}`, {
       method: 'POST',
+      credentials: 'include',          // session cookie, as everywhere else
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
       signal,
     });
-    if (!response.ok) throw new Error(`Stream failed: ${response.statusText}`);
+    if (!response.ok) {
+      this.checkAuth(response);
+      throw new Error(`Stream failed: ${response.statusText}`);
+    }
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -199,7 +271,7 @@ class FashionArchiveAPI {
   // Get application info (matches tkinter show_about)
   static async getAboutInfo() {
     try {
-      const response = await fetch(`${this.BASE_URL}/api/about`);
+      const response = await fetch(`${this.BASE_URL}/api/about`, { credentials: 'include' });
       return await response.json();
     } catch (error) {
       console.error('About info error:', error);
@@ -211,13 +283,10 @@ class FashionArchiveAPI {
   static async getFavourites() {
     console.log('API: Fetching favourites from', `${this.BASE_URL}/api/favourites`);
     try {
-      const token = localStorage.getItem('fashionArchiveToken');
       const headers = {};
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
 
       const response = await fetch(`${this.BASE_URL}/api/favourites`, {
+        credentials: 'include',
         method: 'GET',
         headers: headers
       });
@@ -250,15 +319,12 @@ class FashionArchiveAPI {
 
   static async removeFavourite(seasonUrl, collectionUrl, lookNumber) {
     try {
-      const token = localStorage.getItem('fashionArchiveToken');
       const headers = {
         'Content-Type': 'application/json',
       };
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
 
       const response = await fetch(`${this.BASE_URL}/api/favourites`, {
+        credentials: 'include',
         method: 'DELETE',
         headers: headers,
         body: JSON.stringify({
@@ -298,13 +364,10 @@ class FashionArchiveAPI {
 
   static async getFavouriteStats() {
     try {
-      const token = localStorage.getItem('fashionArchiveToken');
       const headers = {};
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
 
       const response = await fetch(`${this.BASE_URL}/api/favourites/stats`, {
+        credentials: 'include',
         method: 'GET',
         headers: headers
       });
@@ -321,30 +384,11 @@ class FashionArchiveAPI {
     }
   }
 
-  static async cleanupFavourites() {
-    try {
-      const token = localStorage.getItem('fashionArchiveToken');
-      const headers = {};
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
-      const response = await fetch(`${this.BASE_URL}/api/favourites/cleanup`, {
-        method: 'POST',
-        headers: headers
-      });
-      const data = await response.json();
-      return data;
-    } catch (error) {
-      console.error('Cleanup favourites error:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
   // My Brands API methods
   static async getBrands() {
     try {
       const response = await fetch(`${this.BASE_URL}/api/brands`, {
+        credentials: 'include',
         method: 'GET'
       });
       
@@ -363,6 +407,7 @@ class FashionArchiveAPI {
   static async addBrand(brandData) {
     try {
       const response = await fetch(`${this.BASE_URL}/api/brands`, {
+        credentials: 'include',
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -384,6 +429,7 @@ class FashionArchiveAPI {
   static async getBrandDetails(brandId) {
     try {
       const response = await fetch(`${this.BASE_URL}/api/brands/${brandId}`, {
+        credentials: 'include',
         method: 'GET'
       });
       
@@ -401,6 +447,7 @@ class FashionArchiveAPI {
   static async discoverBrandCollections(brandId) {
     try {
       const response = await fetch(`${this.BASE_URL}/api/brands/${brandId}/discover`, {
+        credentials: 'include',
         method: 'POST'
       });
       
@@ -419,6 +466,7 @@ class FashionArchiveAPI {
     try {
       const body = collectionUrl ? JSON.stringify({ collection_url: collectionUrl }) : undefined;
       const response = await fetch(`${this.BASE_URL}/api/brands/${brandId}/scrape`, {
+        credentials: 'include',
         method: 'POST',
         headers: collectionUrl ? { 'Content-Type': 'application/json' } : {},
         body: body
@@ -440,6 +488,7 @@ class FashionArchiveAPI {
     try {
       const body = collectionUrl ? JSON.stringify({ collection_url: collectionUrl }) : undefined;
       const response = await fetch(`${this.BASE_URL}/api/brands/${brandId}/scrape-stream`, {
+        credentials: 'include',
         method: 'POST',
         headers: collectionUrl ? { 'Content-Type': 'application/json' } : {},
         body: body
@@ -498,6 +547,7 @@ class FashionArchiveAPI {
   static async getBrandCategories(brandId) {
     try {
       const response = await fetch(`${this.BASE_URL}/api/brands/${brandId}/categories`, {
+        credentials: 'include',
         method: 'GET'
       });
       
@@ -515,6 +565,7 @@ class FashionArchiveAPI {
   static async getCategoryProducts(brandId, categoryName) {
     try {
       const response = await fetch(`${this.BASE_URL}/api/brands/${brandId}/categories/${encodeURIComponent(categoryName)}/products`, {
+        credentials: 'include',
         method: 'GET'
       });
       
@@ -533,6 +584,7 @@ class FashionArchiveAPI {
   static async getBrandProducts(brandId) {
     try {
       const response = await fetch(`${this.BASE_URL}/api/brands/${brandId}/products`, {
+        credentials: 'include',
         method: 'GET'
       });
       
@@ -550,6 +602,7 @@ class FashionArchiveAPI {
   static async addProductFavorite(productId, notes = '') {
     try {
       const response = await fetch(`${this.BASE_URL}/api/products/${productId}/favorite`, {
+        credentials: 'include',
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -571,6 +624,7 @@ class FashionArchiveAPI {
   static async getBrandFavorites() {
     try {
       const response = await fetch(`${this.BASE_URL}/api/brand-favorites`, {
+        credentials: 'include',
         method: 'GET'
       });
       
@@ -589,6 +643,7 @@ class FashionArchiveAPI {
   static async getBrandStats() {
     try {
       const response = await fetch(`${this.BASE_URL}/api/brands/stats`, {
+        credentials: 'include',
         method: 'GET'
       });
       
@@ -607,6 +662,7 @@ class FashionArchiveAPI {
   static async validateBrand(homepageUrl) {
     try {
       const response = await fetch(`${this.BASE_URL}/api/brands/validate`, {
+        credentials: 'include',
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -625,6 +681,7 @@ class FashionArchiveAPI {
   static async createBrandWithValidation(homepageUrl, brandName = null) {
     try {
       const response = await fetch(`${this.BASE_URL}/api/brands`, {
+        credentials: 'include',
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -646,6 +703,7 @@ class FashionArchiveAPI {
   static async startBrandScraping(brandId, mode = 'full') {
     try {
       const response = await fetch(`${this.BASE_URL}/api/brands/${brandId}/scrape?mode=${mode}`, {
+        credentials: 'include',
         method: 'POST'
       });
 
@@ -663,6 +721,7 @@ class FashionArchiveAPI {
   static async getBrandScrapeStatus(brandId) {
     try {
       const response = await fetch(`${this.BASE_URL}/api/brands/${brandId}/scrape/status`, {
+        credentials: 'include',
         method: 'GET'
       });
 
@@ -679,15 +738,12 @@ class FashionArchiveAPI {
 
   static async followBrand(brandId, brandName, notes = '') {
     try {
-      const token = localStorage.getItem('fashionArchiveToken');
       const headers = {
         'Content-Type': 'application/json',
       };
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
 
       const response = await fetch(`${this.BASE_URL}/api/brands/follow`, {
+        credentials: 'include',
         method: 'POST',
         headers: headers,
         body: JSON.stringify({
@@ -710,15 +766,12 @@ class FashionArchiveAPI {
 
   static async unfollowBrand(brandId) {
     try {
-      const token = localStorage.getItem('fashionArchiveToken');
       const headers = {
         'Content-Type': 'application/json',
       };
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
 
       const response = await fetch(`${this.BASE_URL}/api/brands/unfollow`, {
+        credentials: 'include',
         method: 'POST',
         headers: headers,
         body: JSON.stringify({ brand_id: brandId }),
@@ -737,13 +790,10 @@ class FashionArchiveAPI {
 
   static async getFollowedBrands() {
     try {
-      const token = localStorage.getItem('fashionArchiveToken');
       const headers = {};
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
 
       const response = await fetch(`${this.BASE_URL}/api/brands/following`, {
+        credentials: 'include',
         method: 'GET',
         headers: headers
       });
@@ -763,6 +813,7 @@ class FashionArchiveAPI {
   static async analyzeBrandUrl(url) {
     try {
       const response = await fetch(`${this.BASE_URL}/api/brands/analyze`, {
+        credentials: 'include',
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -784,6 +835,7 @@ class FashionArchiveAPI {
   static async resolveBrandName(brandName) {
     try {
       const response = await fetch(`${this.BASE_URL}/api/brands/resolve-name`, {
+        credentials: 'include',
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

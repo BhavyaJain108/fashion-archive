@@ -57,6 +57,7 @@ addopts = [
 markers = [
     "unit: fast pure-logic tests (default in CI PR checks)",
     "integration: spins up playwright / local fake site (slower)",
+    "db: requires a local Postgres (see tests/db/conftest.py)",
     "e2e: hits real external services (nightly only)",
     "llm_eval: fixture-based LLM evaluations (nightly only)",
 ]

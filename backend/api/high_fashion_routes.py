@@ -10,6 +10,11 @@ Endpoints backed by firstVIEW (see backend/high_fashion/FIRSTVIEW.md):
 """
 
 from flask import jsonify, request, send_file, Response
+
+import shutil
+import tempfile
+
+from backend.storage import images
 import os
 import requests
 from bs4 import BeautifulSoup
@@ -31,7 +36,6 @@ HEADERS = {
     'Upgrade-Insecure-Requests': '1',
 }
 
-CACHE_ROOT = "backend/high_fashion/cache/images"
 # Which year/season/gender/category combinations actually have shows.
 # Built by firstview.build_coverage; absent until then, in which case every
 # option stays selectable.
@@ -181,13 +185,57 @@ def get_collections():
         return jsonify({'error': str(e), 'success': False}), 500
 
 
+def extract_look_number(img):
+    """Look number from a filename like '...-0007.jpg'. Runway images are
+    meaningless out of order, and the source sorts by name, not by look."""
+    match = re.search(r'-(\d+)\.', img['filename'])
+    return int(match.group(1)) if match else 0
+
+
+def _upload_images(store, designer_name, entries):
+    """Upload the kept images and return them with browser-loadable URLs.
+
+    Called after filtering rather than during download, so images the organizer
+    discards are never stored.
+    """
+    uploaded = []
+    for entry in entries:
+        try:
+            data = Path(entry['local_path']).read_bytes()
+        except OSError as exc:
+            print(f"Failed to read {entry['local_path']}: {exc}")
+            continue
+
+        uploaded.append({
+            # A URL now, not a filesystem path. It used to be an absolute path
+            # the client handed back to /api/image?path= for the server to read
+            # off disk — meaningless on another machine, and that endpoint read
+            # whatever path it was given.
+            'path': store.save(images.runway_key(designer_name, entry['filename']), data),
+            'source_url': entry['source_url'],
+            'index': entry['index'],
+            'filename': entry['filename'],
+            'success': True,
+        })
+    return uploaded
+
+
 def download_images():
     """POST /api/download-images - Download every look in one show.
 
-    `collectionUrl` is a collection_images.php URL (or a bare id). Returns
-    the same {images, count, cache_dir} shape as before; each image entry
-    keeps path/url/index/filename.
+    `collectionUrl` is a collection_images.php URL (or a bare id).
+
+    Images are fetched into a temp directory and uploaded to the image
+    store, which returns browser-loadable URLs; the temp directory is
+    removed in the finally below, so a failed run cannot leave the
+    container's disk filling up. `path` on each entry is a URL, not a
+    filesystem path.
+
+    There is no organizer pass here. It existed to sift runway looks out of
+    a page that also carried logos, ad pixels and avatars; firstVIEW returns
+    the collection's looks and nothing else, so there is nothing to discard.
     """
+    temp_dir = None
     try:
         from backend.high_fashion import firstview as fv
 
@@ -197,52 +245,67 @@ def download_images():
             return jsonify({'error': 'collectionUrl is required', 'success': False}), 400
 
         quality = data.get('quality', fv.QUALITY_FULL)
+        store = images.get_store()
+        temp_dir = tempfile.mkdtemp(prefix='runway_')
+
         result = fv.download_collection(
             collection_url,
-            out_root=CACHE_ROOT,
+            out_root=temp_dir,
             quality=quality,
         )
-        return jsonify(result)
 
-    except Exception as e:
-        import traceback
-        print(f"ERROR download_images: {traceback.format_exc()}")
-        return jsonify({'error': str(e), 'success': False}), 500
+        designer_name = data.get('designerName') or result.get('designer') or 'unknown'
+        entries = [{
+            'local_path': img['path'],
+            'source_url': img['url'],
+            'index': img['index'],
+            'filename': img['filename'],
+        } for img in result.get('images', [])]
 
+        uploaded = _upload_images(store, designer_name, entries)
 
-def serve_fashion_image():
-    """GET /api/image?path={path} - Serve cached fashion image"""
-    try:
-        image_path = request.args.get('path', '')
-        print(f"DEBUG serve_image: Requested path: {image_path}")
-
-        if not image_path:
-            return jsonify({'error': 'No path provided'}), 400
-
-        # Convert to absolute path if relative
-        # The working directory when running backend/app.py is the project root
-        if not os.path.isabs(image_path):
-            # Get project root (parent of backend directory)
-            project_root = Path(__file__).parent.parent.parent
-            absolute_path = project_root / image_path
-        else:
-            absolute_path = Path(image_path)
-
-        print(f"DEBUG serve_image: Absolute path: {absolute_path}")
-        print(f"DEBUG serve_image: Path exists: {absolute_path.exists()}")
-
-        if not absolute_path.exists():
-            print(f"DEBUG serve_image: File not found at {absolute_path}")
-            return jsonify({'error': 'Image not found', 'path': str(absolute_path)}), 404
-
-        print(f"DEBUG serve_image: Serving file: {absolute_path}")
-        return send_file(str(absolute_path))
+        return jsonify({
+            'success': bool(uploaded),
+            'images': uploaded,
+            'count': len(uploaded),
+            'failed': result.get('failed', []),
+            'designer': result.get('designer'),
+            'season': result.get('season'),
+        })
 
     except Exception as e:
         import traceback
         error_details = traceback.format_exc()
-        print(f"ERROR serve_image: {error_details}")
-        return jsonify({'error': str(e), 'traceback': error_details}), 500
+        print(f"ERROR in download_images: {error_details}")
+        return jsonify({'error': str(e), 'traceback': error_details, 'success': False}), 500
+    finally:
+        if temp_dir:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def serve_stored_image(key):
+    """GET /api/images/<key> - serve an image from the local store.
+
+    Development only. In production images live in R2 and are served from
+    images.premiumpropogandafashion.studio, so this endpoint is never hit.
+
+    It replaces `/api/image?path=<absolute path>`, which took a filesystem path
+    from the client and read whatever it pointed at. Here the client names a key
+    inside the store, and the store refuses keys that escape its root.
+    """
+    store = images.get_store()
+    if not isinstance(store, images.LocalImageStore):
+        return jsonify({'error': 'images are served from the CDN'}), 404
+
+    try:
+        data = store.read(key)
+    except ValueError:
+        return jsonify({'error': 'invalid image key'}), 400
+
+    if data is None:
+        return jsonify({'error': 'image not found'}), 404
+
+    return Response(data, mimetype=images.guess_content_type(key))
 
 
 def _sse(payload: dict) -> str:
@@ -311,17 +374,45 @@ def stream_download_images():
     if not collection_url:
         return jsonify({'error': 'collectionUrl is required', 'success': False}), 400
     quality = data.get('quality', fv.QUALITY_FULL)
+    designer_hint = data.get('designerName')
 
     def generate():
+        # Same store-and-temp-dir contract as download_images: each look is
+        # uploaded as it lands and the event carries a URL, never a path on
+        # this machine. The temp directory goes away in the finally.
+        store = images.get_store()
+        temp_dir = tempfile.mkdtemp(prefix='runway_')
+        designer = designer_hint or 'unknown'
         try:
             for kind, payload in fv.iter_download_collection(
-                collection_url, out_root=CACHE_ROOT, quality=quality
+                collection_url, out_root=temp_dir, quality=quality
             ):
+                if kind == 'meta':
+                    designer = designer_hint or payload.get('designer') or 'unknown'
+                    payload = {k: v for k, v in payload.items() if k != 'cache_dir'}
+                elif kind == 'image':
+                    entry = {
+                        'local_path': payload['path'],
+                        'source_url': payload['url'],
+                        'index': payload['index'],
+                        'filename': payload['filename'],
+                    }
+                    uploaded = _upload_images(store, designer, [entry])
+                    if not uploaded:
+                        continue
+                    payload = uploaded[0]
+                elif kind == 'done':
+                    # `images` here still hold local paths; the client has
+                    # already received each one as a URL above.
+                    payload = {k: v for k, v in payload.items()
+                               if k not in ('images', 'cache_dir')}
                 yield _sse({'type': kind, **payload})
         except Exception as e:
             import traceback
             print(f"ERROR stream_download_images: {traceback.format_exc()}")
             yield _sse({'type': 'error', 'error': str(e), 'success': False})
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
     return Response(generate(), mimetype='text/event-stream',
                     headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
@@ -385,18 +476,23 @@ def serve_fashion_video():
 
 
 def cleanup_fashion_cache():
-    """POST /api/cleanup - Clear cache directories"""
-    try:
-        import shutil
+    """POST /api/cleanup - Clear downloaded images.
 
-        cache_dir = Path("backend/high_fashion/cache")
-        if cache_dir.exists():
-            shutil.rmtree(cache_dir)
-            cache_dir.mkdir(parents=True, exist_ok=True)
+    Only the images directory is removed. This used to rmtree the whole of
+    backend/high_fashion/cache, which now also holds coverage.json — the
+    catalog of which year/season/gender/category combinations have shows.
+    Losing that silently re-enables every dead filter option in the UI and
+    costs ~880 requests to rebuild.
+    """
+    try:
+        images_dir = Path("backend/high_fashion/cache/images")
+        if images_dir.exists():
+            shutil.rmtree(images_dir)
+            images_dir.mkdir(parents=True, exist_ok=True)
 
         return jsonify({
             'success': True,
-            'message': 'Cache cleared successfully'
+            'message': 'Downloaded images cleared'
         })
 
     except Exception as e:
@@ -412,7 +508,7 @@ def register_high_fashion_routes(app):
     app.add_url_rule('/api/collections/stream', 'stream_collections_sse', stream_collections, methods=['POST'])
     app.add_url_rule('/api/download-images/stream', 'stream_download_images', stream_download_images, methods=['POST'])
     app.add_url_rule('/api/download-video', 'download_video_fashion', download_video, methods=['POST'])
-    app.add_url_rule('/api/image', 'serve_fashion_image', serve_fashion_image, methods=['GET'])
+    app.add_url_rule('/api/images/<path:key>', 'serve_stored_image', serve_stored_image, methods=['GET'])
     app.add_url_rule('/api/video', 'serve_fashion_video', serve_fashion_video, methods=['GET'])
     app.add_url_rule('/api/cleanup', 'cleanup_fashion_cache', cleanup_fashion_cache, methods=['POST'])
 
