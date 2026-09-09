@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { FashionArchiveAPI } from '../services/api';
 
 // ---------------------------------------------------------------------------
 // ScrapeConsole — live status panel for an active brand scrape.
@@ -32,7 +33,7 @@ function ScrapeConsole({ brandId, active }) {
     let cancelled = false;
     const tick = async () => {
       try {
-        const r = await fetch(`http://localhost:8081/api/brands/${brandId}/scrape/status`);
+        const r = await fetch(`${FashionArchiveAPI.BASE_URL}/api/brands/${brandId}/scrape/status`, { credentials: 'include' });
         if (!r.ok) return;
         const j = await r.json();
         if (!cancelled) setStatus(j);
@@ -53,7 +54,7 @@ function ScrapeConsole({ brandId, active }) {
   // Subscribe to the SSE stream to count products + capture recent.
   useEffect(() => {
     if (!active || !brandId) return;
-    const src = new EventSource(`http://localhost:8081/api/brands/${brandId}/scrape/stream`);
+    const src = new EventSource(`${FashionArchiveAPI.BASE_URL}/api/brands/${brandId}/scrape/stream`, { withCredentials: true });
     src.onmessage = (e) => {
       try {
         const p = JSON.parse(e.data);
