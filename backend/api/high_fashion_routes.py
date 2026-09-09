@@ -479,13 +479,12 @@ def serve_fashion_video():
 
 
 def cleanup_fashion_cache():
-    """POST /api/cleanup - Clear downloaded images.
+    """POST /api/cleanup - Clear locally downloaded images.
 
-    Only the images directory is removed. This used to rmtree the whole of
-    backend/high_fashion/cache, which now also holds coverage.json — the
-    catalog of which year/season/gender/category combinations have shows.
-    Losing that silently re-enables every dead filter option in the UI and
-    costs ~880 requests to rebuild.
+    Only the images directory is removed, not the whole of
+    backend/high_fashion/cache. Development-only in practice: production
+    downloads into a temp directory and uploads to the image store, so
+    there is nothing here to clear.
     """
     try:
         images_dir = Path("backend/high_fashion/cache/images")
