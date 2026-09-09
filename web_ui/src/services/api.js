@@ -103,36 +103,91 @@ class FashionArchiveAPI {
     return response.success;
   }
 
-  // Get collections for a season (uses non-streaming endpoint)
-  static async streamCollections(seasonUrl, onUpdate) {
+  // Consume a Server-Sent Events endpoint, invoking onEvent per frame.
+  // Shared by the collection and image streams.
+  static async consumeSSE(endpoint, body, onEvent, signal) {
+    const response = await fetch(`${this.BASE_URL}${endpoint}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal,
+    });
+    if (!response.ok) throw new Error(`Stream failed: ${response.statusText}`);
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
     try {
-      const response = await fetch(`${this.BASE_URL}/api/collections`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ seasonUrl }),
-      });
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        // Frames are "data: {...}\n\n". Keep the trailing partial frame in
+        // the buffer — a JSON payload can be split across reads.
+        const frames = buffer.split('\n\n');
+        buffer = frames.pop() || '';
+
+        for (const frame of frames) {
+          const line = frame.trim();
+          if (!line.startsWith('data: ')) continue;
+          try {
+            onEvent(JSON.parse(line.slice(6)));
+          } catch (e) {
+            console.warn('Bad SSE frame:', e, line.slice(0, 120));
+          }
+        }
       }
-
-      const data = await response.json();
-
-      // Call onUpdate with the final data
-      if (onUpdate && data.collections) {
-        onUpdate({
-          collections: data.collections,
-          complete: true
-        });
-      }
-
-      return data.collections || [];
-    } catch (error) {
-      console.error('Error loading collections:', error);
-      throw error;
+    } finally {
+      reader.releaseLock();
     }
+  }
+
+  // Stream shows for a season. onUpdate({collections, complete}) fires per
+  // results page, so rows render while the rest of the season is crawled.
+  // `extra` carries optional filters the season URL doesn't encode —
+  // category (Ready-to-Wear / Haute Couture / Swim) and shootType.
+  static async streamCollections(seasonUrl, onUpdate, signal, extra = {}) {
+    const all = [];
+    await this.consumeSSE('/api/collections/stream', { seasonUrl, ...extra }, (evt) => {
+      if (evt.type === 'collections') {
+        all.push(...evt.collections);
+        if (onUpdate) onUpdate({ collections: [...all], complete: false });
+      } else if (evt.type === 'relabel') {
+        // Rows that were indistinguishable get their look counts appended
+        // once the crawl is done, so the list isn't held up waiting for them.
+        for (const row of all) {
+          const label = evt.labels[row.collection_id];
+          if (label) row.designer = label;
+        }
+        if (onUpdate) onUpdate({ collections: [...all], complete: false });
+      } else if (evt.type === 'done') {
+        if (onUpdate) onUpdate({ collections: [...all], complete: true });
+      } else if (evt.type === 'error') {
+        throw new Error(evt.error);
+      }
+    }, signal);
+    return all;
+  }
+
+  // Stream one show's looks. onMeta fires once with every look's metadata
+  // (before any file lands); onImage fires per downloaded image.
+  static async streamCollectionImages(collectionUrl, { onMeta, onImage, onDone, signal } = {}) {
+    let result = null;
+    await this.consumeSSE('/api/download-images/stream', { collectionUrl }, (evt) => {
+      if (evt.type === 'meta') {
+        if (onMeta) onMeta(evt);
+      } else if (evt.type === 'image') {
+        if (onImage) onImage(evt);
+      } else if (evt.type === 'done') {
+        result = evt;
+        if (onDone) onDone(evt);
+      } else if (evt.type === 'error') {
+        throw new Error(evt.error);
+      }
+    }, signal);
+    return result;
   }
 
   // Video search test (matches tkinter open_video_test)

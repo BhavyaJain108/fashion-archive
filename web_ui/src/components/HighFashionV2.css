@@ -146,7 +146,7 @@
   transition: all 0.1s ease;
   border-left: 2px solid transparent;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
 }
 
 .hf2-collection-item:hover {
@@ -165,14 +165,39 @@
   width: 32px;
   color: #cccccc;
   font-size: 11px;
+  line-height: 16px;
   flex-shrink: 0;
 }
 
-.hf2-collection-item .name {
+.hf2-collection-item .body {
   flex: 1;
+  min-width: 0;
+}
+
+.hf2-collection-item .name {
+  display: block;
+  line-height: 16px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Collection type sits under the brand. The qualifier is what tells two
+   rows of the same brand apart, so it gets its own line rather than being
+   truncated off the end of a shared one. */
+.hf2-collection-item .sub {
+  display: block;
+  font-size: 10px;
+  line-height: 13px;
+  color: #aaaaaa;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hf2-collection-item:hover .sub,
+.hf2-collection-item.selected .sub {
+  color: #888888;
 }
 
 .hf2-collections-empty,
@@ -679,4 +704,141 @@
 /* Adjust content to account for status bar */
 .hf2-content {
   padding-bottom: 36px;
+}
+
+/* ---------------------------------------------------------------------
+   Filters (sidebar)
+
+   The control follows the option set, rather than every facet getting the
+   same box:
+
+     Year    39 options, 4 characters each — the only one that cannot be
+             shown in full. A horizontal scroller fits ~6 per line, so it
+             costs one line instead of three, and reads as a timeline.
+             Centred on the current year, neighbours fading at both ends.
+
+     Season  4 options   these all fit, so they are simply shown. Nothing
+     Gender  2 options   scrolls that does not need to, and Gender in
+     Type    4 options   particular is just two buttons.
+
+   Their labels are long ("Backstage Beauty and Fashion"), so they wrap
+   onto a second line rather than truncating.
+   --------------------------------------------------------------------- */
+
+.hf2-filters {
+  border-bottom: 1px solid #e0e0e0;
+  background: #fafafa;
+  flex-shrink: 0;
+}
+
+.hf2-filter-row {
+  border-bottom: 1px solid #ededed;
+}
+
+.hf2-filter-row:last-child {
+  border-bottom: none;
+}
+
+.hf2-filter-row.disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+/* Options that all fit: shown in full, wrapping as needed. */
+.hf2-filter-items.wrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 2px;
+  padding: 3px 8px;
+}
+
+/* Year: one line, scrolls sideways, current value centred. */
+.hf2-filter-items.scroll-x {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;     /* don't drag the page sideways */
+  /* Fade both ends so it reads as a continuing timeline. */
+  -webkit-mask-image: linear-gradient(to right,
+      transparent 0, #000 18%, #000 82%, transparent 100%);
+  mask-image: linear-gradient(to right,
+      transparent 0, #000 18%, #000 82%, transparent 100%);
+}
+
+.hf2-filter-items::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+/* Half-width spacers, so the first and last year can reach the centre. */
+.hf2-filter-items.scroll-x::before,
+.hf2-filter-items.scroll-x::after {
+  content: '';
+  flex: 0 0 calc(50% - 22px);
+}
+
+/* Selection is bold black; the horizontal strip marks it with an underline,
+   the wrapped rows with the vertical nav's left edge. No boxes, no radius. */
+.hf2-chip {
+  appearance: none;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 20px;
+  color: #999999;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.1s ease;
+}
+
+.hf2-chip:hover {
+  color: #000000;
+}
+
+.hf2-filter-items.scroll-x .hf2-chip {
+  flex: 0 0 auto;
+  padding: 0 7px;
+  border-bottom: 2px solid transparent;
+}
+
+.hf2-filter-items.scroll-x .hf2-chip.selected {
+  color: #000000;
+  font-weight: 700;
+  border-bottom-color: #000000;
+}
+
+.hf2-filter-items.wrap .hf2-chip {
+  padding: 0 6px;
+  border-left: 2px solid transparent;
+  text-align: left;
+}
+
+.hf2-filter-items.wrap .hf2-chip.selected {
+  color: #000000;
+  font-weight: 700;
+  border-left-color: #000000;
+}
+
+.hf2-filter-empty {
+  font-size: 10px;
+  line-height: 20px;
+  color: #cccccc;
+  font-style: italic;
+  padding: 0 8px;
+  white-space: nowrap;
+}
+
+/* Combinations the archive has nothing for: visible, but not clickable. */
+.hf2-chip:disabled {
+  color: #dddddd;
+  cursor: default;
+  pointer-events: none;
 }
