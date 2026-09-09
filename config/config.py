@@ -7,7 +7,8 @@ Centralized configuration for the Fashion Archive application.
 """
 
 import os
-from typing import Dict, Any
+from typing import Any
+
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -70,7 +71,7 @@ class Config:
         return f"{cls.BASE_URL}{cls.API_PREFIX}/brands/image/{relative_path}"
     
     @classmethod
-    def to_dict(cls) -> Dict[str, Any]:
+    def to_dict(cls) -> dict[str, Any]:
         """Export configuration as dictionary"""
         return {
             'host': cls.HOST,

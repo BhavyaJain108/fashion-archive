@@ -11,18 +11,20 @@ Integrates:
 - User authentication
 """
 
-from flask import Flask, jsonify
-from flask_cors import CORS
 import os
 import sys
+
+from flask import Flask, jsonify
+from flask_cors import CORS
 
 # Add parent directory to path for imports
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
-# Import configuration
-from config.config import config
+# Imports below sit after the sys.path insert above and cannot move to the top
+# of the file; E402 is suppressed deliberately rather than left as lint noise.
+from config.config import config  # noqa: E402
 
 # Create Flask app
 app = Flask(__name__)
@@ -93,7 +95,11 @@ except Exception as e:
 # feature is missing"; auth failing to register would leave the site either
 # fully open or fully locked out, so it must take the process down instead.
 print("🔧 Registering Authentication API...")
-from backend.api.auth_routes import PUBLIC_AUTH_ENDPOINTS, register_auth_routes
+from backend.api.auth_routes import (  # noqa: E402
+    PUBLIC_AUTH_ENDPOINTS,
+    register_auth_routes,
+)
+
 register_auth_routes(app)
 
 # 5. Brand Following API (user brand following management)
@@ -112,10 +118,10 @@ except Exception as e:
 # Installed after every route is registered. The hook applies to all of them;
 # only the endpoints named below are reachable without a session.
 
-from backend.auth import db as auth_db
-from backend.auth.email import ConsoleSender, ResendSender
-from backend.auth.middleware import install_auth
-from backend.auth.service import AuthService
+from backend.auth import db as auth_db  # noqa: E402
+from backend.auth.email import ConsoleSender, ResendSender  # noqa: E402
+from backend.auth.middleware import install_auth  # noqa: E402
+from backend.auth.service import AuthService  # noqa: E402
 
 if config.RESEND_API_KEY:
     _sender = ResendSender(config.RESEND_API_KEY, config.MAIL_FROM)
@@ -162,7 +168,7 @@ if __name__ == '__main__':
     print("  ✓ Authentication API (4 endpoints) - User login & sessions")
     print("  ✓ Brand Following API (6 endpoints) - User brand following (user-specific)")
     print("")
-    print(f"  Total: ~45 endpoints")
+    print("  Total: ~45 endpoints")
     print("")
     print("💡 Quick Start:")
     print("  GET  /api/health - Health check")
