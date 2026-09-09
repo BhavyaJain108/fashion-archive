@@ -225,8 +225,7 @@ class Catalog:
         if not rows:
             return
         self._db.executemany(
-            "INSERT INTO requests (host, status, latency_ms, retry_after, at) "
-            "VALUES (?,?,?,?,?)",
+            "INSERT INTO requests (host, status, latency_ms, retry_after, at) VALUES (?,?,?,?,?)",
             rows,
         )
         self._db.commit()
@@ -270,8 +269,7 @@ class Catalog:
             "INSERT INTO scorecards (run_id, domain, card_json, scored_at) VALUES (?,?,?,?) "
             "ON CONFLICT(run_id) DO UPDATE SET card_json=excluded.card_json, "
             "scored_at=excluded.scored_at",
-            (run_id, domain, json.dumps(card.as_dict()),
-             datetime.now(timezone.utc).isoformat()),
+            (run_id, domain, json.dumps(card.as_dict()), datetime.now(timezone.utc).isoformat()),
         )
         self._db.commit()
 

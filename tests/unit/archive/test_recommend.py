@@ -9,8 +9,11 @@ from backend.archive.store.catalog import Catalog
 
 def rec(n, **kw) -> ProductRecord:
     base = dict(
-        itemurl=f"https://kuurth.com/products/{n}", product_title=f"Tee {n}",
-        price=40.0, in_stock=True, main_image_url=f"https://cdn.x/{n}.jpg",
+        itemurl=f"https://kuurth.com/products/{n}",
+        product_title=f"Tee {n}",
+        price=40.0,
+        in_stock=True,
+        main_image_url=f"https://cdn.x/{n}.jpg",
         all_images=f'["https://cdn.x/{n}.jpg", "https://cdn.x/{n}b.jpg"]',
     )
     base.update(kw)
@@ -30,8 +33,13 @@ def store(cat, records, **card_kw):
         cat.record_product("kuurth.com", run, r, None)
     from backend.archive.domain.run import Coverage
 
-    cat.finalize_run(run, 0, Coverage(extracted=len(records), channel_counts={},
-                                      coverage_pct=1.0, field_fill={}, verdict="ok"))
+    cat.finalize_run(
+        run,
+        0,
+        Coverage(
+            extracted=len(records), channel_counts={}, coverage_pct=1.0, field_fill={}, verdict="ok"
+        ),
+    )
     cat.save_scorecard(run, "kuurth.com", score(records, **card_kw))
     return run
 
@@ -88,8 +96,10 @@ def test_a_rule_that_only_worked_on_its_own_page_is_flagged(cat):
             recipes=[
                 Recipe(field="material_info", kind="regex", expression=r"(\d+%PES)", hits=2),
                 Recipe(
-                    field="material_info", kind="regex",
-                    expression=r"(\d{1,3}%[A-Z]{2,3})", hits=98,
+                    field="material_info",
+                    kind="regex",
+                    expression=r"(\d{1,3}%[A-Z]{2,3})",
+                    hits=98,
                 ),
             ],
         )

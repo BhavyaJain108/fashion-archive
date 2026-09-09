@@ -13,7 +13,10 @@ from backend.archive.store.catalog import Catalog
 
 def rec(url="https://kuurth.com/products/a") -> ProductRecord:
     return ProductRecord(
-        itemurl=url, product_title="Tee", price=40.0, in_stock=True,
+        itemurl=url,
+        product_title="Tee",
+        price=40.0,
+        in_stock=True,
         main_image_url="https://cdn.x/a.jpg",
         all_images='["https://cdn.x/a.jpg", "https://cdn.x/b.jpg"]',
     )

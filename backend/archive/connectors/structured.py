@@ -33,9 +33,7 @@ _PLACEHOLDER = re.compile(r"^\s*(select|choose|pick|please)\b|^\s*(size|sizes|--
 class StructuredConnector:
     kind = "structured"
 
-    def __init__(
-        self, sitemap_url: str, url_prefix: str | None = None, limit: int | None = None
-    ):
+    def __init__(self, sitemap_url: str, url_prefix: str | None = None, limit: int | None = None):
         self._sitemap = SitemapConnector(sitemap_url, url_prefix, limit)
         # The page just fetched, so learned rules can run without a second request.
         self.last_html: str | None = None

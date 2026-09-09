@@ -95,7 +95,7 @@ def test_capability_and_ref():
 
 @pytest.mark.unit
 def test_one_measure_answers_two_different_questions():
-    """"Do we have an answer" and "could there be more" are not the same question, and
+    """ "Do we have an answer" and "could there be more" are not the same question, and
     conflating them called 15 brands broken for photographing their stock as they chose."""
     from backend.archive.domain.product import (
         ProductRecord,
@@ -117,9 +117,7 @@ def test_one_measure_answers_two_different_questions():
     # ... but it is still worth one look for a gallery the channel never mentioned
     assert is_worth_chasing(one, "all_images") is True
 
-    many = empty.model_copy(
-        update={"all_images": '["https://cdn.x/a.jpg", "https://cdn.x/b.jpg"]'}
-    )
+    many = empty.model_copy(update={"all_images": '["https://cdn.x/a.jpg", "https://cdn.x/b.jpg"]'})
     assert completeness(many, "all_images") == 2
     assert is_complete(many, "all_images") is True
     assert is_worth_chasing(many, "all_images") is False

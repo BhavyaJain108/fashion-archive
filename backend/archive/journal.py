@@ -118,9 +118,7 @@ def render(catalog: Catalog, domain: str, limit: int, offset: int = 0) -> str:
             if field == "all_images":
                 value = f"{len(_shots(row, 999))} URLs"
             rule = learned.get(field)
-            source = (
-                f"learned: {rule.kind} {rule.expression[:34]}" if rule else "from the channel"
-            )
+            source = f"learned: {rule.kind} {rule.expression[:34]}" if rule else "from the channel"
             css = "k req" if field in REQUIRED else "k"
             parts.append(
                 f"<tr><td class='{css}'>{field}</td>"
@@ -137,9 +135,7 @@ def render(catalog: Catalog, domain: str, limit: int, offset: int = 0) -> str:
                 + ", ".join(missing_required)
                 + "</p>"
             )
-        parts.append(
-            f"<p class='blank'>{len(blank)} fields blank: " + ", ".join(blank) + "</p>"
-        )
+        parts.append(f"<p class='blank'>{len(blank)} fields blank: " + ", ".join(blank) + "</p>")
         parts.append("</div>")
     return "\n".join(parts)
 

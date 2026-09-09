@@ -77,8 +77,13 @@ def test_a_zero_price_on_an_unpurchasable_product_is_not_a_price():
     from backend.archive.connectors.woocommerce import map_woo_product
 
     base = {
-        "id": 1, "name": "Nightmare Set", "permalink": "https://w.test/product/set/",
-        "images": [], "categories": [], "attributes": [], "is_in_stock": False,
+        "id": 1,
+        "name": "Nightmare Set",
+        "permalink": "https://w.test/product/set/",
+        "images": [],
+        "categories": [],
+        "attributes": [],
+        "is_in_stock": False,
         "prices": {"price": "0", "regular_price": "0", "currency_minor_unit": 0},
     }
     unpurchasable = map_woo_product({**base, "is_purchasable": False})

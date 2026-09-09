@@ -86,8 +86,10 @@ def test_a_run_that_stored_nothing_does_not_hide_the_catalogue(tmp_path):
     cat.upsert_brand(Brand(domain="kuurth.com", homepage_url="https://kuurth.com"))
     good = cat.open_run("kuurth.com", "full")
     cat.record_product(
-        "kuurth.com", good,
-        ProductRecord(itemurl="https://kuurth.com/products/a", product_title="Tee"), "h1",
+        "kuurth.com",
+        good,
+        ProductRecord(itemurl="https://kuurth.com/products/a", product_title="Tee"),
+        "h1",
     )
     cat.finalize_run(good, 0, COV)  # a real run always measures its coverage
     assert len(cat.current_products("kuurth.com")) == 1

@@ -33,8 +33,8 @@ import json
 import sys
 from pathlib import Path
 
+from backend.archive.domain.product import E0005_FIELDS, ProductRecord
 from backend.archive.evidence import describe
-from backend.archive.domain.product import ProductRecord
 from backend.archive.store.catalog import Catalog
 
 A_GUARANTEED = (
@@ -47,8 +47,7 @@ A_GUARANTEED = (
     "main_image_url",
     "all_images",
 )
-B_EDITORIAL = ("description", "additional_content", "specifications", "color_info",
-               "material_info")
+B_EDITORIAL = ("description", "additional_content", "specifications", "color_info", "material_info")
 C_VARIANT = ("size_info", "size_availability", "size_stock_counts", "variant_info", "quantity")
 D_DERIVED = ("full_price", "promotion_type", "promotion_end_date")
 E_CODES = (
@@ -126,8 +125,9 @@ def check_invariants(row: dict) -> list[str]:
     every field filled and still be nonsense if its fields disagree with each other.
     """
     bad = []
-    sizes, avail, counts = (_parts(row.get(f)) for f in
-                            ("size_info", "size_availability", "size_stock_counts"))
+    sizes, avail, counts = (
+        _parts(row.get(f)) for f in ("size_info", "size_availability", "size_stock_counts")
+    )
     if avail and len(avail) != len(sizes):
         bad.append("size_availability not parallel to size_info")
     if counts and len(counts) != len(sizes):
@@ -243,8 +243,7 @@ def main(argv: list[str]) -> int:
             for field in E0005_FIELDS:
                 if evidenced.get(field) or unsearched.get(field):
                     print(
-                        f"   {field:<26}{evidenced.get(field, 0):>16}"
-                        f"{unsearched.get(field, 0):>18}"
+                        f"   {field:<26}{evidenced.get(field, 0):>16}{unsearched.get(field, 0):>18}"
                     )
 
         print("\nCLASS A — the fields that must never be blank")

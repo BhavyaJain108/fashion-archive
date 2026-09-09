@@ -200,8 +200,7 @@ def _other_axes(variants: list[dict], options: list[str]) -> str:
     here so the size and colour fields stay comparable across brands.
     """
     claimed = {
-        _option_index(options, words)
-        for words in (_SIZE_WORDS, _COLOR_WORDS, _MATERIAL_WORDS)
+        _option_index(options, words) for words in (_SIZE_WORDS, _COLOR_WORDS, _MATERIAL_WORDS)
     } - {None}
     out = []
     for i, name in enumerate(options[:3]):

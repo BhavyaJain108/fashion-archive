@@ -14,7 +14,6 @@ from backend.archive.domain.product import (
     E0005_FIELDS,
     ProductRecord,
     ProductRef,
-    completeness,
     is_worth_chasing,
 )
 from backend.archive.domain.recipe import RecipeBook
@@ -215,9 +214,7 @@ def run_brand(
         # field this brand already has a rule for — if that rule found nothing here,
         # this page lays the field out some other way and is worth a new strategy.
         learnable = (
-            set(_missing_fields(sample_records))
-            | {r.field for r in recipes}
-            | set(_ALWAYS_CHASE)
+            set(_missing_fields(sample_records)) | {r.field for r in recipes} | set(_ALWAYS_CHASE)
         )
         # The search record is not only a report: a field the model has already been
         # given a page for, and found nothing, is not worth paying for again every run.
@@ -425,6 +422,7 @@ def _learn(field_finder, brand, url, missing, transport, log, failures=None):
         if failures is not None:
             failures.append(f"{type(e).__name__}: {e}")
         return None
+
 
 def _take_lock(lock: Path) -> bool:
     """Claim the brand's lock, breaking one whose owner process is gone.

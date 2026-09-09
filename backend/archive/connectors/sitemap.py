@@ -16,9 +16,7 @@ _PRODUCT_URL = re.compile(r"^https?://[^/]+(/[a-z]{2}(-[a-z]{2})?)?/products?/[^
 class SitemapConnector:
     kind = "sitemap"
 
-    def __init__(
-        self, sitemap_url: str, url_prefix: str | None = None, limit: int | None = None
-    ):
+    def __init__(self, sitemap_url: str, url_prefix: str | None = None, limit: int | None = None):
         self.sitemap_url = sitemap_url
         # A prefix learned at SCOPE time (e.g. "/assets/" on Webflow) beats guessing.
         self.url_prefix = url_prefix

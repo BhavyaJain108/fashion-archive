@@ -13,24 +13,29 @@ def row(**kw) -> dict:
 
 @pytest.mark.unit
 def test_a_clean_row_has_nothing_to_report():
-    assert check_invariants(
-        row(
-            size_info="S, M, L",
-            size_availability="in_stock, out_of_stock, in_stock",
-            in_stock=True,
-            price=40.0,
-            full_price=60.0,
-            main_image_url="https://x.test/a.jpg",
-            all_images=json.dumps(["https://x.test/a.jpg", "https://x.test/b.jpg"]),
-            category1="Womenswear",
-            category2="Tops",
+    assert (
+        check_invariants(
+            row(
+                size_info="S, M, L",
+                size_availability="in_stock, out_of_stock, in_stock",
+                in_stock=True,
+                price=40.0,
+                full_price=60.0,
+                main_image_url="https://x.test/a.jpg",
+                all_images=json.dumps(["https://x.test/a.jpg", "https://x.test/b.jpg"]),
+                category1="Womenswear",
+                category2="Tops",
+            )
         )
-    ) == []
+        == []
+    )
 
 
 @pytest.mark.unit
 def test_the_size_strings_must_stay_parallel():
-    problems = check_invariants(row(size_info="S, M, L", size_availability="in_stock, out_of_stock"))
+    problems = check_invariants(
+        row(size_info="S, M, L", size_availability="in_stock, out_of_stock")
+    )
     assert "size_availability not parallel to size_info" in problems
 
 
@@ -41,9 +46,12 @@ def test_in_stock_must_agree_with_the_sizes():
         row(size_info="S, M", size_availability="out_of_stock, out_of_stock", in_stock=True)
     )
     assert "in_stock disagrees with size_availability" in problems
-    assert check_invariants(
-        row(size_info="S, M", size_availability="out_of_stock, in_stock", in_stock=True)
-    ) == []
+    assert (
+        check_invariants(
+            row(size_info="S, M", size_availability="out_of_stock, in_stock", in_stock=True)
+        )
+        == []
+    )
 
 
 @pytest.mark.unit
@@ -117,7 +125,7 @@ def test_the_search_log_counts_products_examined_and_yielded():
     from backend.archive.evidence import SearchLog
 
     log = SearchLog()
-    for i in range(3):
+    for _ in range(3):
         log.searched("channel", ["price", "material_info"], found=["price"])
     assert dict(((f, s), (n, h)) for f, s, n, h in log.rows()) == {
         ("material_info", "channel"): (3, 0),
@@ -137,14 +145,17 @@ def test_an_unknown_source_is_refused():
 def test_a_cdn_rendition_of_the_same_photo_is_not_a_contradiction():
     """theoutnet's gallery entries carry &width=2048&crop=center; the channel's URL for
     the same photograph does not."""
-    assert check_invariants(
-        row(
-            main_image_url="https://cdn.x/files/photo.jpg?v=1784029772",
-            all_images=json.dumps(
-                ["https://cdn.x/files/photo.jpg?v=1784029772&width=2048&crop=center"]
-            ),
+    assert (
+        check_invariants(
+            row(
+                main_image_url="https://cdn.x/files/photo.jpg?v=1784029772",
+                all_images=json.dumps(
+                    ["https://cdn.x/files/photo.jpg?v=1784029772&width=2048&crop=center"]
+                ),
+            )
         )
-    ) == []
+        == []
+    )
     # a genuinely different photograph is still reported
     assert check_invariants(
         row(

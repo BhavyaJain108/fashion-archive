@@ -7,16 +7,16 @@ from pathlib import Path
 
 import yaml
 
+from backend.archive.budget import HostBudget
 from backend.archive.capability import format_matrix, probe_brand
 from backend.archive.domain.brand import Brand
 from backend.archive.domain.product import E0005_FIELDS, ProductRecord
 from backend.archive.fingerprint import probe
-from backend.archive.budget import HostBudget
 from backend.archive.images import ImageStore
 from backend.archive.observe import RequestLog, Spend
 from backend.archive.planner import compose_plan
-from backend.archive.score import score
 from backend.archive.runner.run import run_brand
+from backend.archive.score import score
 from backend.archive.store.catalog import Catalog
 from backend.archive.transport import HttpxTransport
 
@@ -39,9 +39,7 @@ def _seed(catalog: Catalog, brands_path: Path) -> list[Brand]:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="archive")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in (
-        "plan", "scrape", "status", "capability", "daemon", "brands", "hosts", "show"
-    ):
+    for name in ("plan", "scrape", "status", "capability", "daemon", "brands", "hosts", "show"):
         sp = sub.add_parser(name)
         sp.add_argument("--db", type=Path, default=_DEFAULT_DB)
         sp.add_argument("--brands", type=Path, default=_DEFAULT_BRANDS)
@@ -288,9 +286,7 @@ def main(argv: list[str] | None = None) -> int:
                         continue
                     mark = "  <- learned" if f in learned else ""
                     print(f"  {f:<20}{str(v)[:80]}{mark}")
-                blank = [
-                    f for f in E0005_FIELDS if row.get(f) in (None, "", [])
-                ]
+                blank = [f for f in E0005_FIELDS if row.get(f) in (None, "", [])]
                 print(f"  {'(blank)':<20}{len(blank)} fields: {', '.join(blank[:9])}…")
             print(f"\nshowing {min(args.limit, len(rows))} of {len(rows)} products")
             return 0
@@ -351,8 +347,10 @@ def main(argv: list[str] | None = None) -> int:
                 running = [r for r in rows if r["claimed_by"]]
                 print(f"stop flag: {'set' if sched.should_stop() else 'clear'}")
                 print(f"version:   {sched.code_version()}")
-                print(f"brands:    {sum(1 for r in rows if r['enabled'])} enabled, "
-                      f"{len(running)} running")
+                print(
+                    f"brands:    {sum(1 for r in rows if r['enabled'])} enabled, "
+                    f"{len(running)} running"
+                )
                 for r in running:
                     print(f"   {r['domain']:<28}{r['claimed_by']}  since {r['claimed_at'][:19]}")
                 return 0
@@ -362,7 +360,10 @@ def main(argv: list[str] | None = None) -> int:
             def factory(cat):
                 def do_brand(brand):
                     run_brand(
-                        brand, cat, HttpxTransport(), mode="delta",
+                        brand,
+                        cat,
+                        HttpxTransport(),
+                        mode="delta",
                         locks_dir=args.locks if hasattr(args, "locks") else Path("locks"),
                         log_dir=Path("backend/archive/data/logs"),
                     )

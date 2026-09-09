@@ -98,7 +98,5 @@ def test_a_small_movement_is_the_shop_not_us():
     from backend.archive.score import regressions
 
     before = score([rec(color_info="Black") for _ in range(20)]).as_dict()
-    after = score(
-        [rec(color_info="Black" if i < 19 else None) for i in range(20)]
-    ).as_dict()
+    after = score([rec(color_info="Black" if i < 19 else None) for i in range(20)]).as_dict()
     assert regressions(before, after) == []

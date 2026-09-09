@@ -1,4 +1,5 @@
 import os
+
 import pytest
 
 from backend.archive.connectors.base import ChannelBlocked
@@ -259,7 +260,9 @@ def test_t2_plan_uses_browser_transport_factory_and_closes_it(env):
         log_dir=logs,
         prober=lambda d, t: challenged_cap,
         composer=compose_plan,
-        connector_factory=lambda plan, sitemap_url=None, limit=None: RecordingConnector([ref("a", "h1")]),
+        connector_factory=lambda plan, sitemap_url=None, limit=None: RecordingConnector(
+            [ref("a", "h1")]
+        ),
         browser=True,
         browser_transport_factory=factory,
     )
@@ -772,7 +775,6 @@ def test_learning_continues_product_by_product_until_a_rule_holds(env):
     assert len(filled) == 3  # c, d and e — a and b were stored before the rule existed
 
 
-
 @pytest.mark.unit
 def test_size_availability_is_dropped_when_it_does_not_match_the_sizes():
     """E0005 stores the two as parallel lists; a different length describes something
@@ -1076,8 +1078,10 @@ def test_a_gallery_of_one_counts_as_a_gap():
     from backend.archive.runner.run import _is_gap
 
     one = ProductRecord(
-        itemurl="https://x.test/p", product_title="Tee",
-        all_images='["https://cdn.x/a.jpg"]', main_image_url="https://cdn.x/a.jpg",
+        itemurl="https://x.test/p",
+        product_title="Tee",
+        all_images='["https://cdn.x/a.jpg"]',
+        main_image_url="https://cdn.x/a.jpg",
     )
     assert _is_gap(one, "all_images") is True
     assert _is_gap(one, "main_image_url") is False  # a hero image is one by definition
@@ -1099,14 +1103,18 @@ def test_a_learned_gallery_replaces_a_shorter_one_from_the_channel():
         "<img src='https://cdn.x/c.jpg'></div></body></html>"
     )
     rec = ProductRecord(
-        itemurl="https://x.test/p", product_title="Tee",
+        itemurl="https://x.test/p",
+        product_title="Tee",
         all_images='["https://cdn.x/a.jpg"]',  # the channel gave one
     )
     _fill_from_recipes(
         rec,
         html,
-        [Recipe(field="all_images", kind="css_all_attr",
-                expression=".slider img", attribute="src")],
+        [
+            Recipe(
+                field="all_images", kind="css_all_attr", expression=".slider img", attribute="src"
+            )
+        ],
     )
     assert len(rec.image_list()) == 3
 
@@ -1128,8 +1136,14 @@ def test_a_mapper_change_forces_a_full_run(env):
     def go(mode, version):
         fetched.append([])
         run_brand(
-            BRAND, cat, None, mode=mode, locks_dir=locks, log_dir=logs,
-            prober=lambda d, t: OPEN_CAP, composer=compose_plan,
+            BRAND,
+            cat,
+            None,
+            mode=mode,
+            locks_dir=locks,
+            log_dir=logs,
+            prober=lambda d, t: OPEN_CAP,
+            composer=compose_plan,
             connector_factory=lambda plan, sitemap_url=None, limit=None: Counting(refs),
             version=lambda: version,
         )
@@ -1149,8 +1163,14 @@ def test_the_first_run_of_a_brand_is_not_treated_as_a_change(env):
     """There is nothing to re-derive when nothing was derived before."""
     cat, locks, logs = env
     run_brand(
-        BRAND, cat, None, mode="delta", locks_dir=locks, log_dir=logs,
-        prober=lambda d, t: OPEN_CAP, composer=compose_plan,
+        BRAND,
+        cat,
+        None,
+        mode="delta",
+        locks_dir=locks,
+        log_dir=logs,
+        prober=lambda d, t: OPEN_CAP,
+        composer=compose_plan,
         connector_factory=lambda plan, sitemap_url=None, limit=None: FakeConnector(
             [ref("a", "h1")]
         ),

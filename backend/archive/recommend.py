@@ -26,9 +26,9 @@ Run: python -m backend.archive.recommend [domain ...]
 import sys
 from pathlib import Path
 
-from backend.archive.domain.product import E0005_FIELDS, ProductRecord
+from backend.archive.domain.product import E0005_FIELDS
 from backend.archive.evidence import describe
-from backend.archive.score import REQUIRED, regressions
+from backend.archive.score import regressions
 from backend.archive.store.catalog import Catalog
 from backend.archive.validate import check_brand_catalogue
 
@@ -47,7 +47,6 @@ def recommend(catalog: Catalog, domain: str) -> list[tuple[int, str, str]]:
     if not rows:
         return [(1, "nothing stored", "the last run kept no products — read its log first")]
 
-    records = [ProductRecord(**r) for r in rows]
     evidence = catalog.load_evidence(domain)
     cards = catalog.scorecards(domain, limit=2)
     card = cards[0] if cards else None
@@ -66,8 +65,11 @@ def recommend(catalog: Catalog, domain: str) -> list[tuple[int, str, str]]:
             )
         if cards[1]["required_ok"] and not cards[0]["required_ok"]:
             out.append(
-                (1, "this run failed a gate the last one passed",
-                 "compare the two runs before scraping again")
+                (
+                    1,
+                    "this run failed a gate the last one passed",
+                    "compare the two runs before scraping again",
+                )
             )
 
     # 1 — the gate
@@ -122,7 +124,8 @@ def recommend(catalog: Catalog, domain: str) -> list[tuple[int, str, str]]:
             (
                 4,
                 f"{len(unsearched)} fields never looked for on the page",
-                "one finder call covers several: " + ", ".join(unsearched[:8])
+                "one finder call covers several: "
+                + ", ".join(unsearched[:8])
                 + ("…" if len(unsearched) > 8 else ""),
             )
         )
@@ -131,7 +134,8 @@ def recommend(catalog: Catalog, domain: str) -> list[tuple[int, str, str]]:
             (
                 5,
                 f"{len(dead)} fields asked for and not found",
-                "the page did not show them: " + ", ".join(dead)
+                "the page did not show them: "
+                + ", ".join(dead)
                 + " — clear their evidence rows to try again after the site changes",
             )
         )

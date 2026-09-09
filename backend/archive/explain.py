@@ -52,8 +52,10 @@ def explain(html: str, url: str, domain: str, fields: list[str], context: dict) 
     proposed = F._to_recipes(client.propose(prompt))
 
     print(_RULE)
-    print(f"3. WHAT CAME BACK — {len(proposed)} proposal(s), "
-          f"{spend.input_tokens:,} tokens in, ${spend.usd}")
+    print(
+        f"3. WHAT CAME BACK — {len(proposed)} proposal(s), "
+        f"{spend.input_tokens:,} tokens in, ${spend.usd}"
+    )
     if not proposed:
         print("   nothing. The model declines rather than guess, which is what the")
         print("   prompt asks of it — a wrong rule is worse than no rule.")
@@ -69,14 +71,20 @@ def explain(html: str, url: str, domain: str, fields: list[str], context: dict) 
 
         print("   checks:")
         replay = verify_recipe(r, html)
-        print(f"     replay    {'pass' if replay else 'FAIL'}"
-              "   does the rule reproduce what the model predicted")
+        print(
+            f"     replay    {'pass' if replay else 'FAIL'}"
+            "   does the rule reproduce what the model predicted"
+        )
         shape = is_plausible(r.field, got) if got else False
-        print(f"     shape     {'pass' if shape else 'FAIL'}"
-              "   could this text be a value for this field")
+        print(
+            f"     shape     {'pass' if shape else 'FAIL'}"
+            "   could this text be a value for this field"
+        )
         echo = is_plausible(r.field, got, context) if got else False
-        print(f"     echo      {'pass' if echo else 'FAIL'}"
-              "   is it the product's own title or description in disguise")
+        print(
+            f"     echo      {'pass' if echo else 'FAIL'}"
+            "   is it the product's own title or description in disguise"
+        )
         kept = replay and shape and echo and r.field in fields
         print(f"     KEPT      {'yes' if kept else 'no'}")
 

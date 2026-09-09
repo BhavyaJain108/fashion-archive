@@ -66,9 +66,7 @@ class Spend:
     @property
     def usd(self) -> float:
         rate_in, rate_out = self._rates
-        return round(
-            self.input_tokens / 1e6 * rate_in + self.output_tokens / 1e6 * rate_out, 6
-        )
+        return round(self.input_tokens / 1e6 * rate_in + self.output_tokens / 1e6 * rate_out, 6)
 
     def as_dict(self) -> dict:
         return {

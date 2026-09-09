@@ -275,8 +275,11 @@ def test_a_list_rule_may_be_verified_by_its_first_entries():
 
     # single-value rules are unchanged: they must match in full
     single = Recipe(
-        field="main_image_url", kind="css_attr", expression=".mosaic img",
-        attribute="src", expected="https://cdn.x/0",
+        field="main_image_url",
+        kind="css_attr",
+        expression=".mosaic img",
+        attribute="src",
+        expected="https://cdn.x/0",
     )
     assert verify_recipe(single, html) is False
 
@@ -290,13 +293,17 @@ def test_a_regex_with_no_pattern_in_it_is_a_memorised_value():
 
     html = "<html><body>Kaschmirmischung</body></html>"
     literal = Recipe(
-        field="material_info", kind="regex",
-        expression="Kaschmirmischung", expected="Kaschmirmischung",
+        field="material_info",
+        kind="regex",
+        expression="Kaschmirmischung",
+        expected="Kaschmirmischung",
     )
     assert verify_recipe(literal, html) is False
 
     real = Recipe(
-        field="material_info", kind="regex",
-        expression=r"([\w-]+mischung)", expected="Kaschmirmischung",
+        field="material_info",
+        kind="regex",
+        expression=r"([\w-]+mischung)",
+        expected="Kaschmirmischung",
     )
     assert verify_recipe(real, html) is True

@@ -21,9 +21,7 @@ def test_a_retailer_carrying_many_labels_is_also_fine():
 @pytest.mark.unit
 def test_campaign_names_in_the_brand_field_are_caught():
     """staud.clothing publishes 41 of these; they all begin with the shop's own name."""
-    values = (
-        ["STAUD FALL 2026"] * 20 + ["STAUD SUMMER 2026 SALE"] * 20 + ["STAUD RESORT 2026"] * 10
-    )
+    values = ["STAUD FALL 2026"] * 20 + ["STAUD SUMMER 2026 SALE"] * 20 + ["STAUD RESORT 2026"] * 10
     problem = check_brand(values)
     assert problem and "campaigns" in problem
 
@@ -63,9 +61,7 @@ def test_sizes_and_colours_drawn_from_one_vocabulary_mean_swapped_axes():
         {"itemurl": "https://x.test/1", "size_info": "Black, Cream", "color_info": "Black, Cream"}
     ]
     assert check_axes(swapped)
-    proper = [
-        {"itemurl": "https://x.test/1", "size_info": "S, M, L", "color_info": "Black, Cream"}
-    ]
+    proper = [{"itemurl": "https://x.test/1", "size_info": "S, M, L", "color_info": "Black, Cream"}]
     assert check_axes(proper) is None
 
 
@@ -92,4 +88,6 @@ def test_a_prefix_that_is_not_the_shops_name_is_not_used_as_one():
 def test_an_explicit_display_name_always_wins():
     from backend.archive.validate import brand_name_for
 
-    assert brand_name_for("staud.clothing", ["STAUD FALL 2026"], "STAUD Clothing") == "STAUD Clothing"
+    assert (
+        brand_name_for("staud.clothing", ["STAUD FALL 2026"], "STAUD Clothing") == "STAUD Clothing"
+    )

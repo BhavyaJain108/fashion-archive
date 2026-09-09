@@ -153,10 +153,20 @@ def test_aggregate_offer_yields_price_currency_and_stock():
                 "lowPrice": 12743,
                 "highPrice": 13900,
                 "offers": [
-                    {"@type": "Offer", "price": 12743, "priceCurrency": "RUB", "sku": "W03WP-S",
-                     "availability": "https://schema.org/InStock"},
-                    {"@type": "Offer", "price": 13900, "priceCurrency": "RUB", "sku": "W03WP-L",
-                     "availability": "https://schema.org/OutOfStock"},
+                    {
+                        "@type": "Offer",
+                        "price": 12743,
+                        "priceCurrency": "RUB",
+                        "sku": "W03WP-S",
+                        "availability": "https://schema.org/InStock",
+                    },
+                    {
+                        "@type": "Offer",
+                        "price": 13900,
+                        "priceCurrency": "RUB",
+                        "sku": "W03WP-L",
+                        "availability": "https://schema.org/OutOfStock",
+                    },
                 ],
             },
         }
