@@ -1,0 +1,1931 @@
+{
+  "version": 1,
+  "built_on": "2026-09-09",
+  "shoot_type": null,
+  "combos": {
+    "2027|Fall / Winter|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2027|Fall / Winter|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2027|Spring / Summer|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2027|Spring / Summer|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2027|Cruise|Women": {
+      "hint": 1,
+      "categories": {
+        "Ready-to-Wear": 1,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2027|Cruise|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2027|Prefall|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2027|Prefall|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2026|Fall / Winter|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 17,
+        "Swim": 0
+      }
+    },
+    "2026|Fall / Winter|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2026|Spring / Summer|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 17,
+        "Swim": 0
+      }
+    },
+    "2026|Spring / Summer|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2026|Cruise|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2026|Cruise|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2026|Prefall|Women": {
+      "hint": 1,
+      "categories": {
+        "Ready-to-Wear": 1,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2026|Prefall|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2025|Fall / Winter|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 19,
+        "Swim": 0
+      }
+    },
+    "2025|Fall / Winter|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2025|Spring / Summer|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 20,
+        "Swim": 20
+      }
+    },
+    "2025|Spring / Summer|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2025|Cruise|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2025|Cruise|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2025|Prefall|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2025|Prefall|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2024|Fall / Winter|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 20,
+        "Swim": 0
+      }
+    },
+    "2024|Fall / Winter|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2024|Spring / Summer|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 20,
+        "Swim": 0
+      }
+    },
+    "2024|Spring / Summer|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2024|Cruise|Women": {
+      "hint": 1,
+      "categories": {
+        "Ready-to-Wear": 1,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2024|Cruise|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2024|Prefall|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2024|Prefall|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2023|Fall / Winter|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 20,
+        "Swim": 0
+      }
+    },
+    "2023|Fall / Winter|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2023|Spring / Summer|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 20,
+        "Swim": 0
+      }
+    },
+    "2023|Spring / Summer|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2023|Cruise|Women": {
+      "hint": 1,
+      "categories": {
+        "Ready-to-Wear": 1,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2023|Cruise|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2023|Prefall|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2023|Prefall|Men": {
+      "hint": 1,
+      "categories": {
+        "Ready-to-Wear": 1,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2022|Fall / Winter|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 20,
+        "Swim": 0
+      }
+    },
+    "2022|Fall / Winter|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2022|Spring / Summer|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 20,
+        "Swim": 0
+      }
+    },
+    "2022|Spring / Summer|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2022|Cruise|Women": {
+      "hint": 1,
+      "categories": {
+        "Ready-to-Wear": 1,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2022|Cruise|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2022|Prefall|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2022|Prefall|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2021|Fall / Winter|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 20,
+        "Swim": 0
+      }
+    },
+    "2021|Fall / Winter|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2021|Spring / Summer|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 16,
+        "Swim": 0
+      }
+    },
+    "2021|Spring / Summer|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2021|Cruise|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2021|Cruise|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2021|Prefall|Women": {
+      "hint": 3,
+      "categories": {
+        "Ready-to-Wear": 2,
+        "Haute Couture": 1,
+        "Swim": 0
+      }
+    },
+    "2021|Prefall|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2020|Fall / Winter|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2020|Fall / Winter|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2020|Spring / Summer|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 20,
+        "Swim": 20
+      }
+    },
+    "2020|Spring / Summer|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2020|Cruise|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2020|Cruise|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2020|Prefall|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2020|Prefall|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2019|Fall / Winter|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 20,
+        "Swim": 0
+      }
+    },
+    "2019|Fall / Winter|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2019|Spring / Summer|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 20,
+        "Swim": 0
+      }
+    },
+    "2019|Spring / Summer|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2019|Cruise|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2019|Cruise|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2019|Prefall|Women": {
+      "hint": 4,
+      "categories": {
+        "Ready-to-Wear": 4,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2019|Prefall|Men": {
+      "hint": 1,
+      "categories": {
+        "Ready-to-Wear": 1,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2018|Fall / Winter|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 20,
+        "Swim": 0
+      }
+    },
+    "2018|Fall / Winter|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2018|Spring / Summer|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 20,
+        "Swim": 16
+      }
+    },
+    "2018|Spring / Summer|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2018|Cruise|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2018|Cruise|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2018|Prefall|Women": {
+      "hint": 2,
+      "categories": {
+        "Ready-to-Wear": 2,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2018|Prefall|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2017|Fall / Winter|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 20,
+        "Swim": 0
+      }
+    },
+    "2017|Fall / Winter|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2017|Spring / Summer|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 20,
+        "Swim": 20
+      }
+    },
+    "2017|Spring / Summer|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2017|Cruise|Women": {
+      "hint": 8,
+      "categories": {
+        "Ready-to-Wear": 8,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2017|Cruise|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2017|Prefall|Women": {
+      "hint": 4,
+      "categories": {
+        "Ready-to-Wear": 4,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2017|Prefall|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2016|Fall / Winter|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 20,
+        "Swim": 0
+      }
+    },
+    "2016|Fall / Winter|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2016|Spring / Summer|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 20,
+        "Swim": 0
+      }
+    },
+    "2016|Spring / Summer|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2016|Cruise|Women": {
+      "hint": 14,
+      "categories": {
+        "Ready-to-Wear": 14,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2016|Cruise|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2016|Prefall|Women": {
+      "hint": 10,
+      "categories": {
+        "Ready-to-Wear": 10,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2016|Prefall|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2015|Fall / Winter|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 20,
+        "Swim": 0
+      }
+    },
+    "2015|Fall / Winter|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2015|Spring / Summer|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 20,
+        "Swim": 20
+      }
+    },
+    "2015|Spring / Summer|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2015|Cruise|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2015|Cruise|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2015|Prefall|Women": {
+      "hint": 8,
+      "categories": {
+        "Ready-to-Wear": 8,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2015|Prefall|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2014|Fall / Winter|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 20,
+        "Swim": 0
+      }
+    },
+    "2014|Fall / Winter|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2014|Spring / Summer|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 20,
+        "Swim": 20
+      }
+    },
+    "2014|Spring / Summer|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2014|Cruise|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2014|Cruise|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2014|Prefall|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2014|Prefall|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2013|Fall / Winter|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 20,
+        "Swim": 0
+      }
+    },
+    "2013|Fall / Winter|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2013|Spring / Summer|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 20,
+        "Swim": 20
+      }
+    },
+    "2013|Spring / Summer|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 1
+      }
+    },
+    "2013|Cruise|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2013|Cruise|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2013|Prefall|Women": {
+      "hint": 16,
+      "categories": {
+        "Ready-to-Wear": 16,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2013|Prefall|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2012|Fall / Winter|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 20,
+        "Swim": 0
+      }
+    },
+    "2012|Fall / Winter|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2012|Spring / Summer|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 20,
+        "Swim": 20
+      }
+    },
+    "2012|Spring / Summer|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2012|Cruise|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2012|Cruise|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2012|Prefall|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2012|Prefall|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2011|Fall / Winter|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 20,
+        "Swim": 0
+      }
+    },
+    "2011|Fall / Winter|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2011|Spring / Summer|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 20,
+        "Swim": 20
+      }
+    },
+    "2011|Spring / Summer|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2011|Cruise|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2011|Cruise|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2011|Prefall|Women": {
+      "hint": 7,
+      "categories": {
+        "Ready-to-Wear": 7,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2011|Prefall|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2010|Fall / Winter|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 20,
+        "Swim": 0
+      }
+    },
+    "2010|Fall / Winter|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2010|Spring / Summer|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 20,
+        "Swim": 18
+      }
+    },
+    "2010|Spring / Summer|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2010|Cruise|Women": {
+      "hint": 19,
+      "categories": {
+        "Ready-to-Wear": 19,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2010|Cruise|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2010|Prefall|Women": {
+      "hint": 15,
+      "categories": {
+        "Ready-to-Wear": 15,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2010|Prefall|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2009|Fall / Winter|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 20,
+        "Swim": 0
+      }
+    },
+    "2009|Fall / Winter|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2009|Spring / Summer|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 20,
+        "Swim": 20
+      }
+    },
+    "2009|Spring / Summer|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2009|Cruise|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2009|Cruise|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2009|Prefall|Women": {
+      "hint": 12,
+      "categories": {
+        "Ready-to-Wear": 12,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2009|Prefall|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2008|Fall / Winter|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 20,
+        "Swim": 0
+      }
+    },
+    "2008|Fall / Winter|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2008|Spring / Summer|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 20,
+        "Swim": 0
+      }
+    },
+    "2008|Spring / Summer|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2008|Cruise|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2008|Cruise|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2008|Prefall|Women": {
+      "hint": 16,
+      "categories": {
+        "Ready-to-Wear": 16,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2008|Prefall|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2007|Fall / Winter|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 20,
+        "Swim": 0
+      }
+    },
+    "2007|Fall / Winter|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2007|Spring / Summer|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 20,
+        "Swim": 0
+      }
+    },
+    "2007|Spring / Summer|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2007|Cruise|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2007|Cruise|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2007|Prefall|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2007|Prefall|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2006|Fall / Winter|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 4,
+        "Swim": 0
+      }
+    },
+    "2006|Fall / Winter|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2006|Spring / Summer|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 20,
+        "Swim": 0
+      }
+    },
+    "2006|Spring / Summer|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2006|Cruise|Women": {
+      "hint": 9,
+      "categories": {
+        "Ready-to-Wear": 9,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2006|Cruise|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2006|Prefall|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2006|Prefall|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2005|Fall / Winter|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 10,
+        "Swim": 0
+      }
+    },
+    "2005|Fall / Winter|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2005|Spring / Summer|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 16,
+        "Swim": 0
+      }
+    },
+    "2005|Spring / Summer|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2005|Cruise|Women": {
+      "hint": 1,
+      "categories": {
+        "Ready-to-Wear": 1,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2005|Cruise|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2005|Prefall|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2005|Prefall|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2004|Fall / Winter|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 20,
+        "Swim": 0
+      }
+    },
+    "2004|Fall / Winter|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2004|Spring / Summer|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 13,
+        "Swim": 0
+      }
+    },
+    "2004|Spring / Summer|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2004|Cruise|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2004|Cruise|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2004|Prefall|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2004|Prefall|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2003|Fall / Winter|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 15,
+        "Swim": 0
+      }
+    },
+    "2003|Fall / Winter|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2003|Spring / Summer|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 20,
+        "Swim": 0
+      }
+    },
+    "2003|Spring / Summer|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2003|Cruise|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2003|Cruise|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2003|Prefall|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2003|Prefall|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2002|Fall / Winter|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 20,
+        "Swim": 0
+      }
+    },
+    "2002|Fall / Winter|Men": {
+      "hint": 4,
+      "categories": {
+        "Ready-to-Wear": 4,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2002|Spring / Summer|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 20,
+        "Swim": 0
+      }
+    },
+    "2002|Spring / Summer|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2002|Cruise|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2002|Cruise|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2002|Prefall|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2002|Prefall|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2001|Fall / Winter|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 20,
+        "Swim": 0
+      }
+    },
+    "2001|Fall / Winter|Men": {
+      "hint": 3,
+      "categories": {
+        "Ready-to-Wear": 3,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2001|Spring / Summer|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 20,
+        "Swim": 0
+      }
+    },
+    "2001|Spring / Summer|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2001|Cruise|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2001|Cruise|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2001|Prefall|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2001|Prefall|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2000|Fall / Winter|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 20,
+        "Swim": 0
+      }
+    },
+    "2000|Fall / Winter|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2000|Spring / Summer|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 20,
+        "Swim": 0
+      }
+    },
+    "2000|Spring / Summer|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "2000|Cruise|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2000|Cruise|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2000|Prefall|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "2000|Prefall|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1999|Fall / Winter|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 12,
+        "Swim": 0
+      }
+    },
+    "1999|Fall / Winter|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "1999|Spring / Summer|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 9,
+        "Swim": 0
+      }
+    },
+    "1999|Spring / Summer|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "1999|Cruise|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1999|Cruise|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1999|Prefall|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1999|Prefall|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1998|Fall / Winter|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 9,
+        "Swim": 0
+      }
+    },
+    "1998|Fall / Winter|Men": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "1998|Spring / Summer|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 7,
+        "Swim": 0
+      }
+    },
+    "1998|Spring / Summer|Men": {
+      "hint": 18,
+      "categories": {
+        "Ready-to-Wear": 18,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "1998|Cruise|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1998|Cruise|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1998|Prefall|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1998|Prefall|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1997|Fall / Winter|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 9,
+        "Swim": 0
+      }
+    },
+    "1997|Fall / Winter|Men": {
+      "hint": 15,
+      "categories": {
+        "Ready-to-Wear": 15,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "1997|Spring / Summer|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 6,
+        "Swim": 0
+      }
+    },
+    "1997|Spring / Summer|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1997|Cruise|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1997|Cruise|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1997|Prefall|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1997|Prefall|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1996|Fall / Winter|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 8,
+        "Swim": 0
+      }
+    },
+    "1996|Fall / Winter|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1996|Spring / Summer|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 8,
+        "Swim": 0
+      }
+    },
+    "1996|Spring / Summer|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1996|Cruise|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1996|Cruise|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1996|Prefall|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1996|Prefall|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1995|Fall / Winter|Women": {
+      "hint": 20,
+      "categories": {
+        "Ready-to-Wear": 20,
+        "Haute Couture": 7,
+        "Swim": 0
+      }
+    },
+    "1995|Fall / Winter|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1995|Spring / Summer|Women": {
+      "hint": 5,
+      "categories": {
+        "Ready-to-Wear": 2,
+        "Haute Couture": 3,
+        "Swim": 0
+      }
+    },
+    "1995|Spring / Summer|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1995|Cruise|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1995|Cruise|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1995|Prefall|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1995|Prefall|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1994|Fall / Winter|Women": {
+      "hint": 3,
+      "categories": {
+        "Ready-to-Wear": 2,
+        "Haute Couture": 1,
+        "Swim": 0
+      }
+    },
+    "1994|Fall / Winter|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1994|Spring / Summer|Women": {
+      "hint": 3,
+      "categories": {
+        "Ready-to-Wear": 3,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "1994|Spring / Summer|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1994|Cruise|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1994|Cruise|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1994|Prefall|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1994|Prefall|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1993|Fall / Winter|Women": {
+      "hint": 3,
+      "categories": {
+        "Ready-to-Wear": 2,
+        "Haute Couture": 1,
+        "Swim": 0
+      }
+    },
+    "1993|Fall / Winter|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1993|Spring / Summer|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1993|Spring / Summer|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1993|Cruise|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1993|Cruise|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1993|Prefall|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1993|Prefall|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1992|Fall / Winter|Women": {
+      "hint": 3,
+      "categories": {
+        "Ready-to-Wear": 3,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "1992|Fall / Winter|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1992|Spring / Summer|Women": {
+      "hint": 2,
+      "categories": {
+        "Ready-to-Wear": 2,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "1992|Spring / Summer|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1992|Cruise|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1992|Cruise|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1992|Prefall|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1992|Prefall|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1991|Fall / Winter|Women": {
+      "hint": 2,
+      "categories": {
+        "Ready-to-Wear": 2,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "1991|Fall / Winter|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1991|Spring / Summer|Women": {
+      "hint": 2,
+      "categories": {
+        "Ready-to-Wear": 0,
+        "Haute Couture": 2,
+        "Swim": 0
+      }
+    },
+    "1991|Spring / Summer|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1991|Cruise|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1991|Cruise|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1991|Prefall|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1991|Prefall|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1990|Fall / Winter|Women": {
+      "hint": 2,
+      "categories": {
+        "Ready-to-Wear": 2,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "1990|Fall / Winter|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1990|Spring / Summer|Women": {
+      "hint": 2,
+      "categories": {
+        "Ready-to-Wear": 2,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "1990|Spring / Summer|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1990|Cruise|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1990|Cruise|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1990|Prefall|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1990|Prefall|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1989|Fall / Winter|Women": {
+      "hint": 2,
+      "categories": {
+        "Ready-to-Wear": 2,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "1989|Fall / Winter|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1989|Spring / Summer|Women": {
+      "hint": 3,
+      "categories": {
+        "Ready-to-Wear": 3,
+        "Haute Couture": 0,
+        "Swim": 0
+      }
+    },
+    "1989|Spring / Summer|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1989|Cruise|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1989|Cruise|Men": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1989|Prefall|Women": {
+      "hint": 0,
+      "categories": {}
+    },
+    "1989|Prefall|Men": {
+      "hint": 0,
+      "categories": {}
+    }
+  }
+}

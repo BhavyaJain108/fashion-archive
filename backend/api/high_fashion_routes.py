@@ -37,9 +37,12 @@ HEADERS = {
 }
 
 # Which year/season/gender/category combinations actually have shows.
-# Built by firstview.build_coverage; absent until then, in which case every
-# option stays selectable.
-COVERAGE_PATH = "backend/high_fashion/cache/coverage.json"
+# Built by firstview.build_coverage. Committed rather than left in cache/,
+# which is gitignored and so would never reach the image — in production
+# load_coverage would return None and every dead filter option would become
+# clickable again. Absent, every option stays selectable, which is the safe
+# direction: a dead end beats hiding real shows.
+COVERAGE_PATH = "backend/high_fashion/coverage.json"
 
 
 def get_seasons():
