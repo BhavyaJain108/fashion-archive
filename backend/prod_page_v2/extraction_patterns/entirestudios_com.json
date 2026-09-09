@@ -1,8 +1,0 @@
-{
-  "title_pattern": "\"slug\":\"{{SLUG}}\",\"title\":\"([^\"]+)\"",
-  "price_pattern": "\"priceRange\":\\{\"maxVariantPrice\":([0-9.]+)",
-  "description_pattern": "\"description\":\"([^\"]+)\",\"descriptionHtml\":\"([^\"]+)\"",
-  "category_pattern": "\"tags\":(\\[[^\\]]*\\])",
-  "variants_pattern": "\"sizeLabels\":(\\[[^\\]]*\\])",
-  "image_pattern": "\"thumbnailUrl\":\"([^\"]+)\""
-}
