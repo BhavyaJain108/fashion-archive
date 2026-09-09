@@ -46,23 +46,26 @@ Each was decided during design; rationale kept to one line.
 4. **Cloudflare R2 for images.** Zero egress cost, S3-compatible. Served from
    `images.premiumpropogandafashion.studio` as a public bucket.
 5. **Subdomain layout, not a proxy.** `api.` on its own hostname rather than proxied through
-   Vercel, so the SSE endpoint at `routes.py:865` streams without an edge proxy buffering it.
+   the frontend host, so the SSE endpoint at `routes.py:865` streams without an edge proxy
+   buffering it.
 6. **Web only — Electron dropped.** One client, one auth path.
 7. **Auth required on every route** except `/api/health` and the auth endpoints. An
    unauthenticated endpoint that launches Chromium against an arbitrary URL is an abuse vector
    that costs real money.
 8. **Resend for email.** One file; swappable.
+9. **Cloudflare Pages for the frontend**, not a fourth vendor. DNS, images and the static
+   build then live in one account that is already required for R2.
 
 ## Architecture
 
 ```
-                    premiumpropogandafashion.studio   →  Vercel      (React build)
+                    premiumpropogandafashion.studio   →  CF Pages    (React build)
                 api.premiumpropogandafashion.studio   →  Render      (Flask + gunicorn)
              images.premiumpropogandafashion.studio   →  R2 bucket   (public, CDN)
                                                           Render Postgres
                                                           Resend (outbound email)
 
-DNS for all of it: Cloudflare.  Registrar: Squarespace.
+DNS, images and static hosting: Cloudflare.  Registrar: Squarespace.
 ```
 
 Both app hostnames sit under one registrable domain so a cookie scoped to
@@ -256,7 +259,7 @@ The last test is what stops route protection from silently regressing as endpoin
 7. **R2 image migration**: the three disk writers at `scraper/image_downloader.py:75`,
    `tools/image_downloader.py:166`, `scraper/favicon_downloader.py:58` upload to R2;
    `/api/images/...` serving is replaced by R2 public URLs; frontend image paths updated
-8. `Dockerfile`, `render.yaml`, `vercel.json`, env wiring — deploy
+8. `Dockerfile`, `render.yaml`, Cloudflare Pages build config, env wiring — deploy
 
 Phase 7 touches the scraper rather than auth, but it **must precede phase 8**: the Render
 service has no persistent disk, so any image still written to local disk is lost on every
