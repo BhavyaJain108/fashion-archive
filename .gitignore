@@ -123,3 +123,6 @@ fashion_archive_testing/
 # Catalog DB and rest of data dir
 data/
 extractions/
+
+# archive v2 runtime data
+backend/archive/data/

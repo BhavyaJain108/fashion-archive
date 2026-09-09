@@ -6,9 +6,9 @@ name: PR checks
 
 on:
   pull_request:
-    branches: [main]
+    branches: [master]
   push:
-    branches: [main]
+    branches: [master]
 
 concurrency:
   group: pr-${{ github.ref }}
@@ -41,10 +41,10 @@ jobs:
       # has ~1600 pre-existing issues we don't want to fix drive-by. We'll
       # ratchet scope up module-by-module in follow-up PRs.
       - name: Ruff lint
-        run: ruff check tests/
+        run: ruff check tests/ backend/archive/
 
       - name: Ruff format check
-        run: ruff format --check tests/
+        run: ruff format --check tests/ backend/archive/
 
       - name: Mypy (tests only, for now)
         run: mypy

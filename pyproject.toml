@@ -43,7 +43,7 @@ ignore_missing_imports = true
 follow_imports = "silent"
 warn_unused_ignores = true
 # Only check our own tests + new modules initially. Existing backend code opts in later.
-files = ["tests"]
+files = ["tests", "backend/archive"]
 
 [tool.pytest.ini_options]
 minversion = "7.0"
