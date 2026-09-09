@@ -23,7 +23,7 @@ knows which one is in use.
 from __future__ import annotations
 
 import mimetypes
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Protocol
 from urllib.parse import quote
 
@@ -36,13 +36,42 @@ class ImageStore(Protocol):
         """The URL `key` would be served from, without storing anything."""
 
 
+# The image types this archive actually stores, pinned rather than looked up.
+#
+# `mimetypes.guess_type` reads the host's mime database, so its answer depends
+# on the machine: Linux ships /etc/mime.types, which maps .ico to
+# image/vnd.microsoft.icon, while macOS has no such file and Python's built-in
+# table gives image/x-icon. Since R2 serves an object with whatever type it was
+# uploaded with, that difference is durable — the same picture ends up stored
+# with a different content type depending on where the upload ran.
+_CONTENT_TYPES = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+    ".avif": "image/avif",
+    # image/x-icon rather than the registered image/vnd.microsoft.icon: it is
+    # what browsers have always accepted, and what the rest of the app expects.
+    ".ico": "image/x-icon",
+}
+
+
 def guess_content_type(key: str) -> str:
     """Content type from the file extension.
 
     Worth getting right: R2 serves objects with whatever type they were uploaded
     with, so a wrong one makes the browser download the file instead of
     displaying it.
+
+    Known image extensions resolve from the table above so the answer is the
+    same on every machine; anything else still falls back to the platform's
+    mime database.
     """
+    suffix = PurePosixPath(key).suffix.lower()
+    if suffix in _CONTENT_TYPES:
+        return _CONTENT_TYPES[suffix]
+
     guessed, _ = mimetypes.guess_type(key)
     return guessed or "application/octet-stream"
 
