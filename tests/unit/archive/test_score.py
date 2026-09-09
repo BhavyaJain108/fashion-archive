@@ -1,3 +1,5 @@
+from typing import Any, cast
+
 import pytest
 
 from backend.archive.domain.product import ProductRecord
@@ -14,7 +16,7 @@ def rec(**kw) -> ProductRecord:
         all_images='["https://cdn.x/a.jpg", "https://cdn.x/b.jpg"]',
     )
     base.update(kw)
-    return ProductRecord(**base)
+    return ProductRecord(**cast(Any, base))
 
 
 @pytest.mark.unit

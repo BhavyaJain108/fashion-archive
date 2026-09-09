@@ -4,6 +4,7 @@ import argparse
 import json
 import time
 from pathlib import Path
+from typing import Any, cast
 
 import yaml
 
@@ -221,7 +222,7 @@ def main(argv: list[str] | None = None) -> int:
                 # The daemon scores every run; a hand-run scrape is the same work and
                 # is worth the same record, or the two loops disagree about a brand.
                 run = catalog.latest_run(b.domain)
-                stored = [ProductRecord(**r) for r in catalog.current_products(b.domain)]
+                stored = [ProductRecord(**cast(Any, r)) for r in catalog.current_products(b.domain)]
                 if run and stored:
                     card = score(stored, cost_usd=spend.usd - spent_before)
                     catalog.save_scorecard(run["id"], b.domain, card)
@@ -369,7 +370,7 @@ def main(argv: list[str] | None = None) -> int:
                         log_dir=Path("backend/archive/data/logs"),
                     )
                     rows = cat.current_products(brand.domain)
-                    return [ProductRecord(**{k: v for k, v in r.items()}) for r in rows], 0.0
+                    return [ProductRecord(**cast(Any, r)) for r in rows], 0.0
 
                 return do_brand
 

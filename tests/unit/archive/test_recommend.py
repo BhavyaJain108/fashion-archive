@@ -1,3 +1,5 @@
+from typing import Any, cast
+
 import pytest
 
 from backend.archive.domain.brand import Brand
@@ -17,7 +19,7 @@ def rec(n, **kw) -> ProductRecord:
         all_images=f'["https://cdn.x/{n}.jpg", "https://cdn.x/{n}b.jpg"]',
     )
     base.update(kw)
-    return ProductRecord(**base)
+    return ProductRecord(**cast(Any, base))
 
 
 @pytest.fixture()

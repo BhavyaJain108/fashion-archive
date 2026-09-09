@@ -17,6 +17,7 @@ import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any, cast
 
 from backend.archive.domain.product import E0005_FIELDS, ProductRecord
 from backend.archive.score import REQUIRED, score
@@ -66,7 +67,7 @@ def render(catalog: Catalog, domain: str, limit: int, offset: int = 0) -> str:
     book = catalog.load_recipe_book(domain)
     learned = {r.field: r for r in (book.recipes if book else [])}
     plan = catalog.load_plan(domain)
-    card = score([ProductRecord(**r) for r in rows])
+    card = score([ProductRecord(**cast(Any, r)) for r in rows])
     shown = rows[offset : offset + limit]
 
     parts = [
