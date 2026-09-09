@@ -15,8 +15,10 @@ from .conftest import token_from  # noqa: E402
 
 
 def sign_up(client, sender, email="img@example.com"):
-    client.post("/api/auth/register",
-                json={"email": email, "password": "a-good-password", "display_name": "Img"})
+    client.post(
+        "/api/auth/register",
+        json={"email": email, "password": "a-good-password", "display_name": "Img"},
+    )
     client.get(f"/api/auth/verify?token={token_from(sender)}")
     client.post("/api/auth/login", json={"email": email, "password": "a-good-password"})
 

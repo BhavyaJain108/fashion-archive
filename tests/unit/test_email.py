@@ -84,8 +84,12 @@ class TestRecordingSender:
 
     def test_last_is_a_convenience_for_the_most_recent(self):
         sender = RecordingSender()
-        sender.send(to="a@example.com", message=build_verification_email(api_base_url=API, token="1"))
-        sender.send(to="b@example.com", message=build_verification_email(api_base_url=API, token="2"))
+        sender.send(
+            to="a@example.com", message=build_verification_email(api_base_url=API, token="1")
+        )
+        sender.send(
+            to="b@example.com", message=build_verification_email(api_base_url=API, token="2")
+        )
         assert sender.last.to == "b@example.com"
 
     def test_last_is_none_when_nothing_sent(self):

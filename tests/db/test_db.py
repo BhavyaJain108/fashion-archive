@@ -56,9 +56,7 @@ class TestInitPool:
 class TestTransaction:
     def test_commits_on_success(self, pool):
         with auth_db.transaction() as conn:
-            repo.create_user(
-                conn, email="kept@example.com", password_hash="h", display_name="Kept"
-            )
+            repo.create_user(conn, email="kept@example.com", password_hash="h", display_name="Kept")
 
         with auth_db.transaction() as conn:
             assert repo.get_user_by_email(conn, "kept@example.com") is not None

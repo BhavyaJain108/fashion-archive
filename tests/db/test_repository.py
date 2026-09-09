@@ -22,7 +22,9 @@ pytestmark = pytest.mark.db
 
 
 def make_user(conn, email="archivist@example.com", display_name="Archivist"):
-    return repo.create_user(conn, email=email, password_hash="$argon2id$fake", display_name=display_name)
+    return repo.create_user(
+        conn, email=email, password_hash="$argon2id$fake", display_name=display_name
+    )
 
 
 class TestCreateUser:
@@ -195,15 +197,17 @@ class TestEmailTokens:
     def test_consume_returns_the_user(self, conn):
         user = make_user(conn)
         token = new_token()
-        repo.create_email_token(conn, user_id=user.id, token=token, purpose="verify",
-                                ttl=timedelta(hours=24))
+        repo.create_email_token(
+            conn, user_id=user.id, token=token, purpose="verify", ttl=timedelta(hours=24)
+        )
         assert repo.consume_email_token(conn, token, purpose="verify") == user.id
 
     def test_plaintext_token_is_never_stored(self, conn):
         user = make_user(conn)
         token = new_token()
-        repo.create_email_token(conn, user_id=user.id, token=token, purpose="verify",
-                                ttl=timedelta(hours=24))
+        repo.create_email_token(
+            conn, user_id=user.id, token=token, purpose="verify", ttl=timedelta(hours=24)
+        )
         stored = conn.execute("SELECT token_hash FROM email_tokens").fetchone()[0]
         assert bytes(stored) == hash_token(token)
 
@@ -212,24 +216,27 @@ class TestEmailTokens:
         damage if that inbox is later compromised."""
         user = make_user(conn)
         token = new_token()
-        repo.create_email_token(conn, user_id=user.id, token=token, purpose="verify",
-                                ttl=timedelta(hours=24))
+        repo.create_email_token(
+            conn, user_id=user.id, token=token, purpose="verify", ttl=timedelta(hours=24)
+        )
         assert repo.consume_email_token(conn, token, purpose="verify") == user.id
         assert repo.consume_email_token(conn, token, purpose="verify") is None
 
     def test_expired_token_is_rejected(self, conn):
         user = make_user(conn)
         token = new_token()
-        repo.create_email_token(conn, user_id=user.id, token=token, purpose="verify",
-                                ttl=timedelta(seconds=-1))
+        repo.create_email_token(
+            conn, user_id=user.id, token=token, purpose="verify", ttl=timedelta(seconds=-1)
+        )
         assert repo.consume_email_token(conn, token, purpose="verify") is None
 
     def test_verify_token_cannot_be_used_as_a_reset_token(self, conn):
         """Otherwise a signup link doubles as a password-change link."""
         user = make_user(conn)
         token = new_token()
-        repo.create_email_token(conn, user_id=user.id, token=token, purpose="verify",
-                                ttl=timedelta(hours=24))
+        repo.create_email_token(
+            conn, user_id=user.id, token=token, purpose="verify", ttl=timedelta(hours=24)
+        )
         assert repo.consume_email_token(conn, token, purpose="reset") is None
 
     def test_unknown_token_returns_none(self, conn):
@@ -240,8 +247,13 @@ class TestEmailTokens:
         Purpose type — an unrecognised purpose must not become a usable token."""
         user = make_user(conn)
         with pytest.raises(psycopg.errors.CheckViolation):
-            repo.create_email_token(conn, user_id=user.id, token=new_token(),
-                                    purpose="something-else", ttl=timedelta(hours=1))
+            repo.create_email_token(
+                conn,
+                user_id=user.id,
+                token=new_token(),
+                purpose="something-else",
+                ttl=timedelta(hours=1),
+            )
 
 
 class TestPasswordChange:

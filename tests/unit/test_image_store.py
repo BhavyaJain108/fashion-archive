@@ -47,7 +47,9 @@ def stub():
 @pytest.fixture
 def r2(stub):
     return R2ImageStore(
-        account_id="acct", access_key_id="k", secret_access_key="s",
+        account_id="acct",
+        access_key_id="k",
+        secret_access_key="s",
         bucket="fashion-archive",
         public_base="https://images.premiumpropogandafashion.studio",
         client=stub,
@@ -77,10 +79,15 @@ class TestKeys:
 
 
 class TestContentType:
-    @pytest.mark.parametrize("name,expected", [
-        ("a.jpg", "image/jpeg"), ("a.png", "image/png"),
-        ("a.webp", "image/webp"), ("a.ico", "image/x-icon"),
-    ])
+    @pytest.mark.parametrize(
+        "name,expected",
+        [
+            ("a.jpg", "image/jpeg"),
+            ("a.png", "image/png"),
+            ("a.webp", "image/webp"),
+            ("a.ico", "image/x-icon"),
+        ],
+    )
     def test_guessed_from_extension(self, name, expected):
         assert guess_content_type(name) == expected
 
@@ -147,11 +154,14 @@ class TestLocalImageStore:
         local.save("a/b/c/d.jpg", b"x")
         assert local.exists("a/b/c/d.jpg")
 
-    @pytest.mark.parametrize("evil", [
-        "../escaped.jpg",
-        "runway/../../escaped.jpg",
-        "../../../../../../etc/passwd",
-    ])
+    @pytest.mark.parametrize(
+        "evil",
+        [
+            "../escaped.jpg",
+            "runway/../../escaped.jpg",
+            "../../../../../../etc/passwd",
+        ],
+    )
     def test_keys_cannot_escape_the_root(self, local, evil):
         """Keys reach this from request paths, so traversal is a real input.
         The old endpoint took an absolute path from the client and read it."""

@@ -156,7 +156,8 @@ class TestLogin:
         calls = []
         real = svc.passwords.verify_password
         monkeypatch.setattr(
-            svc.passwords, "verify_password",
+            svc.passwords,
+            "verify_password",
             lambda p, h: (calls.append(1), real(p, h))[1],
         )
         with pytest.raises(svc.InvalidCredentials):
@@ -180,6 +181,7 @@ class TestLogin:
 
         # A stale hash the user can still satisfy gets rewritten on login.
         import auth.passwords as pw
+
         monkey = pw.PasswordHasher(memory_cost=8, time_cost=1, parallelism=1)
         repo.set_password_hash(conn, repo.get_user_by_email(conn, EMAIL).id, monkey.hash(PASSWORD))
 
