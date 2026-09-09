@@ -122,6 +122,7 @@ from backend.auth import db as auth_db  # noqa: E402
 from backend.auth.email import ConsoleSender, ResendSender  # noqa: E402
 from backend.auth.middleware import install_auth  # noqa: E402
 from backend.auth.service import AuthService  # noqa: E402
+from backend.storage import images as image_store  # noqa: E402
 
 if config.RESEND_API_KEY:
     _sender = ResendSender(config.RESEND_API_KEY, config.MAIL_FROM)
@@ -143,6 +144,12 @@ if config.DATABASE_URL:
     print("✅ Postgres pool ready, auth schema applied")
 else:
     print("⚠️  DATABASE_URL not set — authenticated endpoints will fail")
+
+_store = image_store.configure(config)
+if config.R2_ACCOUNT_ID:
+    print(f"✅ Images -> R2 bucket '{config.R2_BUCKET}' at {config.R2_PUBLIC_BASE}")
+else:
+    print(f"⚠️  R2 not configured — images go to {config.IMAGE_CACHE_DIR} (lost on redeploy)")
 
 install_auth(app, public_endpoints={'health_check'} | PUBLIC_AUTH_ENDPOINTS)
 print(f"🔒 Auth installed: {len(PUBLIC_AUTH_ENDPOINTS) + 1} public endpoints, "

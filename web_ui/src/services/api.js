@@ -149,9 +149,15 @@ class FashionArchiveAPI {
     }
   }
 
-  // Get image file (for display)
+  // Image locations are already URLs — from R2 in production, from the API's
+  // local store in development. The backend used to return an absolute
+  // filesystem path that this turned into /api/image?path=..., asking the
+  // server to read that path off disk.
   static getImageUrl(imagePath) {
-    return `${this.BASE_URL}/api/image?path=${encodeURIComponent(imagePath)}`;
+    if (!imagePath) return '';
+    if (/^https?:\/\//i.test(imagePath)) return imagePath;
+    // Legacy value from an older cached response.
+    return `${this.BASE_URL}/api/images/${imagePath.replace(/^\/+/, '')}`;
   }
 
   // Get video file (for playback)

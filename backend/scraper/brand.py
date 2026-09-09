@@ -24,7 +24,6 @@ sys.path.insert(0, current_dir)
 from llm_handler import LLMHandler
 from prompts import PromptManager
 from product import Product
-from image_downloader import ImageDownloader
 
 
 def escape_css_selector(selector: str) -> str:
@@ -178,8 +177,9 @@ class Brand:
         self.workers_active = False
         self.worker_pool = None
 
-        # Image downloading pipeline
-        self.image_downloader = ImageDownloader()
+        # Image downloading pipeline. The downloader it used to hold was never
+        # actually invoked — product images are remote URLs — so it went with
+        # the move to R2.
         self.image_download_queue = Queue()  # Queue of image download tasks
         self.image_workers_active = False
         self.image_worker_pool = None

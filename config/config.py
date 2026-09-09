@@ -46,6 +46,23 @@ class Config:
     # verification links to stdout, so local signup works with no credentials.
     RESEND_API_KEY = os.getenv('RESEND_API_KEY')
     MAIL_FROM = os.getenv('MAIL_FROM', 'no-reply@localhost')
+
+    # Image storage (Cloudflare R2). Without credentials images go to a local
+    # directory instead, so development needs no cloud account. Production must
+    # set these: the Render service has no persistent disk, so anything written
+    # to its filesystem is lost on the next deploy.
+    R2_ACCOUNT_ID = os.getenv('R2_ACCOUNT_ID')
+    R2_ACCESS_KEY_ID = os.getenv('R2_ACCESS_KEY_ID')
+    R2_SECRET_ACCESS_KEY = os.getenv('R2_SECRET_ACCESS_KEY')
+    R2_BUCKET = os.getenv('R2_BUCKET', 'fashion-archive')
+    R2_PUBLIC_BASE = os.getenv('R2_PUBLIC_BASE', '')
+
+    # Absolute, so it does not depend on the working directory the way the old
+    # 'backend/high_fashion/cache/images' did.
+    IMAGE_CACHE_DIR = os.getenv(
+        'IMAGE_CACHE_DIR',
+        os.path.join(os.path.dirname(script_dir), 'data', 'image_cache'),
+    )
     
     # API Configuration
     BASE_URL = f"http://{HOST}:{PORT}"
