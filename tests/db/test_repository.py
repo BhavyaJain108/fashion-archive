@@ -140,6 +140,49 @@ class TestSessions:
         after = conn.execute("SELECT expires_at FROM sessions").fetchone()[0]
         assert after > before
 
+    def test_refresh_extends_a_stale_session(self, conn):
+        """Rolling expiry: an active user is never logged out mid-use.
+
+        Note Postgres now() is the *transaction* start time, so a refresh cannot
+        be observed as "a bit later" inside one transaction. The session is put
+        an hour from expiry instead, and the refresh must push it out to the
+        full 30-day TTL.
+        """
+        user = make_user(conn)
+        token = new_token()
+        repo.create_session(conn, user_id=user.id, token=token, ttl=timedelta(days=30))
+        conn.execute(
+            "UPDATE sessions SET last_used_at = now() - interval '2 days', "
+            "expires_at = now() + interval '1 hour'"
+        )
+        before = conn.execute("SELECT expires_at FROM sessions").fetchone()[0]
+
+        repo.refresh_session_if_stale(
+            conn, token, ttl=timedelta(days=30), refresh_after=timedelta(days=1)
+        )
+        after = conn.execute("SELECT expires_at FROM sessions").fetchone()[0]
+        assert after > before
+
+    def test_refresh_leaves_a_fresh_session_alone(self, conn):
+        """Without this guard, a page firing ten API calls writes to the
+        database ten times for no benefit."""
+        user = make_user(conn)
+        token = new_token()
+        repo.create_session(conn, user_id=user.id, token=token, ttl=timedelta(days=30))
+        conn.execute("UPDATE sessions SET expires_at = now() + interval '1 hour'")
+        before = conn.execute("SELECT expires_at FROM sessions").fetchone()[0]
+
+        repo.refresh_session_if_stale(
+            conn, token, ttl=timedelta(days=30), refresh_after=timedelta(days=1)
+        )
+        after = conn.execute("SELECT expires_at FROM sessions").fetchone()[0]
+        assert after == before
+
+    def test_refresh_of_an_unknown_token_is_harmless(self, conn):
+        repo.refresh_session_if_stale(
+            conn, new_token(), ttl=timedelta(days=30), refresh_after=timedelta(days=1)
+        )
+
     def test_deleting_a_user_deletes_their_sessions(self, conn):
         user = make_user(conn)
         token = new_token()

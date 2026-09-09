@@ -184,6 +184,30 @@ def touch_session(conn, token: str, *, ttl: timedelta) -> None:
     )
 
 
+def refresh_session_if_stale(
+    conn, token: str, *, ttl: timedelta, refresh_after: timedelta
+) -> None:
+    """Roll a session's expiry forward, but only once it has gone stale.
+
+    Rolling expiry is what keeps an active user signed in indefinitely while
+    still expiring an abandoned session. The staleness guard exists so that an
+    authenticated request does not write to the database every single time — a
+    page that fires ten API calls would otherwise cause ten UPDATEs.
+
+    now() is the transaction start time, not the wall clock. That is correct
+    here because one request is one transaction, but it means several calls
+    within a single transaction all compute the same expiry.
+    """
+    conn.execute(
+        """
+        UPDATE sessions
+        SET last_used_at = now(), expires_at = now() + %s
+        WHERE token_hash = %s AND last_used_at < now() - %s
+        """,
+        (ttl, hash_token(token), refresh_after),
+    )
+
+
 def delete_session(conn, token: str) -> None:
     conn.execute("DELETE FROM sessions WHERE token_hash = %s", (hash_token(token),))
 

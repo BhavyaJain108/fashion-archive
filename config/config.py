@@ -19,9 +19,32 @@ class Config:
     """Application configuration"""
     
     # Server Configuration
-    HOST = os.getenv('HOST', '127.0.0.1')
+    # HOST defaults to 0.0.0.0 because a hosted container must accept traffic
+    # from outside itself; on 127.0.0.1 the platform health check can never
+    # connect and the deploy fails.
+    HOST = os.getenv('HOST', '0.0.0.0')
     PORT = int(os.getenv('PORT', 8081))
-    DEBUG = os.getenv('DEBUG', 'True').lower() == 'true'
+    # DEBUG defaults to False. It used to default to True, which serves the
+    # Werkzeug debugger — an interactive Python console — to anyone who can
+    # trigger a traceback. That is remote code execution on a public URL.
+    DEBUG = os.getenv('DEBUG', 'false').lower() == 'true'
+
+    # Auth / hosting
+    DATABASE_URL = os.getenv('DATABASE_URL')
+    APP_BASE_URL = os.getenv('APP_BASE_URL', 'http://localhost:3000')
+    API_BASE_URL = os.getenv('API_BASE_URL', 'http://localhost:8081')
+
+    # Empty in development: a Domain attribute cannot be set for "localhost",
+    # and omitting it makes the cookie host-only, which is what we want there.
+    COOKIE_DOMAIN = os.getenv('COOKIE_DOMAIN', '')
+    # Secure cookies are not sent over plain http, so local development needs
+    # this off. It must be on anywhere real.
+    COOKIE_SECURE = os.getenv('COOKIE_SECURE', 'false').lower() == 'true'
+
+    # Email (Resend). Without an API key the app falls back to printing
+    # verification links to stdout, so local signup works with no credentials.
+    RESEND_API_KEY = os.getenv('RESEND_API_KEY')
+    MAIL_FROM = os.getenv('MAIL_FROM', 'no-reply@localhost')
     
     # API Configuration
     BASE_URL = f"http://{HOST}:{PORT}"
