@@ -220,9 +220,9 @@ class TestPasswordResetOverHttp:
 class TestResendVerification:
     def test_accepted_for_an_unverified_account(self, client, sender):
         register(client)
-        assert client.post(
-            "/api/auth/resend-verification", json={"email": EMAIL}
-        ).status_code == 202
+        assert (
+            client.post("/api/auth/resend-verification", json={"email": EMAIL}).status_code == 202
+        )
 
     def test_the_resent_link_works(self, client, sender):
         register(client)

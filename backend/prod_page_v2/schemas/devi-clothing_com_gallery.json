@@ -1,8 +1,0 @@
-{
-  "image_selectors": [
-    "div.product__image-container img",
-    "div.product__expanded-photos img"
-  ],
-  "url_attribute": "src",
-  "image_count": 5
-}

@@ -1,7 +1,0 @@
-{
-  "image_selectors": [
-    "div#splide01-track img"
-  ],
-  "url_attribute": "src",
-  "image_count": 5
-}

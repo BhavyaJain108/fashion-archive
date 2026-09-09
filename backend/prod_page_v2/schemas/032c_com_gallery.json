@@ -1,5 +1,0 @@
-{
-  "image_selector": ".media-gallery-thumbnails__item img.image-magnify-lightbox",
-  "url_attribute": "src",
-  "container_selector": ".media-gallery-thumbnails"
-}

@@ -54,8 +54,7 @@ class TestEveryProtectedEndpointRejectsAnonymous:
                 response = client.open(concrete_path(rule), method=method)
                 if response.status_code != 401:
                     offenders.append(
-                        f"{method} {rule} -> {response.status_code} "
-                        f"(endpoint {rule.endpoint})"
+                        f"{method} {rule} -> {response.status_code} (endpoint {rule.endpoint})"
                     )
 
         assert not offenders, "endpoints reachable without a session:\n" + "\n".join(offenders)

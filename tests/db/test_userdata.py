@@ -22,16 +22,12 @@ LOOK = {"number": 12, "total": 48}
 
 @pytest.fixture
 def user(conn):
-    return repo.create_user(
-        conn, email="one@example.com", password_hash="h", display_name="One"
-    )
+    return repo.create_user(conn, email="one@example.com", password_hash="h", display_name="One")
 
 
 @pytest.fixture
 def other_user(conn):
-    return repo.create_user(
-        conn, email="two@example.com", password_hash="h", display_name="Two"
-    )
+    return repo.create_user(conn, email="two@example.com", password_hash="h", display_name="Two")
 
 
 def add_look(conn, user, look_number=12):
@@ -58,7 +54,13 @@ class TestFavourites:
         add_look(conn, user)
         item = favourites.list_all(conn, user_id=user.id)[0]
         assert set(item) == {
-            "id", "season", "collection", "look", "image_path", "date_added", "notes"
+            "id",
+            "season",
+            "collection",
+            "look",
+            "image_path",
+            "date_added",
+            "notes",
         }
         assert set(item["season"]) == {"name", "url", "link_text"}
         assert set(item["collection"]) == {"designer", "url"}
@@ -82,17 +84,29 @@ class TestFavourites:
 
     def test_remove(self, conn, user):
         add_look(conn, user)
-        assert favourites.remove(
-            conn, user_id=user.id, season_url=SEASON["url"],
-            collection_url=COLLECTION["url"], look_number=12
-        ) is True
+        assert (
+            favourites.remove(
+                conn,
+                user_id=user.id,
+                season_url=SEASON["url"],
+                collection_url=COLLECTION["url"],
+                look_number=12,
+            )
+            is True
+        )
         assert favourites.list_all(conn, user_id=user.id) == []
 
     def test_removing_something_absent_reports_false(self, conn, user):
-        assert favourites.remove(
-            conn, user_id=user.id, season_url=SEASON["url"],
-            collection_url=COLLECTION["url"], look_number=99
-        ) is False
+        assert (
+            favourites.remove(
+                conn,
+                user_id=user.id,
+                season_url=SEASON["url"],
+                collection_url=COLLECTION["url"],
+                look_number=99,
+            )
+            is False
+        )
 
     def test_newest_first(self, conn, user):
         for n in (1, 2, 3):
@@ -125,18 +139,27 @@ class TestFavouritesIsolation:
     def test_one_user_cannot_remove_anothers(self, conn, user, other_user):
         add_look(conn, user)
         removed = favourites.remove(
-            conn, user_id=other_user.id, season_url=SEASON["url"],
-            collection_url=COLLECTION["url"], look_number=12
+            conn,
+            user_id=other_user.id,
+            season_url=SEASON["url"],
+            collection_url=COLLECTION["url"],
+            look_number=12,
         )
         assert removed is False
         assert len(favourites.list_all(conn, user_id=user.id)) == 1
 
     def test_exists_is_scoped_to_the_user(self, conn, user, other_user):
         add_look(conn, user)
-        assert favourites.exists(
-            conn, user_id=other_user.id, season_url=SEASON["url"],
-            collection_url=COLLECTION["url"], look_number=12
-        ) is False
+        assert (
+            favourites.exists(
+                conn,
+                user_id=other_user.id,
+                season_url=SEASON["url"],
+                collection_url=COLLECTION["url"],
+                look_number=12,
+            )
+            is False
+        )
 
     def test_deleting_a_user_removes_their_favourites(self, conn, user):
         add_look(conn, user)
@@ -182,9 +205,12 @@ class TestFollowing:
         assert brand["notify_new_products"] is True  # untouched
 
     def test_updating_a_brand_not_followed_reports_false(self, conn, user):
-        assert following.set_notification_preferences(
-            conn, user_id=user.id, brand_id="nope", notify_new_products=False
-        ) is False
+        assert (
+            following.set_notification_preferences(
+                conn, user_id=user.id, brand_id="nope", notify_new_products=False
+            )
+            is False
+        )
 
     def test_notes(self, conn, user):
         following.follow(conn, user_id=user.id, brand_id="acne", brand_name="A")
@@ -199,7 +225,9 @@ class TestFollowingIsolation:
 
     def test_two_users_can_follow_the_same_brand(self, conn, user, other_user):
         assert following.follow(conn, user_id=user.id, brand_id="acne", brand_name="A") is True
-        assert following.follow(conn, user_id=other_user.id, brand_id="acne", brand_name="A") is True
+        assert (
+            following.follow(conn, user_id=other_user.id, brand_id="acne", brand_name="A") is True
+        )
 
     def test_one_user_cannot_unfollow_for_another(self, conn, user, other_user):
         following.follow(conn, user_id=user.id, brand_id="acne", brand_name="A")

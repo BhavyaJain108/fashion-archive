@@ -1,5 +1,0 @@
-{
-  "image_pattern": "\"image\":\\ \\[",
-  "title_pattern": "\"name\":\\ \"([^\"]+)\"",
-  "price_pattern": "\"price\"\\ :\\ ([0-9.]+)"
-}

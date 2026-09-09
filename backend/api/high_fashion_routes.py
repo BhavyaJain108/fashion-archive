@@ -2,7 +2,7 @@
 High Fashion API Routes
 ========================
 
-Endpoints for nowfashion.com scraping:
+Endpoints backed by firstVIEW (see backend/high_fashion/FIRSTVIEW.md):
 - Seasons listing
 - Collections by season
 - Images download
@@ -25,7 +25,7 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
 
-# Headers for nowfashion.com
+# Legacy header block; firstview.py sets its own session headers.
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
@@ -36,122 +36,150 @@ HEADERS = {
     'Upgrade-Insecure-Requests': '1',
 }
 
-BASE_URL = "https://nowfashion.com"
-SEASONS_URL = "https://nowfashion.com/fashion-week-seasons/"
+# Which year/season/gender/category combinations actually have shows.
+# Built by firstview.build_coverage; absent until then, in which case every
+# option stays selectable.
+COVERAGE_PATH = "backend/high_fashion/cache/coverage.json"
 
 
 def get_seasons():
-    """GET /api/seasons - List all fashion seasons"""
+    """POST /api/seasons - List every season firstVIEW offers.
+
+    A firstVIEW "season" is the triple (year, season, gender); there is no
+    season landing page, so `url` carries a collection_results.php query
+    that /api/collections reads back. Structured fields are returned
+    alongside `name` so clients don't have to parse the label.
+    """
     try:
-        response = requests.get(SEASONS_URL, headers=HEADERS, timeout=10)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.content, 'html.parser')
+        from backend.high_fashion import firstview as fv
 
-        links = soup.find_all('a', href=True)
-        season_links = []
-
-        for link in links:
-            href = link.get('href')
-            text = link.get_text().strip()
-
-            if href and '/fashion/collections/' in href:
-                full_url = urljoin(BASE_URL, href)
-                if text and len(text) > 5:
-                    season_links.append((text, full_url))
-
-        # Remove duplicates and sort
-        season_links = list(set(season_links))
-        season_links.sort(key=lambda x: x[0])
+        coverage = fv.load_coverage(COVERAGE_PATH) or {}
+        combos = coverage.get('combos', {})
 
         seasons = []
-        for text, url in season_links:
-            seasons.append({
-                'name': text,
-                'url': url,
-                'href': url.replace(BASE_URL, '')
-            })
+        for year in range(fv.YEAR_MAX, fv.YEAR_MIN - 1, -1):
+            for label, sid in fv.SEASONS.items():
+                for gender in fv.GENDERS:
+                    url = fv.build_search_url(gender=gender, year=year, season=label)
+                    entry = combos.get(fv.coverage_key(year, label, gender))
 
-        return jsonify({'seasons': seasons, 'success': True})
+                    # With no coverage file every option stays selectable —
+                    # better to offer a dead end than to hide real shows.
+                    if entry is None:
+                        available, categories = True, None
+                    else:
+                        available = bool(entry.get('hint'))
+                        categories = entry.get('categories') or {}
+
+                    seasons.append({
+                        'name': f'{label} {year} - {gender}',
+                        'url': url,
+                        'href': url.replace(fv.BASE_URL, ''),
+                        # structured — preferred over parsing `name`
+                        'year': year,
+                        'season': label,
+                        'season_id': sid,
+                        'gender': gender,
+                        'available': available,
+                        'categories': categories,
+                    })
+
+        return jsonify({
+            'seasons': seasons,
+            'coverage_built_on': coverage.get('built_on'),
+            'success': True,
+        })
 
     except Exception as e:
         return jsonify({'error': str(e), 'success': False}), 500
 
 
+def _season_filters(q, data):
+    """Filters for a season query, from the seasonUrl's params.
+
+    No shoot type is applied unless the client asks: filtering to Runway
+    Collection hid shows that only exist as Runway Details. Rows are
+    labelled with their shoot type instead, so repeats stay tellable apart.
+    """
+    from backend.high_fashion import firstview as fv
+    one = lambda k: q.get(k, [None])[0]
+    shoot_type = data.get('shootType', one('s_t'))
+    return dict(
+        gender=one('s_g'),
+        year=int(one('filter_year')) if one('filter_year') else None,
+        season=one('filter_season'),
+        category=data.get('category', one('s_n')),
+        shoot_type=shoot_type or None,
+        city_id=one('s_p'),
+        letter=one('l'),
+    )
+
+
+def _row_to_dict(r):
+    """One results row, with a label that distinguishes near-identical shows.
+
+    A designer often appears several times in one season. The row itself
+    carries category / shoot type / city, and where even those match,
+    `look_count` has been filled in to break the tie — so the list never
+    shows the same name twice with nothing to tell them apart.
+    """
+    name = r.designer or r.title
+    bits = []
+    if r.category and r.category != 'Ready-to-Wear':
+        bits.append(r.category)
+    if r.shoot_type and r.shoot_type != 'Runway Collection':
+        bits.append(r.shoot_type)
+    if r.look_count:
+        bits.append(f'{r.look_count} looks')
+
+    # The brand stands alone; the qualifier goes underneath it in the list,
+    # so a narrow column doesn't truncate away the very thing that tells
+    # two rows of the same brand apart.
+    return {
+        'designer': name,
+        'subtitle': ' · '.join(bits),
+        'url': r.url,
+        'text': r.title,
+        'photos': '', 'date': '',
+        'collection_id': r.collection_id,
+        'season': r.season,
+        'year': r.year,
+        'gender': r.gender,
+        'category': r.category,
+        'shoot_type': r.shoot_type,
+        'city': r.city,
+        'look_count': r.look_count,
+        'designer_name': r.designer,
+    }
+
+
 def get_collections():
-    """POST /api/collections - Get collections for a season"""
+    """POST /api/collections - Shows for a season.
+
+    `seasonUrl` is a collection_results.php URL as handed out by
+    /api/seasons; its query params are read back and re-run. Pages through
+    the full result set, so a big season returns hundreds of shows.
+    """
     try:
-        data = request.get_json()
+        from urllib.parse import urlparse, parse_qs
+        from backend.high_fashion import firstview as fv
+
+        data = request.get_json() or {}
         season_url = data.get('seasonUrl', '')
+        if not season_url:
+            return jsonify({'error': 'seasonUrl is required', 'success': False}), 400
 
-        collections = []
-        page = 1
+        q = parse_qs(urlparse(season_url).query)
+        one = lambda k: q.get(k, [None])[0]
 
-        while True:
-            if page == 1:
-                current_url = season_url
-            else:
-                current_url = f"{season_url.rstrip('/')}/page/{page}/"
+        filters = _season_filters(q, data)
+        max_pages = int(data.get('maxPages', 60))
 
-            response = requests.get(current_url, headers=HEADERS, timeout=10)
+        rows = fv.search_collections(max_pages=max_pages, **filters)
+        fv.fill_look_counts(rows)
+        collections = [_row_to_dict(r) for r in rows]
 
-            if response.status_code == 404:
-                break
-
-            response.raise_for_status()
-            soup = BeautifulSoup(response.content, 'html.parser')
-
-            h2_elements = soup.find_all('h2', class_='wp-block-post-title')
-
-            if not h2_elements:
-                break
-
-            page_collections = []
-            for h2 in h2_elements:
-                link = h2.find('a', href=True)
-                if link:
-                    href = link.get('href')
-                    designer_text = link.get_text().strip()
-
-                    if href and designer_text:
-                        page_collections.append({
-                            'designer': designer_text,
-                            'photos': '',
-                            'date': '',
-                            'url': href,
-                            'text': designer_text
-                        })
-
-            if not page_collections:
-                break
-
-            collections.extend(page_collections)
-
-            # Check pagination
-            has_next_page = False
-            next_link = soup.find('a', string=re.compile(r'next|Next', re.IGNORECASE))
-            if next_link or len(page_collections) > 0:
-                has_next_page = True
-
-            if not has_next_page:
-                break
-
-            page += 1
-            if page > 10:  # Safety limit
-                break
-
-        # Remove duplicates and sort alphabetically
-        unique_collections = []
-        seen_designers = set()
-
-        for collection in collections:
-            designer_key = collection['designer'].lower().strip()
-            if designer_key not in seen_designers:
-                seen_designers.add(designer_key)
-                unique_collections.append(collection)
-
-        unique_collections.sort(key=lambda x: x['designer'].lower())
-
-        return jsonify({'collections': unique_collections, 'success': True})
+        return jsonify({'collections': collections, 'success': True})
 
     except Exception as e:
         return jsonify({'error': str(e), 'success': False}), 500
@@ -193,156 +221,56 @@ def _upload_images(store, designer_name, entries):
 
 
 def download_images():
-    """POST /api/download-images - Download images from a collection with parallel downloads and filtering"""
+    """POST /api/download-images - Download every look in one show.
+
+    `collectionUrl` is a collection_images.php URL (or a bare id).
+
+    Images are fetched into a temp directory and uploaded to the image
+    store, which returns browser-loadable URLs; the temp directory is
+    removed in the finally below, so a failed run cannot leave the
+    container's disk filling up. `path` on each entry is a URL, not a
+    filesystem path.
+
+    There is no organizer pass here. It existed to sift runway looks out of
+    a page that also carried logos, ad pixels and avatars; firstVIEW returns
+    the collection's looks and nothing else, so there is nothing to discard.
+    """
     temp_dir = None
     try:
-        data = request.get_json()
+        from backend.high_fashion import firstview as fv
+
+        data = request.get_json() or {}
         collection_url = data.get('collectionUrl', '')
-        designer_name = data.get('designerName', '')
+        if not collection_url:
+            return jsonify({'error': 'collectionUrl is required', 'success': False}), 400
 
-        print(f"DEBUG: download_images called with URL: {collection_url}, Designer: {designer_name}")
-
-        # Images are downloaded into a temporary directory first, because the
-        # collection organizer below works by scanning a folder and deleting
-        # what does not belong. Only the survivors are uploaded, so images that
-        # get filtered out are never stored at all.
+        quality = data.get('quality', fv.QUALITY_FULL)
         store = images.get_store()
-        # Removed in the finally below, so a failed download does not leave the
-        # container's disk filling up run after run.
         temp_dir = tempfile.mkdtemp(prefix='runway_')
-        cache_dir = Path(temp_dir)
 
-        # Extract collection name from URL for filtering
-        parsed_url = urlparse(collection_url)
-        collection_name = parsed_url.path.strip('/').split('/')[-1]
-        print(f"DEBUG: Collection name from URL: {collection_name}")
+        result = fv.download_collection(
+            collection_url,
+            out_root=temp_dir,
+            quality=quality,
+        )
 
-        response = requests.get(collection_url, headers=HEADERS, timeout=10)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.content, 'html.parser')
-        print(f"DEBUG: Fetched page, status: {response.status_code}")
+        designer_name = data.get('designerName') or result.get('designer') or 'unknown'
+        entries = [{
+            'local_path': img['path'],
+            'source_url': img['url'],
+            'index': img['index'],
+            'filename': img['filename'],
+        } for img in result.get('images', [])]
 
-        # Find all image tags
-        img_tags = soup.find_all('img')
-        print(f"DEBUG: Found {len(img_tags)} img tags")
-        image_urls = []
-
-        for img in img_tags:
-            src = img.get('src') or img.get('data-src')
-            if src and ('nowfashion.com' in src or src.startswith('/')):
-                if src.startswith('/'):
-                    src = urljoin(BASE_URL, src)
-                if src not in image_urls:
-                    image_urls.append(src)
-
-        print(f"DEBUG: Extracted {len(image_urls)} unique image URLs")
-
-        # PARALLEL DOWNLOADING using ThreadPoolExecutor
-        downloaded_images = []
-        download_lock = Lock()
-        num_threads = min(len(image_urls), 20)  # Up to 20 parallel downloads
-
-        print(f"DEBUG: Starting parallel download with {num_threads} threads")
-
-        def download_single_image(idx, img_url):
-            """Download a single image (used in parallel)"""
-            try:
-                img_response = requests.get(img_url, headers=HEADERS, timeout=15)
-                img_response.raise_for_status()
-
-                # Preserve original filename from URL
-                from urllib.parse import urlparse, unquote
-                parsed = urlparse(img_url)
-                original_filename = unquote(os.path.basename(parsed.path))
-
-                # If no filename or it's generic, fall back to URL-based name
-                if not original_filename or original_filename in ['', 'image', 'img']:
-                    original_filename = f"image_{idx+1:03d}.jpg"
-
-                # Clean filename (remove invalid characters)
-                filename = re.sub(r'[^\w\-_\.]', '_', original_filename)
-
-                filepath = cache_dir / filename
-                filepath.write_bytes(img_response.content)
-
-                return {
-                    'local_path': str(filepath),
-                    'source_url': img_url,
-                    'index': idx,
-                    'filename': filename,
-                    'success': True
-                }
-
-            except Exception as e:
-                print(f"Failed to download {img_url}: {e}")
-                return {'success': False, 'url': img_url, 'error': str(e)}
-
-        # Download images in parallel
-        with ThreadPoolExecutor(max_workers=num_threads) as executor:
-            # Submit all download tasks
-            future_to_idx = {
-                executor.submit(download_single_image, idx, url): idx
-                for idx, url in enumerate(image_urls)
-            }
-
-            # Collect results as they complete
-            for future in as_completed(future_to_idx):
-                result = future.result()
-                if result.get('success'):
-                    with download_lock:
-                        downloaded_images.append(result)
-                        print(f"Downloaded ({len(downloaded_images)}/{len(image_urls)}): {result['filename']}")
-
-        print(f"DEBUG: Downloaded {len(downloaded_images)} images, now applying collection organizer filter...")
-
-        # APPLY COLLECTION ORGANIZER FILTERING
-        try:
-            from backend.high_fashion.collection_organizer import CollectionOrganizer
-
-            organizer = CollectionOrganizer(str(cache_dir))
-            result = organizer.organize_folder_with_url_info(collection_name, dry_run=False)
-
-            if 'error' not in result:
-                print(f"DEBUG: Organizer kept {result['keeping_files']} files, removed {result['removing_files']} files")
-
-                # Rebuild the downloaded_images list to only include kept files
-                kept_filenames = set()
-                for file in organizer.scan_folder():
-                    # Exclude the removed_files directory
-                    if 'removed_files' not in str(file):
-                        kept_filenames.add(file)
-
-                filtered_images = [
-                    img for img in downloaded_images if img['filename'] in kept_filenames
-                ]
-
-                filtered_images.sort(key=extract_look_number)
-                print(f"DEBUG: After filtering: {len(filtered_images)} images remain, sorted by look number")
-
-                uploaded = _upload_images(store, designer_name, filtered_images)
-
-                return jsonify({
-                    'success': True,
-                    'images': uploaded,
-                    'count': len(uploaded),
-                    'filtering_applied': True,
-                    'removed_count': result['removing_files']
-                })
-            else:
-                print(f"DEBUG: Organizer returned error: {result['error']}, returning all downloaded images")
-
-        except Exception as e:
-            print(f"DEBUG: Collection organizer failed: {e}, returning all downloaded images")
-
-        # If filtering fails, keep everything (still sorted).
-        downloaded_images.sort(key=extract_look_number)
-        uploaded = _upload_images(store, designer_name, downloaded_images)
+        uploaded = _upload_images(store, designer_name, entries)
 
         return jsonify({
-            'success': True,
+            'success': bool(uploaded),
             'images': uploaded,
             'count': len(uploaded),
-            'filtering_applied': False
+            'failed': result.get('failed', []),
+            'designer': result.get('designer'),
+            'season': result.get('season'),
         })
 
     except Exception as e:
@@ -351,8 +279,6 @@ def download_images():
         print(f"ERROR in download_images: {error_details}")
         return jsonify({'error': str(e), 'traceback': error_details, 'success': False}), 500
     finally:
-        # The container has no persistent disk, but it does have a finite one:
-        # a failed run must not leave its downloads behind.
         if temp_dir:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
@@ -380,6 +306,116 @@ def serve_stored_image(key):
         return jsonify({'error': 'image not found'}), 404
 
     return Response(data, mimetype=images.guess_content_type(key))
+
+
+def _sse(payload: dict) -> str:
+    """One Server-Sent Event frame."""
+    import json as _json
+    return f"data: {_json.dumps(payload)}\n\n"
+
+
+def stream_collections():
+    """POST /api/collections/stream - shows for a season, as they are found.
+
+    Emits one {type:'collections'} event per results page, then
+    {type:'done'}. A big season is 30+ pages; this puts the first 20 rows
+    on screen in well under a second instead of after the whole crawl.
+    """
+    from urllib.parse import urlparse, parse_qs
+    from backend.high_fashion import firstview as fv
+
+    # Request context is gone inside the generator, so read params now.
+    data = request.get_json() or {}
+    season_url = data.get('seasonUrl', '')
+    if not season_url:
+        return jsonify({'error': 'seasonUrl is required', 'success': False}), 400
+
+    q = parse_qs(urlparse(season_url).query)
+    filters = _season_filters(q, data)
+    max_pages = int(data.get('maxPages', 60))
+
+    def generate():
+        total = 0
+        try:
+            seen = []
+            for batch in fv.iter_search_collections(max_pages=max_pages, **filters):
+                seen.extend(batch)
+                rows = [_row_to_dict(r) for r in batch]
+                total += len(rows)
+                yield _sse({'type': 'collections', 'collections': rows, 'total': total})
+            # Breaking ties costs one request per colliding row, so it runs
+            # after everything is on screen: the list stays fast, and the
+            # few ambiguous rows get their look counts a moment later.
+            fv.fill_look_counts(seen)
+            relabelled = {r.collection_id: _row_to_dict(r)['designer']
+                          for r in seen if r.look_count}
+            if relabelled:
+                yield _sse({'type': 'relabel', 'labels': relabelled})
+
+            yield _sse({'type': 'done', 'total': total, 'success': True})
+        except Exception as e:
+            yield _sse({'type': 'error', 'error': str(e), 'success': False})
+
+    return Response(generate(), mimetype='text/event-stream',
+                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+
+def stream_download_images():
+    """POST /api/download-images/stream - a show's looks, as they download.
+
+    Emits {type:'meta'} with every look's metadata before any image has
+    landed (so the grid can be laid out at once), then {type:'image'} per
+    file, then {type:'done'}.
+    """
+    from backend.high_fashion import firstview as fv
+
+    data = request.get_json() or {}
+    collection_url = data.get('collectionUrl', '')
+    if not collection_url:
+        return jsonify({'error': 'collectionUrl is required', 'success': False}), 400
+    quality = data.get('quality', fv.QUALITY_FULL)
+    designer_hint = data.get('designerName')
+
+    def generate():
+        # Same store-and-temp-dir contract as download_images: each look is
+        # uploaded as it lands and the event carries a URL, never a path on
+        # this machine. The temp directory goes away in the finally.
+        store = images.get_store()
+        temp_dir = tempfile.mkdtemp(prefix='runway_')
+        designer = designer_hint or 'unknown'
+        try:
+            for kind, payload in fv.iter_download_collection(
+                collection_url, out_root=temp_dir, quality=quality
+            ):
+                if kind == 'meta':
+                    designer = designer_hint or payload.get('designer') or 'unknown'
+                    payload = {k: v for k, v in payload.items() if k != 'cache_dir'}
+                elif kind == 'image':
+                    entry = {
+                        'local_path': payload['path'],
+                        'source_url': payload['url'],
+                        'index': payload['index'],
+                        'filename': payload['filename'],
+                    }
+                    uploaded = _upload_images(store, designer, [entry])
+                    if not uploaded:
+                        continue
+                    payload = uploaded[0]
+                elif kind == 'done':
+                    # `images` here still hold local paths; the client has
+                    # already received each one as a URL above.
+                    payload = {k: v for k, v in payload.items()
+                               if k not in ('images', 'cache_dir')}
+                yield _sse({'type': kind, **payload})
+        except Exception as e:
+            import traceback
+            print(f"ERROR stream_download_images: {traceback.format_exc()}")
+            yield _sse({'type': 'error', 'error': str(e), 'success': False})
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    return Response(generate(), mimetype='text/event-stream',
+                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
 
 def download_video():
@@ -440,18 +476,23 @@ def serve_fashion_video():
 
 
 def cleanup_fashion_cache():
-    """POST /api/cleanup - Clear cache directories"""
-    try:
-        import shutil
+    """POST /api/cleanup - Clear downloaded images.
 
-        cache_dir = Path("backend/high_fashion/cache")
-        if cache_dir.exists():
-            shutil.rmtree(cache_dir)
-            cache_dir.mkdir(parents=True, exist_ok=True)
+    Only the images directory is removed. This used to rmtree the whole of
+    backend/high_fashion/cache, which now also holds coverage.json — the
+    catalog of which year/season/gender/category combinations have shows.
+    Losing that silently re-enables every dead filter option in the UI and
+    costs ~880 requests to rebuild.
+    """
+    try:
+        images_dir = Path("backend/high_fashion/cache/images")
+        if images_dir.exists():
+            shutil.rmtree(images_dir)
+            images_dir.mkdir(parents=True, exist_ok=True)
 
         return jsonify({
             'success': True,
-            'message': 'Cache cleared successfully'
+            'message': 'Downloaded images cleared'
         })
 
     except Exception as e:
@@ -464,9 +505,11 @@ def register_high_fashion_routes(app):
     app.add_url_rule('/api/seasons', 'get_seasons', get_seasons, methods=['POST'])
     app.add_url_rule('/api/collections', 'get_collections', get_collections, methods=['POST'])
     app.add_url_rule('/api/download-images', 'download_images', download_images, methods=['POST'])
+    app.add_url_rule('/api/collections/stream', 'stream_collections_sse', stream_collections, methods=['POST'])
+    app.add_url_rule('/api/download-images/stream', 'stream_download_images', stream_download_images, methods=['POST'])
     app.add_url_rule('/api/download-video', 'download_video_fashion', download_video, methods=['POST'])
     app.add_url_rule('/api/images/<path:key>', 'serve_stored_image', serve_stored_image, methods=['GET'])
     app.add_url_rule('/api/video', 'serve_fashion_video', serve_fashion_video, methods=['GET'])
     app.add_url_rule('/api/cleanup', 'cleanup_fashion_cache', cleanup_fashion_cache, methods=['POST'])
 
-    print("✅ High Fashion API routes registered (7 endpoints)")
+    print("✅ High Fashion API routes registered (9 endpoints)")
