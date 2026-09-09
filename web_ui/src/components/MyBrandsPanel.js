@@ -74,7 +74,8 @@ function MyBrandsPanel() {
             let navigation = [];
             try {
               const navResponse = await fetch(
-                `http://localhost:8081/api/brands/${followedBrand.brand_id}/categories/hierarchy`
+                `${FashionArchiveAPI.BASE_URL}/api/brands/${followedBrand.brand_id}/categories/hierarchy`,
+                { credentials: 'include' }
               );
               if (navResponse.ok) {
                 const navData = await navResponse.json();
@@ -127,7 +128,8 @@ function MyBrandsPanel() {
       try {
         // Fetch product counts via API endpoint
         const countsResponse = await fetch(
-          `http://localhost:8081/api/products/counts?brand_id=${brand.brand_id}`
+          `${FashionArchiveAPI.BASE_URL}/api/products/counts?brand_id=${brand.brand_id}`,
+          { credentials: 'include' }
         );
 
         if (countsResponse.ok) {
@@ -183,7 +185,7 @@ function MyBrandsPanel() {
     // connection opened. Without this the grid stays empty until new
     // products arrive — and the first 30–60 from a fresh scrape would
     // be invisible to the user.
-    fetch(`http://localhost:8081/api/products?brand_id=${brandId}&limit=500`)
+    fetch(`${FashionArchiveAPI.BASE_URL}/api/products?brand_id=${brandId}&limit=500`, { credentials: 'include' })
       .then(r => r.ok ? r.json() : null)
       .then(data => {
         if (!data || !data.products) return;
@@ -201,7 +203,7 @@ function MyBrandsPanel() {
       })
       .catch(() => {});
 
-    const source = new EventSource(`http://localhost:8081/api/brands/${brandId}/scrape/stream`);
+    const source = new EventSource(`${FashionArchiveAPI.BASE_URL}/api/brands/${brandId}/scrape/stream`, { withCredentials: true });
 
     source.onmessage = (event) => {
       try {
@@ -237,7 +239,8 @@ function MyBrandsPanel() {
       // Navigation tree is ready — re-fetch hierarchy and update the brand's tree
       try {
         const navResponse = await fetch(
-          `http://localhost:8081/api/brands/${brandId}/categories/hierarchy`
+          `${FashionArchiveAPI.BASE_URL}/api/brands/${brandId}/categories/hierarchy`,
+          { credentials: 'include' }
         );
         if (navResponse.ok) {
           const navData = await navResponse.json();
@@ -391,7 +394,8 @@ function MyBrandsPanel() {
       await Promise.all(orderedKeys.map(async (leafKey, idx) => {
         const [brandId, categoryIdentifier] = leafKey.split('::');
         const response = await fetch(
-          `http://localhost:8081/api/products?brand_id=${brandId}&classification_url=${encodeURIComponent(categoryIdentifier)}&limit=1000`
+          `${FashionArchiveAPI.BASE_URL}/api/products?brand_id=${brandId}&classification_url=${encodeURIComponent(categoryIdentifier)}&limit=1000`,
+          { credentials: 'include' }
         );
         if (response.ok) {
           const data = await response.json();
@@ -683,7 +687,8 @@ function MyBrandsPanel() {
       const fetches = category.leafKeys.map(async (leafKey) => {
         const [brandId, categoryUrl] = leafKey.split('::');
         const response = await fetch(
-          `http://localhost:8081/api/products?brand_id=${brandId}&classification_url=${encodeURIComponent(categoryUrl)}&limit=1000`
+          `${FashionArchiveAPI.BASE_URL}/api/products?brand_id=${brandId}&classification_url=${encodeURIComponent(categoryUrl)}&limit=1000`,
+          { credentials: 'include' }
         );
         if (response.ok) {
           const data = await response.json();
@@ -711,7 +716,8 @@ function MyBrandsPanel() {
     try {
       // 1) Backend full-text search
       const textSearchPromise = fetch(
-        `http://localhost:8081/api/products/search?q=${encodeURIComponent(q)}&limit=200`
+        `${FashionArchiveAPI.BASE_URL}/api/products/search?q=${encodeURIComponent(q)}&limit=200`,
+        { credentials: 'include' }
       ).then(r => r.ok ? r.json().then(d => d.products || []) : []).catch(() => []);
 
       // 2) Fetch products from all matching categories in parallel
@@ -719,7 +725,8 @@ function MyBrandsPanel() {
         cat.leafKeys.map(leafKey => {
           const [brandId, categoryUrl] = leafKey.split('::');
           return fetch(
-            `http://localhost:8081/api/products?brand_id=${brandId}&classification_url=${encodeURIComponent(categoryUrl)}&limit=500`
+            `${FashionArchiveAPI.BASE_URL}/api/products?brand_id=${brandId}&classification_url=${encodeURIComponent(categoryUrl)}&limit=500`,
+            { credentials: 'include' }
           ).then(r => r.ok ? r.json().then(d => d.products || []) : []).catch(() => []);
         })
       );
