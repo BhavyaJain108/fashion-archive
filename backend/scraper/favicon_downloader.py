@@ -5,11 +5,11 @@ Favicon Downloader
 Utility to download and store brand favicons for folder icons.
 """
 
-import requests
 import os
-from urllib.parse import urlparse, urljoin
+from urllib.parse import urljoin, urlparse
+
+import requests
 from bs4 import BeautifulSoup
-from pathlib import Path
 
 
 class FaviconDownloader:
@@ -23,7 +23,7 @@ class FaviconDownloader:
         Args:
             homepage_url: The brand's homepage URL
             brand_id: Unique brand identifier
-            save_dir: Directory to save favicon (default: extractions/{domain}/)
+            save_dir: Unused; kept so existing callers keep working.
 
         Returns:
             str: Path to downloaded favicon, or None if not found
@@ -34,8 +34,6 @@ class FaviconDownloader:
                 parsed = urlparse(homepage_url)
                 domain = parsed.netloc.replace('www.', '').replace('.', '_')
                 save_dir = os.path.join('extractions', domain)
-
-            os.makedirs(save_dir, exist_ok=True)
 
             # Common favicon locations to try
             favicon_urls = FaviconDownloader._get_favicon_urls(homepage_url)
@@ -53,13 +51,17 @@ class FaviconDownloader:
                         content_type = response.headers.get('content-type', '')
                         extension = FaviconDownloader._get_extension_from_content_type(content_type)
 
-                        # Save favicon
-                        favicon_path = os.path.join(save_dir, f'favicon{extension}')
-                        with open(favicon_path, 'wb') as f:
-                            f.write(response.content)
+                        # Store it and return a URL. Writing to the container
+                        # filesystem would lose the favicon on the next deploy.
+                        from backend.storage import images
 
-                        print(f"      ✅ Favicon downloaded: {favicon_path}")
-                        return favicon_path
+                        favicon_url = images.get_store().save(
+                            images.favicon_key(brand_id or domain, extension),
+                            response.content,
+                        )
+
+                        print(f"      ✅ Favicon stored: {favicon_url}")
+                        return favicon_url
 
                 except Exception as e:
                     print(f"      ⚠️  Failed to download from {favicon_url}: {e}")

@@ -11,26 +11,36 @@ Integrates:
 - User authentication
 """
 
-from flask import Flask, jsonify
-from flask_cors import CORS
 import os
 import sys
+
+from flask import Flask, jsonify
+from flask_cors import CORS
 
 # Add parent directory to path for imports
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
-# Import configuration
-from config.config import config
+# Imports below sit after the sys.path insert above and cannot move to the top
+# of the file; E402 is suppressed deliberately rather than left as lint noise.
+from config.config import config  # noqa: E402
 
 # Create Flask app
 app = Flask(__name__)
+# Origins are restricted to the configured frontend. The previous setting
+# combined origins="*" with supports_credentials=True, which browsers reject
+# outright and which would be a blanket invitation if they did not: any site
+# could call this API with the user's cookies attached.
 CORS(app,
-     resources={r"/api/*": {"origins": "*"}},
+     resources={r"/api/*": {"origins": [config.APP_BASE_URL]}},
      methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-     allow_headers=['Content-Type', 'Authorization'],
+     allow_headers=['Content-Type'],
      supports_credentials=True)
+
+# Made available to request handlers that need cookie flags.
+app.config['APP_CONFIG'] = config
+app.config['APP_BASE_URL'] = config.APP_BASE_URL
 
 # =============================================================================
 # HEALTH CHECK
@@ -81,14 +91,16 @@ except Exception as e:
     traceback.print_exc()
 
 # 4. Authentication API (user login/session management)
-try:
-    print("🔧 Registering Authentication API...")
-    from backend.api.auth_routes import register_auth_routes
-    register_auth_routes(app)
-except Exception as e:
-    print(f"❌ Error registering Authentication API: {e}")
-    import traceback
-    traceback.print_exc()
+# Deliberately NOT wrapped in try/except. Every other module degrades to "that
+# feature is missing"; auth failing to register would leave the site either
+# fully open or fully locked out, so it must take the process down instead.
+print("🔧 Registering Authentication API...")
+from backend.api.auth_routes import (  # noqa: E402
+    PUBLIC_AUTH_ENDPOINTS,
+    register_auth_routes,
+)
+
+register_auth_routes(app)
 
 # 5. Brand Following API (user brand following management)
 try:
@@ -99,6 +111,49 @@ except Exception as e:
     print(f"❌ Error registering Brand Following API: {e}")
     import traceback
     traceback.print_exc()
+
+# =============================================================================
+# AUTHENTICATION
+# =============================================================================
+# Installed after every route is registered. The hook applies to all of them;
+# only the endpoints named below are reachable without a session.
+
+from backend.auth import db as auth_db  # noqa: E402
+from backend.auth.email import ConsoleSender, ResendSender  # noqa: E402
+from backend.auth.middleware import install_auth  # noqa: E402
+from backend.auth.service import AuthService  # noqa: E402
+from backend.storage import images as image_store  # noqa: E402
+
+if config.RESEND_API_KEY:
+    _sender = ResendSender(config.RESEND_API_KEY, config.MAIL_FROM)
+else:
+    # No key configured: print verification links to stdout so local signup
+    # works without credentials. Loud, because silently not sending email in
+    # production would look like a delivery problem for a long time.
+    print("⚠️  RESEND_API_KEY not set — verification emails will print to stdout")
+    _sender = ConsoleSender()
+
+app.extensions['auth_service'] = AuthService(
+    sender=_sender,
+    api_base_url=config.API_BASE_URL,
+    app_base_url=config.APP_BASE_URL,
+)
+
+if config.DATABASE_URL:
+    auth_db.init_pool(config.DATABASE_URL)
+    print("✅ Postgres pool ready, auth schema applied")
+else:
+    print("⚠️  DATABASE_URL not set — authenticated endpoints will fail")
+
+_store = image_store.configure(config)
+if config.R2_ACCOUNT_ID:
+    print(f"✅ Images -> R2 bucket '{config.R2_BUCKET}' at {config.R2_PUBLIC_BASE}")
+else:
+    print(f"⚠️  R2 not configured — images go to {config.IMAGE_CACHE_DIR} (lost on redeploy)")
+
+install_auth(app, public_endpoints={'health_check'} | PUBLIC_AUTH_ENDPOINTS)
+print(f"🔒 Auth installed: {len(PUBLIC_AUTH_ENDPOINTS) + 1} public endpoints, "
+      f"all others require a session")
 
 # =============================================================================
 # RUN SERVER
@@ -120,7 +175,7 @@ if __name__ == '__main__':
     print("  ✓ Authentication API (4 endpoints) - User login & sessions")
     print("  ✓ Brand Following API (6 endpoints) - User brand following (user-specific)")
     print("")
-    print(f"  Total: ~45 endpoints")
+    print("  Total: ~45 endpoints")
     print("")
     print("💡 Quick Start:")
     print("  GET  /api/health - Health check")

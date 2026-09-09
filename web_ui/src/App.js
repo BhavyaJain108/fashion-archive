@@ -6,18 +6,24 @@ import VideoWindow from './components/VideoModal';
 import MenuBar from './components/MenuBar';
 import FavouritesPanel from './components/FavouritesPanel';
 import MyBrandsPanel from './components/MyBrandsPanel';
-import LoginModal from './components/LoginModal';
+import AuthPanel from './auth/AuthPanel';
 import HighFashionV2 from './components/HighFashionV2';
 import { FashionArchiveAPI } from './services/api';
 
 function App() {
-  console.log('🔍 App.js function called - component loading');
-  
-  // Authentication State
+  // Authentication State.
+  //
+  // There is no token here any more. The session lives in an HttpOnly cookie
+  // the browser attaches automatically and this code cannot read, so the only
+  // question the UI can ask is "does /api/auth/me answer?".
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
-  const [sessionToken, setSessionToken] = useState(null);
-  const [showLoginModal, setShowLoginModal] = useState(true);
+  const [authChecked, setAuthChecked] = useState(false);
+
+  // Set from the URL when arriving via an emailed link.
+  const [authMode, setAuthMode] = useState(null);
+  const [authNotice, setAuthNotice] = useState('');
+  const [resetToken, setResetToken] = useState(null);
   
   // Page State
   const [currentPage, setCurrentPage] = useState('high-fashion'); // 'high-fashion', 'favourites', or 'my-brands'
@@ -52,59 +58,55 @@ function App() {
   const [currentVideoPath, setCurrentVideoPath] = useState(null);
   const [videoDownloadState, setVideoDownloadState] = useState('none'); // 'none', 'loading', 'ready'
 
-  // Check for existing session on startup
+  // Restore the session on load.
+  //
+  // One request. If the cookie is good the user is already in; if not they see
+  // the sign-in screen. The previous version kept a copy of the user in
+  // localStorage and trusted it, which meant the UI could show someone as
+  // logged in after the server had already expired their session.
   useEffect(() => {
-    console.log('🔍 App.js useEffect running - checking existing session');
-    const checkExistingSession = async () => {
-      const savedToken = localStorage.getItem('fashionArchiveToken');
-      const savedUser = localStorage.getItem('fashionArchiveUser');
-      console.log('🔍 Saved token:', savedToken ? 'exists' : 'none');
-      console.log('🔍 Saved user:', savedUser ? 'exists' : 'none');
-      
-      if (savedToken && savedUser) {
-        try {
-          // Validate the saved session
-          const response = await fetch('http://localhost:8081/api/auth/validate', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ session_token: savedToken }),
-          });
-          
-          const data = await response.json();
-          
-          if (data.success && data.valid) {
-            // Session is still valid
-            setCurrentUser(JSON.parse(savedUser));
-            setSessionToken(savedToken);
-            setIsAuthenticated(true);
-            setShowLoginModal(false);
-            
-            // Load seasons in background
-            loadSeasonsInBackground();
-          } else {
-            // Session expired, clear storage
-            localStorage.removeItem('fashionArchiveToken');
-            localStorage.removeItem('fashionArchiveUser');
-            setShowLoginModal(true);
-          }
-        } catch (error) {
-          console.error('Session validation failed:', error);
-          localStorage.removeItem('fashionArchiveToken');
-          localStorage.removeItem('fashionArchiveUser');
-          setShowLoginModal(true);
-          setIsLoading(false); // Important: Stop loading on error
+    // A 401 from anywhere in the app means the session died mid-use.
+    FashionArchiveAPI.onUnauthorized = () => {
+      setIsAuthenticated(false);
+      setCurrentUser(null);
+      setAuthNotice('Your session expired. Please sign in again.');
+    };
+
+    const params = new URLSearchParams(window.location.search);
+    const onResetPage = window.location.pathname.startsWith('/reset-password');
+
+    if (onResetPage && params.get('token')) {
+      setResetToken(params.get('token'));
+      setAuthMode('reset');
+    } else if (params.get('verified')) {
+      setAuthNotice('Email confirmed. You can sign in now.');
+    } else if (params.get('error')) {
+      setAuthNotice('That confirmation link is invalid or has expired.');
+    }
+
+    // Drop token and status out of the address bar so a reset token is not
+    // left sitting in history or copied out of the URL bar.
+    if (params.toString()) {
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+
+    const restore = async () => {
+      try {
+        const user = await FashionArchiveAPI.getMe();
+        if (user) {
+          setCurrentUser(user);
+          setIsAuthenticated(true);
+          loadSeasonsInBackground();
         }
-      } else {
-        // No saved session, show login
-        console.log('🔍 No saved session, showing login modal');
-        setShowLoginModal(true);
-        setIsLoading(false); // Important: Stop loading when no session
+      } catch (error) {
+        console.error('Session check failed:', error);
+      } finally {
+        setAuthChecked(true);
+        setIsLoading(false);
       }
     };
-    
-    checkExistingSession();
+
+    restore();
   }, []);
 
   // Load seasons in background after authentication
@@ -121,38 +123,28 @@ function App() {
   };
 
   // Handle successful login
-  const handleLogin = (user, token) => {
+  const handleAuthenticated = (user) => {
     setCurrentUser(user);
-    setSessionToken(token);
     setIsAuthenticated(true);
-    setShowLoginModal(false);
-    
-    // Load seasons after login
+    setAuthMode(null);
+    setAuthNotice('');
+    setResetToken(null);
     loadSeasonsInBackground();
   };
 
   // Handle logout
   const handleLogout = async () => {
     try {
-      if (sessionToken) {
-        await fetch('http://localhost:8081/api/auth/logout', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ session_token: sessionToken }),
-        });
-      }
+      // The server clears the cookie and deletes the session row; there is no
+      // client-side token to forget.
+      await FashionArchiveAPI.logout();
     } catch (error) {
       console.error('Logout error:', error);
     } finally {
-      // Clear local state and storage
-      localStorage.removeItem('fashionArchiveToken');
-      localStorage.removeItem('fashionArchiveUser');
       setCurrentUser(null);
-      setSessionToken(null);
       setIsAuthenticated(false);
-      setShowLoginModal(true);
+      setAuthMode('login');
+      setAuthNotice('');
       
       // Reset app state
       setSeasons([]);
@@ -349,7 +341,6 @@ function App() {
     setCurrentView(viewMode);
   };
 
-  console.log('🔍 App.js render - isLoading:', isLoading, 'showLoginModal:', showLoginModal, 'isAuthenticated:', isAuthenticated);
 
   if (isLoading) {
     console.log('🔍 Showing loading screen');
@@ -418,12 +409,16 @@ function App() {
         />
       )}
 
-      {/* Login Modal - Show on startup */}
-      <LoginModal 
-        isOpen={showLoginModal}
-        onLogin={handleLogin}
-        onClose={() => {}} // Can't close without logging in
-      />
+      {/* Auth screens. Held back until the cookie check finishes, so a
+          returning user never sees a flash of the sign-in form. */}
+      {authChecked && !isAuthenticated && (
+        <AuthPanel
+          onAuthenticated={handleAuthenticated}
+          initialMode={authMode}
+          initialNotice={authNotice}
+          resetToken={resetToken}
+        />
+      )}
     </div>
   );
 }

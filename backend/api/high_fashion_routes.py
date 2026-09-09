@@ -10,6 +10,11 @@ Endpoints for nowfashion.com scraping:
 """
 
 from flask import jsonify, request, send_file, Response
+
+import shutil
+import tempfile
+
+from backend.storage import images
 import os
 import requests
 from bs4 import BeautifulSoup
@@ -152,8 +157,44 @@ def get_collections():
         return jsonify({'error': str(e), 'success': False}), 500
 
 
+def extract_look_number(img):
+    """Look number from a filename like '...-0007.jpg'. Runway images are
+    meaningless out of order, and the source sorts by name, not by look."""
+    match = re.search(r'-(\d+)\.', img['filename'])
+    return int(match.group(1)) if match else 0
+
+
+def _upload_images(store, designer_name, entries):
+    """Upload the kept images and return them with browser-loadable URLs.
+
+    Called after filtering rather than during download, so images the organizer
+    discards are never stored.
+    """
+    uploaded = []
+    for entry in entries:
+        try:
+            data = Path(entry['local_path']).read_bytes()
+        except OSError as exc:
+            print(f"Failed to read {entry['local_path']}: {exc}")
+            continue
+
+        uploaded.append({
+            # A URL now, not a filesystem path. It used to be an absolute path
+            # the client handed back to /api/image?path= for the server to read
+            # off disk — meaningless on another machine, and that endpoint read
+            # whatever path it was given.
+            'path': store.save(images.runway_key(designer_name, entry['filename']), data),
+            'source_url': entry['source_url'],
+            'index': entry['index'],
+            'filename': entry['filename'],
+            'success': True,
+        })
+    return uploaded
+
+
 def download_images():
     """POST /api/download-images - Download images from a collection with parallel downloads and filtering"""
+    temp_dir = None
     try:
         data = request.get_json()
         collection_url = data.get('collectionUrl', '')
@@ -161,10 +202,15 @@ def download_images():
 
         print(f"DEBUG: download_images called with URL: {collection_url}, Designer: {designer_name}")
 
-        # Create cache directory
-        cache_dir = Path("backend/high_fashion/cache/images") / designer_name.replace(' ', '_').replace('/', '_')
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        print(f"DEBUG: Cache dir created: {cache_dir}")
+        # Images are downloaded into a temporary directory first, because the
+        # collection organizer below works by scanning a folder and deleting
+        # what does not belong. Only the survivors are uploaded, so images that
+        # get filtered out are never stored at all.
+        store = images.get_store()
+        # Removed in the finally below, so a failed download does not leave the
+        # container's disk filling up run after run.
+        temp_dir = tempfile.mkdtemp(prefix='runway_')
+        cache_dir = Path(temp_dir)
 
         # Extract collection name from URL for filtering
         parsed_url = urlparse(collection_url)
@@ -217,13 +263,11 @@ def download_images():
                 filename = re.sub(r'[^\w\-_\.]', '_', original_filename)
 
                 filepath = cache_dir / filename
-
-                with open(filepath, 'wb') as f:
-                    f.write(img_response.content)
+                filepath.write_bytes(img_response.content)
 
                 return {
-                    'path': str(filepath.absolute()),
-                    'url': img_url,
+                    'local_path': str(filepath),
+                    'source_url': img_url,
                     'index': idx,
                     'filename': filename,
                     'success': True
@@ -268,22 +312,19 @@ def download_images():
                     if 'removed_files' not in str(file):
                         kept_filenames.add(file)
 
-                filtered_images = [img for img in downloaded_images if Path(img['path']).name in kept_filenames]
-
-                # Sort images by look number extracted from filename (e.g., -0001, -0002)
-                def extract_look_number(img):
-                    filename = Path(img['path']).name
-                    match = re.search(r'-(\d+)\.', filename)
-                    return int(match.group(1)) if match else 0
+                filtered_images = [
+                    img for img in downloaded_images if img['filename'] in kept_filenames
+                ]
 
                 filtered_images.sort(key=extract_look_number)
                 print(f"DEBUG: After filtering: {len(filtered_images)} images remain, sorted by look number")
 
+                uploaded = _upload_images(store, designer_name, filtered_images)
+
                 return jsonify({
                     'success': True,
-                    'images': filtered_images,
-                    'count': len(filtered_images),
-                    'cache_dir': str(cache_dir),
+                    'images': uploaded,
+                    'count': len(uploaded),
                     'filtering_applied': True,
                     'removed_count': result['removing_files']
                 })
@@ -293,19 +334,14 @@ def download_images():
         except Exception as e:
             print(f"DEBUG: Collection organizer failed: {e}, returning all downloaded images")
 
-        # If filtering fails, return all downloaded images (still sort them!)
-        def extract_look_number(img):
-            filename = Path(img['path']).name
-            match = re.search(r'-(\d+)\.', filename)
-            return int(match.group(1)) if match else 0
-
+        # If filtering fails, keep everything (still sorted).
         downloaded_images.sort(key=extract_look_number)
+        uploaded = _upload_images(store, designer_name, downloaded_images)
 
         return jsonify({
             'success': True,
-            'images': downloaded_images,
-            'count': len(downloaded_images),
-            'cache_dir': str(cache_dir),
+            'images': uploaded,
+            'count': len(uploaded),
             'filtering_applied': False
         })
 
@@ -314,41 +350,36 @@ def download_images():
         error_details = traceback.format_exc()
         print(f"ERROR in download_images: {error_details}")
         return jsonify({'error': str(e), 'traceback': error_details, 'success': False}), 500
+    finally:
+        # The container has no persistent disk, but it does have a finite one:
+        # a failed run must not leave its downloads behind.
+        if temp_dir:
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-def serve_fashion_image():
-    """GET /api/image?path={path} - Serve cached fashion image"""
+def serve_stored_image(key):
+    """GET /api/images/<key> - serve an image from the local store.
+
+    Development only. In production images live in R2 and are served from
+    images.premiumpropogandafashion.studio, so this endpoint is never hit.
+
+    It replaces `/api/image?path=<absolute path>`, which took a filesystem path
+    from the client and read whatever it pointed at. Here the client names a key
+    inside the store, and the store refuses keys that escape its root.
+    """
+    store = images.get_store()
+    if not isinstance(store, images.LocalImageStore):
+        return jsonify({'error': 'images are served from the CDN'}), 404
+
     try:
-        image_path = request.args.get('path', '')
-        print(f"DEBUG serve_image: Requested path: {image_path}")
+        data = store.read(key)
+    except ValueError:
+        return jsonify({'error': 'invalid image key'}), 400
 
-        if not image_path:
-            return jsonify({'error': 'No path provided'}), 400
+    if data is None:
+        return jsonify({'error': 'image not found'}), 404
 
-        # Convert to absolute path if relative
-        # The working directory when running backend/app.py is the project root
-        if not os.path.isabs(image_path):
-            # Get project root (parent of backend directory)
-            project_root = Path(__file__).parent.parent.parent
-            absolute_path = project_root / image_path
-        else:
-            absolute_path = Path(image_path)
-
-        print(f"DEBUG serve_image: Absolute path: {absolute_path}")
-        print(f"DEBUG serve_image: Path exists: {absolute_path.exists()}")
-
-        if not absolute_path.exists():
-            print(f"DEBUG serve_image: File not found at {absolute_path}")
-            return jsonify({'error': 'Image not found', 'path': str(absolute_path)}), 404
-
-        print(f"DEBUG serve_image: Serving file: {absolute_path}")
-        return send_file(str(absolute_path))
-
-    except Exception as e:
-        import traceback
-        error_details = traceback.format_exc()
-        print(f"ERROR serve_image: {error_details}")
-        return jsonify({'error': str(e), 'traceback': error_details}), 500
+    return Response(data, mimetype=images.guess_content_type(key))
 
 
 def download_video():
@@ -434,7 +465,7 @@ def register_high_fashion_routes(app):
     app.add_url_rule('/api/collections', 'get_collections', get_collections, methods=['POST'])
     app.add_url_rule('/api/download-images', 'download_images', download_images, methods=['POST'])
     app.add_url_rule('/api/download-video', 'download_video_fashion', download_video, methods=['POST'])
-    app.add_url_rule('/api/image', 'serve_fashion_image', serve_fashion_image, methods=['GET'])
+    app.add_url_rule('/api/images/<path:key>', 'serve_stored_image', serve_stored_image, methods=['GET'])
     app.add_url_rule('/api/video', 'serve_fashion_video', serve_fashion_video, methods=['GET'])
     app.add_url_rule('/api/cleanup', 'cleanup_fashion_cache', cleanup_fashion_cache, methods=['POST'])
 

@@ -8,6 +8,14 @@ Pillow>=10.0.0
 flask>=2.3.0
 flask-cors>=4.0.0
 
+# Auth: Postgres accounts, sessions and password hashing
+psycopg[binary]>=3.1
+psycopg_pool>=3.2
+argon2-cffi>=23.1
+
+# Image storage: Cloudflare R2 via its S3-compatible API
+boto3>=1.34
+
 # GUI Framework
 # Note: tkinter comes with Python standard library
 
