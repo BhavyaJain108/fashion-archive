@@ -820,6 +820,10 @@ def build_coverage(
     Counts are page-0 counts, so they saturate at RESULTS_PER_PAGE — they
     say "at least this many", and 0 is the only exact value. That is all
     the UI needs to enable or disable an option.
+
+    The result is committed to backend/high_fashion/coverage.json so it
+    ships with the image; it is derived data, but re-deriving it costs ~880
+    requests to someone else's site and only changes when a season is added.
     """
     sess = session or _session()
     combos: Dict[str, Dict] = {}

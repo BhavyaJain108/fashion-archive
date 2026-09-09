@@ -164,3 +164,15 @@ holder for **personal** use. Practical consequences, enforced in
 
 Personal use does not cover redistribution. Serving these images from a
 public deployment is a separate permission worth getting in writing first.
+
+## Coverage catalog
+
+`coverage.json` records which year x season x gender combinations have
+shows — 169 of 312 do, so 143 filter combinations are dead ends. Built by
+`firstview.build_coverage` (~880 requests, ~8 min) and committed, because
+`cache/` is gitignored and the file would otherwise never reach a deploy.
+
+Counts are page-0 counts and saturate at 20: they mean "at least this
+many", and only 0 is exact. If the file is missing every option stays
+selectable, which is the safe direction — a dead end beats hiding shows.
+Rebuild when a season is added.
