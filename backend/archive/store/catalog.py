@@ -89,6 +89,7 @@ class Catalog:
             "INSERT INTO runs (domain, mode, started_at) VALUES (?,?,?)", (domain, mode, _now())
         )
         self._db.commit()
+        assert cur.lastrowid is not None  # an INSERT always yields one
         return cur.lastrowid
 
     def finalize_run(self, run_id: int, exit_status: int, coverage: Coverage | None) -> None:

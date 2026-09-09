@@ -220,11 +220,11 @@ def run_brand(
         # given a page for, and found nothing, is not worth paying for again every run.
         # Clearing this brand's field_evidence rows is what forces a fresh attempt.
         prior = catalog.load_evidence(brand.domain)
-        exhausted = {
-            f
-            for f in learnable
-            if prior.get((f, "page_llm"), (0, 0))[0] and not prior.get((f, "page_llm"))[1]
-        }
+        exhausted = set()
+        for f in learnable:
+            asked, found = prior.get((f, "page_llm"), (0, 0))
+            if asked and not found:
+                exhausted.add(f)
         if exhausted:
             log("already-searched", fields=sorted(exhausted))
         learnable -= exhausted

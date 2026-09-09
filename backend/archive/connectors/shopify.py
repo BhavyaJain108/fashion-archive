@@ -42,7 +42,7 @@ def _option_values(variants: list[dict], options: list[str], words: tuple[str, .
     if index is None:
         return []
     key = f"option{index + 1}"
-    seen = {}
+    seen: dict[str, None] = {}
     for v in variants:
         value = (v.get(key) or "").strip()
         if value and value.lower() != "default title":

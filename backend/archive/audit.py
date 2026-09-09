@@ -154,7 +154,7 @@ def check_invariants(row: dict) -> list[str]:
             # An image CDN serves renditions of one asset off one path: the gallery
             # entry carries "&width=2048&crop=center" where the channel's URL does not.
             # Comparing whole URLs called 300 identical photographs a contradiction.
-            gallery = {u.split("?")[0] for u in json.loads(images)}
+            gallery = {u.split("?")[0] for u in json.loads(str(images))}
             if row["main_image_url"].split("?")[0] not in gallery:
                 bad.append("main_image_url missing from all_images")
         except (json.JSONDecodeError, TypeError):
@@ -169,7 +169,7 @@ def verdict(field: str, rows: list[dict]) -> tuple[str, float]:
         if hits:
             return "filled", hits / len(rows)
     keys = PAYLOAD_KEYS.get(field)
-    in_payload = bool(keys) and any(payload_has(r.get("raw") or {}, keys) for r in rows)
+    in_payload = bool(keys) and any(payload_has(r.get("raw") or {}, keys or ()) for r in rows)
     if field not in MODELLED:
         return ("unmapped, data held" if in_payload else "unmapped"), 0.0
     return ("empty, data held" if in_payload else "channel silent"), 0.0

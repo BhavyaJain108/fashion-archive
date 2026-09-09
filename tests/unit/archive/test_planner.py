@@ -1,3 +1,5 @@
+from typing import Any, cast
+
 import pytest
 
 from backend.archive.connectors import get_connector
@@ -17,7 +19,7 @@ def cap(**kw) -> Capability:
         challenged=False,
     )
     base.update(kw)
-    return Capability(**base)
+    return Capability(**cast(Any, base))
 
 
 @pytest.mark.unit

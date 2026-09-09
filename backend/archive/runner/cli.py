@@ -18,7 +18,7 @@ from backend.archive.planner import compose_plan
 from backend.archive.runner.run import run_brand
 from backend.archive.score import score
 from backend.archive.store.catalog import Catalog
-from backend.archive.transport import HttpxTransport
+from backend.archive.transport import HttpxTransport, Transport
 
 _DEFAULT_BRANDS = Path(__file__).parent.parent / "brands.yml"
 _DEFAULT_DB = Path("backend/archive/data/catalog.db")
@@ -246,6 +246,7 @@ def main(argv: list[str] | None = None) -> int:
                 targets = [Brand(domain=args.domain, homepage_url=f"https://{args.domain}")]
             reports = []
             for b in targets:
+                t: Transport
                 if args.browser:
                     from backend.archive.browser.transport import PlaywrightTransport
 

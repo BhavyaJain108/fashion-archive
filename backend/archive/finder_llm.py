@@ -13,6 +13,7 @@ import os
 import pathlib
 import re
 from datetime import datetime, timezone
+from typing import Any, cast
 
 from backend.archive.domain.recipe import RECIPE_KINDS, Recipe, RecipeBook
 from backend.archive.finder import apply_recipes, is_plausible, verify_recipe
@@ -202,11 +203,14 @@ class _AnthropicClient:
         self._spend = spend
 
     def propose(self, prompt: str) -> dict:
+        # The tool and the forced choice are plain dicts by design — the schema above is
+        # the readable statement of what the model must answer — so they are handed to
+        # the SDK's typed overloads as-is.
         msg = self._c.messages.create(
             model=self._model,
             max_tokens=2000,
-            tools=[RECIPE_TOOL],
-            tool_choice={"type": "tool", "name": RECIPE_TOOL["name"]},
+            tools=cast(Any, [RECIPE_TOOL]),
+            tool_choice=cast(Any, {"type": "tool", "name": RECIPE_TOOL["name"]}),
             messages=[{"role": "user", "content": prompt}],
         )
         usage = getattr(msg, "usage", None)

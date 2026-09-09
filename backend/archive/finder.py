@@ -76,7 +76,7 @@ def verify_recipe(recipe: Recipe, html: str) -> bool:
     actual, expected = _norm(got), _norm(recipe.expected)
     if actual == expected:
         return True
-    return recipe.kind in _LIST_KINDS and expected and actual.startswith(expected)
+    return bool(recipe.kind in _LIST_KINDS and expected and actual.startswith(expected))
 
 
 def _norm(s: str) -> str:

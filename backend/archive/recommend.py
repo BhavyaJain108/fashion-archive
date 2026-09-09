@@ -114,7 +114,8 @@ def recommend(catalog: Catalog, domain: str) -> list[tuple[int, str, str]]:
             )
 
     # 4 and 5 — what the search record says about every blank
-    unsearched, dead = [], []
+    unsearched: list[str] = []
+    dead: list[str] = []
     for field in E0005_FIELDS:
         if any(r.get(field) not in (None, "", []) for r in rows):
             continue

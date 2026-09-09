@@ -113,7 +113,7 @@ def _offers_of(node: dict) -> list[dict]:
     """
     offers = node.get("offers", [])
     offers = offers if isinstance(offers, list) else [offers]
-    out = []
+    out: list[dict] = []
     for o in offers:
         inner = o.get("offers") if isinstance(o, dict) else None
         if isinstance(inner, dict):
@@ -128,7 +128,7 @@ def _aggregate_price(node: dict) -> float | None:
     offers = offers if isinstance(offers, list) else [offers] if offers else []
     lows = [o.get("lowPrice") for o in offers if isinstance(o, dict) and o.get("lowPrice")]
     try:
-        return min(float(x) for x in lows) if lows else None
+        return min(float(x) for x in lows if x is not None) if lows else None
     except (TypeError, ValueError):
         return None
 
@@ -138,7 +138,7 @@ def _sizes_from_node(node: dict) -> list[dict]:
     variants = node.get("hasVariant") or []
     if isinstance(variants, dict):
         variants = [variants]
-    out = []
+    out: list[dict] = []
     for v in variants:
         label = v.get("size") or v.get("name")
         if isinstance(label, dict):
