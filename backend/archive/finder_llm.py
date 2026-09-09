@@ -220,8 +220,10 @@ class _AnthropicClient:
                 getattr(usage, "output_tokens", 0) or 0,
             )
         for block in msg.content:
-            if getattr(block, "type", "") == "tool_use":
-                return block.input
+            # Forced tool use means the answer is a tool_use block; the others in the
+            # union carry no input to read.
+            if block.type == "tool_use":
+                return cast(dict, block.input)
         return {}
 
 

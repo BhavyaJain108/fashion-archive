@@ -1,7 +1,7 @@
 """Transports: how requests are made. Injected into connectors, never owned by them (spec §4.0)."""
 
 import time
-from typing import Protocol
+from typing import Any, Protocol
 from urllib.parse import urlparse
 
 import httpx
@@ -18,10 +18,31 @@ BROWSER_HEADERS: dict[str, str] = {
 }
 
 
+class Response(Protocol):
+    """The slice of a response the connectors use.
+
+    Named as a shape rather than a class because two things answer to it:
+    httpx.Response, and the browser transport's own object, which cannot be an
+    httpx.Response because Playwright never produced one. The protocol said
+    httpx.Response for months and was simply wrong; nothing noticed because every
+    call site duck-types.
+    """
+
+    url: Any
+    status_code: int
+    text: str
+    headers: Any
+
+    @property
+    def content(self) -> bytes: ...
+
+    def json(self) -> Any: ...
+
+
 class Transport(Protocol):
     level: TransportLevel
 
-    def get(self, url: str) -> httpx.Response: ...
+    def get(self, url: str) -> Response: ...
 
 
 class HttpxTransport:
