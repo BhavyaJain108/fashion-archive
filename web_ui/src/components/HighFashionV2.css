@@ -744,6 +744,17 @@
   pointer-events: none;
 }
 
+/* Options that fit one line: spread across the row, no wrapping. Seasons
+   are abbreviated (F/W, S/S) so all four sit in a 280px column. */
+.hf2-filter-items.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2px;
+  padding: 3px 8px;
+  white-space: nowrap;
+}
+
 /* Options that all fit: shown in full, wrapping as needed. */
 .hf2-filter-items.wrap {
   display: flex;
@@ -841,4 +852,57 @@
   color: #dddddd;
   cursor: default;
   pointer-events: none;
+}
+
+/* ---------------------------------------------------------------------
+   Gender — a split bar, not a row of small text.
+
+   Two mutually exclusive values, always exactly one chosen, and the single
+   most-used control here. Small grey chips gave no sense of a switch. The
+   bar fills the column and the chosen half is inverted, so the state reads
+   at a glance and the two halves are large targets.
+   --------------------------------------------------------------------- */
+
+.hf2-segmented {
+  display: flex;
+  margin: 4px 8px 5px;
+  border: 1px solid #000000;
+}
+
+.hf2-segment {
+  flex: 1 1 0;
+  appearance: none;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  font-family: inherit;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #666666;
+  padding: 6px 4px 5px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+/* A hairline between the halves, drawn once so it cannot double up. */
+.hf2-segment + .hf2-segment {
+  border-left: 1px solid #000000;
+}
+
+.hf2-segment:hover:not(.selected):not(:disabled) {
+  background: rgba(0, 0, 0, 0.04);
+  color: #000000;
+}
+
+.hf2-segment.selected {
+  background: #000000;
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.hf2-segment:disabled {
+  color: #cccccc;
+  cursor: default;
 }

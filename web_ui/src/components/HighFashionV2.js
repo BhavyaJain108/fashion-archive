@@ -3,13 +3,34 @@ import { FashionArchiveAPI } from '../services/api';
 import TopBar from './TopBar';
 import './HighFashionV2.css';
 
-// Garment category — firstVIEW's `s_n` filter. Independent of season.
+// Garment category — firstVIEW's `s_n` filter. Exactly one is always
+// selected: "All" mixed Ready-to-Wear and Couture shows of the same
+// designer into rows that looked like repeats.
 const GARMENT_TYPES = [
-  { value: '', label: 'All' },
   { value: 'Ready-to-Wear', label: 'Ready-to-Wear' },
   { value: 'Haute Couture', label: 'Haute Couture' },
   { value: 'Swim', label: 'Swim' },
 ];
+
+// Shoot type — firstVIEW's `s_t`. This is what actually caused the
+// duplicates: one show is catalogued several times, once per shoot, and the
+// list showed all of them under the same brand name. Picking exactly one
+// shoot removes the repeats without hiding anything — the other shoots are
+// one click away.
+const SHOOT_TYPES = [
+  { value: 'Runway Collection', label: 'Collection' },
+  { value: 'Runway Details', label: 'Details' },
+  { value: 'Runway Atmosphere', label: 'Atmosphere' },
+  { value: 'Backstage Beauty and Fashion', label: 'Backstage' },
+  { value: 'Lookbook', label: 'Lookbook' },
+  { value: 'Bridal Collection', label: 'Bridal' },
+];
+
+// Seasons are shown abbreviated so all four fit one row of a 280px column.
+const SEASON_LABELS = {
+  'Fall / Winter': 'F/W',
+  'Spring / Summer': 'S/S',
+};
 
 function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, currentUser }) {
   // Hierarchy state
@@ -17,9 +38,10 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
   const [selectedYear, setSelectedYear] = useState(null);
   const [selectedSeason, setSelectedSeason] = useState(null);
   const [selectedGender, setSelectedGender] = useState(null);
-  // Garment category — an independent filter, not part of the year/season/
-  // gender hierarchy. '' means all.
-  const [selectedType, setSelectedType] = useState('');
+  // Garment category and shoot type: independent of the year/season/gender
+  // hierarchy, and always exactly one of each.
+  const [selectedType, setSelectedType] = useState('Ready-to-Wear');
+  const [selectedShootType, setSelectedShootType] = useState('Runway Collection');
 
   // Collections state
   const [collections, setCollections] = useState([]);
@@ -190,6 +212,16 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
     setExpectedLookCount(0);
   };
 
+  const handleShootTypeSelect = (shootType) => {
+    abortCollections();
+    abortImages();
+    setSelectedShootType(shootType);
+    setSelectedCollection(null);
+    setCollections([]);
+    setImages([]);
+    setExpectedLookCount(0);
+  };
+
   // Collections load whenever the full filter set is satisfied. Driving this
   // from an effect rather than the gender handler means changing the garment
   // category re-queries too, without duplicating the streaming logic.
@@ -213,7 +245,7 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
             if (!complete) setCollectionsLoading(false);
           },
           controller.signal,
-          { category: selectedType || undefined },
+          { category: selectedType || undefined, shootType: selectedShootType || undefined },
         );
       } catch (error) {
         if (error.name === 'AbortError' || cancelled) return;
@@ -225,7 +257,7 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
     })();
 
     return () => { cancelled = true; controller.abort(); };
-  }, [parsedSeasons, selectedYear, selectedSeason, selectedGender, selectedType]);
+  }, [parsedSeasons, selectedYear, selectedSeason, selectedGender, selectedType, selectedShootType]);
 
   const handleCollectionSelect = async (collection) => {
     if (imagesLoading) return;
@@ -573,7 +605,8 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
         {/* Sidebar */}
         <div className="hf2-sidebar">
           {/* Navigation Row */}
-        {/* Filters — one scroll strip per facet, unlabelled */}
+        {/* Filters. The control follows the option set: a scroller only
+            where the options cannot all be shown. */}
         <div className="hf2-filters" ref={filtersRef}>
           <div className="hf2-filter-row">
             <div className="hf2-filter-items scroll-x">
@@ -592,46 +625,65 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
           </div>
 
           <div className={`hf2-filter-row ${!selectedYear ? 'disabled' : ''}`}>
-            <div className="hf2-filter-items wrap">
+            <div className="hf2-filter-items row">
               {!selectedYear
                 ? <span className="hf2-filter-empty">Select a year</span>
                 : seasons.map(season => (
                     <button
                       key={season}
                       type="button"
+                      title={season}
                       className={`hf2-chip ${season === selectedSeason ? 'selected' : ''}`}
                       disabled={!seasonEnabled(season)}
                       onClick={() => handleSeasonSelect(season)}
-                    >{season}</button>
+                    >{SEASON_LABELS[season] || season}</button>
                   ))}
             </div>
           </div>
 
+          {/* Gender is two mutually exclusive values, so it gets a split bar
+              rather than a row of small text: the chosen half is filled. */}
           <div className={`hf2-filter-row ${!selectedSeason ? 'disabled' : ''}`}>
-            <div className="hf2-filter-items wrap">
-              {!selectedSeason
-                ? <span className="hf2-filter-empty">Select a season</span>
-                : genders.map(g => (
+            {!selectedSeason
+              ? <div className="hf2-filter-items row">
+                  <span className="hf2-filter-empty">Select a season</span>
+                </div>
+              : <div className="hf2-segmented">
+                  {genders.map(g => (
                     <button
                       key={g}
                       type="button"
-                      className={`hf2-chip ${g === selectedGender ? 'selected' : ''}`}
+                      className={`hf2-segment ${g === selectedGender ? 'selected' : ''}`}
                       disabled={!genderEnabled(g)}
                       onClick={() => handleGenderSelect(g)}
                     >{g}</button>
                   ))}
+                </div>}
+          </div>
+
+          <div className="hf2-filter-row">
+            <div className="hf2-filter-items row">
+              {GARMENT_TYPES.map(t => (
+                <button
+                  key={t.value}
+                  type="button"
+                  className={`hf2-chip ${t.value === selectedType ? 'selected' : ''}`}
+                  disabled={!typeEnabled(t.value)}
+                  onClick={() => handleTypeSelect(t.value)}
+                >{t.label}</button>
+              ))}
             </div>
           </div>
 
           <div className="hf2-filter-row">
             <div className="hf2-filter-items wrap">
-              {GARMENT_TYPES.map(t => (
+              {SHOOT_TYPES.map(t => (
                 <button
-                  key={t.value || 'all'}
+                  key={t.value}
                   type="button"
-                  className={`hf2-chip ${t.value === selectedType ? 'selected' : ''}`}
-                  disabled={!typeEnabled(t.value)}
-                  onClick={() => handleTypeSelect(t.value)}
+                  title={t.value}
+                  className={`hf2-chip ${t.value === selectedShootType ? 'selected' : ''}`}
+                  onClick={() => handleShootTypeSelect(t.value)}
                 >{t.label}</button>
               ))}
             </div>
