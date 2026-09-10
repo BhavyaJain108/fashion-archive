@@ -109,16 +109,16 @@ export default function AuthPanel({ onAuthenticated, initialMode, initialNotice,
   if (mode === 'check-email') {
     return (
       <AuthShell
-        title="Check your email"
+        title="Confirm your email"
         subtitle={`We sent a confirmation link to ${email || 'your address'}. Open it to finish setting up your archive.`}
       >
         <Notice kind="info">{notice}</Notice>
         <Notice>{error}</Notice>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <Button type="button" onClick={handleResend} disabled={busy || !email}>
             {busy ? 'Please wait…' : 'Send it again'}
           </Button>
-          <div style={{ textAlign: 'center' }}>
+          <div>
             <LinkButton onClick={() => go('login')} disabled={busy}>
               Back to sign in
             </LinkButton>
@@ -131,7 +131,7 @@ export default function AuthPanel({ onAuthenticated, initialMode, initialNotice,
 
   if (mode === 'reset') {
     return (
-      <AuthShell title="Choose a new password" subtitle="Enter a new password for your account.">
+      <AuthShell title="New password" subtitle="Enter a new password for your account.">
         <form onSubmit={handleReset}>
           <Field
             label="New password" type="password" value={password}
@@ -150,7 +150,7 @@ export default function AuthPanel({ onAuthenticated, initialMode, initialNotice,
 
   if (mode === 'forgot') {
     return (
-      <AuthShell title="Reset your password" subtitle="We'll email you a link to choose a new one.">
+      <AuthShell title="Reset password" subtitle="We'll email you a link to choose a new one.">
         <form onSubmit={handleForgot}>
           <Field
             label="Email" type="email" value={email}
@@ -163,7 +163,7 @@ export default function AuthPanel({ onAuthenticated, initialMode, initialNotice,
             {busy ? 'Please wait…' : 'Send reset link'}
           </Button>
         </form>
-        <div style={{ marginTop: 12, textAlign: 'center' }}>
+        <div style={{ marginTop: 20 }}>
           <LinkButton onClick={() => go('login')} disabled={busy}>Back to sign in</LinkButton>
         </div>
       </AuthShell>
@@ -172,7 +172,7 @@ export default function AuthPanel({ onAuthenticated, initialMode, initialNotice,
 
   if (mode === 'register') {
     return (
-      <AuthShell title="Create your account" subtitle="Your archive, your favourites, your brands.">
+      <AuthShell title="Create account" subtitle="Your archive, your favourites, your brands.">
         <form onSubmit={handleRegister}>
           <Field label="Name" value={displayName} onChange={setDisplayName}
                  autoFocus disabled={busy} maxLength={60} placeholder="What should we call you?" />
@@ -185,7 +185,7 @@ export default function AuthPanel({ onAuthenticated, initialMode, initialNotice,
             {busy ? 'Please wait…' : 'Create account'}
           </Button>
         </form>
-        <div style={{ marginTop: 12, textAlign: 'center' }}>
+        <div style={{ marginTop: 20 }}>
           <LinkButton onClick={() => go('login')} disabled={busy}>
             Already have an account? Sign in
           </LinkButton>
@@ -195,7 +195,7 @@ export default function AuthPanel({ onAuthenticated, initialMode, initialNotice,
   }
 
   return (
-    <AuthShell title="Fashion Archive" subtitle="Sign in to reach your archive.">
+    <AuthShell title="Sign in" subtitle="Enter your details to reach your archive.">
       <form onSubmit={handleLogin}>
         <Field label="Email" type="email" value={email} onChange={setEmail}
                autoFocus disabled={busy} placeholder="you@example.com" />
@@ -207,7 +207,7 @@ export default function AuthPanel({ onAuthenticated, initialMode, initialNotice,
           {busy ? 'Please wait…' : 'Sign in'}
         </Button>
       </form>
-      <div style={{ marginTop: 12, display: 'flex', justifyContent: 'space-between' }}>
+      <div style={{ marginTop: 20, display: 'flex', justifyContent: 'space-between' }}>
         <LinkButton onClick={() => go('register')} disabled={busy}>Create an account</LinkButton>
         <LinkButton onClick={() => go('forgot')} disabled={busy}>Forgot password?</LinkButton>
       </div>
@@ -216,5 +216,9 @@ export default function AuthPanel({ onAuthenticated, initialMode, initialNotice,
 }
 
 const hint = {
-  marginTop: 16, textAlign: 'center', fontSize: 10, color: '#666', lineHeight: 1.3,
+  marginTop: 20,
+  fontSize: 10,
+  color: '#cccccc',
+  lineHeight: 1.5,
+  letterSpacing: '0.05em',
 };
