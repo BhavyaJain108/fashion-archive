@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import Fuse from 'fuse.js';
+import TopBar from './TopBar';
 import { FashionArchiveAPI } from '../services/api';
 import ProductDetailPanel from './ProductDetailPanel';
 import ScrapeConsole from './ScrapeConsole';
 
-function MyBrandsPanel() {
+function MyBrandsPanel({ currentPage, onPageSwitch, currentUser, onLogout }) {
   const [brands, setBrands] = useState([]);
   const [loading, setLoading] = useState(true);
   const [expandedBrands, setExpandedBrands] = useState({});
@@ -903,14 +904,29 @@ function MyBrandsPanel() {
 
   if (loading) {
     return (
-      <div className="my-brands-container">
-        <div className="loading-state">Loading brands...</div>
+      <div className="ar-page">
+        <TopBar
+          currentPage={currentPage}
+          onPageSwitch={onPageSwitch}
+          currentUser={currentUser}
+          onLogout={onLogout}
+        />
+        <div className="ar-content">
+          <div className="loading-state">Loading brands...</div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="my-brands-container">
+    <div className="ar-page">
+      <TopBar
+        currentPage={currentPage}
+        onPageSwitch={onPageSwitch}
+        currentUser={currentUser}
+        onLogout={onLogout}
+      />
+      <div className="ar-content">
       {/* Left Sidebar - Brand Navigation */}
       <div className="brand-sidebar">
         <div className="brand-sidebar-content">
@@ -1264,6 +1280,7 @@ function MyBrandsPanel() {
           </div>
         </div>
       )}
+    </div>
     </div>
   );
 }

@@ -802,15 +802,6 @@ body {
    MY BRANDS - SIDEBAR + GALLERY LAYOUT
    ============================================================================= */
 
-.my-brands-container {
-  display: flex;
-  height: calc(100vh - 75px);
-  margin-top: 75px;
-  background: var(--macos-bg);
-  overflow: hidden;
-  width: 100%;
-}
-
 /* Left Sidebar - Brand Navigation */
 .brand-sidebar {
   width: 280px;

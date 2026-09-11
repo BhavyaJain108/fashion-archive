@@ -1,7 +1,11 @@
 import React, { useState, useEffect } from 'react';
+import TopBar from './TopBar';
 import { FashionArchiveAPI } from '../services/api';
 
-function FavouritesPanel({ currentView }) {
+function FavouritesPanel({ currentPage, onPageSwitch, currentUser, onLogout }) {
+  // Was lifted into App so the old MenuBar's View menu could write it. That
+  // menu is gone, and this page is the only reader, so it lives here now.
+  const [groupMode, setGroupMode] = useState('view-all');
   const [favourites, setFavourites] = useState([]);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({});
@@ -11,7 +15,7 @@ function FavouritesPanel({ currentView }) {
   const getDisplayFavourites = () => {
     let displayFavourites = [...favourites];
     
-    switch (currentView) {
+    switch (groupMode) {
       case 'view-all':
         // Sort by date added (latest to oldest)
         displayFavourites.sort((a, b) => new Date(b.date_added) - new Date(a.date_added));
@@ -38,7 +42,7 @@ function FavouritesPanel({ currentView }) {
 
   // Get grouped collections for by-collection view
   const getGroupedCollections = () => {
-    if (currentView !== 'by-collection') return [];
+    if (groupMode !== 'by-collection') return [];
     
     const displayFavourites = getDisplayFavourites();
     const groups = [];
@@ -154,6 +158,12 @@ function FavouritesPanel({ currentView }) {
   if (loading) {
     return (
       <div className="columns-container">
+        <TopBar
+          currentPage={currentPage}
+          onPageSwitch={onPageSwitch}
+          currentUser={currentUser}
+          onLogout={onLogout}
+        />
         <div style={{ 
           display: 'flex', 
           height: '100vh', 
@@ -172,6 +182,12 @@ function FavouritesPanel({ currentView }) {
   if (favourites.length === 0) {
     return (
       <div className="columns-container">
+        <TopBar
+          currentPage={currentPage}
+          onPageSwitch={onPageSwitch}
+          currentUser={currentUser}
+          onLogout={onLogout}
+        />
         <div style={{ 
           display: 'flex', 
           height: '100vh', 
@@ -203,6 +219,12 @@ function FavouritesPanel({ currentView }) {
 
   return (
     <div className="columns-container">
+      <TopBar
+        currentPage={currentPage}
+        onPageSwitch={onPageSwitch}
+        currentUser={currentUser}
+        onLogout={onLogout}
+      />
       {/* Title Bar */}
       <div className="mac-title-bar" style={{ 
         position: 'fixed',
@@ -226,7 +248,7 @@ function FavouritesPanel({ currentView }) {
               padding: '8px',
               overflowY: 'auto'
             }}>
-              {currentView === 'by-collection' ? (
+              {groupMode === 'by-collection' ? (
                 // Collection-grouped view
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                   {getGroupedCollections().map((group, groupIndex) => (
