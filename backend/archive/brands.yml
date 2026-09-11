@@ -1,38 +1,53 @@
+# The brand roster.
+#
+# This file is the list itself — edited by hand, read by the CLI, the daemon and the
+# app's My Brands page. Adding a brand means adding a line here; there is no in-app
+# "add brand" flow, on purpose.
+#
+# size: small | mid | large | multi_brand
+#   Judgement about the business, not something a page announces, so it is written down
+#   rather than inferred. The app shows small and mid. large (houses big enough to run
+#   enterprise bot defences) and multi_brand (outlets and marketplaces selling other
+#   labels, where the `brand` field stops meaning one brand) stay in the file so the
+#   scraper can still be pointed at them, but they do not reach the page.
+
 brands:
-  - {domain: twofoldvintage.com, homepage_url: "https://twofoldvintage.com"}
-  - {domain: www.uniformalgarments.com, homepage_url: "https://www.uniformalgarments.com"}
-  - {domain: www.outlw.xyz, homepage_url: "https://www.outlw.xyz", notes: webflow}
-  - {domain: skidrowstudio.com, homepage_url: "https://skidrowstudio.com", notes: password-gated 2026-08-26}
-  - {domain: channell97.com, homepage_url: "https://channell97.com"}
-  - {domain: thegvgallery.com, homepage_url: "https://thegvgallery.com"}
-  - {domain: coltmcr.com, homepage_url: "https://coltmcr.com", notes: password-gated 2026-08-26}
-  - {domain: xsai.vision, homepage_url: "https://xsai.vision", notes: custom nextjs}
-  - {domain: sadi.love, homepage_url: "https://sadi.love"}
-  - {domain: degreeofdenim.com, homepage_url: "https://degreeofdenim.com"}
-  - {domain: psylos1.com, homepage_url: "https://psylos1.com", notes: custom nextjs}
-  - {domain: www.staystillz.com, homepage_url: "https://www.staystillz.com"}
-  - {domain: kuurth.com, homepage_url: "https://kuurth.com"}
-  - {domain: www.viviennewestwood.com, homepage_url: "https://www.viviennewestwood.com", notes: enterprise 403 to plain http}
-  - {domain: www.vancleefarpels.com, homepage_url: "https://www.vancleefarpels.com", notes: TLS-level block}
-  - {domain: eightonline.shop, homepage_url: "https://eightonline.shop", notes: password-gated 2026-08-26}
-  - {domain: humanbynature.co, homepage_url: "https://humanbynature.co"}
-  - {domain: hip3399.com, homepage_url: "https://hip3399.com"}
-  - {domain: vondutch.com, homepage_url: "https://vondutch.com"}
-  - {domain: www.yoru.studio, homepage_url: "https://www.yoru.studio"}
-  - {domain: bu-bully.com, homepage_url: "https://bu-bully.com", notes: password-gated 2026-08-26}
-  - {domain: www.thesupermade.com, homepage_url: "https://www.thesupermade.com"}
-  - {domain: www.varenneofficial.com, homepage_url: "https://www.varenneofficial.com"}
-  - {domain: lorinate.com, homepage_url: "https://lorinate.com"}
-  - {domain: unnamed.nyc, homepage_url: "https://unnamed.nyc"}
-  - {domain: www.ragamalak.com, homepage_url: "https://www.ragamalak.com", notes: shopify json challenged}
-  - {domain: huelleyrose.com, homepage_url: "https://huelleyrose.com"}
-  - {domain: prod.net, homepage_url: "https://prod.net"}
-  - {domain: marrknull.com, homepage_url: "https://marrknull.com", notes: shopify json challenged}
-  - {domain: wiacollections.com, homepage_url: "https://wiacollections.com", notes: woocommerce}
-  - {domain: sickokittens.com, homepage_url: "https://sickokittens.com", notes: 429 to plain http}
-  - {domain: byellenwithlove.com, homepage_url: "https://byellenwithlove.com", notes: password link; 429 to plain http}
-  - {domain: staud.clothing, homepage_url: "https://staud.clothing", notes: 429 to plain http}
-  - {domain: laluneofficial.com, homepage_url: "https://laluneofficial.com", notes: wordpress}
-  - {domain: liniss.com, homepage_url: "https://liniss.com", notes: 429 to plain http}
-  - {domain: www.gentlemonster.com, homepage_url: "https://www.gentlemonster.com", notes: enterprise challenge}
-  - {domain: www.theoutnet.com, homepage_url: "https://www.theoutnet.com", notes: enterprise (YNAP multi-brand outlet), not yet probed}
+  - {domain: twofoldvintage.com, homepage_url: "https://twofoldvintage.com", display_name: "Twofold Vintage", size: mid}
+  - {domain: www.uniformalgarments.com, homepage_url: "https://www.uniformalgarments.com", display_name: "Uniformal Garments", size: small}
+  - {domain: www.outlw.xyz, homepage_url: "https://www.outlw.xyz", display_name: "OUTLW", size: small, notes: webflow}
+  - {domain: skidrowstudio.com, homepage_url: "https://skidrowstudio.com", display_name: "Skid Row Studio", size: small, notes: password-gated 2026-08-26}
+  - {domain: channell97.com, homepage_url: "https://channell97.com", display_name: "Channell97", size: small}
+  - {domain: thegvgallery.com, homepage_url: "https://thegvgallery.com", display_name: "The GV Gallery", size: small}
+  - {domain: coltmcr.com, homepage_url: "https://coltmcr.com", display_name: "COLTMCR", size: small, notes: password-gated 2026-08-26}
+  - {domain: xsai.vision, homepage_url: "https://xsai.vision", display_name: "XSAI", size: small, notes: custom nextjs}
+  - {domain: sadi.love, homepage_url: "https://sadi.love", display_name: "SADI", size: small}
+  - {domain: degreeofdenim.com, homepage_url: "https://degreeofdenim.com", display_name: "Degree of Denim", size: mid}
+  - {domain: psylos1.com, homepage_url: "https://psylos1.com", display_name: "Psylos1", size: mid, notes: custom nextjs}
+  - {domain: www.staystillz.com, homepage_url: "https://www.staystillz.com", display_name: "Stay Stillz", size: small}
+  - {domain: kuurth.com, homepage_url: "https://kuurth.com", display_name: "KUURTH", size: small}
+  - {domain: eightonline.shop, homepage_url: "https://eightonline.shop", display_name: "Eight", size: small, notes: password-gated 2026-08-26}
+  - {domain: humanbynature.co, homepage_url: "https://humanbynature.co", display_name: "Human by Nature", size: small}
+  - {domain: hip3399.com, homepage_url: "https://hip3399.com", display_name: "HIP3399", size: small}
+  - {domain: www.yoru.studio, homepage_url: "https://www.yoru.studio", display_name: "Yoru Studio", size: small}
+  - {domain: bu-bully.com, homepage_url: "https://bu-bully.com", display_name: "BU-BULLY", size: small, notes: password-gated 2026-08-26}
+  - {domain: www.thesupermade.com, homepage_url: "https://www.thesupermade.com", display_name: "The Supermade", size: mid}
+  - {domain: www.varenneofficial.com, homepage_url: "https://www.varenneofficial.com", display_name: "Varenne", size: small}
+  - {domain: lorinate.com, homepage_url: "https://lorinate.com", display_name: "Lorinate", size: small}
+  - {domain: unnamed.nyc, homepage_url: "https://unnamed.nyc", display_name: "Unnamed", size: small}
+  - {domain: www.ragamalak.com, homepage_url: "https://www.ragamalak.com", display_name: "Ragamalak", size: small, notes: shopify json challenged}
+  - {domain: huelleyrose.com, homepage_url: "https://huelleyrose.com", display_name: "Huelley Rose", size: small}
+  - {domain: prod.net, homepage_url: "https://prod.net", display_name: "PROD", size: mid}
+  - {domain: marrknull.com, homepage_url: "https://marrknull.com", display_name: "MARRKNULL", size: small, notes: shopify json challenged}
+  - {domain: wiacollections.com, homepage_url: "https://wiacollections.com", display_name: "WIA Collections", size: small, notes: woocommerce}
+  - {domain: sickokittens.com, homepage_url: "https://sickokittens.com", display_name: "Sicko Kittens", size: small, notes: 429 to plain http}
+  - {domain: byellenwithlove.com, homepage_url: "https://byellenwithlove.com", display_name: "By Ellen With Love", size: small, notes: password link; 429 to plain http}
+  - {domain: staud.clothing, homepage_url: "https://staud.clothing", display_name: "STAUD", size: mid, notes: 429 to plain http}
+  - {domain: laluneofficial.com, homepage_url: "https://laluneofficial.com", display_name: "La Lune", size: small, notes: wordpress}
+  - {domain: liniss.com, homepage_url: "https://liniss.com", display_name: "LINISS", size: small, notes: 429 to plain http}
+
+  # Kept for the scraper, withheld from the page.
+  - {domain: www.viviennewestwood.com, homepage_url: "https://www.viviennewestwood.com", display_name: "Vivienne Westwood", size: large, notes: enterprise 403 to plain http}
+  - {domain: www.vancleefarpels.com, homepage_url: "https://www.vancleefarpels.com", display_name: "Van Cleef & Arpels", size: large, notes: TLS-level block}
+  - {domain: vondutch.com, homepage_url: "https://vondutch.com", display_name: "Von Dutch", size: large}
+  - {domain: www.gentlemonster.com, homepage_url: "https://www.gentlemonster.com", display_name: "Gentle Monster", size: large, notes: enterprise challenge}
+  - {domain: www.theoutnet.com, homepage_url: "https://www.theoutnet.com", display_name: "The Outnet", size: multi_brand, notes: enterprise (YNAP multi-brand outlet), not yet probed}

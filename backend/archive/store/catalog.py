@@ -11,6 +11,20 @@ from backend.archive.domain.run import Coverage
 _SCHEMA = Path(__file__).parent / "schema.sql"
 
 
+# The run a product must have been seen in to count as still listed: the most recent one
+# that got as far as measuring its own coverage. Written once and used by both the
+# per-brand view and search, which drifted apart the last time they each had their own.
+_LATEST_COVERED = (
+    "(SELECT id FROM runs r WHERE r.domain = p.domain AND r.exit_status IN (0,1) "
+    "AND r.coverage_json IS NOT NULL ORDER BY r.id DESC LIMIT 1)"
+)
+
+
+def _like_escape(needle: str) -> str:
+    """A search box is free text; % and _ in it are letters, not wildcards."""
+    return needle.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -343,11 +357,61 @@ class Catalog:
         )
         self._db.commit()
 
+    def archived_images(self, domain: str) -> dict[str, list[str]]:
+        """Local image files per product, keyed by itemurl.
+
+        The CDN URL in a record is the shop's copy and can stop resolving; these are the
+        bytes we kept. The app offers them as the fallback when the live one 404s, which
+        is the whole reason the files are archived rather than only their addresses.
+        """
+        rows = self._db.execute(
+            "SELECT p.itemurl, i.local_path FROM images i JOIN products p ON p.id=i.product_id "
+            "WHERE p.domain=? ORDER BY i.id",
+            (domain,),
+        ).fetchall()
+        out: dict[str, list[str]] = {}
+        for r in rows:
+            out.setdefault(r["itemurl"], []).append(r["local_path"])
+        return out
+
+    def search_products(
+        self, domains: list[str], needle: str, limit: int = 200
+    ) -> list[tuple[str, dict]]:
+        """(domain, record) for products of these brands whose record mentions `needle`.
+
+        A LIKE over current_json rather than a column: the search box is asked about
+        titles, materials, colours and categories interchangeably, and every one of them
+        already lives in that blob. Callers re-rank; this only narrows.
+        """
+        if not domains or not needle:
+            return []
+        marks = ",".join("?" * len(domains))
+        rows = self._db.execute(
+            f"SELECT p.domain, p.current_json FROM products p WHERE p.domain IN ({marks}) "
+            f"AND p.last_seen_run = {_LATEST_COVERED} "
+            f"AND p.current_json LIKE ? ESCAPE '\\' LIMIT ?",
+            (*domains, f"%{_like_escape(needle)}%", limit),
+        ).fetchall()
+        return [(r["domain"], json.loads(r["current_json"])) for r in rows]
+
     def image_count(self, domain: str) -> int:
         return self._db.execute(
             "SELECT COUNT(*) c FROM images i JOIN products p ON p.id=i.product_id WHERE p.domain=?",
             (domain,),
         ).fetchone()["c"]
+
+    def live_product_counts(self) -> dict[str, int]:
+        """Products per brand that are still listed — the number the app can show.
+
+        `status_rows` counts every row the archive holds, which includes products the
+        shop has since taken down. Both numbers are true; showing one beside a category
+        tree built from the other is what makes them look like a bug.
+        """
+        rows = self._db.execute(
+            f"SELECT p.domain, COUNT(*) AS n FROM products p "
+            f"WHERE p.last_seen_run = {_LATEST_COVERED} GROUP BY p.domain"
+        ).fetchall()
+        return {r["domain"]: r["n"] for r in rows}
 
     def status_rows(self) -> list[dict]:
         rows = self._db.execute(

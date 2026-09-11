@@ -1,19 +1,27 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import Fuse from 'fuse.js';
-import { FashionArchiveAPI } from '../services/api';
+import { ArchiveAPI } from '../services/api';
 import ProductDetailPanel from './ProductDetailPanel';
-import ScrapeConsole from './ScrapeConsole';
+
+// ---------------------------------------------------------------------------
+// MyBrandsPanel — the archive, browsed.
+//
+// The brand list is backend/archive/brands.yml and nothing here can change it: a brand
+// joins the archive by being written into that file, which is the one place the
+// decision is recorded. Scraping runs beside the app rather than inside it, so this
+// panel starts no scrapes and follows none — it reads the catalogue the scraper last
+// wrote and shows what is in it, gaps included.
+// ---------------------------------------------------------------------------
 
 function MyBrandsPanel() {
   const [brands, setBrands] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [health, setHealth] = useState(null);
   const [expandedBrands, setExpandedBrands] = useState({});
   const [expandedCategories, setExpandedCategories] = useState({});
   const [selectedLeaves, setSelectedLeaves] = useState(new Set());
-  const selectedLeavesRef = useRef(new Set());
   const [products, setProducts] = useState([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
-  const [scrapingBrands, setScrapingBrands] = useState(new Set());
   const [productCounts, setProductCounts] = useState({});
   const [selectedProduct, setSelectedProduct] = useState(null);
 
@@ -31,537 +39,189 @@ function MyBrandsPanel() {
   const [detailPanelWidth, setDetailPanelWidth] = useState(400);
   const isResizing = useRef(false);
 
-  // Streaming state
-  const [streamingBrandId, setStreamingBrandId] = useState(null); // which brand is being streamed
-
-  // Add brand modal state
-  const [showAddBrandModal, setShowAddBrandModal] = useState(false);
-  const [brandUrlInput, setBrandUrlInput] = useState('');
-  const [validating, setValidating] = useState(false);
-  const [error, setError] = useState('');
-
-  // Remove brand state
-  const [removeMode, setRemoveMode] = useState(false);
-  const [selectedForRemoval, setSelectedForRemoval] = useState(new Set());
-  const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
-
-  // Click-count state for re-scraping (double-click = products only, triple-click = full)
-  const clickCountRef = useRef({});
-  const clickTimerRef = useRef({});
-
-  // Image row height equalization
+  // Grid image sizing
   const [imageDimensions, setImageDimensions] = useState({});
   const gridRef = useRef(null);
   const [gridColWidth, setGridColWidth] = useState(0);
 
-  // Load brands on mount
   useEffect(() => {
-    loadBrands();
+    let cancelled = false;
+    (async () => {
+      try {
+        const [roster, status] = await Promise.all([
+          ArchiveAPI.getBrands(),
+          ArchiveAPI.health(),
+        ]);
+        if (cancelled) return;
+        setHealth(status);
+        setBrands(roster.map(b => ({ ...b, navigation: null })));
+      } catch (error) {
+        console.error('Could not load the archive roster:', error);
+        if (!cancelled) setHealth({ ok: false, error: error.message });
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
   }, []);
 
-  const loadBrands = async () => {
+  // A brand's tree and counts are fetched the first time it is opened rather than on
+  // mount: the tree is derived from the brand's products, so loading all of them up
+  // front would read the whole catalogue to draw a sidebar.
+  const loadBrandTree = useCallback(async (brandId) => {
     try {
-      setLoading(true);
-      const followed = await FashionArchiveAPI.getFollowedBrands();
-
-      // Load brand details and navigation for each followed brand
-      const brandsWithData = await Promise.all(
-        followed.map(async (followedBrand) => {
-          try {
-            const details = await FashionArchiveAPI.getBrandDetails(followedBrand.brand_id);
-
-            // Load navigation tree via API endpoint
-            let navigation = [];
-            try {
-              const navResponse = await fetch(
-                `${FashionArchiveAPI.BASE_URL}/api/brands/${followedBrand.brand_id}/categories/hierarchy`,
-                { credentials: 'include' }
-              );
-              if (navResponse.ok) {
-                const navData = await navResponse.json();
-                navigation = navData.hierarchy || [];
-              }
-            } catch (e) {
-              console.warn('Could not load navigation for', followedBrand.brand_id);
-            }
-
-            return {
-              ...followedBrand,
-              ...details,
-              navigation: navigation
-            };
-          } catch (err) {
-            console.error(`Error loading brand ${followedBrand.brand_id}:`, err);
-            return {
-              ...followedBrand,
-              navigation: []
-            };
-          }
-        })
-      );
-
-      setBrands(brandsWithData);
-
-      // Check scraping status for each brand
-      brandsWithData.forEach(brand => {
-        if (brand.status?.last_scrape_status === 'running') {
-          setScrapingBrands(prev => new Set([...prev, brand.brand_id]));
-          pollScrapingStatus(brand.brand_id);
+      const [hierarchy, counts] = await Promise.all([
+        ArchiveAPI.getHierarchy(brandId),
+        ArchiveAPI.getCounts(brandId),
+      ]);
+      setBrands(prev => prev.map(b =>
+        b.brand_id === brandId ? { ...b, navigation: hierarchy } : b
+      ));
+      setProductCounts(prev => {
+        const next = { ...prev };
+        for (const [path, n] of Object.entries(counts)) {
+          next[`${brandId}::${path}`] = n;
         }
+        return next;
       });
-
-      // Load product counts for all leaf categories
-      loadProductCounts(brandsWithData);
-
     } catch (error) {
-      console.error('Error loading brands:', error);
-    } finally {
-      setLoading(false);
+      console.error(`Could not load categories for ${brandId}:`, error);
+      setBrands(prev => prev.map(b =>
+        b.brand_id === brandId ? { ...b, navigation: [] } : b
+      ));
     }
-  };
+  }, []);
 
-  // Load product counts for all leaf categories via API
-  const loadProductCounts = async (brandsWithData) => {
-    const counts = {};
-
-    for (const brand of brandsWithData) {
-      try {
-        // Fetch product counts via API endpoint
-        const countsResponse = await fetch(
-          `${FashionArchiveAPI.BASE_URL}/api/products/counts?brand_id=${brand.brand_id}`,
-          { credentials: 'include' }
-        );
-
-        if (countsResponse.ok) {
-          const countsData = await countsResponse.json();
-          const urlCounts = countsData.counts || {};
-
-          // Map URL counts to leaf keys
-          for (const [categoryUrl, count] of Object.entries(urlCounts)) {
-            const leafKey = `${brand.brand_id}::${categoryUrl}`;
-            counts[leafKey] = count;
-          }
-        }
-      } catch (error) {
-        console.error(`Error loading product counts for ${brand.brand_id}:`, error);
+  const toggleBrand = useCallback((brandId) => {
+    setExpandedBrands(prev => {
+      const opening = !prev[brandId];
+      if (opening) {
+        const brand = brands.find(b => b.brand_id === brandId);
+        if (brand && brand.navigation === null) loadBrandTree(brandId);
       }
-    }
-
-    setProductCounts(counts);
-  };
-
-  // Poll for scraping status
-  const pollScrapingStatus = async (brandId) => {
-    const checkStatus = async () => {
-      try {
-        const status = await FashionArchiveAPI.getBrandScrapeStatus(brandId);
-
-        if (status.error || status.status === 'completed' || status.status === 'failed') {
-          setScrapingBrands(prev => {
-            const newSet = new Set(prev);
-            newSet.delete(brandId);
-            return newSet;
-          });
-          loadBrands(); // Reload to get updated data
-        } else {
-          setTimeout(() => checkStatus(), 3000);
-        }
-      } catch (error) {
-        setScrapingBrands(prev => {
-          const newSet = new Set(prev);
-          newSet.delete(brandId);
-          return newSet;
-        });
-      }
-    };
-    checkStatus();
-  };
-
-  // Stream products via SSE as they're extracted
-  const streamProducts = (brandId) => {
-    setStreamingBrandId(brandId);
-
-    // Backfill: products that were already extracted before this SSE
-    // connection opened. Without this the grid stays empty until new
-    // products arrive — and the first 30–60 from a fresh scrape would
-    // be invisible to the user.
-    fetch(`${FashionArchiveAPI.BASE_URL}/api/products?brand_id=${brandId}&limit=500`, { credentials: 'include' })
-      .then(r => r.ok ? r.json() : null)
-      .then(data => {
-        if (!data || !data.products) return;
-        const noSelection = selectedLeavesRef.current.size === 0;
-        if (noSelection) {
-          setProducts(prev => {
-            const existingUrls = new Set(prev.map(p => p.itemurl || p.url || p.product_url || ''));
-            const fresh = data.products.filter(p => {
-              const u = p.itemurl || p.url || p.product_url || '';
-              return u && !existingUrls.has(u);
-            });
-            return [...fresh, ...prev];
-          });
-        }
-      })
-      .catch(() => {});
-
-    const source = new EventSource(`${FashionArchiveAPI.BASE_URL}/api/brands/${brandId}/scrape/stream`, { withCredentials: true });
-
-    source.onmessage = (event) => {
-      try {
-        const product = JSON.parse(event.data);
-        const categoryUrl = product._category_url || '';
-
-        // Update live category counter (keyed by brandId::categoryUrl to match sidebar tree)
-        if (categoryUrl) {
-          const leafKey = `${brandId}::${categoryUrl}`;
-          setProductCounts(prev => ({
-            ...prev,
-            [leafKey]: (prev[leafKey] || 0) + 1
-          }));
-        }
-
-        // Append to grid when:
-        //  - this product's category is currently selected, OR
-        //  - no categories are selected yet (live-feed mode during scrape so
-        //    the user actually sees products without waiting for urls.json
-        //    to land at the end of Stage 2).
-        const noSelection = selectedLeavesRef.current.size === 0;
-        const inSelected = categoryUrl &&
-          selectedLeavesRef.current.has(`${brandId}::${categoryUrl}`);
-        if (noSelection || inSelected) {
-          setProducts(prev => [product, ...prev]);
-        }
-      } catch (e) {
-        console.error('Error parsing streamed product:', e);
-      }
-    };
-
-    source.addEventListener('nav_ready', async () => {
-      // Navigation tree is ready — re-fetch hierarchy and update the brand's tree
-      try {
-        const navResponse = await fetch(
-          `${FashionArchiveAPI.BASE_URL}/api/brands/${brandId}/categories/hierarchy`,
-          { credentials: 'include' }
-        );
-        if (navResponse.ok) {
-          const navData = await navResponse.json();
-          const hierarchy = navData.hierarchy || [];
-          setBrands(prev => prev.map(b =>
-            b.brand_id === brandId ? { ...b, navigation: hierarchy } : b
-          ));
-          // Auto-expand the brand so user sees categories appear
-          setExpandedBrands(prev => ({ ...prev, [brandId]: true }));
-        }
-      } catch (e) {
-        console.warn('Failed to reload navigation after nav_ready:', e);
-      }
+      return { ...prev, [brandId]: opening };
     });
+  }, [brands, loadBrandTree]);
 
-    source.addEventListener('done', () => {
-      source.close();
-      setScrapingBrands(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(brandId);
-        return newSet;
-      });
-      setStreamingBrandId(null);
-      loadBrands();
-    });
-
-    source.onerror = () => {
-      source.close();
-    };
-
-    return source;
-  };
-
-  // Toggle brand expansion
-  const toggleBrand = (brandId) => {
-    setExpandedBrands(prev => ({
-      ...prev,
-      [brandId]: !prev[brandId]
-    }));
-  };
-
-  // Handle click counting: single=expand, double=rescrape products, triple=full rescrape
-  const handleBrandClick = (brandId) => {
-    if (!clickCountRef.current[brandId]) clickCountRef.current[brandId] = 0;
-    clickCountRef.current[brandId]++;
-
-    if (clickTimerRef.current[brandId]) clearTimeout(clickTimerRef.current[brandId]);
-
-    clickTimerRef.current[brandId] = setTimeout(() => {
-      const clicks = clickCountRef.current[brandId];
-      clickCountRef.current[brandId] = 0;
-
-      if (clicks === 1) {
-        toggleBrand(brandId);
-      } else if (clicks === 2) {
-        handleRescrape(brandId, 'products_only');
-      } else if (clicks >= 3) {
-        handleRescrape(brandId, 'full');
-      }
-    }, 350);
-  };
-
-  const handleRescrape = async (brandId, mode = 'full') => {
-    setScrapingBrands(prev => new Set(prev).add(brandId));
-    setProducts([]);
-    setStreamingBrandId(brandId);
-    // Clear product counts for this brand so categories show 0 until products stream in
-    setProductCounts(prev => {
-      const cleared = { ...prev };
-      Object.keys(cleared).forEach(key => {
-        if (key.startsWith(`${brandId}::`)) delete cleared[key];
-      });
-      return cleared;
-    });
-    // Expand the brand tree so user can see categories reappearing
-    setExpandedBrands(prev => ({ ...prev, [brandId]: true }));
-    try {
-      await FashionArchiveAPI.startBrandScraping(brandId, mode);
-      streamProducts(brandId);
-    } catch (error) {
-      console.error('Error starting re-scrape:', error);
-      setScrapingBrands(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(brandId);
-        return newSet;
-      });
-    }
-  };
-
-  // Toggle category expansion (for parent categories)
   const toggleCategory = (categoryKey) => {
-    setExpandedCategories(prev => ({
-      ...prev,
-      [categoryKey]: !prev[categoryKey]
-    }));
+    setExpandedCategories(prev => ({ ...prev, [categoryKey]: !prev[categoryKey] }));
   };
 
-  // Toggle leaf selection
-  const toggleLeaf = async (brandId, categoryUrl, categoryName, shiftKey = false) => {
-    const leafKey = `${brandId}::${categoryUrl}`;
-
-    let newSelected;
-
-    if (shiftKey) {
-      // Shift-click: exclusively select this category (deselect all others)
-      newSelected = new Set([leafKey]);
-    } else {
-      // Normal click: toggle this category
-      newSelected = new Set(selectedLeaves);
-      if (newSelected.has(leafKey)) {
-        newSelected.delete(leafKey);
-      } else {
-        newSelected.add(leafKey);
-      }
-    }
-
-    setSelectedLeaves(newSelected);
-    selectedLeavesRef.current = newSelected;
-
-    // Load products for all selected leaves
-    if (newSelected.size > 0) {
-      // Pass the newly toggled leaf key if it was just added
-      const newlyAdded = newSelected.has(leafKey) && !selectedLeaves.has(leafKey) ? leafKey : null;
-      await loadProductsForSelection(newSelected, newlyAdded);
-    } else {
+  // Load products for the selected categories.
+  //
+  // Cross-category dedup: a product that appears under two selected categories shows
+  // once. Within a single category duplicates stay — they are genuinely two listings.
+  // Sidebar counts always show the raw per-category total, dedup or not.
+  const loadProductsForSelection = useCallback(async (selectedSet, newlySelectedKey = null) => {
+    if (selectedSet.size === 0) {
       setProducts([]);
+      return;
     }
-  };
-
-  // Load products for selected categories
-  // Cross-category dedup: if the same product (by brand+name) appears in multiple
-  // selected categories, only show it once. But within a single category, duplicates
-  // are kept (they're genuinely different listings). Category counts in the sidebar
-  // always show the raw per-category total (not affected by dedup).
-  const loadProductsForSelection = async (selectedSet, newlySelectedKey = null) => {
+    setLoadingProducts(true);
     try {
-      setLoadingProducts(true);
-
-      // Load each selected category separately (preserving per-category grouping)
-      const categoryArrays = []; // array of { leafKey, products[] }
-
-      // Load newly selected category first so it appears at the top
+      // Newly selected category first, so it lands at the top of the grid.
       const orderedKeys = [];
-      if (newlySelectedKey && selectedSet.has(newlySelectedKey)) {
-        orderedKeys.push(newlySelectedKey);
-      }
-      for (const leafKey of selectedSet) {
-        if (leafKey !== newlySelectedKey) orderedKeys.push(leafKey);
+      if (newlySelectedKey && selectedSet.has(newlySelectedKey)) orderedKeys.push(newlySelectedKey);
+      for (const key of selectedSet) {
+        if (key !== newlySelectedKey) orderedKeys.push(key);
       }
 
-      await Promise.all(orderedKeys.map(async (leafKey, idx) => {
-        const [brandId, categoryIdentifier] = leafKey.split('::');
-        const response = await fetch(
-          `${FashionArchiveAPI.BASE_URL}/api/products?brand_id=${brandId}&classification_url=${encodeURIComponent(categoryIdentifier)}&limit=1000`,
-          { credentials: 'include' }
-        );
-        if (response.ok) {
-          const data = await response.json();
-          categoryArrays[idx] = data.products || [];
-        } else {
-          categoryArrays[idx] = [];
+      const groups = await Promise.all(orderedKeys.map(async (leafKey) => {
+        const sep = leafKey.indexOf('::');
+        const brandId = leafKey.slice(0, sep);
+        const category = leafKey.slice(sep + 2);
+        try {
+          return await ArchiveAPI.getProducts(brandId, category, 1000);
+        } catch (error) {
+          console.error(`Could not load ${category} for ${brandId}:`, error);
+          return [];
         }
       }));
-
-      // Cross-category dedup using the shared deduplicateProducts function
-      // Each element in categoryArrays is one category's products.
-      // deduplicateProducts removes brand+name dupes across arrays but keeps them within.
-      const deduped = deduplicateProducts(categoryArrays);
-      setProducts(deduped);
-    } catch (error) {
-      console.error('Error loading products:', error);
+      setProducts(deduplicateProducts(groups));
     } finally {
       setLoadingProducts(false);
     }
-  };
+  }, []);
 
-  // Handle brand URL submission
-  const handleSubmitBrandUrl = async () => {
-    if (!brandUrlInput.trim()) {
-      setError('Please enter a valid URL');
-      return;
+  const toggleLeaf = useCallback(async (brandId, categoryPath, shiftKey = false) => {
+    const leafKey = `${brandId}::${categoryPath}`;
+    const next = shiftKey ? new Set([leafKey]) : new Set(selectedLeaves);
+    if (!shiftKey) {
+      if (next.has(leafKey)) next.delete(leafKey); else next.add(leafKey);
     }
+    setSelectedLeaves(next);
+    const newlyAdded = next.has(leafKey) && !selectedLeaves.has(leafKey) ? leafKey : null;
+    await loadProductsForSelection(next, newlyAdded);
+  }, [selectedLeaves, loadProductsForSelection]);
 
-    setValidating(true);
-    setError('');
+  // --- category tree ------------------------------------------------------
 
-    try {
-      // Validate the brand
-      const validationResult = await FashionArchiveAPI.validateBrand(brandUrlInput);
+  const countFor = useCallback((brandId, category) => (
+    productCounts[`${brandId}::${category.url}`] ?? null
+  ), [productCounts]);
 
-      if (!validationResult.success) {
-        setError(validationResult.message || validationResult.error || 'Validation failed');
-        setValidating(false);
-        return;
-      }
-
-      // Check if brand already exists
-      if (validationResult.exists) {
-        const brand = validationResult.brand;
-        await FashionArchiveAPI.followBrand(brand.brand_id, brand.name);
-        setShowAddBrandModal(false);
-        setBrandUrlInput('');
-        loadBrands();
-        return;
-      }
-
-      // Create new brand
-      const createResult = await FashionArchiveAPI.createBrandWithValidation(
-        brandUrlInput,
-        validationResult.brand_name
-      );
-
-      if (!createResult.success) {
-        setError(createResult.message || createResult.error || 'Failed to create brand');
-        setValidating(false);
-        return;
-      }
-
-      const newBrand = createResult.brand;
-      await FashionArchiveAPI.followBrand(newBrand.brand_id, newBrand.name);
-
-      // Start scraping with live streaming
-      setScrapingBrands(prev => new Set(prev).add(newBrand.brand_id));
-      setProducts([]);
-      setStreamingBrandId(newBrand.brand_id);
-      FashionArchiveAPI.startBrandScraping(newBrand.brand_id).then(() => {
-        streamProducts(newBrand.brand_id);
-      });
-
-      setShowAddBrandModal(false);
-      setBrandUrlInput('');
-      setValidating(false);
-      loadBrands();
-
-    } catch (error) {
-      console.error('Error adding brand:', error);
-      setError(error.message || 'An error occurred');
-      setValidating(false);
-    }
-  };
-
-  // Check if a category subtree has any products (for filtering during scraping)
-  const hasProductsInSubtree = (brand, category) => {
-    const hasChildren = category.children && category.children.length > 0;
-    if (!hasChildren) {
-      // Leaf: check product count
-      const leafKey = `${brand.brand_id}::${category.url}`;
-      return (productCounts[leafKey] || 0) > 0;
-    }
-    // Parent: check if any child has products
-    return category.children.some(child => hasProductsInSubtree(brand, child));
-  };
-
-  // Render category tree recursively
   const renderCategoryTree = (brand, categories, level = 0) => {
     if (!categories || categories.length === 0) return null;
 
-    // Sort categories: parents with children first, then leaf categories
-    const sortedCategories = [...categories].sort((a, b) => {
-      const aHasChildren = a.children && a.children.length > 0;
-      const bHasChildren = b.children && b.children.length > 0;
-
-      if (aHasChildren && !bHasChildren) return -1;
-      if (!aHasChildren && bHasChildren) return 1;
+    // "all products" first, then parents, then leaves. An empty category is not worth
+    // a row — but only once counts have arrived, or a brand's tree would draw blank.
+    const sorted = [...categories].sort((a, b) => {
+      if (a.url === '*') return -1;
+      if (b.url === '*') return 1;
+      const aParent = a.children && a.children.length > 0;
+      const bParent = b.children && b.children.length > 0;
+      if (aParent && !bParent) return -1;
+      if (!aParent && bParent) return 1;
       return 0;
-    });
+    }).filter(cat => (productCounts[`${brand.brand_id}::${cat.url}`] ?? 1) > 0);
 
-    // Hide categories with zero products whenever we have any product-count
-    // info for this brand (i.e. counts have loaded OR streaming has begun
-    // emitting them). On a freshly-clicked brand with no counts loaded yet,
-    // show everything so the tree isn't blank.
-    const brandHasAnyCounts = Object.keys(productCounts).some(
-      k => k.startsWith(`${brand.brand_id}::`)
-    );
-    const visibleCategories = brandHasAnyCounts
-      ? sortedCategories.filter(cat => hasProductsInSubtree(brand, cat))
-      : sortedCategories;
-
-    return visibleCategories.map((category, idx) => {
+    return sorted.map((category) => {
       const hasChildren = category.children && category.children.length > 0;
-      const isLeaf = !hasChildren;
       const leafKey = `${brand.brand_id}::${category.url}`;
-      // Use URL-based key instead of index to prevent expand/collapse issues
-      const categoryKey = `${brand.brand_id}::${category.url || category.name}`;
       const isSelected = selectedLeaves.has(leafKey);
-      const isExpanded = expandedCategories[categoryKey];
-
-      // All categories display in lowercase
-      const displayName = (category.name || 'Unknown').toLowerCase();
-
-      const productCount = isLeaf ? productCounts[leafKey] : null;
+      const isExpanded = expandedCategories[leafKey];
+      const count = countFor(brand.brand_id, category);
 
       return (
-        <div key={categoryKey} style={{ marginLeft: level > 0 ? '16px' : '0' }}>
+        <div key={leafKey} style={{ marginLeft: level > 0 ? '16px' : '0' }}>
           <div
-            className={`nav-item ${isLeaf ? 'nav-leaf' : 'nav-parent'} ${isSelected ? 'nav-selected' : ''}`}
+            className={`nav-item ${hasChildren ? 'nav-parent' : 'nav-leaf'} ${isSelected ? 'nav-selected' : ''}`}
             onClick={(e) => {
-              if (isLeaf) {
-                toggleLeaf(brand.brand_id, category.url, category.name, e.shiftKey);
+              // A parent is both a row of its own and a container: clicking the caret
+              // area opens it, clicking the name selects it. Shift selects it alone.
+              if (hasChildren && !e.shiftKey && e.target.closest('.nav-icon')) {
+                toggleCategory(leafKey);
               } else {
-                toggleCategory(categoryKey);
+                toggleLeaf(brand.brand_id, category.url, e.shiftKey);
               }
             }}
           >
-            {!isLeaf && <span className="nav-icon">{isExpanded ? '▾' : '▸'}</span>}
-            {isLeaf && <span className="nav-bullet">•</span>}
-            <span className={isSelected ? 'nav-text-bold' : 'nav-text'}>
-              {displayName}
-            </span>
-            {isLeaf && productCount !== null && productCount !== undefined && (
-              <span className="nav-count">{productCount}</span>
+            {hasChildren ? (
+              <span
+                className="nav-icon"
+                onClick={(e) => { e.stopPropagation(); toggleCategory(leafKey); }}
+              >
+                {isExpanded ? '▾' : '▸'}
+              </span>
+            ) : (
+              <span className="nav-bullet">•</span>
             )}
+            <span className={isSelected ? 'nav-text-bold' : 'nav-text'}>
+              {(category.name || 'unknown').toLowerCase()}
+            </span>
+            {count !== null && <span className="nav-count">{count}</span>}
           </div>
-
           {hasChildren && isExpanded && renderCategoryTree(brand, category.children, level + 1)}
         </div>
       );
     });
   };
 
-  // Flatten all categories with full paths + build trigram index for O(1) lookup
+  // --- category search dropdown -------------------------------------------
+
+  // Flatten every loaded category into a searchable path + build a trigram index.
+  // Only opened brands contribute: their trees are the only ones fetched. Full-text
+  // product search below goes to the server and covers every brand regardless.
   const { allCategories, trigramIndex } = useMemo(() => {
     const leaves = [];
     const collect = (brand, cats, path) => {
@@ -583,12 +243,9 @@ function MyBrandsPanel() {
         }
       }
     };
-    for (const brand of brands) {
-      collect(brand, brand.navigation, []);
-    }
+    for (const brand of brands) collect(brand, brand.navigation, []);
     leaves.sort((a, b) => a.fullPathLower.localeCompare(b.fullPathLower));
 
-    // Build trigram index: map each 3-char substring → Set of category indices
     const idx = {};
     for (let i = 0; i < leaves.length; i++) {
       const s = leaves[i].fullPathLower;
@@ -597,115 +254,63 @@ function MyBrandsPanel() {
         if (!idx[tri]) idx[tri] = new Set();
         idx[tri].add(i);
       }
-      // Also index bigrams for short queries
       for (let j = 0; j <= s.length - 2; j++) {
-        const bi = s.slice(j, j + 2);
-        const key = `_bi_${bi}`;
+        const key = `_bi_${s.slice(j, j + 2)}`;
         if (!idx[key]) idx[key] = new Set();
         idx[key].add(i);
       }
     }
-
     return { allCategories: leaves, trigramIndex: idx };
   }, [brands]);
 
-  // Categories matching search query via trigram index intersection, then verify
   const matchingCategories = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return [];
+    if (q.length === 1) return allCategories.filter(cat => cat.fullPathLower.includes(q));
 
-    // For very short queries (1 char), fall back to linear scan
-    if (q.length === 1) {
-      return allCategories.filter(cat => cat.fullPathLower.includes(q));
-    }
-
-    // Get candidate set via trigram/bigram index intersection
     let candidates = null;
     if (q.length === 2) {
       candidates = trigramIndex[`_bi_${q}`];
     } else {
-      // Intersect trigram sets for each trigram in query
       for (let i = 0; i <= q.length - 3; i++) {
-        const tri = q.slice(i, i + 3);
-        const set = trigramIndex[tri];
-        if (!set) return []; // trigram not found = no matches
+        const set = trigramIndex[q.slice(i, i + 3)];
+        if (!set) return [];
         if (candidates === null) {
           candidates = new Set(set);
         } else {
-          for (const idx of candidates) {
-            if (!set.has(idx)) candidates.delete(idx);
-          }
+          for (const idx of candidates) if (!set.has(idx)) candidates.delete(idx);
         }
         if (candidates.size === 0) return [];
       }
     }
-
     if (!candidates) return [];
 
-    // Verify candidates with full substring check (hash narrowed the set)
     const results = [];
     for (const idx of candidates) {
-      if (allCategories[idx].fullPathLower.includes(q)) {
-        results.push(allCategories[idx]);
-      }
+      if (allCategories[idx].fullPathLower.includes(q)) results.push(allCategories[idx]);
     }
     return results.sort((a, b) => a.fullPathLower.localeCompare(b.fullPathLower));
   }, [searchQuery, allCategories, trigramIndex]);
 
-  // Deduplicate products by URL, then by name across different categories (not within same category)
-  const deduplicateProducts = useCallback((productArrays) => {
-    const seenUrl = new Set();
-    // Track which brand+name combos we've seen AND which array index they came from
-    const brandNameSource = new Map(); // "brand::name" → array index
-    const results = [];
-    for (let i = 0; i < productArrays.length; i++) {
-      for (const p of productArrays[i]) {
-        const url = p.itemurl || p.url || p.product_url || '';
-        if (url && seenUrl.has(url)) continue;
-        if (url) seenUrl.add(url);
-
-        // Cross-category name dedup: skip if same brand+name from a DIFFERENT array
-        const brand = (p.brand || p.brand_id || '').toLowerCase();
-        const name = (p.product_title || p.name || p.product_name || '').toLowerCase();
-        if (brand && name) {
-          const key = `${brand}::${name}`;
-          if (brandNameSource.has(key) && brandNameSource.get(key) !== i) continue;
-          brandNameSource.set(key, i);
-        }
-
-        results.push(p);
-      }
-    }
-    return results;
-  }, []);
-
-  // Load products for a specific dropdown category
   const loadCategoryProducts = useCallback(async (category) => {
     setSearchLoading(true);
     try {
-      // Fire all leaf key fetches in parallel
-      const fetches = category.leafKeys.map(async (leafKey) => {
-        const [brandId, categoryUrl] = leafKey.split('::');
-        const response = await fetch(
-          `${FashionArchiveAPI.BASE_URL}/api/products?brand_id=${brandId}&classification_url=${encodeURIComponent(categoryUrl)}&limit=1000`,
-          { credentials: 'include' }
-        );
-        if (response.ok) {
-          const data = await response.json();
-          return data.products || [];
+      const groups = await Promise.all(category.leafKeys.map(async (leafKey) => {
+        const sep = leafKey.indexOf('::');
+        try {
+          return await ArchiveAPI.getProducts(leafKey.slice(0, sep), leafKey.slice(sep + 2), 1000);
+        } catch {
+          return [];
         }
-        return [];
-      });
-      const results = await Promise.all(fetches);
-      setSearchResults(deduplicateProducts(results));
-    } catch (e) {
-      console.error('Category load failed:', e);
+      }));
+      setSearchResults(deduplicateProducts(groups));
     } finally {
       setSearchLoading(false);
     }
-  }, [deduplicateProducts]);
+  }, []);
 
-  // Concurrent search: fires backend product search + matching category product fetches in parallel
+  // Server-side search across every brand, merged with products from any category whose
+  // path matches, then re-ranked fuzzily over the merged set.
   const executeSearch = useCallback(async (query) => {
     const q = query.trim();
     if (!q) {
@@ -714,72 +319,49 @@ function MyBrandsPanel() {
     }
     setSearchLoading(true);
     try {
-      // 1) Backend full-text search
-      const textSearchPromise = fetch(
-        `${FashionArchiveAPI.BASE_URL}/api/products/search?q=${encodeURIComponent(q)}&limit=200`,
-        { credentials: 'include' }
-      ).then(r => r.ok ? r.json().then(d => d.products || []) : []).catch(() => []);
-
-      // 2) Fetch products from all matching categories in parallel
+      const textSearch = ArchiveAPI.searchProducts(q, 200).catch(() => []);
       const catFetches = matchingCategories.flatMap(cat =>
-        cat.leafKeys.map(leafKey => {
-          const [brandId, categoryUrl] = leafKey.split('::');
-          return fetch(
-            `${FashionArchiveAPI.BASE_URL}/api/products?brand_id=${brandId}&classification_url=${encodeURIComponent(categoryUrl)}&limit=500`,
-            { credentials: 'include' }
-          ).then(r => r.ok ? r.json().then(d => d.products || []) : []).catch(() => []);
+        cat.leafKeys.map((leafKey) => {
+          const sep = leafKey.indexOf('::');
+          return ArchiveAPI
+            .getProducts(leafKey.slice(0, sep), leafKey.slice(sep + 2), 500)
+            .catch(() => []);
         })
       );
-
-      // Await all concurrently
-      const [textResults, ...catResults] = await Promise.all([textSearchPromise, ...catFetches]);
-
-      // Deduplicate: text search results first (higher relevance), then category products
+      const [textResults, ...catResults] = await Promise.all([textSearch, ...catFetches]);
       const merged = deduplicateProducts([textResults, ...catResults]);
 
-      // Fuzzy re-rank the merged set
       const fuse = new Fuse(merged, {
         keys: [
-          'product_title', 'name', 'product_name',
-          'brand', 'brand_id',
+          'product_title', 'product_code', 'brand', 'brand_id',
           'description', 'specifications', 'material_info',
-          'category', 'category1', 'category2', 'category3',
-          'color_info', 'additional_tags',
+          'category1', 'category2', 'category3',
+          'color_info', 'size_info', 'additional_tags',
         ],
         threshold: 0.5,
         ignoreLocation: true,
         minMatchCharLength: 2,
       });
-      const fuzzyResults = fuse.search(q).map(r => r.item);
-      setSearchResults(fuzzyResults.length > 0 ? fuzzyResults : merged);
-    } catch (e) {
-      console.error('Search failed:', e);
+      const ranked = fuse.search(q).map(r => r.item);
+      setSearchResults(ranked.length > 0 ? ranked : merged);
     } finally {
       setSearchLoading(false);
     }
-  }, [matchingCategories, deduplicateProducts]);
+  }, [matchingCategories]);
 
-  // Handle search input — show dropdown + debounced auto-search for products simultaneously
   const handleSearchChange = useCallback((query) => {
     setSearchQuery(query);
     setSelectedDropdownIdx(-1);
     if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
-
     if (!query.trim()) {
       setSearchResults(null);
       setShowDropdown(false);
       return;
     }
-
     setShowDropdown(true);
-
-    // Debounced product search fires simultaneously with instant category dropdown
-    searchTimerRef.current = setTimeout(() => {
-      executeSearch(query);
-    }, 300);
+    searchTimerRef.current = setTimeout(() => executeSearch(query), 300);
   }, [executeSearch]);
 
-  // Handle keyboard in search input
   const handleSearchKeyDown = useCallback((e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -801,22 +383,20 @@ function MyBrandsPanel() {
     }
   }, [searchQuery, selectedDropdownIdx, matchingCategories, loadCategoryProducts, executeSearch]);
 
-  // Parse price to number for sorting (E0005 price → legacy fallback)
+  // --- grid ---------------------------------------------------------------
+
   const parsePrice = useCallback((product) => {
-    const raw = product.price ?? product.full_price ?? product.attributes?.price ?? '';
+    const raw = product.price ?? product.full_price ?? '';
     const num = parseFloat(String(raw).replace(/[^0-9.]/g, ''));
     return isNaN(num) ? 0 : num;
   }, []);
 
-  // Compute displayed products: use search results when searching, else category products
   const displayProducts = useMemo(() => {
     let result = searchResults !== null ? searchResults : products;
-
-    // Sort
     if (sortBy) {
       result = [...result].sort((a, b) => {
-        const nameA = (a.product_title || a.name || a.product_name || '').toLowerCase();
-        const nameB = (b.product_title || b.name || b.product_name || '').toLowerCase();
+        const nameA = (a.product_title || '').toLowerCase();
+        const nameB = (b.product_title || '').toLowerCase();
         switch (sortBy) {
           case 'name-asc': return nameA.localeCompare(nameB);
           case 'name-desc': return nameB.localeCompare(nameA);
@@ -826,23 +406,16 @@ function MyBrandsPanel() {
         }
       });
     }
-
     return result;
   }, [products, searchResults, sortBy, parsePrice]);
 
-  // Reset image dimensions when displayed products change
-  useEffect(() => {
-    setImageDimensions({});
-  }, [displayProducts]);
+  useEffect(() => { setImageDimensions({}); }, [displayProducts]);
 
-  // Track column width via ResizeObserver
   useEffect(() => {
     const updateColWidth = () => {
       if (gridRef.current) {
         const firstCard = gridRef.current.querySelector('.product-card');
-        if (firstCard) {
-          setGridColWidth(firstCard.offsetWidth);
-        }
+        if (firstCard) setGridColWidth(firstCard.offsetWidth);
       }
     };
     updateColWidth();
@@ -852,7 +425,6 @@ function MyBrandsPanel() {
     return () => observer.disconnect();
   }, [displayProducts]);
 
-  // Calculate per-row image heights: each row's images match the tallest
   const GRID_COLS = 4;
   const rowImageHeights = useMemo(() => {
     if (!gridColWidth) return {};
@@ -873,20 +445,17 @@ function MyBrandsPanel() {
     setImageDimensions(prev => ({ ...prev, [idx]: { naturalWidth, naturalHeight } }));
   }, []);
 
-  // Drag resize handlers for detail panel
   const handleResizeMouseDown = useCallback((e) => {
     e.preventDefault();
     isResizing.current = true;
     const startX = e.clientX;
     const startWidth = detailPanelWidth;
 
-    const onMouseMove = (e) => {
+    const onMouseMove = (ev) => {
       if (!isResizing.current) return;
-      const delta = startX - e.clientX; // dragging left = wider
-      const newWidth = Math.min(window.innerWidth * 0.5, Math.max(300, startWidth + delta));
-      setDetailPanelWidth(newWidth);
+      const delta = startX - ev.clientX; // dragging left = wider
+      setDetailPanelWidth(Math.min(window.innerWidth * 0.5, Math.max(300, startWidth + delta)));
     };
-
     const onMouseUp = () => {
       isResizing.current = false;
       document.removeEventListener('mousemove', onMouseMove);
@@ -894,7 +463,6 @@ function MyBrandsPanel() {
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
     };
-
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
     document.addEventListener('mousemove', onMouseMove);
@@ -904,51 +472,49 @@ function MyBrandsPanel() {
   if (loading) {
     return (
       <div className="my-brands-container">
-        <div className="loading-state">Loading brands...</div>
+        <div className="loading-state">Loading the archive...</div>
       </div>
     );
   }
 
   return (
     <div className="my-brands-container">
-      {/* Left Sidebar - Brand Navigation */}
+      {/* Left Sidebar — the roster */}
       <div className="brand-sidebar">
         <div className="brand-sidebar-content">
+          {health && !health.ok && (
+            <div className="archive-warning">
+              The archive catalogue could not be read{health.error ? `: ${health.error}` : '.'}
+            </div>
+          )}
           {brands.map(brand => {
             const isExpanded = expandedBrands[brand.brand_id];
-            const isScraping = scrapingBrands.has(brand.brand_id);
+            const empty = brand.products === 0;
 
             return (
               <div key={brand.brand_id} className="brand-section">
                 <div
-                  className={`brand-name ${isScraping ? 'brand-loading' : ''} ${removeMode && selectedForRemoval.has(brand.brand_id) ? 'selected-for-removal' : ''}`}
-                  onClick={() => {
-                    if (removeMode) {
-                      setSelectedForRemoval(prev => {
-                        const next = new Set(prev);
-                        if (next.has(brand.brand_id)) {
-                          next.delete(brand.brand_id);
-                        } else {
-                          next.add(brand.brand_id);
-                        }
-                        return next;
-                      });
-                    } else if (!isScraping) {
-                      handleBrandClick(brand.brand_id);
-                    }
-                  }}
-                  style={{
-                    position: 'relative',
-                    cursor: isScraping && !removeMode ? 'not-allowed' : undefined,
-                  }}
+                  className={`brand-name ${empty ? 'brand-empty' : ''}`}
+                  onClick={() => toggleBrand(brand.brand_id)}
+                  title={
+                    `${brand.products} products` +
+                    (brand.last_run ? ` · last read ${brand.last_run.slice(0, 10)}` : ' · never read') +
+                    (brand.notes ? ` · ${brand.notes}` : '')
+                  }
                 >
-                  <span className="brand-name-text">{(brand.name || brand.brand_id || 'Unknown').toUpperCase()}</span>
-                  {isScraping && !removeMode && <span className="brand-loading-text"> loading...</span>}
+                  <span className="brand-name-text">
+                    {(brand.name || brand.brand_id).toUpperCase()}
+                  </span>
+                  <span className="brand-product-count">{brand.products}</span>
                 </div>
 
-                {isExpanded && !removeMode && (
+                {isExpanded && (
                   <div className="brand-categories">
-                    {renderCategoryTree(brand, brand.navigation)}
+                    {brand.navigation === null
+                      ? <div className="nav-item nav-loading">loading...</div>
+                      : brand.navigation.length === 0
+                        ? <div className="nav-item nav-empty">nothing scraped yet</div>
+                        : renderCategoryTree(brand, brand.navigation)}
                   </div>
                 )}
               </div>
@@ -956,210 +522,87 @@ function MyBrandsPanel() {
           })}
         </div>
 
-        {/* Footer Buttons */}
-        <div className="add-brand-footer">
-          {removeMode ? (
-            <button
-              className="remove-brand-button"
-              onClick={() => {
-                if (selectedForRemoval.size > 0) {
-                  setShowRemoveConfirm(true);
-                } else {
-                  setRemoveMode(false);
-                  setSelectedForRemoval(new Set());
-                }
-              }}
-            >
-              {selectedForRemoval.size > 0
-                ? `Remove ${selectedForRemoval.size} Brand${selectedForRemoval.size > 1 ? 's' : ''}`
-                : 'Cancel'}
-            </button>
-          ) : (
-            <>
-              <button
-                className="add-brand-button"
-                onClick={() => setShowAddBrandModal(true)}
-              >
-                + Add New Brand
-              </button>
-              <button
-                className="remove-brand-button-idle"
-                onClick={() => setRemoveMode(true)}
-              >
-                - Remove Brand
-              </button>
-            </>
-          )}
+        <div className="brand-sidebar-footer">
+          {brands.length} brands · {brands.reduce((n, b) => n + (b.products || 0), 0)} products
+          <div className="brand-sidebar-hint">from brands.yml</div>
         </div>
       </div>
 
-      {/* Right Panel - Product Gallery */}
+      {/* Right Panel — Product Gallery */}
       <div className="product-gallery">
-        {/* Search + Sort Toolbar */}
         <div className="product-toolbar">
-            <div className="search-wrapper">
-              <input
-                ref={searchInputRef}
-                type="text"
-                className="product-search-input"
-                placeholder="Search products..."
-                value={searchQuery}
-                onChange={(e) => handleSearchChange(e.target.value)}
-                onKeyDown={handleSearchKeyDown}
-                onFocus={() => { if (searchQuery.trim()) setShowDropdown(true); }}
-                onBlur={() => {}}
-              />
-              {showDropdown && matchingCategories.length > 0 && (
-                <div className="search-dropdown">
-                  {matchingCategories.map((cat, idx) => {
-                    const q = searchQuery.trim().toLowerCase();
-                    const pathLower = cat.fullPath.toLowerCase();
-                    const matchIdx = pathLower.indexOf(q);
-                    const before = cat.fullPath.slice(0, matchIdx);
-                    const match = cat.fullPath.slice(matchIdx, matchIdx + q.length);
-                    const after = cat.fullPath.slice(matchIdx + q.length);
-                    return (
-                      <div
-                        key={`${cat.brandId}-${cat.url}`}
-                        className={`search-dropdown-item ${idx === selectedDropdownIdx ? 'highlighted' : ''}`}
-                        onMouseDown={() => loadCategoryProducts(cat)}
-                      >
-                        <span className="dropdown-cat-name">
-                          {before}<strong>{match}</strong>{after}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-            <select
-              className="product-sort-select"
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value)}
-            >
-              <option value="">Sort by...</option>
-              <option value="name-asc">Name A → Z</option>
-              <option value="name-desc">Name Z → A</option>
-              <option value="price-asc">Price Low → High</option>
-              <option value="price-desc">Price High → Low</option>
-            </select>
+          <div className="search-wrapper">
+            <input
+              ref={searchInputRef}
+              type="text"
+              className="product-search-input"
+              placeholder="Search products..."
+              value={searchQuery}
+              onChange={(e) => handleSearchChange(e.target.value)}
+              onKeyDown={handleSearchKeyDown}
+              onFocus={() => { if (searchQuery.trim()) setShowDropdown(true); }}
+            />
+            {showDropdown && matchingCategories.length > 0 && (
+              <div className="search-dropdown">
+                {matchingCategories.map((cat, idx) => {
+                  const q = searchQuery.trim().toLowerCase();
+                  const matchIdx = cat.fullPath.toLowerCase().indexOf(q);
+                  const before = cat.fullPath.slice(0, matchIdx);
+                  const match = cat.fullPath.slice(matchIdx, matchIdx + q.length);
+                  const after = cat.fullPath.slice(matchIdx + q.length);
+                  return (
+                    <div
+                      key={`${cat.brandId}-${cat.url}`}
+                      className={`search-dropdown-item ${idx === selectedDropdownIdx ? 'highlighted' : ''}`}
+                      onMouseDown={() => loadCategoryProducts(cat)}
+                    >
+                      <span className="dropdown-cat-name">
+                        {before}<strong>{match}</strong>{after}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
-
-        {/* Live scrape console — shown above the grid while any brand is mid-scrape */}
-        {[...scrapingBrands].map(bid => (
-          <ScrapeConsole key={bid} brandId={bid} active={true} />
-        ))}
+          <select
+            className="product-sort-select"
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+          >
+            <option value="">Sort by...</option>
+            <option value="name-asc">Name A → Z</option>
+            <option value="name-desc">Name Z → A</option>
+            <option value="price-asc">Price Low → High</option>
+            <option value="price-desc">Price High → Low</option>
+          </select>
+        </div>
 
         {(searchLoading || loadingProducts) ? (
           <div className="gallery-loading">Loading products...</div>
         ) : displayProducts.length > 0 ? (
           <div className="product-grid" ref={gridRef}>
-            {displayProducts.map((product, idx) => {
-              // E0005 field names with legacy aliases as fallback.
-              const brandRaw = product.brand || product.brand_id || '';
-              const brandName = brandRaw ? brandRaw.toString().replace(/_/g, ' ').toUpperCase() : '';
-              const productName = product.product_title || product.name || product.product_name || 'Unknown Product';
-              const productUrl = product.itemurl || product.url || product.product_url || '';
-
-              // images: prefer E0005 all_images / main_image_url, then legacy images[]
-              let imageUrl = product.main_image_url || null;
-              if (!imageUrl) {
-                const rawImages = Array.isArray(product.all_images)
-                  ? product.all_images
-                  : (typeof product.all_images === 'string' && product.all_images.startsWith('[')
-                      ? (() => { try { return JSON.parse(product.all_images); } catch { return []; } })()
-                      : (product.images || []));
-                if (rawImages.length > 0) {
-                  const first = rawImages[0];
-                  imageUrl = typeof first === 'string' ? first : first && first.src;
-                }
-              }
-
-              // price: prefer e0005 price + full_price for sale-strike
-              const price = product.price ?? null;
-              const fullPrice = product.full_price ?? null;
-              const onSale = fullPrice && price && Number(fullPrice) > Number(price);
-              const priceDisplay = price !== null
-                ? formatTilePrice(price)
-                : (product.attributes?.price || '');
-
-              // Per-size availability quick badges
-              const sizeBadges = buildTileSizes(product);
-
-              // Stock badge: in-stock / sold-out
-              const stock = product.in_stock;
-              const allSoldOut = sizeBadges.length > 0 && sizeBadges.every(s => s.gone);
-
-              const rowIdx = Math.floor(idx / GRID_COLS);
-              const rowHeight = rowImageHeights[rowIdx];
-
-              const cardClass =
-                'product-card' +
-                (selectedProduct && (selectedProduct.itemurl || selectedProduct.url || selectedProduct.product_url) === productUrl ? ' selected' : '') +
-                (!imageUrl ? ' product-card-no-image' : '');
-
-              return (
-                <div
-                  key={`${productUrl}-${idx}`}
-                  className={cardClass}
-                  onClick={() => setSelectedProduct(product)}
-                >
-                  <div className="product-image" style={rowHeight ? { height: rowHeight } : undefined}>
-                    {imageUrl ? (
-                      <img
-                        src={imageUrl}
-                        alt={productName}
-                        loading="lazy"
-                        onLoad={(e) => handleImageLoad(idx, e)}
-                        onError={(e) => {
-                          // Swap to no-image placeholder if the image 404s.
-                          const card = e.currentTarget.closest('.product-card');
-                          if (card) card.classList.add('product-card-no-image');
-                          e.currentTarget.style.display = 'none';
-                          const sib = e.currentTarget.parentElement.querySelector('.no-image-placeholder');
-                          if (sib) sib.style.display = 'flex';
-                        }}
-                      />
-                    ) : null}
-                    <div className="no-image-placeholder" style={{ display: imageUrl ? 'none' : 'flex' }}>
-                      <div className="no-image-icon">⊘</div>
-                      <div className="no-image-text">No image</div>
-                    </div>
-                    {imageUrl && onSale && <div className="tile-badge tile-badge-sale">Sale</div>}
-                    {imageUrl && !onSale && allSoldOut && <div className="tile-badge tile-badge-bad">Sold out</div>}
-                    {imageUrl && !onSale && !allSoldOut && stock === 1 && <div className="tile-badge">In stock</div>}
-                    {!imageUrl && <div className="tile-badge tile-badge-flag">Missing image</div>}
-                  </div>
-                  <div className="product-info">
-                    <div className="product-brand">{brandName}</div>
-                    <div className="product-name">{productName}</div>
-                    {priceDisplay && (
-                      <div className="product-price">
-                        {onSale && <span className="product-price-strike">{formatTilePrice(fullPrice)}</span>}
-                        {priceDisplay}
-                      </div>
-                    )}
-                    {sizeBadges.length > 0 && (
-                      <div className="tile-sizes">
-                        {sizeBadges.map((s, i) => (
-                          <span key={i}
-                                className={`tile-size${s.gone ? ' gone' : ''}${s.low ? ' low' : ''}`}
-                                title={s.label + (s.gone ? ' — sold out' : (s.count ? ` — ${s.count} left` : ''))}>
-                            {s.short}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+            {displayProducts.map((product, idx) => (
+              <ProductCard
+                key={`${product.itemurl || ''}-${idx}`}
+                product={product}
+                idx={idx}
+                selected={selectedProduct?.itemurl === product.itemurl}
+                rowHeight={rowImageHeights[Math.floor(idx / GRID_COLS)]}
+                onSelect={() => setSelectedProduct(product)}
+                onImageLoad={handleImageLoad}
+              />
+            ))}
           </div>
-        ) : null}
+        ) : (
+          <div className="gallery-empty">
+            {selectedLeaves.size === 0 && searchResults === null
+              ? 'Pick a brand on the left.'
+              : 'Nothing here.'}
+          </div>
+        )}
       </div>
 
-      {/* Product Detail Panel with drag handle */}
       {selectedProduct && (
         <div className="detail-panel-wrapper" style={{ width: detailPanelWidth, minWidth: 300 }}>
           <div className="detail-resize-handle" onMouseDown={handleResizeMouseDown} />
@@ -1169,151 +612,171 @@ function MyBrandsPanel() {
           />
         </div>
       )}
-
-      {/* Add Brand Modal */}
-      {showAddBrandModal && (
-        <div className="modern-modal-overlay" onClick={() => setShowAddBrandModal(false)}>
-          <div className="modern-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modern-modal-title">Add New Brand</div>
-            <div className="modern-modal-content">
-              Enter the brand's homepage URL to add it to your collection.
-            </div>
-
-            {error && (
-              <div className="modern-error">
-                {error}
-              </div>
-            )}
-
-            <input
-              type="text"
-              className="modern-input"
-              placeholder="https://example.com"
-              value={brandUrlInput}
-              onChange={(e) => setBrandUrlInput(e.target.value)}
-              onKeyPress={(e) => {
-                if (e.key === 'Enter' && !validating) {
-                  handleSubmitBrandUrl();
-                }
-              }}
-              autoFocus
-              disabled={validating}
-            />
-
-            <div className="modern-modal-actions">
-              <button
-                className="modern-button modern-button-secondary"
-                onClick={() => {
-                  setShowAddBrandModal(false);
-                  setBrandUrlInput('');
-                  setError('');
-                }}
-                disabled={validating}
-              >
-                Cancel
-              </button>
-              <button
-                className="modern-button modern-button-primary"
-                onClick={handleSubmitBrandUrl}
-                disabled={validating || !brandUrlInput.trim()}
-              >
-                {validating ? 'Validating...' : 'Add Brand'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      {/* Remove Brand Confirmation Modal */}
-      {showRemoveConfirm && (
-        <div className="modern-modal-overlay" onClick={() => setShowRemoveConfirm(false)}>
-          <div className="modern-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modern-modal-title">Remove Brands</div>
-            <div className="modern-modal-content">
-              Are you sure you want to remove the following brand{selectedForRemoval.size > 1 ? 's' : ''} from your list?
-              <ul className="remove-brand-list">
-                {brands
-                  .filter(b => selectedForRemoval.has(b.brand_id))
-                  .map(b => (
-                    <li key={b.brand_id}>{b.name || b.brand_id}</li>
-                  ))
-                }
-              </ul>
-            </div>
-            <div className="modern-modal-actions">
-              <button
-                className="modern-button modern-button-secondary"
-                onClick={() => setShowRemoveConfirm(false)}
-              >
-                Cancel
-              </button>
-              <button
-                className="modern-button modern-button-danger"
-                onClick={async () => {
-                  for (const brandId of selectedForRemoval) {
-                    await FashionArchiveAPI.unfollowBrand(brandId);
-                  }
-                  setShowRemoveConfirm(false);
-                  setRemoveMode(false);
-                  setSelectedForRemoval(new Set());
-                  loadBrands();
-                }}
-              >
-                Remove
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Tile helpers (E0005-aware)
+// Product card
 // ---------------------------------------------------------------------------
 
-function formatTilePrice(p) {
+function ProductCard({ product, idx, selected, rowHeight, onSelect, onImageLoad }) {
+  const brandRaw = product.brand_name || product.brand || product.brand_id || '';
+  const brandName = brandRaw ? String(brandRaw).replace(/_/g, ' ').toUpperCase() : '';
+  const productName = product.product_title || 'Unknown Product';
+
+  const imageUrl = firstImage(product);
+  const price = product.price ?? null;
+  const fullPrice = product.full_price ?? null;
+  const onSale = fullPrice && price && Number(fullPrice) > Number(price);
+  const priceDisplay = price !== null ? formatTilePrice(price, product.currency) : '';
+
+  const sizeBadges = buildTileSizes(product);
+  const allSoldOut = sizeBadges.length > 0 && sizeBadges.every(s => s.gone);
+  const stock = product.in_stock;
+
+  const cardClass = 'product-card'
+    + (selected ? ' selected' : '')
+    + (!imageUrl ? ' product-card-no-image' : '');
+
+  // The shop's CDN is the live copy and can stop resolving; the archive kept bytes for
+  // some products, so a dead image falls back to ours before it falls back to a ⊘.
+  const handleError = (e) => {
+    const img = e.currentTarget;
+    const fallbacks = (product.archived_images || []).map(p => `${ArchiveAPI.BASE_URL}${p}`);
+    const next = fallbacks.find(u => u !== img.src);
+    if (next) {
+      img.src = next;
+      return;
+    }
+    const card = img.closest('.product-card');
+    if (card) card.classList.add('product-card-no-image');
+    img.style.display = 'none';
+    const placeholder = img.parentElement.querySelector('.no-image-placeholder');
+    if (placeholder) placeholder.style.display = 'flex';
+  };
+
+  return (
+    <div className={cardClass} onClick={onSelect}>
+      <div className="product-image" style={rowHeight ? { height: rowHeight } : undefined}>
+        {imageUrl ? (
+          <img
+            src={imageUrl}
+            alt={productName}
+            loading="lazy"
+            onLoad={(e) => onImageLoad(idx, e)}
+            onError={handleError}
+          />
+        ) : null}
+        <div className="no-image-placeholder" style={{ display: imageUrl ? 'none' : 'flex' }}>
+          <div className="no-image-icon">⊘</div>
+          <div className="no-image-text">No image</div>
+        </div>
+        {imageUrl && onSale && <div className="tile-badge tile-badge-sale">Sale</div>}
+        {imageUrl && !onSale && allSoldOut && <div className="tile-badge tile-badge-bad">Sold out</div>}
+        {imageUrl && !onSale && !allSoldOut && stock === true && <div className="tile-badge">In stock</div>}
+        {!imageUrl && <div className="tile-badge tile-badge-flag">Missing image</div>}
+      </div>
+      <div className="product-info">
+        <div className="product-brand">{brandName}</div>
+        <div className="product-name">{productName}</div>
+        {priceDisplay && (
+          <div className="product-price">
+            {onSale && (
+              <span className="product-price-strike">
+                {formatTilePrice(fullPrice, product.currency)}
+              </span>
+            )}
+            {priceDisplay}
+          </div>
+        )}
+        {sizeBadges.length > 0 && (
+          <div className="tile-sizes">
+            {sizeBadges.map((s, i) => (
+              <span
+                key={i}
+                className={`tile-size${s.gone ? ' gone' : ''}${s.low ? ' low' : ''}`}
+                title={s.label + (s.gone ? ' — sold out' : (s.count ? ` — ${s.count} left` : ''))}
+              >
+                {s.short}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Helpers (E0005)
+// ---------------------------------------------------------------------------
+
+/** Products that appear under two selected categories show once; within one category
+ *  duplicates stay, because there they are two real listings. */
+function deduplicateProducts(productArrays) {
+  const seenUrl = new Set();
+  const brandNameSource = new Map();
+  const results = [];
+  for (let i = 0; i < productArrays.length; i++) {
+    for (const p of productArrays[i] || []) {
+      const url = p.itemurl || '';
+      if (url && seenUrl.has(url)) continue;
+      if (url) seenUrl.add(url);
+
+      const brand = (p.brand || p.brand_id || '').toLowerCase();
+      const name = (p.product_title || '').toLowerCase();
+      if (brand && name) {
+        const key = `${brand}::${name}`;
+        if (brandNameSource.has(key) && brandNameSource.get(key) !== i) continue;
+        brandNameSource.set(key, i);
+      }
+      results.push(p);
+    }
+  }
+  return results;
+}
+
+/** main_image_url, else the first of all_images — which is stored JSON-encoded. */
+function firstImage(product) {
+  if (product.main_image_url) return product.main_image_url;
+  let images = product.all_images;
+  if (typeof images === 'string') {
+    try { images = JSON.parse(images); } catch { images = []; }
+  }
+  if (!Array.isArray(images) || images.length === 0) return null;
+  const first = images[0];
+  return typeof first === 'string' ? first : (first && first.src) || null;
+}
+
+const CURRENCY_SIGN = { USD: '$', EUR: '€', GBP: '£', JPY: '¥', CNY: '¥', RUB: '₽' };
+
+function formatTilePrice(p, currency) {
   if (p === null || p === undefined || p === '') return '';
   const n = typeof p === 'string' ? parseFloat(p.replace(/[^\d.]/g, '')) : Number(p);
   if (!isFinite(n)) return String(p);
-  return '$' + n.toLocaleString('en-US', { maximumFractionDigits: 2 });
+  const sign = CURRENCY_SIGN[currency] || (currency ? `${currency} ` : '$');
+  return sign + n.toLocaleString('en-US', { maximumFractionDigits: 2 });
 }
 
-/** Compact per-size badge list for a tile.
- *  Returns [{short:"38", gone:false, low:true, count:1, label:"38 / US 2"}, ...]
- *  Prefers E0005 size_info / size_availability / size_stock_counts; falls
- *  back to legacy variants[]. Caps at 6 entries to keep tile compact. */
+/** Compact per-size badges: [{short:"38", gone, low, count, label:"38 / US 2"}, ...]
+ *  from the E0005 size_info / size_availability / size_stock_counts triple, which are
+ *  parallel comma-separated lists aligned by position. Capped at 6 to keep tiles small. */
 function buildTileSizes(product) {
   const sizes = (product.size_info || '').split(/,\s*/).map(s => s.trim()).filter(Boolean);
   const avails = (product.size_availability || '').split(/,\s*/).map(s => s.trim()).filter(Boolean);
   const counts = (product.size_stock_counts || '').split(/,\s*/).map(s => s.trim()).filter(Boolean);
 
-  let entries = [];
-  if (sizes.length > 0) {
-    entries = sizes.map((label, i) => {
-      const avail = (avails[i] || '').toLowerCase();
-      const cnt = parseInt(counts[i], 10);
-      const stockCount = isFinite(cnt) ? cnt : undefined;
-      const gone = avail
-        ? ['out_of_stock', 'false', '0', 'no'].includes(avail)
-        : (stockCount === 0);
-      const low = !gone && stockCount !== undefined && stockCount > 0 && stockCount <= 2;
-      const short = label.split('/')[0].trim();   // "38 / US 2" → "38"
-      return { label, short, gone, low, count: stockCount };
-    });
-  } else {
-    const variants = product.variants || [];
-    entries = variants
-      .filter(v => v.size)
-      .map(v => ({
-        label: v.size,
-        short: String(v.size).split('/')[0].trim(),
-        gone: v.available === false,
-        low: v.available !== false && typeof v.stock_count === 'number' && v.stock_count <= 2,
-        count: v.stock_count,
-      }));
-  }
-  return entries.slice(0, 6);
+  return sizes.map((label, i) => {
+    const avail = (avails[i] || '').toLowerCase();
+    const cnt = parseInt(counts[i], 10);
+    const stockCount = isFinite(cnt) ? cnt : undefined;
+    const gone = avail
+      ? ['out_of_stock', 'false', '0', 'no'].includes(avail)
+      : (stockCount === 0);
+    const low = !gone && stockCount !== undefined && stockCount > 0 && stockCount <= 2;
+    return { label, short: label.split('/')[0].trim(), gone, low, count: stockCount };
+  }).slice(0, 6);
 }
 
 export default MyBrandsPanel;
