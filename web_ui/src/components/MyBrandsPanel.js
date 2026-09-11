@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import Fuse from 'fuse.js';
+import TopBar from './TopBar';
 import { ArchiveAPI } from '../services/api';
 import ProductDetailPanel from './ProductDetailPanel';
+import './MyBrandsPanel.css';
 
 // ---------------------------------------------------------------------------
 // MyBrandsPanel — the archive, browsed.
@@ -13,7 +15,7 @@ import ProductDetailPanel from './ProductDetailPanel';
 // wrote and shows what is in it, gaps included.
 // ---------------------------------------------------------------------------
 
-function MyBrandsPanel() {
+function MyBrandsPanel({ currentPage, onPageSwitch, currentUser, onLogout }) {
   const [brands, setBrands] = useState([]);
   const [loading, setLoading] = useState(true);
   const [health, setHealth] = useState(null);
@@ -38,11 +40,6 @@ function MyBrandsPanel() {
   // Resizable detail panel
   const [detailPanelWidth, setDetailPanelWidth] = useState(400);
   const isResizing = useRef(false);
-
-  // Grid image sizing
-  const [imageDimensions, setImageDimensions] = useState({});
-  const gridRef = useRef(null);
-  const [gridColWidth, setGridColWidth] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -156,10 +153,6 @@ function MyBrandsPanel() {
 
   // --- category tree ------------------------------------------------------
 
-  const countFor = useCallback((brandId, category) => (
-    productCounts[`${brandId}::${category.url}`] ?? null
-  ), [productCounts]);
-
   const renderCategoryTree = (brand, categories, level = 0) => {
     if (!categories || categories.length === 0) return null;
 
@@ -180,15 +173,15 @@ function MyBrandsPanel() {
       const leafKey = `${brand.brand_id}::${category.url}`;
       const isSelected = selectedLeaves.has(leafKey);
       const isExpanded = expandedCategories[leafKey];
-      const count = countFor(brand.brand_id, category);
+      const count = productCounts[leafKey] ?? null;
 
       return (
         <div key={leafKey} style={{ marginLeft: level > 0 ? '16px' : '0' }}>
           <div
             className={`nav-item ${hasChildren ? 'nav-parent' : 'nav-leaf'} ${isSelected ? 'nav-selected' : ''}`}
             onClick={(e) => {
-              // A parent is both a row of its own and a container: clicking the caret
-              // area opens it, clicking the name selects it. Shift selects it alone.
+              // A parent is both a row of its own and a container: the caret opens it,
+              // the name selects it, so a category with children is still browsable.
               if (hasChildren && !e.shiftKey && e.target.closest('.nav-icon')) {
                 toggleCategory(leafKey);
               } else {
@@ -333,7 +326,7 @@ function MyBrandsPanel() {
 
       const fuse = new Fuse(merged, {
         keys: [
-          'product_title', 'product_code', 'brand', 'brand_id',
+          'product_title', 'product_code', 'brand', 'brand_name',
           'description', 'specifications', 'material_info',
           'category1', 'category2', 'category3',
           'color_info', 'size_info', 'additional_tags',
@@ -409,42 +402,6 @@ function MyBrandsPanel() {
     return result;
   }, [products, searchResults, sortBy, parsePrice]);
 
-  useEffect(() => { setImageDimensions({}); }, [displayProducts]);
-
-  useEffect(() => {
-    const updateColWidth = () => {
-      if (gridRef.current) {
-        const firstCard = gridRef.current.querySelector('.product-card');
-        if (firstCard) setGridColWidth(firstCard.offsetWidth);
-      }
-    };
-    updateColWidth();
-    if (!gridRef.current) return;
-    const observer = new ResizeObserver(updateColWidth);
-    observer.observe(gridRef.current);
-    return () => observer.disconnect();
-  }, [displayProducts]);
-
-  const GRID_COLS = 4;
-  const rowImageHeights = useMemo(() => {
-    if (!gridColWidth) return {};
-    const heights = {};
-    displayProducts.forEach((_, idx) => {
-      const dims = imageDimensions[idx];
-      if (dims && dims.naturalWidth > 0) {
-        const row = Math.floor(idx / GRID_COLS);
-        const displayHeight = Math.ceil((dims.naturalHeight / dims.naturalWidth) * gridColWidth);
-        heights[row] = Math.max(heights[row] || 0, displayHeight);
-      }
-    });
-    return heights;
-  }, [imageDimensions, gridColWidth, displayProducts]);
-
-  const handleImageLoad = useCallback((idx, e) => {
-    const { naturalWidth, naturalHeight } = e.target;
-    setImageDimensions(prev => ({ ...prev, [idx]: { naturalWidth, naturalHeight } }));
-  }, []);
-
   const handleResizeMouseDown = useCallback((e) => {
     e.preventDefault();
     isResizing.current = true;
@@ -471,17 +428,32 @@ function MyBrandsPanel() {
 
   if (loading) {
     return (
-      <div className="my-brands-container">
-        <div className="loading-state">Loading the archive...</div>
+      <div className="ar-page">
+        <TopBar
+          currentPage={currentPage}
+          onPageSwitch={onPageSwitch}
+          currentUser={currentUser}
+          onLogout={onLogout}
+        />
+        <div className="ar-content">
+          <div className="loading-state">Loading the archive...</div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="my-brands-container">
+    <div className="ar-page">
+      <TopBar
+        currentPage={currentPage}
+        onPageSwitch={onPageSwitch}
+        currentUser={currentUser}
+        onLogout={onLogout}
+      />
+      <div className="ar-content">
       {/* Left Sidebar — the roster */}
       <div className="brand-sidebar">
-        <div className="brand-sidebar-content">
+        <div className="brand-sidebar-content ar-scroll">
           {health && !health.ok && (
             <div className="archive-warning">
               The archive catalogue could not be read{health.error ? `: ${health.error}` : '.'}
@@ -494,7 +466,7 @@ function MyBrandsPanel() {
             return (
               <div key={brand.brand_id} className="brand-section">
                 <div
-                  className={`brand-name ${empty ? 'brand-empty' : ''}`}
+                  className={`brand-name ${isExpanded ? 'expanded' : ''} ${empty ? 'brand-empty' : ''}`}
                   onClick={() => toggleBrand(brand.brand_id)}
                   title={
                     `${brand.products} products` +
@@ -511,7 +483,7 @@ function MyBrandsPanel() {
                 {isExpanded && (
                   <div className="brand-categories">
                     {brand.navigation === null
-                      ? <div className="nav-item nav-loading">loading...</div>
+                      ? <div className="nav-item nav-loading">loading</div>
                       : brand.navigation.length === 0
                         ? <div className="nav-item nav-empty">nothing scraped yet</div>
                         : renderCategoryTree(brand, brand.navigation)}
@@ -522,6 +494,8 @@ function MyBrandsPanel() {
           })}
         </div>
 
+        {/* The roster is a file, so this states what the list is rather than offering a
+            way to change it from here. */}
         <div className="brand-sidebar-footer">
           {brands.length} brands · {brands.reduce((n, b) => n + (b.products || 0), 0)} products
           <div className="brand-sidebar-hint">from brands.yml</div>
@@ -529,80 +503,81 @@ function MyBrandsPanel() {
       </div>
 
       {/* Right Panel — Product Gallery */}
-      <div className="product-gallery">
+      <div className="product-gallery ar-scroll">
+        {/* Search + Sort Toolbar */}
         <div className="product-toolbar">
-          <div className="search-wrapper">
-            <input
-              ref={searchInputRef}
-              type="text"
-              className="product-search-input"
-              placeholder="Search products..."
-              value={searchQuery}
-              onChange={(e) => handleSearchChange(e.target.value)}
-              onKeyDown={handleSearchKeyDown}
-              onFocus={() => { if (searchQuery.trim()) setShowDropdown(true); }}
-            />
-            {showDropdown && matchingCategories.length > 0 && (
-              <div className="search-dropdown">
-                {matchingCategories.map((cat, idx) => {
-                  const q = searchQuery.trim().toLowerCase();
-                  const matchIdx = cat.fullPath.toLowerCase().indexOf(q);
-                  const before = cat.fullPath.slice(0, matchIdx);
-                  const match = cat.fullPath.slice(matchIdx, matchIdx + q.length);
-                  const after = cat.fullPath.slice(matchIdx + q.length);
-                  return (
-                    <div
-                      key={`${cat.brandId}-${cat.url}`}
-                      className={`search-dropdown-item ${idx === selectedDropdownIdx ? 'highlighted' : ''}`}
-                      onMouseDown={() => loadCategoryProducts(cat)}
-                    >
-                      <span className="dropdown-cat-name">
-                        {before}<strong>{match}</strong>{after}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+            <div className="search-wrapper">
+              <input
+                ref={searchInputRef}
+                type="text"
+                className="ar-input"
+                placeholder="Search"
+                value={searchQuery}
+                onChange={(e) => handleSearchChange(e.target.value)}
+                onKeyDown={handleSearchKeyDown}
+                onFocus={() => { if (searchQuery.trim()) setShowDropdown(true); }}
+                onBlur={() => {}}
+              />
+              {showDropdown && matchingCategories.length > 0 && (
+                <div className="search-dropdown">
+                  {matchingCategories.map((cat, idx) => {
+                    const q = searchQuery.trim().toLowerCase();
+                    const pathLower = cat.fullPath.toLowerCase();
+                    const matchIdx = pathLower.indexOf(q);
+                    const before = cat.fullPath.slice(0, matchIdx);
+                    const match = cat.fullPath.slice(matchIdx, matchIdx + q.length);
+                    const after = cat.fullPath.slice(matchIdx + q.length);
+                    return (
+                      <div
+                        key={`${cat.brandId}-${cat.url}`}
+                        className={`search-dropdown-item ${idx === selectedDropdownIdx ? 'highlighted' : ''}`}
+                        onMouseDown={() => loadCategoryProducts(cat)}
+                      >
+                        <span className="dropdown-cat-name">
+                          {before}<strong>{match}</strong>{after}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            <select
+              className="ar-select product-sort-select"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+            >
+              <option value="">Sort by...</option>
+              <option value="name-asc">Name A → Z</option>
+              <option value="name-desc">Name Z → A</option>
+              <option value="price-asc">Price Low → High</option>
+              <option value="price-desc">Price High → Low</option>
+            </select>
           </div>
-          <select
-            className="product-sort-select"
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value)}
-          >
-            <option value="">Sort by...</option>
-            <option value="name-asc">Name A → Z</option>
-            <option value="name-desc">Name Z → A</option>
-            <option value="price-asc">Price Low → High</option>
-            <option value="price-desc">Price High → Low</option>
-          </select>
-        </div>
 
         {(searchLoading || loadingProducts) ? (
           <div className="gallery-loading">Loading products...</div>
         ) : displayProducts.length > 0 ? (
-          <div className="product-grid" ref={gridRef}>
+          <div className="product-grid">
             {displayProducts.map((product, idx) => (
               <ProductCard
                 key={`${product.itemurl || ''}-${idx}`}
                 product={product}
-                idx={idx}
                 selected={selectedProduct?.itemurl === product.itemurl}
-                rowHeight={rowImageHeights[Math.floor(idx / GRID_COLS)]}
                 onSelect={() => setSelectedProduct(product)}
-                onImageLoad={handleImageLoad}
               />
             ))}
           </div>
         ) : (
           <div className="gallery-empty">
             {selectedLeaves.size === 0 && searchResults === null
-              ? 'Pick a brand on the left.'
-              : 'Nothing here.'}
+              ? 'Select a brand to view products'
+              : 'Nothing in this category'}
           </div>
         )}
       </div>
 
+      {/* Product Detail Panel with drag handle */}
       {selectedProduct && (
         <div className="detail-panel-wrapper" style={{ width: detailPanelWidth, minWidth: 300 }}>
           <div className="detail-resize-handle" onMouseDown={handleResizeMouseDown} />
@@ -612,6 +587,7 @@ function MyBrandsPanel() {
           />
         </div>
       )}
+      </div>
     </div>
   );
 }
@@ -620,7 +596,7 @@ function MyBrandsPanel() {
 // Product card
 // ---------------------------------------------------------------------------
 
-function ProductCard({ product, idx, selected, rowHeight, onSelect, onImageLoad }) {
+function ProductCard({ product, selected, onSelect }) {
   const brandRaw = product.brand_name || product.brand || product.brand_id || '';
   const brandName = brandRaw ? String(brandRaw).replace(/_/g, ' ').toUpperCase() : '';
   const productName = product.product_title || 'Unknown Product';
@@ -633,7 +609,7 @@ function ProductCard({ product, idx, selected, rowHeight, onSelect, onImageLoad 
 
   const sizeBadges = buildTileSizes(product);
   const allSoldOut = sizeBadges.length > 0 && sizeBadges.every(s => s.gone);
-  const stock = product.in_stock;
+  const inStock = product.in_stock === true || product.in_stock === 1;
 
   const cardClass = 'product-card'
     + (selected ? ' selected' : '')
@@ -643,8 +619,8 @@ function ProductCard({ product, idx, selected, rowHeight, onSelect, onImageLoad 
   // some products, so a dead image falls back to ours before it falls back to a ⊘.
   const handleError = (e) => {
     const img = e.currentTarget;
-    const fallbacks = (product.archived_images || []).map(p => `${ArchiveAPI.BASE_URL}${p}`);
-    const next = fallbacks.find(u => u !== img.src);
+    const fallbacks = product.archived_images || [];
+    const next = fallbacks.find(u => u !== img.getAttribute('src'));
     if (next) {
       img.src = next;
       return;
@@ -658,15 +634,9 @@ function ProductCard({ product, idx, selected, rowHeight, onSelect, onImageLoad 
 
   return (
     <div className={cardClass} onClick={onSelect}>
-      <div className="product-image" style={rowHeight ? { height: rowHeight } : undefined}>
+      <div className="product-image">
         {imageUrl ? (
-          <img
-            src={imageUrl}
-            alt={productName}
-            loading="lazy"
-            onLoad={(e) => onImageLoad(idx, e)}
-            onError={handleError}
-          />
+          <img src={imageUrl} alt={productName} loading="lazy" onError={handleError} />
         ) : null}
         <div className="no-image-placeholder" style={{ display: imageUrl ? 'none' : 'flex' }}>
           <div className="no-image-icon">⊘</div>
@@ -674,7 +644,7 @@ function ProductCard({ product, idx, selected, rowHeight, onSelect, onImageLoad 
         </div>
         {imageUrl && onSale && <div className="tile-badge tile-badge-sale">Sale</div>}
         {imageUrl && !onSale && allSoldOut && <div className="tile-badge tile-badge-bad">Sold out</div>}
-        {imageUrl && !onSale && !allSoldOut && stock === true && <div className="tile-badge">In stock</div>}
+        {imageUrl && !onSale && !allSoldOut && inStock && <div className="tile-badge">In stock</div>}
         {!imageUrl && <div className="tile-badge tile-badge-flag">Missing image</div>}
       </div>
       <div className="product-info">
