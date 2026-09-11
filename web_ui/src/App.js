@@ -3,7 +3,6 @@ import SeasonsPanel from './components/SeasonsPanel';
 import CollectionsPanel from './components/CollectionsPanel';
 import ImageViewerPanel from './components/ImageViewerPanel';
 import VideoWindow from './components/VideoModal';
-import MenuBar from './components/MenuBar';
 import FavouritesPanel from './components/FavouritesPanel';
 import MyBrandsPanel from './components/MyBrandsPanel';
 import AuthPanel from './auth/AuthPanel';
@@ -27,10 +26,7 @@ function App() {
   
   // Page State
   const [currentPage, setCurrentPage] = useState('high-fashion'); // 'high-fashion', 'favourites', or 'my-brands'
-  
-  // View State - specific to each page
-  const [currentView, setCurrentView] = useState('standard'); // high-fashion: 'standard', favourites: 'view-all'
-  
+
   // UI State - matches tkinter version exactly
   const [column2Activated, setColumn2Activated] = useState(false);
   const [column3Activated, setColumn3Activated] = useState(false);
@@ -326,21 +322,7 @@ function App() {
   // Page switching handlers
   const handlePageSwitch = (page) => {
     setCurrentPage(page);
-    // Set default view for the page
-    if (page === 'high-fashion') {
-      setCurrentView('standard');
-    } else if (page === 'favourites') {
-      setCurrentView('view-all');
-    } else if (page === 'my-brands') {
-      setCurrentView('all-brands');
-    }
   };
-
-  // View mode switching handlers
-  const handleViewChange = (viewMode) => {
-    setCurrentView(viewMode);
-  };
-
 
   if (isLoading) {
     console.log('🔍 Showing loading screen');
@@ -355,36 +337,6 @@ function App() {
 
   return (
     <div className="columns-container">
-      {/* Menu Bar and Title Bar - hidden for new high-fashion UI */}
-      {currentPage !== 'high-fashion' && (
-        <>
-          <MenuBar
-            currentPage={currentPage}
-            onPageSwitch={handlePageSwitch}
-            currentView={currentView}
-            onViewChange={handleViewChange}
-            currentUser={currentUser}
-            onLogout={handleLogout}
-          />
-
-          <div className="mac-title-bar" style={{
-            position: 'fixed',
-            top: '42px',
-            left: 0,
-            right: 0,
-            zIndex: 100,
-            overflow: 'hidden',
-            whiteSpace: 'nowrap',
-          }}>
-            <div className="marquee-track">
-              {Array.from({ length: 20 }, (_, i) => (
-                <span key={i} className="marquee-item">Fashion Archive Browser</span>
-              ))}
-            </div>
-          </div>
-        </>
-      )}
-
       {/* Main Content */}
       {currentPage === 'high-fashion' ? (
         <HighFashionV2
@@ -394,11 +346,26 @@ function App() {
           currentUser={currentUser}
         />
       ) : currentPage === 'favourites' ? (
-        <FavouritesPanel currentView={currentView} />
+        <FavouritesPanel
+          currentPage={currentPage}
+          onPageSwitch={handlePageSwitch}
+          currentUser={currentUser}
+          onLogout={handleLogout}
+        />
       ) : currentPage === 'my-brands' ? (
-        <MyBrandsPanel currentView={currentView} />
+        <MyBrandsPanel
+          currentPage={currentPage}
+          onPageSwitch={handlePageSwitch}
+          currentUser={currentUser}
+          onLogout={handleLogout}
+        />
       ) : (
-        <FavouritesPanel currentView={currentView} />
+        <FavouritesPanel
+          currentPage={currentPage}
+          onPageSwitch={handlePageSwitch}
+          currentUser={currentUser}
+          onLogout={handleLogout}
+        />
       )}
 
       {/* Video Window - Separate draggable window */}
