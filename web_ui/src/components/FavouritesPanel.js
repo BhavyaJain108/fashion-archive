@@ -127,13 +127,20 @@ function FavouritesPanel({ currentPage, onPageSwitch, currentUser, onLogout }) {
     if (activeThumbRef.current && thumbStripRef.current) {
       const strip = thumbStripRef.current;
       const thumb = activeThumbRef.current;
-      const stripRect = strip.getBoundingClientRect();
-      const thumbRect = thumb.getBoundingClientRect();
-
-      const scrollLeft = thumb.offsetLeft - (stripRect.width / 2) + (thumbRect.width / 2);
-      strip.scrollTo({ left: scrollLeft, behavior: 'smooth' });
+      // Measure with rects, not thumb.offsetLeft: offsetLeft is relative to
+      // the nearest positioned ancestor, and Favourites has none above the
+      // strip (unlike HighFashionV2's .hf2-main), so it fell through to
+      // <body> and picked up the sidebar's width as part of the offset.
+      const s = strip.getBoundingClientRect();
+      const t = thumb.getBoundingClientRect();
+      const delta = (t.left + t.width / 2) - (s.left + s.width / 2);
+      strip.scrollTo({ left: strip.scrollLeft + delta, behavior: 'smooth' });
     }
-  }, [selectedIndex]);
+    // Re-centre whenever the strip is (re)shown, not just when the index
+    // moves within it — switching back to single view, or to a different
+    // collection, remounts the strip at scroll position 0 with no other
+    // signal that selectedIndex is unchanged.
+  }, [selectedIndex, viewMode, effectiveSelectedKey]);
 
   const handleSelectCollection = (key) => {
     setSelectedKey(key);
