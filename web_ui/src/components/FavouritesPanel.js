@@ -1,81 +1,27 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import TopBar from './TopBar';
 import { FashionArchiveAPI } from '../services/api';
+import './FavouritesPanel.css';
+
+// The sidebar's first row: every favourite, rather than one collection.
+const ALL = '__all__';
+
+function collectionKey(fav) {
+  return `${fav.collection.designer}::${fav.season.name}`;
+}
 
 function FavouritesPanel({ currentPage, onPageSwitch, currentUser, onLogout }) {
-  // Was lifted into App so the old MenuBar's View menu could write it. That
-  // menu is gone, and this page is the only reader, so it lives here now.
-  const [groupMode, setGroupMode] = useState('view-all');
   const [favourites, setFavourites] = useState([]);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({});
+
+  // Was App-level state written by the old MenuBar's View menu. It orders
+  // the sidebar: RECENT by when a look was saved, BY COLLECTION by designer.
+  const [groupMode, setGroupMode] = useState('view-all');
+  const [selectedKey, setSelectedKey] = useState(ALL);
+  const [viewMode, setViewMode] = useState('single');
   const [selectedIndex, setSelectedIndex] = useState(0);
 
-  // Apply view-specific sorting and filtering
-  const getDisplayFavourites = () => {
-    let displayFavourites = [...favourites];
-    
-    switch (groupMode) {
-      case 'view-all':
-        // Sort by date added (latest to oldest)
-        displayFavourites.sort((a, b) => new Date(b.date_added) - new Date(a.date_added));
-        break;
-      case 'by-collection':
-        // Group by collection, then sort collections alphabetically
-        displayFavourites.sort((a, b) => {
-          const collectionA = a.collection.designer.toLowerCase();
-          const collectionB = b.collection.designer.toLowerCase();
-          if (collectionA !== collectionB) {
-            return collectionA.localeCompare(collectionB);
-          }
-          // Within same collection, sort by look number
-          return a.look.number - b.look.number;
-        });
-        break;
-      default:
-        // Keep original order
-        break;
-    }
-    
-    return displayFavourites;
-  };
-
-  // Get grouped collections for by-collection view
-  const getGroupedCollections = () => {
-    if (groupMode !== 'by-collection') return [];
-    
-    const displayFavourites = getDisplayFavourites();
-    const groups = [];
-    let currentCollection = null;
-    let currentGroup = null;
-    
-    displayFavourites.forEach((favourite, index) => {
-      const collectionKey = `${favourite.collection.designer}-${favourite.season.name}`;
-      
-      if (collectionKey !== currentCollection) {
-        // Start new collection group
-        currentCollection = collectionKey;
-        currentGroup = {
-          collection: favourite.collection,
-          season: favourite.season,
-          items: [],
-          startIndex: index
-        };
-        groups.push(currentGroup);
-      }
-      
-      currentGroup.items.push({
-        ...favourite,
-        originalIndex: index
-      });
-    });
-    
-    return groups;
-  };
-
-  const displayFavourites = getDisplayFavourites();
-
-  // Load favourites on component mount
   useEffect(() => {
     loadFavourites();
     loadStats();
@@ -83,97 +29,129 @@ function FavouritesPanel({ currentPage, onPageSwitch, currentUser, onLogout }) {
 
   const loadFavourites = async () => {
     try {
-      console.log('FavouritesPanel: Starting to load favourites...');
       setLoading(true);
       const favs = await FashionArchiveAPI.getFavourites();
-      console.log('FavouritesPanel: Received favourites:', favs);
-      console.log('FavouritesPanel: Favourites length:', favs.length);
       setFavourites(favs);
-      if (favs.length > 0 && selectedIndex >= favs.length) {
-        setSelectedIndex(0);
-      }
     } catch (error) {
       console.error('FavouritesPanel: Error loading favourites:', error);
     } finally {
       setLoading(false);
-      console.log('FavouritesPanel: Loading complete');
     }
   };
 
   const loadStats = async () => {
     try {
-      const stats = await FashionArchiveAPI.getFavouriteStats();
-      setStats(stats);
+      setStats(await FashionArchiveAPI.getFavouriteStats());
     } catch (error) {
       console.error('Error loading stats:', error);
     }
   };
 
-  const removeFavourite = async (favourite) => {
+  const collections = useMemo(() => {
+    const byKey = new Map();
+
+    favourites.forEach(fav => {
+      const key = collectionKey(fav);
+      if (!byKey.has(key)) {
+        byKey.set(key, {
+          key,
+          designer: fav.collection.designer,
+          season: fav.season.name,
+          items: [],
+          latest: 0,
+        });
+      }
+      const group = byKey.get(key);
+      group.items.push(fav);
+      const added = new Date(fav.date_added).getTime();
+      if (added > group.latest) group.latest = added;
+    });
+
+    const groups = [...byKey.values()];
+    groups.forEach(g => g.items.sort((a, b) => a.look.number - b.look.number));
+    groups.sort((a, b) => (
+      groupMode === 'by-collection'
+        ? a.designer.toLowerCase().localeCompare(b.designer.toLowerCase())
+        : b.latest - a.latest
+    ));
+    return groups;
+  }, [favourites, groupMode]);
+
+  const visible = useMemo(() => {
+    if (selectedKey !== ALL) {
+      const group = collections.find(g => g.key === selectedKey);
+      return group ? group.items : [];
+    }
+
+    const all = [...favourites];
+    if (groupMode === 'by-collection') {
+      all.sort((a, b) => {
+        const byDesigner = a.collection.designer.toLowerCase()
+          .localeCompare(b.collection.designer.toLowerCase());
+        return byDesigner !== 0 ? byDesigner : a.look.number - b.look.number;
+      });
+    } else {
+      all.sort((a, b) => new Date(b.date_added) - new Date(a.date_added));
+    }
+    return all;
+  }, [favourites, collections, selectedKey, groupMode]);
+
+  // Keep the cursor inside the list after a removal shrinks it.
+  useEffect(() => {
+    setSelectedIndex(i => (visible.length === 0 ? 0 : Math.min(i, visible.length - 1)));
+  }, [visible.length]);
+
+  const handleSelectCollection = (key) => {
+    setSelectedKey(key);
+    setSelectedIndex(0);
+  };
+
+  const handleGroupMode = (mode) => {
+    setGroupMode(mode);
+    setSelectedIndex(0);
+  };
+
+  const handlePrev = () => {
+    if (visible.length === 0) return;
+    setSelectedIndex(i => (i > 0 ? i - 1 : visible.length - 1));
+  };
+
+  const handleNext = () => {
+    if (visible.length === 0) return;
+    setSelectedIndex(i => (i < visible.length - 1 ? i + 1 : 0));
+  };
+
+  const handleRemove = async (favourite) => {
     try {
       const result = await FashionArchiveAPI.removeFavourite(
         favourite.season.url,
         favourite.collection.url,
         favourite.look.number
       );
-      
       if (result.success) {
-        // Remove from local state
-        const newFavourites = favourites.filter(f => f.id !== favourite.id);
-        setFavourites(newFavourites);
-        
-        // Adjust selected index if needed
-        if (selectedIndex >= newFavourites.length && newFavourites.length > 0) {
-          setSelectedIndex(newFavourites.length - 1);
-        } else if (newFavourites.length === 0) {
-          setSelectedIndex(0);
-        }
-        
-        loadStats(); // Refresh stats
+        setFavourites(prev => prev.filter(f => f.id !== favourite.id));
+        loadStats();
       }
     } catch (error) {
       console.error('Error removing favourite:', error);
     }
   };
 
-  // Navigation handlers
-  const handlePrevFavourite = () => {
-    if (displayFavourites.length > 0) {
-      const newIndex = selectedIndex > 0 ? selectedIndex - 1 : displayFavourites.length - 1;
-      setSelectedIndex(newIndex);
-    }
-  };
-
-  const handleNextFavourite = () => {
-    if (displayFavourites.length > 0) {
-      const newIndex = selectedIndex < displayFavourites.length - 1 ? selectedIndex + 1 : 0;
-      setSelectedIndex(newIndex);
-    }
-  };
-
-  const handleGallerySelect = (index) => {
-    setSelectedIndex(index);
-  };
+  const chrome = (
+    <TopBar
+      currentPage={currentPage}
+      onPageSwitch={onPageSwitch}
+      currentUser={currentUser}
+      onLogout={onLogout}
+    />
+  );
 
   if (loading) {
     return (
-      <div className="columns-container">
-        <TopBar
-          currentPage={currentPage}
-          onPageSwitch={onPageSwitch}
-          currentUser={currentUser}
-          onLogout={onLogout}
-        />
-        <div style={{ 
-          display: 'flex', 
-          height: '100vh', 
-          paddingTop: '75px',
-          alignItems: 'center',
-          justifyContent: 'center'
-        }}>
-          <div className="loading">
-            <div className="mac-label">Loading favourites...</div>
-          </div>
+      <div className="ar-page">
+        {chrome}
+        <div className="ar-loading">
+          <span className="headline">Loading favourites</span>
         </div>
       </div>
     );
@@ -181,246 +159,177 @@ function FavouritesPanel({ currentPage, onPageSwitch, currentUser, onLogout }) {
 
   if (favourites.length === 0) {
     return (
-      <div className="columns-container">
-        <TopBar
-          currentPage={currentPage}
-          onPageSwitch={onPageSwitch}
-          currentUser={currentUser}
-          onLogout={onLogout}
-        />
-        <div style={{ 
-          display: 'flex', 
-          height: '100vh', 
-          paddingTop: '75px',
-          alignItems: 'center',
-          justifyContent: 'center',
-          flexDirection: 'column',
-          gap: '20px'
-        }}>
-          <div className="mac-panel" style={{ 
-            padding: '40px',
-            textAlign: 'center',
-            maxWidth: '600px'
-          }}>
-            <div style={{ fontSize: '48px', marginBottom: '20px' }}>🤍</div>
-            <div style={{ fontSize: '18px', color: '#666', marginBottom: '10px' }}>
-              No favourites yet
-            </div>
-            <div style={{ fontSize: '14px', color: '#999' }}>
-              Browse High Fashion collections and click the heart button to save your favourite looks here
-            </div>
-          </div>
+      <div className="ar-page">
+        {chrome}
+        <div className="ar-empty">
+          <span className="headline">No favourites</span>
+          <span>Open a collection and save a look to see it here</span>
         </div>
       </div>
     );
   }
 
-  const currentFavourite = displayFavourites[selectedIndex];
+  const current = visible[selectedIndex] || null;
 
   return (
-    <div className="columns-container">
-      <TopBar
-        currentPage={currentPage}
-        onPageSwitch={onPageSwitch}
-        currentUser={currentUser}
-        onLogout={onLogout}
-      />
-      {/* Title Bar */}
-      <div className="mac-title-bar" style={{ 
-        position: 'fixed',
-        top: '42px',
-        left: 0,
-        right: 0,
-        zIndex: 100
-      }}>
-        My Favourites - {stats.total_favourites || 0} looks from {stats.unique_designers || 0} designers
-      </div>
+    <div className="ar-page">
+      {chrome}
 
-      {/* Split Layout */}
-      <div style={{ display: 'flex', height: '100vh', paddingTop: '75px' }}>
-        
-        {/* Left: Gallery */}
-        <div className="column" style={{ width: '50%' }}>
-          <div className="mac-panel" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-            {/* Gallery Grid */}
-            <div className="mac-scrollbar" style={{ 
-              flex: 1,
-              padding: '8px',
-              overflowY: 'auto'
-            }}>
-              {groupMode === 'by-collection' ? (
-                // Collection-grouped view
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  {getGroupedCollections().map((group, groupIndex) => (
-                    <div key={`${group.collection.designer}-${group.season.name}`}>
-                      {/* Collection Header */}
-                      <div style={{ 
-                        fontSize: '14px', 
-                        fontWeight: 'bold', 
-                        marginBottom: '8px',
-                        paddingBottom: '4px',
-                        borderBottom: '1px solid var(--mac-border)'
-                      }}>
-                        {group.collection.designer}
-                      </div>
-                      
-                      {/* Collection Images Grid */}
-                      <div style={{
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
-                        gap: '8px',
-                        marginBottom: '8px',
-                        width: '100%'
-                      }}>
-                        {group.items.map((favourite) => (
-                          <div
-                            key={favourite.id}
-                            className={`gallery-item ${favourite.originalIndex === selectedIndex ? 'selected' : ''}`}
-                            onClick={() => handleGallerySelect(favourite.originalIndex)}
-                          >
-                            <div className="gallery-image-container">
-                              <img 
-                                src={FashionArchiveAPI.getImageUrl(favourite.image_path)}
-                                alt={`Look ${favourite.look.number}`}
-                              />
-                            </div>
-                            <div className="gallery-look-label">
-                              Look {favourite.look.number}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                // Standard grid view
-                <div style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
-                  gap: '8px',
-                  width: '100%'
-                }}>
-                  {displayFavourites.map((favourite, index) => (
-                    <div
-                      key={favourite.id}
-                      className={`gallery-item ${index === selectedIndex ? 'selected' : ''}`}
-                      onClick={() => handleGallerySelect(index)}
-                    >
-                      <div className="gallery-image-container">
-                        <img 
-                          src={FashionArchiveAPI.getImageUrl(favourite.image_path)}
-                          alt={`Look ${favourite.look.number}`}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+      <div className="ar-content">
+        <div className="ar-sidebar">
+          <div className="fav-mode-row">
+            <button
+              className={`ar-chip ${groupMode === 'view-all' ? 'selected' : ''}`}
+              onClick={() => handleGroupMode('view-all')}
+            >Recent</button>
+            <button
+              className={`ar-chip ${groupMode === 'by-collection' ? 'selected' : ''}`}
+              onClick={() => handleGroupMode('by-collection')}
+            >By collection</button>
+          </div>
+
+          <div className="ar-section-header">
+            <span>Collections</span>
+            <span className="count">{collections.length}</span>
+          </div>
+
+          <div className="ar-sidebar-scroll ar-scroll">
+            <div
+              className={`ar-list-item fav-collection ${selectedKey === ALL ? 'selected' : ''}`}
+              onClick={() => handleSelectCollection(ALL)}
+            >
+              <span className="num">—</span>
+              <span className="body">
+                <span className="name">All favourites</span>
+                <span className="sub">{favourites.length} looks</span>
+              </span>
             </div>
+
+            {collections.map((group, idx) => (
+              <div
+                key={group.key}
+                className={`ar-list-item fav-collection ${group.key === selectedKey ? 'selected' : ''}`}
+                onClick={() => handleSelectCollection(group.key)}
+              >
+                <span className="num">{String(idx + 1).padStart(3, '0')}</span>
+                <span className="body">
+                  <span className="name">{group.designer}</span>
+                  <span className="sub">{group.season} · {group.items.length}</span>
+                </span>
+              </div>
+            ))}
           </div>
         </div>
 
-        {/* Right: Single Image View */}
-        <div className="column" style={{ flex: 1 }}>
-          <div className="mac-panel" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-            {/* Information Panel */}
-            <div style={{ 
-              padding: '16px',
-              borderBottom: '1px solid var(--mac-border)',
-              backgroundColor: 'var(--mac-bg)',
-              position: 'relative'
-            }}>
-              {/* Remove button - top right */}
-              <button 
-                className="mac-button"
-                onClick={() => removeFavourite(currentFavourite)}
-                style={{ 
-                  position: 'absolute',
-                  top: '16px',
-                  right: '16px',
-                  backgroundColor: '#ff6b6b',
-                  color: '#fff',
-                  fontSize: '12px'
-                }}
-              >
-                Remove ❤️
-              </button>
-              
-              <div style={{ fontSize: '16px', fontWeight: 'bold', marginBottom: '8px', paddingRight: '120px' }}>
-                {currentFavourite.collection.designer}
-              </div>
-              <div style={{ fontSize: '14px', color: '#666', marginBottom: '8px' }}>
-                {currentFavourite.season.name}
-              </div>
-              <div style={{ fontSize: '12px', color: '#999', marginBottom: '12px' }}>
-                Look {currentFavourite.look.number} of {currentFavourite.look.total}
-              </div>
-              <div style={{ fontSize: '11px', color: '#999' }}>
-                Added: {new Date(currentFavourite.date_added).toLocaleDateString()}
-              </div>
+        <div className="fav-main">
+          <div className="fav-controls">
+            <div className="fav-view-toggle">
+              <button
+                className={`ar-btn ${viewMode === 'single' ? 'active' : ''}`}
+                onClick={() => setViewMode('single')}
+              >Single</button>
+              <button
+                className={`ar-btn ${viewMode === 'grid' ? 'active' : ''}`}
+                onClick={() => setViewMode('grid')}
+              >Grid</button>
             </div>
+          </div>
 
-            {/* Main Image */}
-            <div style={{ 
-              flex: 1,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              minHeight: 0,
-              overflow: 'hidden',
-              padding: '8px'
-            }}>
-              <img 
-                src={FashionArchiveAPI.getImageUrl(currentFavourite.image_path)}
-                alt={`Look ${currentFavourite.look.number}`}
-                style={{ 
-                  maxWidth: '100%',
-                  maxHeight: '100%',
-                  objectFit: 'contain'
-                }}
-                onError={(e) => {
-                  e.target.alt = 'Image not found';
-                  e.target.style.background = '#f0f0f0';
-                }}
-              />
+          {visible.length === 0 ? (
+            <div className="ar-empty">
+              <span className="headline">Nothing in this collection</span>
             </div>
-
-            {/* Navigation Controls */}
-            <div style={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              padding: '8px',
-              borderTop: '1px solid var(--mac-border)',
-              backgroundColor: 'var(--mac-bg)'
-            }}>
-              <button 
-                className="mac-button" 
-                onClick={handlePrevFavourite}
-                disabled={displayFavourites.length <= 1}
-                style={{ minWidth: '80px' }}
-              >
-                ◀ Previous
-              </button>
-              
-              <div style={{ 
-                flex: 1, 
-                textAlign: 'center',
-                fontSize: '12px',
-                color: '#666'
-              }}>
-                {selectedIndex + 1} of {displayFavourites.length}
+          ) : viewMode === 'grid' ? (
+            <div className="fav-grid-container ar-scroll">
+              <div className="fav-grid">
+                {visible.map((fav, idx) => (
+                  <div
+                    key={fav.id}
+                    className={`fav-grid-item ${idx === selectedIndex ? 'selected' : ''}`}
+                    onClick={() => { setSelectedIndex(idx); setViewMode('single'); }}
+                  >
+                    <div className="fav-grid-image">
+                      <img
+                        src={FashionArchiveAPI.getImageUrl(fav.image_path)}
+                        alt={`Look ${fav.look.number}`}
+                        loading="lazy"
+                      />
+                    </div>
+                    <span className="look-num">{String(fav.look.number).padStart(2, '0')}</span>
+                  </div>
+                ))}
               </div>
-              
-              <button 
-                className="mac-button" 
-                onClick={handleNextFavourite}
-                disabled={displayFavourites.length <= 1}
-                style={{ minWidth: '80px' }}
-              >
-                Next ▶
-              </button>
             </div>
+          ) : current ? (
+            <div className="fav-single">
+              <div className="fav-single-content">
+                {visible.length > 1 && (
+                  <button className="fav-arrow prev" onClick={handlePrev}>‹</button>
+                )}
+
+                <div className="fav-image-side">
+                  <div className="fav-image-frame">
+                    <img
+                      src={FashionArchiveAPI.getImageUrl(current.image_path)}
+                      alt={`Look ${current.look.number}`}
+                      onError={(e) => {
+                        e.target.alt = 'Image not found';
+                        e.target.style.background = '#f5f5f5';
+                      }}
+                    />
+                  </div>
+                  <div className="fav-image-info">
+                    <span className="fav-look-label">
+                      LOOK {String(current.look.number).padStart(2, '0')}
+                    </span>
+                    <span className="fav-look-meta">
+                      <span className="fav-added">
+                        Added {new Date(current.date_added).toLocaleDateString()}
+                      </span>
+                      <button
+                        className="ar-btn fav-remove"
+                        onClick={() => handleRemove(current)}
+                      >Remove</button>
+                    </span>
+                  </div>
+                </div>
+
+                {visible.length > 1 && (
+                  <button className="fav-arrow next" onClick={handleNext}>›</button>
+                )}
+              </div>
+
+              <div className="fav-thumb-strip-container">
+                <div className="fav-thumb-strip">
+                  {visible.map((fav, idx) => (
+                    <div
+                      key={fav.id}
+                      className={`fav-thumb ${idx === selectedIndex ? 'active' : ''}`}
+                      onClick={() => setSelectedIndex(idx)}
+                    >
+                      <img
+                        src={FashionArchiveAPI.getImageUrl(fav.image_path)}
+                        alt={`Look ${fav.look.number}`}
+                        loading="lazy"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          <div className="ar-status-bar">
+            <span>
+              {current
+                ? <>{current.collection.designer} / <span className="active">{current.season.name}</span></>
+                : `${stats.total_favourites || favourites.length} looks`}
+            </span>
+            <span>
+              {current && (
+                <>LOOK <span className="active">{String(current.look.number).padStart(2, '0')}</span> / {visible.length}</>
+              )}
+            </span>
           </div>
         </div>
       </div>
