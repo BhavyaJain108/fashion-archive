@@ -49,7 +49,6 @@ def client(tmp_path, monkeypatch):
     roster = tmp_path / "brands.yml"
     roster.write_text(YML)
     monkeypatch.setattr(archive_routes, "db_path", lambda: db)
-    monkeypatch.setattr(archive_routes, "images_root", lambda: tmp_path / "images")
     monkeypatch.setattr(archive_routes, "app_roster", lambda: _roster(roster))
 
     app = Flask(__name__)
@@ -149,31 +148,24 @@ def test_wildcards_typed_into_the_search_box_are_letters(client):
 
 
 @pytest.mark.unit
-def test_image_route_serves_only_what_is_under_the_image_root(tmp_path, client):
-    root = tmp_path / "images" / "shown.com"
-    root.mkdir(parents=True)
-    (root / "a.jpg").write_bytes(b"bytes")
-    (tmp_path / "secret.txt").write_text("no")
-
-    assert client.get("/api/archive/image?path=shown.com/a.jpg").data == b"bytes"
-    assert client.get("/api/archive/image?path=../secret.txt").status_code == 404
-    assert client.get(f"/api/archive/image?path={tmp_path}/secret.txt").status_code == 400
-    assert client.get("/api/archive/image?path=").status_code == 400
-
-
-@pytest.mark.unit
-def test_archived_copies_are_offered_as_an_app_url(tmp_path, client):
-    # The stored path is relative to whatever working directory that run had; only the
-    # part below the image root travels, or the app asks for a file that is not there.
+def test_archived_copies_travel_as_urls(tmp_path, client):
+    # The copy we kept is offered beside the shop's own URL, so a tile whose CDN link has
+    # died falls back to our bytes before it falls back to a placeholder.
     catalog = Catalog(tmp_path / "catalog.db")
     pid = catalog.product_id_for("shown.com", "https://shown.com/products/tee")
     catalog.record_image(
-        pid, "https://cdn.shown.com/tee.jpg", "backend/archive/data/images/shown.com/aa/x.jpg", "aa"
+        pid,
+        "https://cdn.shown.com/tee.jpg",
+        "",
+        "aa",
+        stored_url="https://images.example.com/archive/shown.com/aa/aa.jpg",
     )
     catalog.close()
 
     _, body = get(client, "/api/archive/products?brand_id=shown.com&category=TOPS")
-    assert body["products"][0]["archived_images"] == ["/api/archive/image?path=shown.com/aa/x.jpg"]
+    assert body["products"][0]["archived_images"] == [
+        "https://images.example.com/archive/shown.com/aa/aa.jpg"
+    ]
 
 
 @pytest.mark.unit

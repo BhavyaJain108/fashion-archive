@@ -25,6 +25,11 @@ def _like_escape(needle: str) -> str:
     return needle.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
+# Columns added to tables that predate them. Append here rather than editing a line in
+# schema.sql alone, or existing archives never get the column.
+_ADDED_COLUMNS = (("images", "stored_url", "TEXT"),)
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -32,10 +37,28 @@ def _now() -> str:
 class Catalog:
     def __init__(self, db_path: Path):
         db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._db = sqlite3.connect(db_path)
+        # A timeout rather than the 5-second default: the image pass runs several brands
+        # at once, each with its own connection, and WAL still serialises writers. Without
+        # it a busy moment surfaces as "database is locked" instead of a short wait.
+        self._db = sqlite3.connect(db_path, timeout=30.0)
         self._db.row_factory = sqlite3.Row
         self._db.execute("PRAGMA journal_mode=WAL")
         self._db.executescript(_SCHEMA.read_text())
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """Columns added after a database already existed.
+
+        `CREATE TABLE IF NOT EXISTS` does nothing to a table that is already there, so a
+        new column in schema.sql reaches a fresh database and no other. Every archive
+        older than the change would keep running against a table missing the column, and
+        fail on the first query that named it.
+        """
+        for table, column, decl in _ADDED_COLUMNS:
+            names = {r["name"] for r in self._db.execute(f"PRAGMA table_info({table})")}
+            if column not in names:
+                self._db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+        self._db.commit()
 
     def close(self) -> None:
         self._db.close()
@@ -350,10 +373,30 @@ class Catalog:
         ).fetchall()
         return {r["url"] for r in rows}
 
-    def record_image(self, product_id: int, url: str, local_path: str, content_hash: str) -> None:
+    def stored_image_urls(self, product_id: int) -> set[str]:
+        """Source URLs for this product whose bytes we already hold."""
+        rows = self._db.execute(
+            "SELECT url FROM images WHERE product_id=? AND stored_url IS NOT NULL",
+            (product_id,),
+        ).fetchall()
+        return {r["url"] for r in rows}
+
+    def record_image(
+        self,
+        product_id: int,
+        url: str,
+        local_path: str,
+        content_hash: str,
+        stored_url: str | None = None,
+    ) -> None:
+        # Upsert rather than INSERT OR IGNORE: an image first archived to a directory and
+        # later uploaded is the same row learning where it is served from, not a new one.
         self._db.execute(
-            "INSERT OR IGNORE INTO images (product_id, url, local_path, content_hash) VALUES (?,?,?,?)",
-            (product_id, url, local_path, content_hash),
+            "INSERT INTO images (product_id, url, local_path, content_hash, stored_url) "
+            "VALUES (?,?,?,?,?) ON CONFLICT(product_id, url) DO UPDATE SET "
+            "local_path=excluded.local_path, content_hash=excluded.content_hash, "
+            "stored_url=COALESCE(excluded.stored_url, images.stored_url)",
+            (product_id, url, local_path, content_hash, stored_url),
         )
         self._db.commit()
 
@@ -365,14 +408,71 @@ class Catalog:
         is the whole reason the files are archived rather than only their addresses.
         """
         rows = self._db.execute(
-            "SELECT p.itemurl, i.local_path FROM images i JOIN products p ON p.id=i.product_id "
-            "WHERE p.domain=? ORDER BY i.id",
+            "SELECT p.itemurl, i.stored_url FROM images i JOIN products p ON p.id=i.product_id "
+            "WHERE p.domain=? AND i.stored_url IS NOT NULL ORDER BY i.id",
             (domain,),
         ).fetchall()
         out: dict[str, list[str]] = {}
         for r in rows:
-            out.setdefault(r["itemurl"], []).append(r["local_path"])
+            out.setdefault(r["itemurl"], []).append(r["stored_url"])
         return out
+
+    def images_awaiting_archive(self, domain: str) -> list[tuple[int, str, list[str]]]:
+        """(product_id, itemurl, image urls not yet stored) for this brand's live products.
+
+        The unit of work for the image pass. Driven off what the records say rather than
+        off the run that wrote them, so it can be re-run at any time, in any order, and
+        picks up exactly what is still missing.
+        """
+        done: dict[int, set[str]] = {}
+        for r in self._db.execute(
+            "SELECT i.product_id, i.url FROM images i JOIN products p ON p.id=i.product_id "
+            "WHERE p.domain=? AND i.stored_url IS NOT NULL",
+            (domain,),
+        ):
+            done.setdefault(r["product_id"], set()).add(r["url"])
+
+        work = []
+        for row in self._db.execute(
+            f"SELECT p.id, p.itemurl, p.current_json FROM products p "
+            f"WHERE p.domain=? AND p.last_seen_run = {_LATEST_COVERED}",
+            (domain,),
+        ):
+            record = json.loads(row["current_json"])
+            raw = record.get("all_images")
+            try:
+                urls = json.loads(raw) if isinstance(raw, str) else (raw or [])
+            except json.JSONDecodeError:
+                urls = []
+            if not isinstance(urls, list):
+                urls = []
+            missing = [u for u in urls if isinstance(u, str) and u not in done.get(row["id"], ())]
+            if missing:
+                work.append((row["id"], row["itemurl"], missing))
+        return work
+
+    def local_image_files(self, domain: str) -> list[tuple[int, str, str]]:
+        """(product_id, source url, file) for images an earlier run left on disk.
+
+        The bytes are the same bytes. Re-downloading 1,585 photographs to move them into
+        the bucket would ask 30 shops for something we already have.
+        """
+        return [
+            (r["product_id"], r["url"], r["local_path"])
+            for r in self._db.execute(
+                "SELECT i.product_id, i.url, i.local_path FROM images i "
+                "JOIN products p ON p.id=i.product_id "
+                "WHERE p.domain=? AND i.stored_url IS NULL AND i.local_path != ''",
+                (domain,),
+            )
+        ]
+
+    def stored_image_count(self, domain: str) -> int:
+        return self._db.execute(
+            "SELECT COUNT(*) c FROM images i JOIN products p ON p.id=i.product_id "
+            "WHERE p.domain=? AND i.stored_url IS NOT NULL",
+            (domain,),
+        ).fetchone()["c"]
 
     def search_products(
         self, domains: list[str], needle: str, limit: int = 200

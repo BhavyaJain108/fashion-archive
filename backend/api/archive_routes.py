@@ -12,9 +12,8 @@ working for the panels that still use them.
 import os
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
 
-from flask import Flask, jsonify, request, send_file
+from flask import Flask, jsonify, request
 
 from backend.archive.roster import RosterEntry, app_roster
 from backend.archive.store.catalog import Catalog
@@ -36,10 +35,6 @@ UNCATEGORISED = "(uncategorised)"
 
 def db_path() -> Path:
     return Path(os.environ.get("ARCHIVE_DB") or _ROOT / "backend/archive/data/catalog.db")
-
-
-def images_root() -> Path:
-    return Path(os.environ.get("ARCHIVE_IMAGES") or _ROOT / "backend/archive/data/images")
 
 
 def _catalog() -> Catalog:
@@ -91,7 +86,7 @@ def _brand_row(
         "notes": entry.notes,
         "state": (status or {}).get("state", "new"),
         "products": products,
-        "images": catalog.image_count(entry.domain) if products else 0,
+        "images": catalog.stored_image_count(entry.domain) if products else 0,
         "coverage_pct": (status or {}).get("coverage_pct"),
         "verdict": (status or {}).get("verdict"),
         "last_run": (status or {}).get("freshness"),
@@ -198,21 +193,6 @@ def get_hierarchy(brand_id):
 # ---------------------------------------------------------------------------
 
 
-def _image_url(local_path: str) -> str | None:
-    """The app's address for a file the scraper saved.
-
-    Stored paths were written relative to whichever working directory that run had, so
-    the part that travels is the part below the image root — everything before it is a
-    fact about that machine and not about the file.
-    """
-    parts = Path(local_path).parts
-    if "images" not in parts:
-        return None
-    cut = len(parts) - 1 - parts[::-1].index("images")
-    rel = "/".join(parts[cut + 1 :])
-    return f"/api/archive/image?path={quote(rel)}" if rel else None
-
-
 def _decorate(records: list[dict], domain: str, catalog: Catalog) -> list[dict]:
     archived = catalog.archived_images(domain)
     # The stored `brand` is whatever the shop published, which for most of these is the
@@ -224,7 +204,7 @@ def _decorate(records: list[dict], domain: str, catalog: Catalog) -> list[dict]:
         slim = _slim(record)
         slim["brand_id"] = domain
         slim["brand_name"] = name
-        urls = [u for p in archived.get(record.get("itemurl", ""), []) if (u := _image_url(p))]
+        urls = archived.get(record.get("itemurl", ""), [])
         if urls:
             slim["archived_images"] = urls
         out.append(slim)
@@ -299,28 +279,6 @@ def search_products():
 
 
 # ---------------------------------------------------------------------------
-# archived image bytes
-# ---------------------------------------------------------------------------
-
-
-def get_image():
-    """GET /api/archive/image?path= — the copy we kept, for when the shop's CDN forgets."""
-    raw = request.args.get("path", "")
-    if not raw or Path(raw).is_absolute():
-        return jsonify({"error": "path is required, relative to the image root"}), 400
-    root = images_root().resolve()
-    try:
-        path = (root / raw).resolve()
-    except OSError:
-        return jsonify({"error": "Not found"}), 404
-    # The path arrives in a query string, so it is a request and not a fact: only files
-    # under the image root are ours to serve.
-    if not path.is_file() or root not in path.parents:
-        return jsonify({"error": "Not found"}), 404
-    return send_file(path)
-
-
-# ---------------------------------------------------------------------------
 
 
 def get_health():
@@ -361,4 +319,3 @@ def register_archive_routes(app: Flask) -> None:
     app.add_url_rule(
         "/api/archive/products/search", "archive_search", search_products, methods=["GET"]
     )
-    app.add_url_rule("/api/archive/image", "archive_image", get_image, methods=["GET"])

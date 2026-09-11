@@ -8,8 +8,10 @@ from backend.archive.domain.product import ProductRecord
 from backend.archive.images import ImageStore
 from backend.archive.store.catalog import Catalog
 from backend.archive.transport import HttpxTransport
+from backend.storage.images import LocalImageStore
 
 JPEG_BYTES = b"\xff\xd8\xff\xe0FAKEJPEG"
+SHA = hashlib.sha256(JPEG_BYTES).hexdigest()
 
 
 def make_transport(counter: dict) -> HttpxTransport:
@@ -36,27 +38,31 @@ def env(tmp_path):
         None,
     )
     pid = cat.product_id_for("kuurth.com", "https://kuurth.com/products/nemo")
-    return cat, pid, ImageStore(tmp_path / "images"), tmp_path
+    sink = LocalImageStore(root=tmp_path / "images", api_base="http://api.test")
+    return cat, pid, ImageStore(sink), sink, tmp_path
 
 
 @pytest.mark.unit
-def test_archive_downloads_content_addressed_file(env):
-    cat, pid, store, tmp = env
+def test_archive_stores_content_addressed_bytes_and_records_the_url(env):
+    cat, pid, store, sink, _ = env
     counter: dict = {}
     saved = store.archive(
         make_transport(counter), cat, pid, "kuurth.com", ["https://cdn.shopify.com/nemo-1.jpg"]
     )
     assert saved == 1
-    sha = hashlib.sha256(JPEG_BYTES).hexdigest()
-    expected = tmp / "images" / "kuurth.com" / sha[:2] / f"{sha}.jpg"
-    assert expected.read_bytes() == JPEG_BYTES
-    assert cat.image_count("kuurth.com") == 1
+    key = f"archive/kuurth.com/{SHA[:2]}/{SHA}.jpg"
+    assert sink.read(key) == JPEG_BYTES
+    # The URL is what travels. A path under one laptop's home directory was never
+    # something another machine could use.
+    assert cat.archived_images("kuurth.com") == {
+        "https://kuurth.com/products/nemo": [f"http://api.test/api/images/{key}"]
+    }
 
 
 @pytest.mark.unit
 def test_known_urls_are_never_redownloaded(env):
     """Delta economics: an unchanged image costs zero requests on re-runs."""
-    cat, pid, store, _ = env
+    cat, pid, store, _, _ = env
     counter: dict = {}
     t = make_transport(counter)
     store.archive(t, cat, pid, "kuurth.com", ["https://cdn.shopify.com/nemo-1.jpg"])
@@ -68,8 +74,8 @@ def test_known_urls_are_never_redownloaded(env):
 @pytest.mark.unit
 def test_width_param_appended_for_shopify_cdn(env):
     """Storage policy: fetch resized renditions from Shopify's CDN, not 3000px originals."""
-    cat, pid, store, tmp = env
-    store = ImageStore(tmp / "images", width=1200)
+    cat, pid, _, sink, _ = env
+    store = ImageStore(sink, width=1200)
     counter: dict = {}
     store.archive(
         make_transport(counter), cat, pid, "kuurth.com", ["https://cdn.shopify.com/nemo-1.jpg?v=3"]
@@ -81,8 +87,8 @@ def test_width_param_appended_for_shopify_cdn(env):
 
 @pytest.mark.unit
 def test_non_shopify_urls_are_fetched_unmodified(env):
-    cat, pid, store, tmp = env
-    store = ImageStore(tmp / "images", width=1200)
+    cat, pid, _, sink, _ = env
+    store = ImageStore(sink, width=1200)
     counter: dict = {}
     store.archive(
         make_transport(counter), cat, pid, "kuurth.com", ["https://img.example.com/a.jpg"]
@@ -92,8 +98,50 @@ def test_non_shopify_urls_are_fetched_unmodified(env):
 
 @pytest.mark.unit
 def test_bad_response_is_skipped_not_fatal(env):
-    cat, pid, store, _ = env
+    cat, pid, store, _, _ = env
     t = HttpxTransport(
         client=httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(404)))
     )
     assert store.archive(t, cat, pid, "kuurth.com", ["https://cdn.shopify.com/gone.jpg"]) == 0
+
+
+@pytest.mark.unit
+def test_identical_bytes_are_uploaded_once(env):
+    """Two products photographed against the same background share renditions; the key is
+    the hash, so the second one costs a HEAD and no upload."""
+    cat, pid, store, sink, _ = env
+    uploads = []
+    original = sink.save
+
+    def counting_save(key, data, **kw):
+        uploads.append(key)
+        return original(key, data, **kw)
+
+    sink.save = counting_save
+    counter: dict = {}
+    t = make_transport(counter)
+    store.archive(t, cat, pid, "kuurth.com", ["https://cdn.shopify.com/nemo-1.jpg"])
+    store.archive(t, cat, pid, "kuurth.com", ["https://cdn.shopify.com/nemo-2.jpg"])
+    assert len(uploads) == 1
+
+
+@pytest.mark.unit
+def test_adopt_moves_a_file_an_earlier_run_left_on_disk(env, tmp_path):
+    """1,585 photographs were already fetched once. Asking 30 shops for them again to
+    move them into the bucket would be a request none of them owes us."""
+    cat, pid, store, sink, _ = env
+    old = tmp_path / "old" / "nemo.jpg"
+    old.parent.mkdir()
+    old.write_bytes(JPEG_BYTES)
+
+    assert store.adopt(cat, pid, "kuurth.com", "https://cdn.shopify.com/nemo-1.jpg", old) is True
+    key = f"archive/kuurth.com/{SHA[:2]}/{SHA}.jpg"
+    assert sink.read(key) == JPEG_BYTES
+    assert cat.stored_image_urls(pid) == {"https://cdn.shopify.com/nemo-1.jpg"}
+
+
+@pytest.mark.unit
+def test_adopt_reports_a_file_that_is_gone_rather_than_raising(env, tmp_path):
+    cat, pid, store, _, _ = env
+    missing = tmp_path / "not-here.jpg"
+    assert store.adopt(cat, pid, "kuurth.com", "https://cdn.shopify.com/x.jpg", missing) is False
