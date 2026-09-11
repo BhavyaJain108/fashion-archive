@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import TopBar from './TopBar';
 import { FashionArchiveAPI } from '../services/api';
 import './FavouritesPanel.css';
@@ -21,6 +21,9 @@ function FavouritesPanel({ currentPage, onPageSwitch, currentUser, onLogout }) {
   const [selectedKey, setSelectedKey] = useState(ALL);
   const [viewMode, setViewMode] = useState('single');
   const [selectedIndex, setSelectedIndex] = useState(0);
+
+  const thumbStripRef = useRef(null);
+  const activeThumbRef = useRef(null);
 
   useEffect(() => {
     loadFavourites();
@@ -77,9 +80,20 @@ function FavouritesPanel({ currentPage, onPageSwitch, currentUser, onLogout }) {
     return groups;
   }, [favourites, groupMode]);
 
+  // A selected collection can vanish out from under selectedKey — its last
+  // favourite gets removed while the sidebar row is still "selected". Rather
+  // than trust every caller that shrinks `favourites` to also reconcile
+  // selectedKey, derive the key actually used for filtering fresh on every
+  // render: if it doesn't name a surviving group, treat it as ALL. This is
+  // what both `visible` and the sidebar highlight read below, so a vanished
+  // selection falls back to "all favourites" no matter how it vanished.
+  const effectiveSelectedKey = (selectedKey !== ALL && !collections.some(g => g.key === selectedKey))
+    ? ALL
+    : selectedKey;
+
   const visible = useMemo(() => {
-    if (selectedKey !== ALL) {
-      const group = collections.find(g => g.key === selectedKey);
+    if (effectiveSelectedKey !== ALL) {
+      const group = collections.find(g => g.key === effectiveSelectedKey);
       return group ? group.items : [];
     }
 
@@ -94,12 +108,32 @@ function FavouritesPanel({ currentPage, onPageSwitch, currentUser, onLogout }) {
       all.sort((a, b) => new Date(b.date_added) - new Date(a.date_added));
     }
     return all;
-  }, [favourites, collections, selectedKey, groupMode]);
+  }, [favourites, collections, effectiveSelectedKey, groupMode]);
 
-  // Keep the cursor inside the list after a removal shrinks it.
+  // Safety net only: the normal removal path (handleRemove) computes the
+  // in-range index itself, in the same tick as the favourites update, so
+  // this should be a no-op on that path. Kept in case some other caller
+  // shrinks the list without going through handleRemove.
   useEffect(() => {
     setSelectedIndex(i => (visible.length === 0 ? 0 : Math.min(i, visible.length - 1)));
   }, [visible.length]);
+
+  // Center the active thumbnail in the strip — same approach as
+  // HighFashionV2's thumb strip, which faces the identical problem: the
+  // strip's scrollbar is hidden, so without this, arrowing past the visible
+  // width moves the active thumb off-screen with no visual cue that more
+  // thumbs exist off to the side.
+  useEffect(() => {
+    if (activeThumbRef.current && thumbStripRef.current) {
+      const strip = thumbStripRef.current;
+      const thumb = activeThumbRef.current;
+      const stripRect = strip.getBoundingClientRect();
+      const thumbRect = thumb.getBoundingClientRect();
+
+      const scrollLeft = thumb.offsetLeft - (stripRect.width / 2) + (thumbRect.width / 2);
+      strip.scrollTo({ left: scrollLeft, behavior: 'smooth' });
+    }
+  }, [selectedIndex]);
 
   const handleSelectCollection = (key) => {
     setSelectedKey(key);
@@ -129,6 +163,14 @@ function FavouritesPanel({ currentPage, onPageSwitch, currentUser, onLogout }) {
         favourite.look.number
       );
       if (result.success) {
+        // Land the cursor in range in the same tick as the removal, rather
+        // than waiting for the passive clamp effect above to catch up a
+        // render later — that one-render gap is exactly what let `current`
+        // go null and unmount/remount the single-view subtree when the last
+        // item was removed. React 18's automatic batching folds this
+        // setSelectedIndex and the setFavourites below into one render.
+        const newLength = visible.length - 1;
+        setSelectedIndex(i => (newLength <= 0 ? 0 : Math.min(i, newLength - 1)));
         setFavourites(prev => prev.filter(f => f.id !== favourite.id));
         loadStats();
       }
@@ -195,7 +237,7 @@ function FavouritesPanel({ currentPage, onPageSwitch, currentUser, onLogout }) {
 
           <div className="ar-sidebar-scroll ar-scroll">
             <div
-              className={`ar-list-item fav-collection ${selectedKey === ALL ? 'selected' : ''}`}
+              className={`ar-list-item fav-collection ${effectiveSelectedKey === ALL ? 'selected' : ''}`}
               onClick={() => handleSelectCollection(ALL)}
             >
               <span className="num">—</span>
@@ -208,7 +250,7 @@ function FavouritesPanel({ currentPage, onPageSwitch, currentUser, onLogout }) {
             {collections.map((group, idx) => (
               <div
                 key={group.key}
-                className={`ar-list-item fav-collection ${group.key === selectedKey ? 'selected' : ''}`}
+                className={`ar-list-item fav-collection ${group.key === effectiveSelectedKey ? 'selected' : ''}`}
                 onClick={() => handleSelectCollection(group.key)}
               >
                 <span className="num">{String(idx + 1).padStart(3, '0')}</span>
@@ -300,10 +342,11 @@ function FavouritesPanel({ currentPage, onPageSwitch, currentUser, onLogout }) {
               </div>
 
               <div className="fav-thumb-strip-container">
-                <div className="fav-thumb-strip">
+                <div className="fav-thumb-strip" ref={thumbStripRef}>
                   {visible.map((fav, idx) => (
                     <div
                       key={fav.id}
+                      ref={idx === selectedIndex ? activeThumbRef : null}
                       className={`fav-thumb ${idx === selectedIndex ? 'active' : ''}`}
                       onClick={() => setSelectedIndex(idx)}
                     >
@@ -327,7 +370,10 @@ function FavouritesPanel({ currentPage, onPageSwitch, currentUser, onLogout }) {
             </span>
             <span>
               {current && (
-                <>LOOK <span className="active">{String(current.look.number).padStart(2, '0')}</span> / {visible.length}</>
+                <>
+                  LOOK <span className="active">{String(current.look.number).padStart(2, '0')}</span>
+                  {' · '}{selectedIndex + 1} of {visible.length}
+                </>
               )}
             </span>
           </div>
