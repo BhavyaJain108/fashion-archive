@@ -503,3 +503,66 @@
   letter-spacing: 0.15em;
   color: var(--ar-ink-4);
 }
+
+/* --- Dialogs ------------------------------------------------------- */
+
+/* The scrim dims; it does not blur. */
+.modern-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+.modern-modal {
+  background: var(--ar-bg);
+  border: 1px solid var(--ar-line);
+  border-radius: 0;
+  box-shadow: none;
+  padding: 24px;
+  max-width: 420px;
+  width: 90%;
+  font-family: var(--ar-font);
+}
+
+.modern-modal-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: var(--ar-ink);
+  padding-bottom: 12px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--ar-line);
+}
+
+.modern-modal-content {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ar-ink-2);
+  margin-bottom: 16px;
+}
+
+.modern-modal-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+
+.modern-error {
+  background: transparent;
+  border: 1px solid var(--ar-danger);
+  border-radius: 0;
+  padding: 10px 12px;
+  color: var(--ar-danger);
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  margin-bottom: 16px;
+}

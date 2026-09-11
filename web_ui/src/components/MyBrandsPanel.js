@@ -1204,7 +1204,7 @@ function MyBrandsPanel({ currentPage, onPageSwitch, currentUser, onLogout }) {
 
             <input
               type="text"
-              className="modern-input"
+              className="ar-input"
               placeholder="https://example.com"
               value={brandUrlInput}
               onChange={(e) => setBrandUrlInput(e.target.value)}
@@ -1219,7 +1219,7 @@ function MyBrandsPanel({ currentPage, onPageSwitch, currentUser, onLogout }) {
 
             <div className="modern-modal-actions">
               <button
-                className="modern-button modern-button-secondary"
+                className="ar-btn"
                 onClick={() => {
                   setShowAddBrandModal(false);
                   setBrandUrlInput('');
@@ -1230,7 +1230,7 @@ function MyBrandsPanel({ currentPage, onPageSwitch, currentUser, onLogout }) {
                 Cancel
               </button>
               <button
-                className="modern-button modern-button-primary"
+                className="ar-btn active"
                 onClick={handleSubmitBrandUrl}
                 disabled={validating || !brandUrlInput.trim()}
               >
@@ -1258,13 +1258,13 @@ function MyBrandsPanel({ currentPage, onPageSwitch, currentUser, onLogout }) {
             </div>
             <div className="modern-modal-actions">
               <button
-                className="modern-button modern-button-secondary"
+                className="ar-btn"
                 onClick={() => setShowRemoveConfirm(false)}
               >
                 Cancel
               </button>
               <button
-                className="modern-button modern-button-danger"
+                className="ar-btn ar-btn-danger"
                 onClick={async () => {
                   for (const brandId of selectedForRemoval) {
                     await FashionArchiveAPI.unfollowBrand(brandId);
