@@ -312,14 +312,16 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
     try {
       const seasonName = parsedSeasons[selectedYear]?.[selectedSeason]?.[selectedGender]?.name || '';
       const result = await FashionArchiveAPI.downloadVideo(
-        selectedCollection.designer,
-        seasonName
+        selectedCollection.designer_name || selectedCollection.designer,
+        seasonName,
+        selectedGender
       );
       if (result && result.embedUrl) {
         setVideoData(result);
         setVideoState('ready');
         setShowVideo(true);
       } else {
+        if (result && result.error) console.warn('Video:', result.error);
         setVideoState('error');
       }
     } catch (error) {

@@ -61,6 +61,11 @@ services:
         sync: false
       - key: ANTHROPIC_API_KEY
         sync: false
+      # YouTube Data API. Video lookup is off without it rather than falling
+      # back to scraping. search.list costs 100 of 10,000 daily units, so
+      # results are cached permanently and only new shows spend anything.
+      - key: YOUTUBE_API_KEY
+        sync: false
       - key: R2_ACCOUNT_ID
         sync: false
       - key: R2_ACCESS_KEY_ID

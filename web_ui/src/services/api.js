@@ -127,11 +127,14 @@ class FashionArchiveAPI {
   }
 
   // Search for a fashion show video (matches tkinter video download)
-  static async downloadVideo(designerName, seasonName) {
+  // `gender` is part of the cache key server-side, so passing it keeps
+  // Men and Women lookups from colliding — and from costing quota twice.
+  static async downloadVideo(designerName, seasonName, gender) {
     try {
       const response = await this.callPython('/api/download-video', {
         designerName,
-        seasonName
+        seasonName,
+        gender
       });
       if (response.success) {
         return {
@@ -142,10 +145,15 @@ class FashionArchiveAPI {
           thumbnail: response.thumbnail
         };
       }
-      return null;
+      // A failure here is informative: no video, quota gone for today, or
+      // no key configured. The caller shows the reason rather than a
+      // generic error.
+      return { error: response.error || 'No runway video found',
+               quotaExhausted: !!response.quotaExhausted,
+               notConfigured: !!response.notConfigured };
     } catch (error) {
       console.error('Video search error:', error);
-      return null;
+      return { error: 'Video lookup failed' };
     }
   }
 

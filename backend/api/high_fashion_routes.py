@@ -562,46 +562,111 @@ def stream_download_images():
 
 
 def download_video():
-    """POST /api/download-video - Search for and return a fashion show video"""
+    """POST /api/download-video - find this show's runway video on YouTube.
+
+    Cache first, always. A search costs 100 of the day's 10,000 quota units,
+    so it is only ever spent on a (designer, season, gender) nobody has
+    looked up before. Hits and misses are both remembered: a designer with
+    no runway video would otherwise cost 100 units on every click.
+    """
     try:
-        data = request.get_json()
-        designer_name = data.get('designerName', '')
-        season_name = data.get('seasonName', '')
+        from backend.high_fashion import video_search as vs
+        from backend.high_fashion.tools.claude_video_verifier import ClaudeVideoVerifier
 
-        if not designer_name or not season_name:
-            return jsonify({'error': 'designerName and seasonName are required'}), 400
+        data = request.get_json() or {}
+        designer_name = (data.get('designerName') or '').strip()
+        season_name = (data.get('seasonName') or '').strip()
+        gender = (data.get('gender') or '').strip()
 
-        # Build search query from designer + season (e.g. "Givenchy Ready To Wear Fall Winter 2014 Paris")
-        search_query = f"{designer_name} {season_name} full fashion show runway"
-        print(f"🔍 Video search query: {search_query}")
+        if not designer_name:
+            return jsonify({'error': 'designerName is required', 'success': False}), 400
 
-        # Use EnhancedFashionVideoSearch to find a YouTube video
-        import sys
-        tools_dir = str(Path(__file__).parent.parent / "high_fashion" / "tools")
-        if tools_dir not in sys.path:
-            sys.path.insert(0, tools_dir)
+        key = vs.query_key(designer_name, season_name, gender)
+        query_text = vs.build_query(designer_name, season_name, gender)
 
-        from claude_video_verifier import EnhancedFashionVideoSearch
+        with db.transaction() as conn:
+            hit = vs.cached(conn, key)
 
-        search = EnhancedFashionVideoSearch()
-        video_info = search.get_streaming_url(search_query)
+        if hit is not None:
+            if not hit['found']:
+                return jsonify({'success': False, 'cached': True,
+                                'error': 'No runway video found for this show'})
+            return jsonify({
+                'success': True,
+                'videoId': hit['video_id'],
+                'youtubeUrl': hit['youtube_url'],
+                'embedUrl': hit['embed_url'],
+                'title': hit['title'],
+                'thumbnail': hit['thumbnail'],
+                'cached': True,
+            })
 
-        if not video_info:
-            return jsonify({'success': False, 'error': 'No matching video found'})
+        # Never looked up: this is the request that costs quota.
+        try:
+            with db.transaction() as conn:
+                candidates = vs.search(conn, query_text)
+        except vs.QuotaExhausted as exc:
+            return jsonify({'success': False, 'error': str(exc),
+                            'quotaExhausted': True}), 429
+        except RuntimeError as exc:          # no API key configured
+            return jsonify({'success': False, 'error': str(exc),
+                            'notConfigured': True}), 503
+
+        chosen = None
+        if candidates:
+            # The verifier holds the fashion logic — Couture vs Haute
+            # Couture, 2010 meaning a 2010-11 show. Prefer its judgement; if
+            # it cannot run, the top result beats nothing, since the query
+            # was already specific.
+            try:
+                verdict = ClaudeVideoVerifier().verify_video_matches(query_text, candidates)
+                if verdict.is_match:
+                    idx = verdict.best_match_index
+                    chosen = candidates[idx] if idx is not None else candidates[0]
+            except Exception as exc:  # noqa: BLE001
+                print(f"video verifier unavailable, taking first result: {exc}")
+                chosen = candidates[0]
+
+        result = None
+        if chosen is not None:
+            result = {
+                'video_id': chosen.video_id,
+                'title': chosen.title,
+                'thumbnail': chosen.thumbnail_url,
+                'youtube_url': chosen.url,
+            }
+
+        with db.transaction() as conn:
+            vs.remember(conn, key, query_text, result)
+
+        if result is None:
+            return jsonify({'success': False, 'cached': False,
+                            'error': 'No runway video found for this show'})
 
         return jsonify({
             'success': True,
-            'videoId': video_info['video_id'],
-            'youtubeUrl': video_info['youtube_url'],
-            'embedUrl': video_info['embed_url'],
-            'title': video_info['title'],
-            'thumbnail': video_info['thumbnail']
+            'videoId': result['video_id'],
+            'youtubeUrl': result['youtube_url'],
+            'embedUrl': f"https://www.youtube.com/embed/{result['video_id']}",
+            'title': result['title'],
+            'thumbnail': result['thumbnail'],
+            'cached': False,
         })
 
     except Exception as e:
         import traceback
         print(f"ERROR download_video: {traceback.format_exc()}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': str(e), 'success': False}), 500
+
+
+def get_video_quota():
+    """GET /api/video/quota - how much YouTube allowance is left today."""
+    try:
+        from backend.high_fashion import video_search as vs
+        with db.transaction() as conn:
+            return jsonify({'quota': vs.quota_status(conn), 'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e), 'success': False}), 500
 
 
 def serve_fashion_video():
@@ -681,6 +746,7 @@ def register_high_fashion_routes(app):
     app.add_url_rule('/api/recents', 'get_recents', get_recents, methods=['GET'])
     app.add_url_rule('/api/recents', 'clear_recents', clear_recents, methods=['DELETE'])
     app.add_url_rule('/api/cache/stats', 'get_cache_stats', get_cache_stats, methods=['GET'])
+    app.add_url_rule('/api/video/quota', 'get_video_quota', get_video_quota, methods=['GET'])
     app.add_url_rule('/api/collections/stream', 'stream_collections_sse', stream_collections, methods=['POST'])
     app.add_url_rule('/api/download-images/stream', 'stream_download_images', stream_download_images, methods=['POST'])
     app.add_url_rule('/api/download-video', 'download_video_fashion', download_video, methods=['POST'])
@@ -688,4 +754,4 @@ def register_high_fashion_routes(app):
     app.add_url_rule('/api/video', 'serve_fashion_video', serve_fashion_video, methods=['GET'])
     app.add_url_rule('/api/cleanup', 'cleanup_fashion_cache', cleanup_fashion_cache, methods=['POST'])
 
-    print("✅ High Fashion API routes registered (12 endpoints)")
+    print("✅ High Fashion API routes registered (13 endpoints)")

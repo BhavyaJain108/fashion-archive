@@ -39,3 +39,37 @@ CREATE TABLE IF NOT EXISTS cached_collections (
 -- Eviction reads this in ascending order; the ordering is the whole point.
 CREATE INDEX IF NOT EXISTS idx_cached_collections_lru
     ON cached_collections (last_accessed_at);
+
+-- Video lookups, so the YouTube quota is spent once per show and never again.
+--
+-- search.list costs 100 units against a 10,000/day allowance: 100 searches a
+-- day, total, across every user. That is nothing for a 39-year archive browsed
+-- by several people — but a lookup is perfectly cacheable, because "Gucci
+-- Fall/Winter 2025" resolves to the same video for everyone, permanently.
+--
+-- Misses are cached too. A designer with no runway video on YouTube would
+-- otherwise burn 100 units every time someone clicked the button, which is the
+-- fastest possible way to exhaust the day's quota.
+CREATE TABLE IF NOT EXISTS cached_videos (
+    query_key     text PRIMARY KEY,   -- normalised designer + season + gender
+
+    -- Null when the search ran and found nothing worth showing. `found`
+    -- distinguishes that from "never looked", which is simply no row.
+    found         boolean NOT NULL,
+    video_id      text,
+    title         text,
+    thumbnail_url text,
+    youtube_url   text,
+
+    -- What was actually asked, kept for debugging a bad match.
+    query_text    text NOT NULL,
+    searched_at   timestamptz NOT NULL DEFAULT now()
+);
+
+-- Units spent per day, so the app can say "quota exhausted" rather than
+-- returning an opaque 403 from Google, and so usage is visible before it runs
+-- out. Google resets at midnight Pacific; the date here is that day.
+CREATE TABLE IF NOT EXISTS youtube_quota (
+    quota_date date PRIMARY KEY,
+    units_used integer NOT NULL DEFAULT 0
+);
