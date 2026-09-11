@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import Fuse from 'fuse.js';
+import TopBar from './TopBar';
 import { FashionArchiveAPI } from '../services/api';
 import ProductDetailPanel from './ProductDetailPanel';
 import ScrapeConsole from './ScrapeConsole';
+import './MyBrandsPanel.css';
 
-function MyBrandsPanel() {
+function MyBrandsPanel({ currentPage, onPageSwitch, currentUser, onLogout }) {
   const [brands, setBrands] = useState([]);
   const [loading, setLoading] = useState(true);
   const [expandedBrands, setExpandedBrands] = useState({});
@@ -48,11 +50,6 @@ function MyBrandsPanel() {
   // Click-count state for re-scraping (double-click = products only, triple-click = full)
   const clickCountRef = useRef({});
   const clickTimerRef = useRef({});
-
-  // Image row height equalization
-  const [imageDimensions, setImageDimensions] = useState({});
-  const gridRef = useRef(null);
-  const [gridColWidth, setGridColWidth] = useState(0);
 
   // Load brands on mount
   useEffect(() => {
@@ -830,49 +827,6 @@ function MyBrandsPanel() {
     return result;
   }, [products, searchResults, sortBy, parsePrice]);
 
-  // Reset image dimensions when displayed products change
-  useEffect(() => {
-    setImageDimensions({});
-  }, [displayProducts]);
-
-  // Track column width via ResizeObserver
-  useEffect(() => {
-    const updateColWidth = () => {
-      if (gridRef.current) {
-        const firstCard = gridRef.current.querySelector('.product-card');
-        if (firstCard) {
-          setGridColWidth(firstCard.offsetWidth);
-        }
-      }
-    };
-    updateColWidth();
-    if (!gridRef.current) return;
-    const observer = new ResizeObserver(updateColWidth);
-    observer.observe(gridRef.current);
-    return () => observer.disconnect();
-  }, [displayProducts]);
-
-  // Calculate per-row image heights: each row's images match the tallest
-  const GRID_COLS = 4;
-  const rowImageHeights = useMemo(() => {
-    if (!gridColWidth) return {};
-    const heights = {};
-    displayProducts.forEach((_, idx) => {
-      const dims = imageDimensions[idx];
-      if (dims && dims.naturalWidth > 0) {
-        const row = Math.floor(idx / GRID_COLS);
-        const displayHeight = Math.ceil((dims.naturalHeight / dims.naturalWidth) * gridColWidth);
-        heights[row] = Math.max(heights[row] || 0, displayHeight);
-      }
-    });
-    return heights;
-  }, [imageDimensions, gridColWidth, displayProducts]);
-
-  const handleImageLoad = useCallback((idx, e) => {
-    const { naturalWidth, naturalHeight } = e.target;
-    setImageDimensions(prev => ({ ...prev, [idx]: { naturalWidth, naturalHeight } }));
-  }, []);
-
   // Drag resize handlers for detail panel
   const handleResizeMouseDown = useCallback((e) => {
     e.preventDefault();
@@ -903,17 +857,32 @@ function MyBrandsPanel() {
 
   if (loading) {
     return (
-      <div className="my-brands-container">
-        <div className="loading-state">Loading brands...</div>
+      <div className="ar-page">
+        <TopBar
+          currentPage={currentPage}
+          onPageSwitch={onPageSwitch}
+          currentUser={currentUser}
+          onLogout={onLogout}
+        />
+        <div className="ar-content">
+          <div className="loading-state">Loading brands...</div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="my-brands-container">
+    <div className="ar-page">
+      <TopBar
+        currentPage={currentPage}
+        onPageSwitch={onPageSwitch}
+        currentUser={currentUser}
+        onLogout={onLogout}
+      />
+      <div className="ar-content">
       {/* Left Sidebar - Brand Navigation */}
       <div className="brand-sidebar">
-        <div className="brand-sidebar-content">
+        <div className="brand-sidebar-content ar-scroll">
           {brands.map(brand => {
             const isExpanded = expandedBrands[brand.brand_id];
             const isScraping = scrapingBrands.has(brand.brand_id);
@@ -921,7 +890,7 @@ function MyBrandsPanel() {
             return (
               <div key={brand.brand_id} className="brand-section">
                 <div
-                  className={`brand-name ${isScraping ? 'brand-loading' : ''} ${removeMode && selectedForRemoval.has(brand.brand_id) ? 'selected-for-removal' : ''}`}
+                  className={`brand-name ${isExpanded && !removeMode ? 'expanded' : ''} ${isScraping ? 'brand-loading' : ''} ${removeMode && selectedForRemoval.has(brand.brand_id) ? 'selected-for-removal' : ''}`}
                   onClick={() => {
                     if (removeMode) {
                       setSelectedForRemoval(prev => {
@@ -943,7 +912,7 @@ function MyBrandsPanel() {
                   }}
                 >
                   <span className="brand-name-text">{(brand.name || brand.brand_id || 'Unknown').toUpperCase()}</span>
-                  {isScraping && !removeMode && <span className="brand-loading-text"> loading...</span>}
+                  {isScraping && !removeMode && <span className="brand-loading-text">scraping</span>}
                 </div>
 
                 {isExpanded && !removeMode && (
@@ -960,7 +929,7 @@ function MyBrandsPanel() {
         <div className="add-brand-footer">
           {removeMode ? (
             <button
-              className="remove-brand-button"
+              className="ar-btn ar-btn-block ar-btn-danger"
               onClick={() => {
                 if (selectedForRemoval.size > 0) {
                   setShowRemoveConfirm(true);
@@ -977,16 +946,16 @@ function MyBrandsPanel() {
           ) : (
             <>
               <button
-                className="add-brand-button"
+                className="ar-btn ar-btn-block"
                 onClick={() => setShowAddBrandModal(true)}
               >
-                + Add New Brand
+                + Add Brand
               </button>
               <button
-                className="remove-brand-button-idle"
+                className="ar-btn ar-btn-block"
                 onClick={() => setRemoveMode(true)}
               >
-                - Remove Brand
+                Remove
               </button>
             </>
           )}
@@ -994,15 +963,15 @@ function MyBrandsPanel() {
       </div>
 
       {/* Right Panel - Product Gallery */}
-      <div className="product-gallery">
+      <div className="product-gallery ar-scroll">
         {/* Search + Sort Toolbar */}
         <div className="product-toolbar">
             <div className="search-wrapper">
               <input
                 ref={searchInputRef}
                 type="text"
-                className="product-search-input"
-                placeholder="Search products..."
+                className="ar-input"
+                placeholder="Search"
                 value={searchQuery}
                 onChange={(e) => handleSearchChange(e.target.value)}
                 onKeyDown={handleSearchKeyDown}
@@ -1034,7 +1003,7 @@ function MyBrandsPanel() {
               )}
             </div>
             <select
-              className="product-sort-select"
+              className="ar-select product-sort-select"
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value)}
             >
@@ -1054,7 +1023,7 @@ function MyBrandsPanel() {
         {(searchLoading || loadingProducts) ? (
           <div className="gallery-loading">Loading products...</div>
         ) : displayProducts.length > 0 ? (
-          <div className="product-grid" ref={gridRef}>
+          <div className="product-grid">
             {displayProducts.map((product, idx) => {
               // E0005 field names with legacy aliases as fallback.
               const brandRaw = product.brand || product.brand_id || '';
@@ -1091,9 +1060,6 @@ function MyBrandsPanel() {
               const stock = product.in_stock;
               const allSoldOut = sizeBadges.length > 0 && sizeBadges.every(s => s.gone);
 
-              const rowIdx = Math.floor(idx / GRID_COLS);
-              const rowHeight = rowImageHeights[rowIdx];
-
               const cardClass =
                 'product-card' +
                 (selectedProduct && (selectedProduct.itemurl || selectedProduct.url || selectedProduct.product_url) === productUrl ? ' selected' : '') +
@@ -1105,13 +1071,12 @@ function MyBrandsPanel() {
                   className={cardClass}
                   onClick={() => setSelectedProduct(product)}
                 >
-                  <div className="product-image" style={rowHeight ? { height: rowHeight } : undefined}>
+                  <div className="product-image">
                     {imageUrl ? (
                       <img
                         src={imageUrl}
                         alt={productName}
                         loading="lazy"
-                        onLoad={(e) => handleImageLoad(idx, e)}
                         onError={(e) => {
                           // Swap to no-image placeholder if the image 404s.
                           const card = e.currentTarget.closest('.product-card');
@@ -1156,7 +1121,11 @@ function MyBrandsPanel() {
               );
             })}
           </div>
-        ) : null}
+        ) : (
+          <div className="gallery-empty">
+            {selectedLeaves.size === 0 ? 'Select a category to view products' : 'Nothing in this category'}
+          </div>
+        )}
       </div>
 
       {/* Product Detail Panel with drag handle */}
@@ -1187,7 +1156,7 @@ function MyBrandsPanel() {
 
             <input
               type="text"
-              className="modern-input"
+              className="ar-input"
               placeholder="https://example.com"
               value={brandUrlInput}
               onChange={(e) => setBrandUrlInput(e.target.value)}
@@ -1202,7 +1171,7 @@ function MyBrandsPanel() {
 
             <div className="modern-modal-actions">
               <button
-                className="modern-button modern-button-secondary"
+                className="ar-btn"
                 onClick={() => {
                   setShowAddBrandModal(false);
                   setBrandUrlInput('');
@@ -1213,7 +1182,7 @@ function MyBrandsPanel() {
                 Cancel
               </button>
               <button
-                className="modern-button modern-button-primary"
+                className="ar-btn active"
                 onClick={handleSubmitBrandUrl}
                 disabled={validating || !brandUrlInput.trim()}
               >
@@ -1241,13 +1210,13 @@ function MyBrandsPanel() {
             </div>
             <div className="modern-modal-actions">
               <button
-                className="modern-button modern-button-secondary"
+                className="ar-btn"
                 onClick={() => setShowRemoveConfirm(false)}
               >
                 Cancel
               </button>
               <button
-                className="modern-button modern-button-danger"
+                className="ar-btn ar-btn-danger"
                 onClick={async () => {
                   for (const brandId of selectedForRemoval) {
                     await FashionArchiveAPI.unfollowBrand(brandId);
@@ -1264,6 +1233,7 @@ function MyBrandsPanel() {
           </div>
         </div>
       )}
+    </div>
     </div>
   );
 }

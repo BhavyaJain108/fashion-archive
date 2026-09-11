@@ -1,0 +1,451 @@
+/* Product detail drawer — opens from a My Brands tile onto the archive
+   language. Tokens live in styles/archive.css; this sheet only describes
+   what is particular to this drawer. */
+
+/* --- Wrapper + resize handle ---------------------------------------- */
+
+/* Height was calc(100vh - 40px), a leftover from fixed chrome above the
+   page. The page is a flex column now, so the drawer just fills it. */
+.detail-panel-wrapper {
+  display: flex;
+  height: 100%;
+  flex-shrink: 0;
+}
+
+.detail-resize-handle {
+  width: 5px;
+  cursor: col-resize;
+  background: transparent;
+  transition: background-color 0.15s;
+  flex-shrink: 0;
+}
+
+.detail-resize-handle:hover,
+.detail-resize-handle:active {
+  background: var(--ar-ink);
+}
+
+/* --- Panel shell ----------------------------------------------------- */
+
+.product-detail-panel {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  background: var(--ar-bg);
+  border-left: 1px solid var(--ar-line);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.detail-panel-header {
+  display: flex;
+  justify-content: flex-end;
+  padding: 12px 16px 0;
+  position: sticky;
+  top: 0;
+  background: var(--ar-bg);
+  z-index: 1;
+}
+
+.detail-panel-close {
+  background: none;
+  border: none;
+  font-size: 16px;
+  cursor: pointer;
+  color: var(--ar-ink-3);
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.detail-panel-close:hover {
+  color: var(--ar-ink);
+}
+
+/* --- Image carousel ---------------------------------------------------- */
+
+.detail-carousel {
+  padding: 0 16px;
+}
+
+.detail-carousel-main {
+  position: relative;
+  width: 100%;
+  background: #f5f5f5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.detail-carousel-image {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* Glyph, not a filled control — matches .fav-arrow's idle/hover pair.
+   Hit target matches .fav-arrow / .hf2-nav-arrow: 40x80, flex-centred. */
+.carousel-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 40px;
+  height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: var(--ar-ink-4);
+  z-index: 2;
+  opacity: 0;
+  transition: opacity 0.2s, color 0.15s ease;
+}
+
+.carousel-arrow:hover {
+  color: var(--ar-ink);
+}
+
+.detail-carousel-main:hover .carousel-arrow {
+  opacity: 1;
+}
+
+.carousel-arrow-left {
+  left: 0;
+}
+
+.carousel-arrow-right {
+  right: 0;
+}
+
+.detail-carousel-dots {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 0;
+}
+
+/* Square, not round — the one radius exception the brief calls out is to
+   keep these square rather than let a round dot slip back in. */
+.carousel-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 0;
+  background: var(--ar-ink-4);
+  cursor: pointer;
+}
+
+.carousel-dot.active {
+  background: var(--ar-ink);
+}
+
+.detail-carousel-thumbs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+
+.carousel-thumb {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  cursor: pointer;
+  opacity: 0.5;
+  border: 1px solid transparent;
+  transition: opacity 0.2s;
+}
+
+.carousel-thumb.active {
+  opacity: 1;
+  border-color: var(--ar-ink);
+}
+
+/* --- Product info ------------------------------------------------------ */
+
+.detail-info {
+  padding: 16px;
+  padding-bottom: 48px;
+}
+
+.detail-brand {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--ar-ink-3);
+  margin-bottom: 4px;
+}
+
+.detail-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ar-ink);
+  margin-bottom: 8px;
+  line-height: 1.3;
+}
+
+.detail-price {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ar-ink);
+  margin-bottom: 16px;
+}
+
+.detail-description {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ar-ink-3);
+  margin-bottom: 16px;
+  white-space: pre-wrap;
+}
+
+.detail-meta {
+  margin-bottom: 16px;
+  font-size: 11px;
+  color: var(--ar-ink-3);
+}
+
+.detail-meta-item {
+  margin-bottom: 4px;
+}
+
+.detail-meta-item span {
+  font-weight: 600;
+  color: var(--ar-ink);
+}
+
+/* --- Variants table (legacy fallback, not rendered by current markup) - */
+
+.detail-variants {
+  margin-bottom: 16px;
+}
+
+.detail-variants-title {
+  font-size: 11px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--ar-ink);
+}
+
+.detail-variants-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.detail-variants-table th {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--ar-line);
+  font-weight: 600;
+  color: var(--ar-ink);
+}
+
+.detail-variants-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--ar-line);
+  color: var(--ar-ink-3);
+}
+
+/* --- View on site -------------------------------------------------- */
+
+.detail-view-site {
+  display: block;
+  width: 100%;
+  padding: 12px;
+  background: var(--ar-ink);
+  color: var(--ar-bg);
+  border: none;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: center;
+  margin-top: 8px;
+}
+
+.detail-view-site:hover {
+  opacity: 0.9;
+}
+
+/* --- Breadcrumb, price row, tags ------------------------------------ */
+
+.detail-breadcrumb {
+  font-size: 11px;
+  color: var(--ar-ink-3);
+  margin: 4px 0 12px;
+  text-transform: capitalize;
+}
+
+.detail-breadcrumb-sep {
+  margin: 0 6px;
+  color: var(--ar-line);
+}
+
+.detail-price-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.detail-price-strike {
+  text-decoration: line-through;
+  color: var(--ar-ink-4);
+  font-size: 11px;
+  margin-right: 8px;
+  font-weight: 400;
+}
+
+/* Hairline outlined chips — exactly the tile badge treatment from
+   MyBrandsPanel.css. None filled, none coloured. */
+.detail-tag {
+  font-size: 9px;
+  font-weight: 400;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 3px 6px;
+  border: 1px solid var(--ar-ink-2);
+  color: var(--ar-ink-2);
+  background: transparent;
+}
+
+.detail-tag-good { border-color: var(--ar-ink-2); color: var(--ar-ink-2); }
+.detail-tag-bad  { border-color: var(--ar-ink-2); color: var(--ar-ink-2); }
+.detail-tag-promo { background: transparent; color: var(--ar-ink-2); border-color: var(--ar-ink-2); }
+.detail-tag-neutral { font-size: 9px; font-weight: 500; }
+
+/* --- Sectioned blocks ------------------------------------------------ */
+
+.detail-block {
+  margin: 16px 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--ar-line);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ar-ink-3);
+}
+
+.detail-section-head {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--ar-ink-3);
+  padding-bottom: 8px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--ar-line);
+}
+
+/* --- Size grid -------------------------------------------------------- */
+
+.detail-size-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 6px;
+}
+
+.s-cell {
+  border: 1px solid var(--ar-line);
+  padding: 12px 10px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.s-cell:hover { border-color: var(--ar-ink); }
+
+.s-cell.gone {
+  color: var(--ar-ink-3);
+  background: var(--ar-bg-sub);
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.s-cell.gone:hover { border-color: var(--ar-line); }
+.s-cell.gone .s-label { text-decoration: line-through; }
+.s-cell.low { border-color: var(--ar-ink-2); }
+
+.s-cell .s-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ar-ink);
+}
+
+.s-cell.gone .s-label { color: var(--ar-ink-3); }
+
+.s-cell .s-meta {
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ar-ink-3);
+  margin-top: 4px;
+}
+
+/* Low stock was orange. It is weight now, not colour — same call as
+   .tile-size.low in MyBrandsPanel.css. */
+.s-cell.low .s-meta { color: var(--ar-ink); font-weight: 700; }
+
+/* --- Material composition -------------------------------------------- */
+
+.detail-composition {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.detail-composition-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 0;
+  border-bottom: 1px dotted var(--ar-line);
+  font-size: 11px;
+}
+
+.detail-composition-row:last-child { border-bottom: 0; }
+
+.detail-composition-label {
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  font-size: 9px;
+  color: var(--ar-ink);
+  font-weight: 600;
+}
+
+.detail-composition-value {
+  color: var(--ar-ink-3);
+  text-align: right;
+}
+
+/* --- Specifications ---------------------------------------------------- */
+
+.detail-specs-list {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.detail-specs-list li {
+  margin-bottom: 4px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* --- Free-form tags ---------------------------------------------------- */
+
+.detail-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* --- SKU footer ---------------------------------------------------- */
+
+.detail-sku {
+  font-size: 9px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--ar-ink-3);
+  margin: 16px 0 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ar-line);
+}

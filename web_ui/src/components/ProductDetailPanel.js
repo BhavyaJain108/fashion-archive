@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import './ProductDetailPanel.css';
 
 // ---------------------------------------------------------------------------
 // E0005-aware product detail panel.
