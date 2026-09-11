@@ -1,0 +1,200 @@
+/* My Brands — the archive language. Tokens live in styles/archive.css.
+   The page shell is .ar-page + .ar-content from that file; this sheet only
+   describes what is particular to this page. */
+
+/* --- Sidebar ------------------------------------------------------- */
+
+.brand-sidebar {
+  width: 280px;
+  min-width: 280px;
+  background: var(--ar-bg-sub);
+  border-right: 1px solid var(--ar-line);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.brand-sidebar-content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+.brand-section {
+  margin-bottom: 0;
+}
+
+/* A brand: 12px uppercase, letterspaced. Black and bold once expanded, so
+   the open brand is findable in a long list without an icon. */
+.brand-name {
+  display: flex;
+  align-items: baseline;
+  padding: 7px 12px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ar-ink-3);
+  cursor: pointer;
+  border-left: 2px solid transparent;
+  transition: all 0.1s ease;
+  user-select: none;
+}
+
+.brand-name:hover {
+  color: var(--ar-ink);
+  background: var(--ar-wash);
+}
+
+.brand-name.expanded {
+  color: var(--ar-ink);
+  font-weight: 700;
+  border-left-color: var(--ar-ink);
+  background: var(--ar-wash-strong);
+}
+
+.brand-name.brand-loading {
+  color: var(--ar-ink-4);
+}
+
+.brand-name.brand-long-pressing {
+  cursor: progress;
+}
+
+.brand-name-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* "loading..." became "scraping" — it is a scrape, and the word is honest. */
+.brand-loading-text {
+  font-size: 9px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--ar-ink-4);
+  flex-shrink: 0;
+  padding-left: 8px;
+}
+
+.brand-categories {
+  padding-bottom: 4px;
+}
+
+/* --- Category tree ------------------------------------------------- */
+
+.nav-item {
+  display: flex;
+  align-items: baseline;
+  padding: 5px 12px;
+  font-size: 11px;
+  color: var(--ar-ink-3);
+  cursor: pointer;
+  border-left: 2px solid transparent;
+  transition: all 0.1s ease;
+  user-select: none;
+}
+
+.nav-item:hover {
+  color: var(--ar-ink);
+  background: var(--ar-wash);
+}
+
+.nav-selected {
+  color: var(--ar-ink);
+  border-left-color: var(--ar-ink);
+  background: var(--ar-wash-strong);
+}
+
+.nav-parent {
+  font-weight: 500;
+}
+
+.nav-icon {
+  margin-right: 8px;
+  font-size: 9px;
+  width: 8px;
+  flex-shrink: 0;
+  color: var(--ar-ink-4);
+  display: inline-block;
+}
+
+.nav-item:hover .nav-icon,
+.nav-selected .nav-icon {
+  color: var(--ar-ink-2);
+}
+
+.nav-bullet {
+  display: none;
+}
+
+.nav-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nav-text-bold {
+  flex: 1;
+  min-width: 0;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nav-count {
+  margin-left: auto;
+  padding-left: 8px;
+  font-size: 10px;
+  color: var(--ar-ink-4);
+  flex-shrink: 0;
+}
+
+/* --- Footer -------------------------------------------------------- */
+
+.add-brand-footer {
+  padding: 12px;
+  border-top: 1px solid var(--ar-line);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* Removing a brand discards everything scraped for it, so the button
+   reddens once arm-mode is on — the one place colour is allowed. */
+.brand-name.selected-for-removal {
+  color: var(--ar-danger);
+  border-left-color: var(--ar-danger);
+  background: var(--ar-wash-strong);
+  text-decoration: line-through;
+  text-decoration-color: var(--ar-danger);
+}
+
+.brand-name.selected-for-removal:hover {
+  color: var(--ar-danger);
+}
+
+.remove-brand-list {
+  margin-top: 12px;
+  padding-left: 16px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ar-ink);
+  list-style: none;
+}
+
+.remove-brand-list li {
+  margin-bottom: 4px;
+}
+
+.remove-brand-list li::before {
+  content: '— ';
+  color: var(--ar-ink-4);
+}

@@ -4,6 +4,7 @@ import TopBar from './TopBar';
 import { FashionArchiveAPI } from '../services/api';
 import ProductDetailPanel from './ProductDetailPanel';
 import ScrapeConsole from './ScrapeConsole';
+import './MyBrandsPanel.css';
 
 function MyBrandsPanel({ currentPage, onPageSwitch, currentUser, onLogout }) {
   const [brands, setBrands] = useState([]);
@@ -929,7 +930,7 @@ function MyBrandsPanel({ currentPage, onPageSwitch, currentUser, onLogout }) {
       <div className="ar-content">
       {/* Left Sidebar - Brand Navigation */}
       <div className="brand-sidebar">
-        <div className="brand-sidebar-content">
+        <div className="brand-sidebar-content ar-scroll">
           {brands.map(brand => {
             const isExpanded = expandedBrands[brand.brand_id];
             const isScraping = scrapingBrands.has(brand.brand_id);
@@ -937,7 +938,7 @@ function MyBrandsPanel({ currentPage, onPageSwitch, currentUser, onLogout }) {
             return (
               <div key={brand.brand_id} className="brand-section">
                 <div
-                  className={`brand-name ${isScraping ? 'brand-loading' : ''} ${removeMode && selectedForRemoval.has(brand.brand_id) ? 'selected-for-removal' : ''}`}
+                  className={`brand-name ${isExpanded && !removeMode ? 'expanded' : ''} ${isScraping ? 'brand-loading' : ''} ${removeMode && selectedForRemoval.has(brand.brand_id) ? 'selected-for-removal' : ''}`}
                   onClick={() => {
                     if (removeMode) {
                       setSelectedForRemoval(prev => {
@@ -959,7 +960,7 @@ function MyBrandsPanel({ currentPage, onPageSwitch, currentUser, onLogout }) {
                   }}
                 >
                   <span className="brand-name-text">{(brand.name || brand.brand_id || 'Unknown').toUpperCase()}</span>
-                  {isScraping && !removeMode && <span className="brand-loading-text"> loading...</span>}
+                  {isScraping && !removeMode && <span className="brand-loading-text">scraping</span>}
                 </div>
 
                 {isExpanded && !removeMode && (
@@ -976,7 +977,7 @@ function MyBrandsPanel({ currentPage, onPageSwitch, currentUser, onLogout }) {
         <div className="add-brand-footer">
           {removeMode ? (
             <button
-              className="remove-brand-button"
+              className="ar-btn ar-btn-block ar-btn-danger"
               onClick={() => {
                 if (selectedForRemoval.size > 0) {
                   setShowRemoveConfirm(true);
@@ -993,16 +994,16 @@ function MyBrandsPanel({ currentPage, onPageSwitch, currentUser, onLogout }) {
           ) : (
             <>
               <button
-                className="add-brand-button"
+                className="ar-btn ar-btn-block"
                 onClick={() => setShowAddBrandModal(true)}
               >
-                + Add New Brand
+                + Add Brand
               </button>
               <button
-                className="remove-brand-button-idle"
+                className="ar-btn ar-btn-block"
                 onClick={() => setRemoveMode(true)}
               >
-                - Remove Brand
+                Remove
               </button>
             </>
           )}
