@@ -47,3 +47,34 @@ CREATE TABLE IF NOT EXISTS brand_following (
 
     PRIMARY KEY (user_id, brand_id)
 );
+
+-- Shows a user has opened, most recent first.
+--
+-- Separate from favourites: a favourite is a deliberate keep, this is just
+-- where you have been, so you can get back to a show without walking the
+-- year/season/gender filters again. Per-user, because it is a history.
+--
+-- One row per user per show — opening a show again moves it up rather than
+-- adding a duplicate, which is what the primary key gives us.
+CREATE TABLE IF NOT EXISTS recent_collections (
+    user_id       uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    collection_id text NOT NULL,
+
+    designer      text NOT NULL,
+    season        text,
+    year          integer,
+    gender        text,
+    collection_url text NOT NULL,
+
+    -- First look, for a thumbnail in the list. Nullable: a show can be
+    -- recorded before its images have finished arriving.
+    thumbnail_url text,
+    look_count    integer,
+
+    viewed_at     timestamptz NOT NULL DEFAULT now(),
+
+    PRIMARY KEY (user_id, collection_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_recent_collections_user
+    ON recent_collections (user_id, viewed_at DESC);

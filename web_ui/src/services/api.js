@@ -262,6 +262,38 @@ class FashionArchiveAPI {
     return result;
   }
 
+  // Shows this user has opened, newest first. Distinct from favourites: a
+  // favourite is a deliberate keep, this is just where you have been.
+  static async getRecents() {
+    try {
+      const response = await fetch(`${this.BASE_URL}/api/recents`, {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        this.checkAuth(response);
+        return [];
+      }
+      const data = await response.json();
+      return data.recents || [];
+    } catch (error) {
+      console.error('Get recents API Error:', error);
+      return [];
+    }
+  }
+
+  static async clearRecents() {
+    try {
+      const response = await fetch(`${this.BASE_URL}/api/recents`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      return response.ok;
+    } catch (error) {
+      console.error('Clear recents API Error:', error);
+      return false;
+    }
+  }
+
   // Video search test (matches tkinter open_video_test)
   static async testVideoSearch(query) {
     const response = await this.callPython('/api/video-test', { query });

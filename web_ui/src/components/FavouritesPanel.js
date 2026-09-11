@@ -10,10 +10,13 @@ function collectionKey(fav) {
   return `${fav.collection.designer}::${fav.season.name}`;
 }
 
-function FavouritesPanel({ currentPage, onPageSwitch, currentUser, onLogout }) {
+function FavouritesPanel({ currentPage, onPageSwitch, currentUser, onLogout, onOpenRecent }) {
   const [favourites, setFavourites] = useState([]);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({});
+  // Shows this user has opened. Not favourites — just where they have been,
+  // so getting back to a show does not mean walking the filters again.
+  const [recents, setRecents] = useState([]);
 
   // Was App-level state written by the old MenuBar's View menu. It orders
   // the sidebar: RECENT by when a look was saved, BY COLLECTION by designer.
@@ -24,6 +27,12 @@ function FavouritesPanel({ currentPage, onPageSwitch, currentUser, onLogout }) {
 
   const thumbStripRef = useRef(null);
   const activeThumbRef = useRef(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    FashionArchiveAPI.getRecents().then(r => { if (!cancelled) setRecents(r); });
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     loadFavourites();
@@ -189,13 +198,49 @@ function FavouritesPanel({ currentPage, onPageSwitch, currentUser, onLogout }) {
     }
   };
 
+  // Recently opened. A horizontal strip rather than a column: it is a way
+  // back to a show, not something to browse at length. Sits directly under
+  // the top bar in normal flow — on master it was fixed at top:66px, which
+  // was clearing the old MenuBar and marquee that this page no longer has.
   const chrome = (
-    <TopBar
-      currentPage={currentPage}
-      onPageSwitch={onPageSwitch}
-      currentUser={currentUser}
-      onLogout={onLogout}
-    />
+    <>
+      <TopBar
+        currentPage={currentPage}
+        onPageSwitch={onPageSwitch}
+        currentUser={currentUser}
+        onLogout={onLogout}
+      />
+      {recents.length > 0 && (
+        <div className="fav-recents">
+          <div className="fav-recents-head">
+            <span>Recently viewed</span>
+            <span className="count">{recents.length}</span>
+          </div>
+          <div className="fav-recents-strip">
+            {recents.map(r => (
+              <button
+                key={r.collection_id}
+                type="button"
+                className="fav-recent"
+                title={`${r.designer}${r.season ? ' — ' + r.season : ''}`}
+                onClick={() => onOpenRecent && onOpenRecent(r)}
+              >
+                <span className="thumb">
+                  {r.thumbnail_url
+                    ? <img src={FashionArchiveAPI.getImageUrl(r.thumbnail_url)} alt="" />
+                    : <span className="thumb-empty" />}
+                </span>
+                <span className="name">{r.designer}</span>
+                <span className="meta">
+                  {[r.season, r.gender].filter(Boolean).join(' · ')}
+                  {r.look_count ? ` · ${r.look_count}` : ''}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
   );
 
   if (loading) {
