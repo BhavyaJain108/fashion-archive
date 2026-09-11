@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { FashionArchiveAPI } from '../services/api';
 
-function FavouritesPanel({ currentView }) {
+function FavouritesPanel({ currentView, onOpenRecent }) {
   const [favourites, setFavourites] = useState([]);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({});
   const [selectedIndex, setSelectedIndex] = useState(0);
+  // Shows this user has opened. Not favourites — just where they have been,
+  // so getting back to a show does not mean walking the filters again.
+  const [recents, setRecents] = useState([]);
 
   // Apply view-specific sorting and filtering
   const getDisplayFavourites = () => {
@@ -72,6 +75,12 @@ function FavouritesPanel({ currentView }) {
   const displayFavourites = getDisplayFavourites();
 
   // Load favourites on component mount
+  useEffect(() => {
+    let cancelled = false;
+    FashionArchiveAPI.getRecents().then(r => { if (!cancelled) setRecents(r); });
+    return () => { cancelled = true; };
+  }, []);
+
   useEffect(() => {
     loadFavourites();
     loadStats();
@@ -151,9 +160,47 @@ function FavouritesPanel({ currentView }) {
     setSelectedIndex(index);
   };
 
+  const recentsStrip = (
+    <>
+      {/* Recently opened. A horizontal strip rather than a column: it is a
+          way back to a show, not something to browse at length. */}
+      {recents.length > 0 && (
+        <div className="fav-recents">
+          <div className="fav-recents-head">
+            <span>Recently viewed</span>
+            <span className="count">{recents.length}</span>
+          </div>
+          <div className="fav-recents-strip">
+            {recents.map(r => (
+              <button
+                key={r.collection_id}
+                type="button"
+                className="fav-recent"
+                title={`${r.designer}${r.season ? ' — ' + r.season : ''}`}
+                onClick={() => onOpenRecent && onOpenRecent(r)}
+              >
+                <span className="thumb">
+                  {r.thumbnail_url
+                    ? <img src={FashionArchiveAPI.getImageUrl(r.thumbnail_url)} alt="" />
+                    : <span className="thumb-empty" />}
+                </span>
+                <span className="name">{r.designer}</span>
+                <span className="meta">
+                  {[r.season, r.gender].filter(Boolean).join(' · ')}
+                  {r.look_count ? ` · ${r.look_count}` : ''}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
+  );
+
   if (loading) {
     return (
       <div className="columns-container">
+        {recentsStrip}
         <div style={{ 
           display: 'flex', 
           height: '100vh', 
@@ -172,6 +219,7 @@ function FavouritesPanel({ currentView }) {
   if (favourites.length === 0) {
     return (
       <div className="columns-container">
+        {recentsStrip}
         <div style={{ 
           display: 'flex', 
           height: '100vh', 
@@ -203,6 +251,7 @@ function FavouritesPanel({ currentView }) {
 
   return (
     <div className="columns-container">
+      {recentsStrip}
       {/* Title Bar */}
       <div className="mac-title-bar" style={{ 
         position: 'fixed',

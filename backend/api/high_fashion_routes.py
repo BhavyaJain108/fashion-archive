@@ -15,6 +15,10 @@ import shutil
 import tempfile
 
 from backend.storage import images
+from backend.auth import db
+from backend.auth.middleware import current_user
+from backend.high_fashion import collection_cache
+from backend.userdata import recents
 import os
 import requests
 from bs4 import BeautifulSoup
@@ -209,18 +213,90 @@ def _upload_images(store, designer_name, entries):
             print(f"Failed to read {entry['local_path']}: {exc}")
             continue
 
+        key = images.runway_key(designer_name, entry['filename'])
         uploaded.append({
             # A URL now, not a filesystem path. It used to be an absolute path
             # the client handed back to /api/image?path= for the server to read
             # off disk — meaningless on another machine, and that endpoint read
             # whatever path it was given.
-            'path': store.save(images.runway_key(designer_name, entry['filename']), data),
+            'path': store.save(key, data),
+            # Kept so cache eviction can delete the object, not just the row.
+            'key': key,
             'source_url': entry['source_url'],
             'index': entry['index'],
             'filename': entry['filename'],
             'success': True,
         })
     return uploaded
+
+
+def _record_recent(collection_id, payload, images_list=None):
+    """Note that the signed-in user opened this show.
+
+    Best effort: a history entry is never worth failing a download over, and
+    an unauthenticated or partially-loaded request simply records nothing.
+    """
+    try:
+        user = current_user()
+        if user is None:
+            return
+        thumb = None
+        if images_list:
+            first = min(images_list, key=lambda i: i.get('index', 0))
+            thumb = first.get('path')
+        with db.transaction() as conn:
+            recents.record(
+                conn,
+                user_id=user.id,
+                collection_id=collection_id,
+                designer=payload.get('designer') or 'Unknown',
+                collection_url=payload.get('source_url')
+                    or f"https://www.firstview.com/collection_images.php?id={collection_id}",
+                season=payload.get('season'),
+                gender=payload.get('gender'),
+                thumbnail_url=thumb,
+                look_count=payload.get('count') or payload.get('look_count'),
+            )
+    except Exception as exc:  # noqa: BLE001
+        print(f"recents: could not record {collection_id}: {exc}")
+
+
+def _cache_lookup(collection_id, quality):
+    """A previously stored show, or None. Never raises: a cache that is down
+    should make things slow, not broken."""
+    try:
+        with db.transaction() as conn:
+            hit = collection_cache.get(
+                conn, collection_id=collection_id, quality=quality
+            )
+            if hit:
+                collection_cache.touch(conn, collection_id=collection_id)
+            return hit
+    except Exception as exc:  # noqa: BLE001
+        print(f"cache lookup failed for {collection_id}: {exc}")
+        return None
+
+
+def _cache_store(collection_id, quality, uploaded, meta, store):
+    """Record a freshly fetched show, then trim the cache to its limit."""
+    try:
+        with db.transaction() as conn:
+            collection_cache.put(
+                conn,
+                collection_id=collection_id,
+                quality=quality,
+                images=uploaded,
+                designer=meta.get('designer'),
+                season=meta.get('season'),
+                gender=meta.get('gender'),
+                category=meta.get('category'),
+                shoot_type=meta.get('shoot_type'),
+            )
+            evicted = collection_cache.evict(conn, store)
+            if evicted:
+                print(f"cache: evicted {evicted} show(s) past the limit")
+    except Exception as exc:  # noqa: BLE001
+        print(f"cache store failed for {collection_id}: {exc}")
 
 
 def download_images():
@@ -248,6 +324,23 @@ def download_images():
             return jsonify({'error': 'collectionUrl is required', 'success': False}), 400
 
         quality = data.get('quality', fv.QUALITY_FULL)
+        collection_id = fv.collection_id_from_url(collection_url) or collection_url
+
+        # Already in R2? Hand back the stored URLs and make no request to
+        # firstVIEW at all.
+        hit = _cache_lookup(collection_id, quality)
+        if hit:
+            _record_recent(collection_id, hit, hit['images'])
+            return jsonify({
+                'success': True,
+                'images': hit['images'],
+                'count': len(hit['images']),
+                'failed': [],
+                'designer': hit.get('designer'),
+                'season': hit.get('season'),
+                'cached': True,
+            })
+
         store = images.get_store()
         temp_dir = tempfile.mkdtemp(prefix='runway_')
 
@@ -266,6 +359,8 @@ def download_images():
         } for img in result.get('images', [])]
 
         uploaded = _upload_images(store, designer_name, entries)
+        _cache_store(collection_id, quality, uploaded, result, store)
+        _record_recent(collection_id, result, uploaded)
 
         return jsonify({
             'success': bool(uploaded),
@@ -274,6 +369,7 @@ def download_images():
             'failed': result.get('failed', []),
             'designer': result.get('designer'),
             'season': result.get('season'),
+            'cached': False,
         })
 
     except Exception as e:
@@ -378,6 +474,42 @@ def stream_download_images():
         return jsonify({'error': 'collectionUrl is required', 'success': False}), 400
     quality = data.get('quality', fv.QUALITY_FULL)
     designer_hint = data.get('designerName')
+    collection_id = fv.collection_id_from_url(collection_url) or collection_url
+
+    # A stored show replays instantly: the same meta/image/done events, but
+    # read out of R2 rather than fetched from firstVIEW. Done before the
+    # generator so a hit does not open a temp directory it will not use.
+    cached = _cache_lookup(collection_id, quality)
+    if cached:
+        _record_recent(collection_id, cached, cached['images'])
+
+        def replay():
+            yield _sse({
+                'type': 'meta',
+                'designer': cached.get('designer'),
+                'season': cached.get('season'),
+                'gender': cached.get('gender'),
+                'category': cached.get('category'),
+                'collection_id': collection_id,
+                'count': len(cached['images']),
+                'cached': True,
+                'looks': [],
+            })
+            for img in sorted(cached['images'], key=lambda i: i.get('index', 0)):
+                yield _sse({'type': 'image', **img})
+            yield _sse({
+                'type': 'done',
+                'count': len(cached['images']),
+                'failed': [],
+                'designer': cached.get('designer'),
+                'season': cached.get('season'),
+                'success': True,
+                'cached': True,
+            })
+
+        return Response(replay(), mimetype='text/event-stream',
+                        headers={'Cache-Control': 'no-cache',
+                                 'X-Accel-Buffering': 'no'})
 
     def generate():
         # Same store-and-temp-dir contract as download_images: each look is
@@ -386,6 +518,7 @@ def stream_download_images():
         store = images.get_store()
         temp_dir = tempfile.mkdtemp(prefix='runway_')
         designer = designer_hint or 'unknown'
+        uploaded_all = []
         try:
             for kind, payload in fv.iter_download_collection(
                 collection_url, out_root=temp_dir, quality=quality
@@ -403,10 +536,17 @@ def stream_download_images():
                     uploaded = _upload_images(store, designer, [entry])
                     if not uploaded:
                         continue
+                    uploaded_all.append(uploaded[0])
                     payload = uploaded[0]
                 elif kind == 'done':
                     # `images` here still hold local paths; the client has
-                    # already received each one as a URL above.
+                    # already received each one as a URL above. Store the
+                    # uploaded set so the next open skips firstVIEW entirely.
+                    _cache_store(collection_id, quality, uploaded_all,
+                                 {**payload, 'designer': designer}, store)
+                    _record_recent(collection_id,
+                                   {**payload, 'designer': designer},
+                                   uploaded_all)
                     payload = {k: v for k, v in payload.items()
                                if k not in ('images', 'cache_dir')}
                 yield _sse({'type': kind, **payload})
@@ -501,12 +641,46 @@ def cleanup_fashion_cache():
         return jsonify({'error': str(e)}), 500
 
 
+def get_recents():
+    """GET /api/recents - shows the signed-in user has opened, newest first."""
+    try:
+        with db.transaction() as conn:
+            return jsonify({
+                'recents': recents.list_recent(conn, user_id=current_user().id),
+                'success': True,
+            })
+    except Exception as e:
+        return jsonify({'error': str(e), 'success': False}), 500
+
+
+def clear_recents():
+    """DELETE /api/recents - forget the current user's history."""
+    try:
+        with db.transaction() as conn:
+            removed = recents.clear(conn, user_id=current_user().id)
+        return jsonify({'removed': removed, 'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e), 'success': False}), 500
+
+
+def get_cache_stats():
+    """GET /api/cache/stats - how full the shared show cache is."""
+    try:
+        with db.transaction() as conn:
+            return jsonify({'cache': collection_cache.stats(conn), 'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e), 'success': False}), 500
+
+
 def register_high_fashion_routes(app):
     """Register all high fashion routes"""
 
     app.add_url_rule('/api/seasons', 'get_seasons', get_seasons, methods=['POST'])
     app.add_url_rule('/api/collections', 'get_collections', get_collections, methods=['POST'])
     app.add_url_rule('/api/download-images', 'download_images', download_images, methods=['POST'])
+    app.add_url_rule('/api/recents', 'get_recents', get_recents, methods=['GET'])
+    app.add_url_rule('/api/recents', 'clear_recents', clear_recents, methods=['DELETE'])
+    app.add_url_rule('/api/cache/stats', 'get_cache_stats', get_cache_stats, methods=['GET'])
     app.add_url_rule('/api/collections/stream', 'stream_collections_sse', stream_collections, methods=['POST'])
     app.add_url_rule('/api/download-images/stream', 'stream_download_images', stream_download_images, methods=['POST'])
     app.add_url_rule('/api/download-video', 'download_video_fashion', download_video, methods=['POST'])
@@ -514,4 +688,4 @@ def register_high_fashion_routes(app):
     app.add_url_rule('/api/video', 'serve_fashion_video', serve_fashion_video, methods=['GET'])
     app.add_url_rule('/api/cleanup', 'cleanup_fashion_cache', cleanup_fashion_cache, methods=['POST'])
 
-    print("✅ High Fashion API routes registered (9 endpoints)")
+    print("✅ High Fashion API routes registered (12 endpoints)")

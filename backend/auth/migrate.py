@@ -14,6 +14,8 @@ from pathlib import Path
 SCHEMA_PATHS = (
     Path(__file__).with_name("schema.sql"),
     Path(__file__).parent.parent / "userdata" / "schema.sql",
+    # Shared show cache. No foreign keys into users, so order is free.
+    Path(__file__).parent.parent / "high_fashion" / "schema.sql",
 )
 
 
