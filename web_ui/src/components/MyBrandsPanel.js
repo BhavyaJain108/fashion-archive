@@ -1011,15 +1011,15 @@ function MyBrandsPanel({ currentPage, onPageSwitch, currentUser, onLogout }) {
       </div>
 
       {/* Right Panel - Product Gallery */}
-      <div className="product-gallery">
+      <div className="product-gallery ar-scroll">
         {/* Search + Sort Toolbar */}
         <div className="product-toolbar">
             <div className="search-wrapper">
               <input
                 ref={searchInputRef}
                 type="text"
-                className="product-search-input"
-                placeholder="Search products..."
+                className="ar-input"
+                placeholder="Search"
                 value={searchQuery}
                 onChange={(e) => handleSearchChange(e.target.value)}
                 onKeyDown={handleSearchKeyDown}
@@ -1051,7 +1051,7 @@ function MyBrandsPanel({ currentPage, onPageSwitch, currentUser, onLogout }) {
               )}
             </div>
             <select
-              className="product-sort-select"
+              className="ar-select product-sort-select"
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value)}
             >

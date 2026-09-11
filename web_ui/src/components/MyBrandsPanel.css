@@ -198,3 +198,308 @@
   content: '— ';
   color: var(--ar-ink-4);
 }
+
+/* --- Gallery ------------------------------------------------------- */
+
+.product-gallery {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  background: var(--ar-bg);
+}
+
+/* --- Search and sort ----------------------------------------------- */
+
+.product-toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 12px 24px;
+  background: var(--ar-bg);
+  border-bottom: 1px solid var(--ar-line);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  flex-shrink: 0;
+}
+
+.search-wrapper {
+  flex: 1;
+  position: relative;
+  min-width: 0;
+}
+
+.product-sort-select {
+  width: auto;
+  min-width: 150px;
+  flex-shrink: 0;
+}
+
+.search-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  background: var(--ar-bg);
+  border: 1px solid var(--ar-line);
+  border-top: none;
+  border-radius: 0;
+  z-index: 10;
+}
+
+.search-dropdown-item {
+  padding: 7px 12px;
+  font-family: var(--ar-font);
+  font-size: 11px;
+  color: var(--ar-ink-3);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-left: 2px solid transparent;
+  transition: all 0.1s ease;
+}
+
+.search-dropdown-item:hover,
+.search-dropdown-item.highlighted {
+  color: var(--ar-ink);
+  background: var(--ar-wash-strong);
+  border-left-color: var(--ar-ink);
+}
+
+.dropdown-cat-name strong {
+  font-weight: 700;
+  color: var(--ar-ink);
+}
+
+/* --- Grid ---------------------------------------------------------- */
+
+/* auto-fill rather than the old fixed four columns: four columns crushed
+   the tiles once the detail drawer opened on a narrow window. */
+.product-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 16px;
+  align-content: start;
+  padding: 24px;
+  width: 100%;
+}
+
+.product-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--ar-bg);
+  border-radius: 0;
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+.product-card:hover {
+  transform: translateY(-2px);
+}
+
+.product-card.selected .product-image {
+  outline: 2px solid var(--ar-ink);
+  outline-offset: -2px;
+}
+
+.product-image {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  overflow: hidden;
+  background: #f5f5f5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.product-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  transition: opacity 0.15s ease;
+}
+
+.product-card:hover .product-image img {
+  opacity: 0.9;
+}
+
+/* Left-aligned, small: the tile is a catalogue entry, not a headline. */
+.product-info {
+  padding: 8px 0;
+  text-align: left;
+}
+
+.product-brand {
+  font-size: 9px;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: var(--ar-ink-3);
+  margin-bottom: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.product-name {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--ar-ink);
+  margin-bottom: 4px;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.product-price {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ar-ink);
+}
+
+.product-price-strike {
+  text-decoration: line-through;
+  color: var(--ar-ink-4);
+  font-size: 10px;
+  margin-right: 6px;
+  font-weight: 400;
+}
+
+/* --- Badges -------------------------------------------------------- */
+
+.tile-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  font-size: 9px;
+  font-weight: 400;
+  padding: 3px 6px;
+  background: var(--ar-bg);
+  border: 1px solid var(--ar-ink-2);
+  color: var(--ar-ink-2);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border-radius: 0;
+  z-index: 2;
+}
+
+.tile-badge-bad {
+  background: var(--ar-bg);
+  border-color: var(--ar-ink-2);
+  color: var(--ar-ink-2);
+}
+
+/* Sale is the one thing worth interrupting the greyscale for, so it is the
+   only filled badge — black, not red. */
+.tile-badge-sale {
+  background: var(--ar-ink);
+  border-color: var(--ar-ink);
+  color: var(--ar-bg);
+  font-weight: 700;
+}
+
+.tile-badge-flag {
+  background: var(--ar-bg);
+  border-color: var(--ar-danger);
+  color: var(--ar-danger);
+  left: auto;
+  right: 8px;
+}
+
+/* --- Sizes --------------------------------------------------------- */
+
+.tile-sizes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-top: 6px;
+}
+
+.tile-size {
+  font-size: 9px;
+  padding: 2px 5px;
+  border: 1px solid var(--ar-line);
+  color: var(--ar-ink-2);
+  letter-spacing: 0.05em;
+  border-radius: 0;
+}
+
+.tile-size.gone {
+  color: var(--ar-ink-4);
+  border-color: var(--ar-line);
+  text-decoration: line-through;
+  background: transparent;
+}
+
+/* Low stock was orange. It is weight now, not colour. */
+.tile-size.low {
+  border-color: var(--ar-ink-2);
+  color: var(--ar-ink);
+  font-weight: 700;
+}
+
+/* --- Missing image ------------------------------------------------- */
+
+.product-card-no-image {
+  opacity: 1;
+}
+
+.product-card-no-image .product-image {
+  background: repeating-linear-gradient(
+    45deg,
+    #fafafa,
+    #fafafa 6px,
+    #f2f2f2 6px,
+    #f2f2f2 12px
+  );
+}
+
+.no-image-placeholder {
+  width: 100%;
+  height: 100%;
+  min-height: 120px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--ar-ink-4);
+  pointer-events: none;
+}
+
+.no-image-icon {
+  font-size: 20px;
+  font-weight: 300;
+  margin-bottom: 6px;
+}
+
+.no-image-text {
+  font-size: 9px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+
+/* --- States -------------------------------------------------------- */
+
+.gallery-loading,
+.loading-state,
+.gallery-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  width: 100%;
+  padding: 48px 24px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: var(--ar-ink-4);
+}
