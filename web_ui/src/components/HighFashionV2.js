@@ -71,6 +71,11 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
   const abortImages = useCallback(() => {
     if (imagesAbort.current) imagesAbort.current.abort();
     imagesAbort.current = null;
+    // Clear the flag here rather than in the aborted request's finally: that
+    // guards on isCurrent(), which is false exactly because we just aborted,
+    // so the flag stayed true forever and every later click was ignored.
+    setImagesLoading(false);
+    setExpectedLookCount(0);
   }, []);
 
   // Drop any in-flight work when the component goes away.
@@ -260,8 +265,6 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
   }, [parsedSeasons, selectedYear, selectedSeason, selectedGender, selectedType, selectedShootType]);
 
   const handleCollectionSelect = async (collection) => {
-    if (imagesLoading) return;
-
     setSelectedCollection(collection);
     setImages([]);
     setCurrentImageIndex(0);
