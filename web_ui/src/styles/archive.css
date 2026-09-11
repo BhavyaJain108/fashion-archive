@@ -1,0 +1,281 @@
+/* ---------------------------------------------------------------------
+   The archive design language.
+
+   Every value here was lifted from HighFashionV2.css, which is where the
+   language was first built. That file keeps its literal hex values; these
+   tokens spell the same colours so the pages agree. Migrating High Fashion
+   onto the tokens is deliberately left alone — it works, and this change
+   has no reason to touch it.
+   --------------------------------------------------------------------- */
+
+:root {
+  --ar-bg: #ffffff;          /* page ground */
+  --ar-bg-sub: #fafafa;      /* sidebars, strips, toolbars */
+  --ar-line: #e0e0e0;        /* hairline rules */
+  --ar-line-soft: #ededed;   /* rules inside a grouped block */
+  --ar-ink: #000000;         /* selected / active */
+  --ar-ink-2: #666666;       /* body */
+  --ar-ink-3: #999999;       /* labels, idle controls */
+  --ar-ink-4: #cccccc;       /* empty states, counts, disabled */
+  --ar-danger: #cc0000;      /* destructive confirmation ONLY */
+
+  --ar-wash: rgba(0, 0, 0, 0.02);         /* hover */
+  --ar-wash-strong: rgba(0, 0, 0, 0.03);  /* selected */
+
+  --ar-font: 'JetBrains Mono', 'SF Mono', 'Monaco', monospace;
+}
+
+/* --- Page shell ---------------------------------------------------- */
+
+.ar-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100%;
+  background: var(--ar-bg);
+  font-family: var(--ar-font);
+  font-size: 12px;
+  color: var(--ar-ink-2);
+}
+
+.ar-content {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* --- Sidebar ------------------------------------------------------- */
+
+.ar-sidebar {
+  width: 280px;
+  min-width: 280px;
+  background: var(--ar-bg-sub);
+  border-right: 1px solid var(--ar-line);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.ar-sidebar-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* --- Labels -------------------------------------------------------- */
+
+.ar-section-header {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  padding: 14px 12px 10px;
+  color: var(--ar-ink-3);
+  display: flex;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+.ar-section-header .count {
+  color: var(--ar-ink-4);
+}
+
+/* --- List rows ----------------------------------------------------- */
+
+.ar-list-item {
+  font-size: 12px;
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: all 0.1s ease;
+  border-left: 2px solid transparent;
+  display: flex;
+  align-items: flex-start;
+}
+
+.ar-list-item:hover {
+  color: var(--ar-ink);
+  background: var(--ar-wash);
+}
+
+.ar-list-item.selected {
+  color: var(--ar-ink);
+  font-weight: 500;
+  border-left-color: var(--ar-ink);
+  background: var(--ar-wash-strong);
+}
+
+/* --- Chips (mutually exclusive modes) ------------------------------ */
+
+.ar-chip {
+  appearance: none;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 20px;
+  padding: 0 6px;
+  color: var(--ar-ink-3);
+  cursor: pointer;
+  white-space: nowrap;
+  border-left: 2px solid transparent;
+  text-align: left;
+  transition: color 0.1s ease;
+}
+
+.ar-chip:hover {
+  color: var(--ar-ink);
+}
+
+.ar-chip.selected {
+  color: var(--ar-ink);
+  font-weight: 700;
+  border-left-color: var(--ar-ink);
+}
+
+/* --- Buttons ------------------------------------------------------- */
+
+.ar-btn {
+  font-family: var(--ar-font);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 8px 16px;
+  border: 1px solid var(--ar-line);
+  border-radius: 0;
+  background: var(--ar-bg);
+  color: var(--ar-ink-3);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.ar-btn:hover {
+  border-color: var(--ar-ink);
+  color: var(--ar-ink);
+}
+
+.ar-btn.active {
+  background: var(--ar-ink);
+  border-color: var(--ar-ink);
+  color: var(--ar-bg);
+}
+
+.ar-btn:disabled {
+  color: var(--ar-ink-4);
+  border-color: var(--ar-line);
+  cursor: default;
+}
+
+.ar-btn-block {
+  display: block;
+  width: 100%;
+  text-align: center;
+}
+
+/* The one place colour is allowed: discarding something irreversibly. */
+.ar-btn-danger {
+  color: var(--ar-danger);
+  border-color: var(--ar-danger);
+}
+
+.ar-btn-danger:hover {
+  background: var(--ar-danger);
+  border-color: var(--ar-danger);
+  color: var(--ar-bg);
+}
+
+/* --- Fields -------------------------------------------------------- */
+
+.ar-input,
+.ar-select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 12px;
+  border: 1px solid var(--ar-line);
+  border-radius: 0;
+  font-family: var(--ar-font);
+  font-size: 11px;
+  background: var(--ar-bg);
+  color: var(--ar-ink);
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.ar-input:focus,
+.ar-select:focus {
+  border-color: var(--ar-ink);
+}
+
+.ar-input::placeholder {
+  color: var(--ar-ink-4);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.ar-select {
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+/* --- Status bar ---------------------------------------------------- */
+
+.ar-status-bar {
+  height: 36px;
+  flex-shrink: 0;
+  background: var(--ar-bg);
+  border-top: 1px solid var(--ar-line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  font-size: 11px;
+  color: var(--ar-ink-3);
+}
+
+.ar-status-bar .active {
+  color: var(--ar-ink);
+  font-weight: 600;
+}
+
+/* --- Scrollbars ---------------------------------------------------- */
+
+.ar-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.ar-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ar-scroll::-webkit-scrollbar-thumb {
+  background: #dddddd;
+  border-radius: 0;
+}
+
+.ar-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--ar-ink-4);
+}
+
+/* --- Empty and loading -------------------------------------------- */
+
+.ar-empty,
+.ar-loading {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px 12px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--ar-ink-4);
+}
+
+.ar-empty .headline,
+.ar-loading .headline {
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+}
