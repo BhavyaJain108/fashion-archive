@@ -139,8 +139,11 @@ function FavouritesPanel({ currentPage, onPageSwitch, currentUser, onLogout }) {
     // Re-centre whenever the strip is (re)shown, not just when the index
     // moves within it — switching back to single view, or to a different
     // collection, remounts the strip at scroll position 0 with no other
-    // signal that selectedIndex is unchanged.
-  }, [selectedIndex, viewMode, effectiveSelectedKey]);
+    // signal that selectedIndex is unchanged. Also re-centre when the
+    // number of visible thumbs changes: removing a look upstream of the
+    // selection shifts every thumb after it left by one slot width without
+    // moving selectedIndex, so visible.length is the only signal that fires.
+  }, [selectedIndex, viewMode, effectiveSelectedKey, visible.length]);
 
   const handleSelectCollection = (key) => {
     setSelectedKey(key);

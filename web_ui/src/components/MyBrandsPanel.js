@@ -51,11 +51,6 @@ function MyBrandsPanel({ currentPage, onPageSwitch, currentUser, onLogout }) {
   const clickCountRef = useRef({});
   const clickTimerRef = useRef({});
 
-  // Image row height equalization
-  const [imageDimensions, setImageDimensions] = useState({});
-  const gridRef = useRef(null);
-  const [gridColWidth, setGridColWidth] = useState(0);
-
   // Load brands on mount
   useEffect(() => {
     loadBrands();
@@ -832,49 +827,6 @@ function MyBrandsPanel({ currentPage, onPageSwitch, currentUser, onLogout }) {
     return result;
   }, [products, searchResults, sortBy, parsePrice]);
 
-  // Reset image dimensions when displayed products change
-  useEffect(() => {
-    setImageDimensions({});
-  }, [displayProducts]);
-
-  // Track column width via ResizeObserver
-  useEffect(() => {
-    const updateColWidth = () => {
-      if (gridRef.current) {
-        const firstCard = gridRef.current.querySelector('.product-card');
-        if (firstCard) {
-          setGridColWidth(firstCard.offsetWidth);
-        }
-      }
-    };
-    updateColWidth();
-    if (!gridRef.current) return;
-    const observer = new ResizeObserver(updateColWidth);
-    observer.observe(gridRef.current);
-    return () => observer.disconnect();
-  }, [displayProducts]);
-
-  // Calculate per-row image heights: each row's images match the tallest
-  const GRID_COLS = 4;
-  const rowImageHeights = useMemo(() => {
-    if (!gridColWidth) return {};
-    const heights = {};
-    displayProducts.forEach((_, idx) => {
-      const dims = imageDimensions[idx];
-      if (dims && dims.naturalWidth > 0) {
-        const row = Math.floor(idx / GRID_COLS);
-        const displayHeight = Math.ceil((dims.naturalHeight / dims.naturalWidth) * gridColWidth);
-        heights[row] = Math.max(heights[row] || 0, displayHeight);
-      }
-    });
-    return heights;
-  }, [imageDimensions, gridColWidth, displayProducts]);
-
-  const handleImageLoad = useCallback((idx, e) => {
-    const { naturalWidth, naturalHeight } = e.target;
-    setImageDimensions(prev => ({ ...prev, [idx]: { naturalWidth, naturalHeight } }));
-  }, []);
-
   // Drag resize handlers for detail panel
   const handleResizeMouseDown = useCallback((e) => {
     e.preventDefault();
@@ -1071,7 +1023,7 @@ function MyBrandsPanel({ currentPage, onPageSwitch, currentUser, onLogout }) {
         {(searchLoading || loadingProducts) ? (
           <div className="gallery-loading">Loading products...</div>
         ) : displayProducts.length > 0 ? (
-          <div className="product-grid" ref={gridRef}>
+          <div className="product-grid">
             {displayProducts.map((product, idx) => {
               // E0005 field names with legacy aliases as fallback.
               const brandRaw = product.brand || product.brand_id || '';
@@ -1108,9 +1060,6 @@ function MyBrandsPanel({ currentPage, onPageSwitch, currentUser, onLogout }) {
               const stock = product.in_stock;
               const allSoldOut = sizeBadges.length > 0 && sizeBadges.every(s => s.gone);
 
-              const rowIdx = Math.floor(idx / GRID_COLS);
-              const rowHeight = rowImageHeights[rowIdx];
-
               const cardClass =
                 'product-card' +
                 (selectedProduct && (selectedProduct.itemurl || selectedProduct.url || selectedProduct.product_url) === productUrl ? ' selected' : '') +
@@ -1122,13 +1071,12 @@ function MyBrandsPanel({ currentPage, onPageSwitch, currentUser, onLogout }) {
                   className={cardClass}
                   onClick={() => setSelectedProduct(product)}
                 >
-                  <div className="product-image" style={rowHeight ? { height: rowHeight } : undefined}>
+                  <div className="product-image">
                     {imageUrl ? (
                       <img
                         src={imageUrl}
                         alt={productName}
                         loading="lazy"
-                        onLoad={(e) => handleImageLoad(idx, e)}
                         onError={(e) => {
                           // Swap to no-image placeholder if the image 404s.
                           const card = e.currentTarget.closest('.product-card');
@@ -1173,7 +1121,11 @@ function MyBrandsPanel({ currentPage, onPageSwitch, currentUser, onLogout }) {
               );
             })}
           </div>
-        ) : null}
+        ) : (
+          <div className="gallery-empty">
+            {selectedLeaves.size === 0 ? 'Select a category to view products' : 'Nothing in this category'}
+          </div>
+        )}
       </div>
 
       {/* Product Detail Panel with drag handle */}

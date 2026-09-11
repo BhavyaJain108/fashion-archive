@@ -99,7 +99,7 @@
 
 .ar-list-item.selected {
   color: var(--ar-ink);
-  font-weight: 500;
+  font-weight: 700;
   border-left-color: var(--ar-ink);
   background: var(--ar-wash-strong);
 }
@@ -161,6 +161,7 @@
 }
 
 .ar-btn:disabled {
+  background: var(--ar-bg-sub);
   color: var(--ar-ink-4);
   border-color: var(--ar-line);
   cursor: default;

@@ -264,7 +264,10 @@
   transition: all 0.1s ease;
 }
 
-.search-dropdown-item:hover,
+.search-dropdown-item:hover {
+  background: var(--ar-wash);
+}
+
 .search-dropdown-item.highlighted {
   color: var(--ar-ink);
   background: var(--ar-wash-strong);

@@ -84,16 +84,21 @@
   display: block;
 }
 
-/* Glyph, not a filled control — matches .fav-arrow's idle/hover pair. */
+/* Glyph, not a filled control — matches .fav-arrow's idle/hover pair.
+   Hit target matches .fav-arrow / .hf2-nav-arrow: 40x80, flex-centred. */
 .carousel-arrow {
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
+  width: 40px;
+  height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: transparent;
   border: none;
   font-size: 24px;
   cursor: pointer;
-  padding: 8px 12px;
   color: var(--ar-ink-4);
   z-index: 2;
   opacity: 0;
