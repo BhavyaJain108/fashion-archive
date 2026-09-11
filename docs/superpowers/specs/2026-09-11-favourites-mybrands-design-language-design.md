@@ -35,12 +35,15 @@ In scope:
 - `FavouritesPanel` — rebuilt to the High Fashion layout anatomy.
 - `MyBrandsPanel` — restyled; its structure already matches.
 - `ProductDetailPanel` — reached by clicking a product in My Brands.
-- `MacModal` — surfaced by My Brands' add-brand and remove-confirm flows.
+- The `modern-modal-*` / `modern-button-*` / `modern-input` / `modern-error`
+  family — My Brands' add-brand and remove-confirm dialogs.
 - `App.js` — chrome swap and the prop changes it forces.
 - New `src/styles/archive.css` — the shared language.
 
 Out of scope: `HighFashionV2.css` is not refactored. `MenuBar.js` is not edited
-or deleted, only left unrendered.
+or deleted, only left unrendered. `MacModal.js` is not touched — it has no
+consumers at all (nothing in `src/` imports it), so it is dead code and
+restyling it would be work with no visible effect.
 
 ## Decisions
 
@@ -178,17 +181,23 @@ Restyled only; it is already 280px sidebar + scrolling gallery.
 - Sizes: `.tile-size` 9px hairline; `.gone` strikethrough in `--ar-ink-4`;
   `.low` marked in `--ar-ink-2` rather than by colour.
 
-### `ProductDetailPanel` and `MacModal`
+### `ProductDetailPanel` and the `modern-modal` dialogs
 
 Both are reached from My Brands, so leaving them would make the page visibly
 half-converted.
 
 - `ProductDetailPanel`: hairline `border-left`, square corners, mono type.
   `detail-resize-handle` hover goes black instead of blue.
-- `MacModal`: square hairline chrome, mono type, `.ar-btn` footer buttons. Its
-  emoji icons (✅ ❌ ⚠️ ❓ ℹ️) are replaced by an uppercase type label, since a
-  monochrome language has no use for colour-carrying glyphs. `MenuBar` also uses
-  this modal, but no longer renders, so nothing else is affected.
+- The add-brand and remove-confirm dialogs use the `modern-modal-*` family, and
+  `MyBrandsPanel` is its only consumer, so those rules move wholesale out of
+  `global.css` into `MyBrandsPanel.css` and are rewritten there: the overlay
+  keeps a dimming scrim but drops `backdrop-filter`; the dialog loses its 12px
+  radius, glass fill and large shadow for a flat white box with a hairline
+  border; `modern-modal-title` goes from 30px to 11px uppercase `0.15em`;
+  `modern-input` becomes `.ar-input`; `modern-button-primary` becomes a black
+  fill, `modern-button-secondary` a hairline box, `modern-button-danger` an
+  `.ar-btn-danger`; `modern-error` drops its pink fill and radius for a hairline
+  `--ar-danger` border with `--ar-danger` text.
 
 ### `App.js`
 
@@ -254,10 +263,12 @@ There is no JavaScript test suite. `tests/` holds Python only — `api`, `db`,
   there affects all three pages, including the working one.
 - `global.css` is 1882 lines and shared, so deletion has to be selective:
 
-  - The `my-brands`, `brand-*`, `nav-*`, `product-*`, `search-*`, `tile-*` and
-    `add-brand` / `remove-brand` rules have exactly one consumer between them,
-    `MyBrandsPanel`, and are removed as their replacements land in
-    `MyBrandsPanel.css`.
+  - The `my-brands`, `brand-*`, `nav-*`, `product-*`, `search-*`, `tile-*`,
+    `add-brand` / `remove-brand`, `detail-*` and `modern-*` rules have exactly
+    one consumer between them, `MyBrandsPanel`, and are removed as their
+    replacements land in `MyBrandsPanel.css`. That includes the whole
+    `modern-modal` family at `global.css:690-800` and `modern-button-danger` at
+    `1030-1040`.
   - The `mac-*`, `gallery-*` and `columns-container` rules Favourites currently
     uses are **kept**. `gallery-item`, `gallery-image-container` and
     `gallery-look-label` are also used by `ImageViewerPanel`; `mac-panel` and
