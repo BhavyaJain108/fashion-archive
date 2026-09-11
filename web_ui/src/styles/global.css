@@ -57,29 +57,6 @@ body {
   overflow: hidden;
 }
 
-.marquee-track {
-  display: flex;
-  gap: 0;
-  animation: marquee-scroll 120s linear infinite;
-  will-change: transform;
-}
-
-.marquee-item {
-  flex-shrink: 0;
-  padding: 0 60px;
-}
-
-.marquee-item::after {
-  content: '·';
-  padding-left: 60px;
-  opacity: 0.4;
-}
-
-@keyframes marquee-scroll {
-  0% { transform: translateX(0); }
-  100% { transform: translateX(-50%); }
-}
-
 /* Classic Mac Buttons */
 .mac-button {
   background-color: var(--mac-button-bg);

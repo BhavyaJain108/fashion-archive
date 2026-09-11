@@ -1,7 +1,7 @@
 # Favourites and My Brands: brutalist-white design language
 
 Date: 2026-09-11
-Status: approved, not yet implemented
+Status: implemented 2026-09-11
 
 ## Problem
 
@@ -285,3 +285,78 @@ There is no JavaScript test suite. `tests/` holds Python only — `api`, `db`,
   rules are kept alive by components that no longer appear on screen. Removing
   that dead code would let the old language be deleted outright, but it is a
   separate change and is not attempted here.
+
+## Outcome (2026-09-11)
+
+All 8 tasks landed. What is true now, plainly:
+
+**What matches the design.** `App.js`'s `MenuBar` and marquee are gone, both
+pages sit on the shared `TopBar`, `MyBrandsPanel` and `FavouritesPanel` each
+have their own CSS file, and the objective checks below pass. `global.css` is
+781 lines, down from 1882 at the start (804 after Tasks 1-7, minus 23 lines of
+marquee rules removed in this task).
+
+**What came out differently from this document, and why:**
+
+1. Favourites' status bar is laid out in normal flow in the main column, not
+   `position: fixed; left: 280px` like High Fashion's. It lands in the same
+   visual position today, but stays aligned if the sidebar width ever changes,
+   instead of needing a matching edit. This was a deliberate deviation made
+   during Task 6, not an oversight.
+
+2. Task 6's review found four defects in this document's own specified
+   component code, all fixed before merge:
+   - Removing a collection's last look left the user on a dead filter with no
+     row highlighted.
+   - The thumb strip had no auto-scroll behind its deliberately hidden
+     scrollbar, so the active thumb could slide off-screen.
+   - The index clamp ran one render late, briefly unmounting the single view.
+   - The status bar paired a look number with a favourites count, which could
+     render as nonsense like "LOOK 19 / 3".
+
+   A second review round found the first fix itself measured from `<body>`,
+   which is wrong for Favourites: unlike High Fashion's `.hf2-main`, Favourites
+   has no positioned ancestor, so the 281px sidebar width leaked into the
+   offset. That was corrected using the `getBoundingClientRect` delta approach
+   already used by `HighFashionV2`'s year strip.
+
+3. `MacModal.js` was in scope per the design's file list but turned out to have
+   no consumers anywhere in `src/` — nothing imports it. It was dropped from
+   scope. The dialogs the design describes are actually built on the
+   `modern-modal-*` class family, which `MyBrandsPanel` solely owned and which
+   moved into `MyBrandsPanel.css` as planned.
+
+4. Step 2 of this task expected the `mac-panel` / `mac-button` / `gallery-item`
+   consumer list to be `CollectionsPanel.js`, `SeasonsPanel.js`,
+   `ImageViewerPanel.js`, `VideoModal.js` and `MenuBar.js`. The actual grep also
+   returns `MacModal.js` (it uses `mac-button` internally, at lines 150 and
+   160) — a sixth consumer this document did not list. `MacModal.js` having no
+   *importers* (point 3 above) and `MacModal.js` *itself referencing*
+   `mac-button` are two separate facts; both are true. None of the six files
+   were touched.
+
+**Visual verification: not run.** No task in this conversion, including this
+one, opened the app in a browser and compared it against High Fashion. Every
+task's visual gate was deferred because the dev server needs a live database
+and an authenticated session, neither of which was available in this
+environment. Everything above is verified by `npm run build`, targeted grep
+assertions, and code review only. Step 4 of this task's checklist — the
+side-by-side comparison of top bar, sidebar, section headers, selection
+treatment, type scale, corner radius, and scrollbars against High Fashion —
+has not been performed by anyone. It is the one check that decides whether
+this conversion actually succeeded, and it is still owned by whoever runs the
+app next.
+
+**Left alone, on purpose, per this task's constraints:**
+- `SeasonsPanel`, `CollectionsPanel` and `ImageViewerPanel` are imported by
+  `App.js` but never rendered — confirmed again in this task by grepping
+  `App.js` for `<SeasonsPanel`, `<CollectionsPanel`, `<ImageViewerPanel`
+  (no matches) versus their `import` lines (present). The old language stays
+  alive in `global.css` only because these three plus `VideoModal` and
+  `MenuBar` still reference `mac-*` / `gallery-*` classes.
+- `MenuBar.js` is not imported by `App.js` or anywhere else in `src/` (a plain
+  `grep -rln "MenuBar" src --include="*.js"` turns up only
+  `FavouritesPanel.js`, in a comment, and `MenuBar.js` itself). It is fully
+  orphaned, not merely unrendered.
+- `global.css` remains large and holds rules for components that no longer
+  appear on screen.
