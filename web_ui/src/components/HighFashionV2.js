@@ -80,11 +80,13 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
   // gender does not mean "everything", it returns a 34-row bucket of shows
   // catalogued with no gender at all.
   const [filters, setFilters] = useState({
+    // Left empty once the archive is held locally — see the effect below.
     gender: 'Women',
     year: '',
     season: '',
     category: '',
     shootType: '',
+    city: '',
     letter: '',
   });
 
@@ -94,7 +96,7 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
   const [selectedCollection, setSelectedCollection] = useState(null);
   const [collectionsLoading, setCollectionsLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [cursor, setCursor] = useState({ nextPage: 0, hasMore: false });
+  const [cursor, setCursor] = useState({ nextPage: 0, nextOffset: 0, hasMore: false, total: 0 });
 
   // Search. The index is every designer firstVIEW lists, fetched once and
   // matched in the browser — see lib/designerSearch.js for why locally.
@@ -109,6 +111,37 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
   // ignores year, season and gender entirely, so this is their whole working
   // life in one list — and the filters narrow it here rather than refetching.
   const [designerMode, setDesignerMode] = useState(null);   // {id, name}
+
+  // Is the archive held locally? When it is, the list is a query against our
+  // own rows; when it is not, it falls back to crawling firstVIEW.
+  const [indexReady, setIndexReady] = useState(false);
+
+  // The sidebar folds away, because sometimes the point is the photograph and
+  // not the list. Remembered per browser: it is a working preference, not
+  // something worth a round trip.
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    try {
+      return window.localStorage.getItem('hf2-sidebar') !== 'closed';
+    } catch (e) {
+      return true;     // private windows and blocked storage both throw
+    }
+  });
+
+  const toggleSidebar = useCallback(() => {
+    setSidebarOpen(open => {
+      try {
+        window.localStorage.setItem('hf2-sidebar', open ? 'closed' : 'open');
+      } catch (e) { /* nothing to do; the preference just will not persist */ }
+      return !open;
+    });
+  }, []);
+  const [serverFacets, setServerFacets] = useState(null);
+  // A committed search, as opposed to what is being typed. Pressing Enter on
+  // no suggestion searches the shows themselves.
+  const [searchText, setSearchText] = useState('');
+  const [showMatches, setShowMatches] = useState({ rows: [], total: 0 });
+  // A show chosen from the dropdown, opened once its list has loaded.
+  const [pendingShow, setPendingShow] = useState(null);
   const [designerRows, setDesignerRows] = useState([]);
   const [designerLoading, setDesignerLoading] = useState(false);
   const searchInputRef = useRef(null);
@@ -224,6 +257,17 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
     return match ? parseInt(match[1]) : fallbackIdx + 1;
   };
 
+  useEffect(() => {
+    FashionArchiveAPI.getIndexStatus().then(status => {
+      const ready = (status?.shows || 0) > 0;
+      setIndexReady(ready);
+      // Gender was only ever required because firstVIEW cannot answer a
+      // query without one. Our own rows can, so the archive opens on
+      // everything rather than on half of it.
+      if (ready) setFilters(prev => ({ ...prev, gender: '' }));
+    });
+  }, []);
+
   // The designer index, once. Failure is not fatal — the archive still
   // browses, the search box just says it cannot search.
   useEffect(() => {
@@ -268,10 +312,6 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
     setActiveSuggestion(0);
   }, [query, designerIndex]);
 
-  // What the dropdown shows: matches while typing, where you have been when
-  // the box is empty.
-  const shownSuggestions = query.trim() ? suggestions : recentDesigners;
-
   const openDesigner = useCallback((designer) => {
     if (!designer) return;
     abortCollections();
@@ -296,6 +336,7 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
     abortCollections();
     abortImages();
     setDesignerMode(null);
+    setSearchText('');
     setDesignerRows([]);
     setSelectedCollection(null);
     setCollections([]);
@@ -306,40 +347,58 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
     setFilters(prev => ({ ...prev, gender: prev.gender || 'Women' }));
   }, [abortCollections, abortImages]);
 
-  // One designer's shows, streamed. Nine pages for a prolific designer, so
-  // rows land as they arrive rather than after five seconds.
+  // Shows whose text matches what is being typed. Only possible because the
+  // archive is held locally: firstVIEW can search designer names and nothing
+  // else, so "chanel fw25" had no query to be.
   useEffect(() => {
-    if (!designerMode) return;
-
-    const controller = new AbortController();
-    collectionsAbort.current = controller;
+    if (!indexReady || !query.trim()) { setShowMatches({ rows: [], total: 0 }); return; }
     let cancelled = false;
-    const isCurrent = () => !cancelled && collectionsAbort.current === controller;
+    // Debounced: typing is faster than a round trip, and every keystroke
+    // firing a query would just queue responses that arrive out of order.
+    const timer = setTimeout(() => {
+      FashionArchiveAPI.searchShows(query, { limit: 6 }).then(result => {
+        if (cancelled || !result?.success) return;
+        setShowMatches({ rows: result.shows || [], total: result.total || 0 });
+      }).catch(() => {});
+    }, 140);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [query, indexReady]);
 
-    setDesignerLoading(true);
-    (async () => {
-      try {
-        await FashionArchiveAPI.streamDesignerCollections(designerMode.id, {
-          signal: controller.signal,
-          onUpdate: ({ rows }) => {
-            if (!isCurrent()) return;
-            setDesignerRows(rows);
-          },
-        });
-      } catch (error) {
-        if (error.name === 'AbortError' || cancelled) return;
-        console.error('Failed to load designer:', error);
-        setListError(error.message || 'Could not reach the archive');
-      } finally {
-        if (isCurrent()) setDesignerLoading(false);
-      }
-    })();
+  // One list for the keyboard to walk: designers first, because picking one
+  // opens their whole history, then the shows that matched, then a way to
+  // see every match rather than the first six.
+  const suggestionList = (() => {
+    if (!query.trim()) {
+      return recentDesigners.map(d => ({ kind: 'designer', designer: d, key: `d${d.id}` }));
+    }
+    const out = suggestions.slice(0, 4)
+      .map(d => ({ kind: 'designer', designer: d, key: `d${d.id}` }));
+    for (const row of showMatches.rows) {
+      out.push({ kind: 'show', show: row, key: `s${row.collection_id}` });
+    }
+    if (showMatches.total > showMatches.rows.length) {
+      out.push({ kind: 'all', key: 'all', total: showMatches.total });
+    }
+    return out;
+  })();
 
-    return () => { cancelled = true; controller.abort(); };
-  }, [designerMode]);
+  const chooseSuggestion = useCallback((item) => {
+    if (!item) return;
+    if (item.kind === 'designer') { openDesigner(item.designer); return; }
+
+    // A show or "everything that matched": both leave designer mode, since
+    // the results are no longer one designer's.
+    setDesignerMode(null);
+    setSearchText(query);
+    setQuery('');
+    setSuggestions([]);
+    setSearchFocused(false);
+    if (searchInputRef.current) searchInputRef.current.blur();
+    if (item.kind === 'show') setPendingShow(item.show);
+  }, [query, openDesigner]);
 
   const handleSearchKeyDown = (e) => {
-    const options = shownSuggestions;
+    const options = suggestionList;
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       setActiveSuggestion(i => Math.min(options.length - 1, i + 1));
@@ -348,11 +407,11 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
       setActiveSuggestion(i => Math.max(0, i - 1));
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      openDesigner(options[activeSuggestion]);
+      chooseSuggestion(options[activeSuggestion]);
     } else if (e.key === 'Escape') {
       e.preventDefault();
       if (query) setQuery('');
-      else if (designerMode) exitDesigner();
+      else if (designerMode || searchText) exitDesigner();
       else e.currentTarget.blur();
     }
   };
@@ -383,20 +442,93 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
     abortCollections();
     abortImages();
     setFilters(prev => ({ gender: prev.gender, year: '', season: '',
-                          category: '', shootType: '', letter: '' }));
+                          category: '', shootType: '', city: '', letter: '' }));
     setSelectedCollection(null);
     setCollections([]);
     setImages([]);
     setExpectedLookCount(0);
   };
 
-  // The first window of the current filter set. Reruns whenever a filter
-  // changes; the streaming means rows appear as each page lands rather than
-  // after the whole window.
+  // How the list is loaded depends on whether the archive is held locally.
+  //
+  //   indexed  — one query against our own 55,700 rows. Instant, exact, and
+  //              firstVIEW is not contacted at all.
+  //   crawling — the old streaming crawl of their results pages, kept as the
+  //              fallback so a database without the index is slow rather
+  //              than empty.
+  //
+  // Indexed, the three things the list can show — the whole archive, one
+  // designer's history, a search — stop being three mechanisms and become
+  // one query with different arguments.
   useEffect(() => {
-    // In designer mode the list comes from the designer query instead, and
-    // the filters narrow what is already loaded rather than refetching.
-    if (designerMode) return;
+    if (!indexReady) return;
+
+    const controller = new AbortController();
+    collectionsAbort.current = controller;
+    let cancelled = false;
+    const isCurrent = () => !cancelled && collectionsAbort.current === controller;
+
+    setCollectionsLoading(true);
+    setListError(null);
+
+    (async () => {
+      try {
+        const result = await FashionArchiveAPI.browseCatalog(
+          { ...filters, designer: designerMode ? designerMode.name : undefined },
+          { text: searchText || undefined, offset: 0, facets: true },
+        );
+        if (!isCurrent()) return;
+        if (!result.success) throw new Error(result.error || 'Search failed');
+        setCollections(result.collections || []);
+        setServerFacets(result.facets || null);
+        setCursor({ nextOffset: (result.collections || []).length,
+                    hasMore: !!result.hasMore, total: result.total || 0 });
+      } catch (error) {
+        if (error.name === 'AbortError' || cancelled) return;
+        console.error('Failed to load collections:', error);
+        setCollections([]);
+        setListError(error.message || 'Could not reach the archive');
+      } finally {
+        if (isCurrent()) setCollectionsLoading(false);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [indexReady, filters, designerMode, searchText]);
+
+  // One designer's shows, streamed — the fallback path only. With the index
+  // a designer is just another filter on the query above.
+  useEffect(() => {
+    if (indexReady || !designerMode) return;
+
+    const controller = new AbortController();
+    collectionsAbort.current = controller;
+    let cancelled = false;
+    const isCurrent = () => !cancelled && collectionsAbort.current === controller;
+
+    setDesignerLoading(true);
+    (async () => {
+      try {
+        await FashionArchiveAPI.streamDesignerCollections(designerMode.id, {
+          signal: controller.signal,
+          onUpdate: ({ rows }) => { if (isCurrent()) setDesignerRows(rows); },
+        });
+      } catch (error) {
+        if (error.name === 'AbortError' || cancelled) return;
+        console.error('Failed to load designer:', error);
+        setListError(error.message || 'Could not reach the archive');
+      } finally {
+        if (isCurrent()) setDesignerLoading(false);
+      }
+    })();
+
+    return () => { cancelled = true; controller.abort(); };
+  }, [indexReady, designerMode]);
+
+  // The streaming crawl of firstVIEW — the fallback when the archive is not
+  // held locally.
+  useEffect(() => {
+    if (indexReady || designerMode) return;
 
     const controller = new AbortController();
     collectionsAbort.current = controller;
@@ -413,9 +545,6 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
           startPage: 0,
           signal: controller.signal,
           onUpdate: ({ rows }) => {
-            // A late frame from a superseded stream must not repopulate the
-            // list — clicking through filters faster than a window completes
-            // used to leave the previous one writing into state.
             if (!isCurrent()) return;
             setCollections(rows);
             setCollectionsLoading(false);
@@ -435,13 +564,38 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
     })();
 
     return () => { cancelled = true; controller.abort(); };
-  }, [filters, designerMode]);
+  }, [indexReady, filters, designerMode]);
 
-  // The next window, appended. Called when the list is scrolled near its
-  // end; `hasMore` comes from the server having handed back a full page.
+  // The next page. Indexed, that is an offset; crawling, it is the next
+  // window of results pages.
   const loadMore = useCallback(async () => {
-    if (designerMode) return;      // their whole history is already loaded
     if (loadingMore || collectionsLoading || !cursor.hasMore) return;
+
+    if (indexReady) {
+      setLoadingMore(true);
+      try {
+        const result = await FashionArchiveAPI.browseCatalog(
+          { ...filters, designer: designerMode ? designerMode.name : undefined },
+          { text: searchText || undefined, offset: cursor.nextOffset },
+        );
+        if (!result.success) return;
+        setCollections(prev => {
+          const seen = new Set(prev.map(r => r.collection_id));
+          return [...prev, ...(result.collections || [])
+            .filter(r => !seen.has(r.collection_id))];
+        });
+        setCursor(c => ({ ...c,
+          nextOffset: c.nextOffset + (result.collections || []).length,
+          hasMore: !!result.hasMore }));
+      } catch (error) {
+        console.error('Failed to load more:', error);
+      } finally {
+        setLoadingMore(false);
+      }
+      return;
+    }
+
+    if (designerMode) return;      // their whole history is already loaded
     const controller = collectionsAbort.current;
     setLoadingMore(true);
     try {
@@ -451,8 +605,6 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
         onUpdate: ({ rows }) => {
           if (collectionsAbort.current !== controller) return;
           setCollections(prev => {
-            // Append only what is new: a window is re-delivered in full on
-            // each frame, and the same show can be listed twice by the site.
             const seen = new Set(prev.map(r => r.collection_id));
             return [...prev, ...rows.filter(r => !seen.has(r.collection_id))];
           });
@@ -466,15 +618,24 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
     } finally {
       setLoadingMore(false);
     }
-  }, [filters, cursor, loadingMore, collectionsLoading, designerMode]);
+  }, [indexReady, filters, designerMode, searchText, cursor, loadingMore, collectionsLoading]);
 
   const handleListScroll = (e) => {
     const el = e.currentTarget;
-    // 400px of runway, so the next window is usually already in by the time
+    // 400px of runway, so the next page is usually already in by the time
     // the reader reaches the bottom.
     if (el.scrollHeight - el.scrollTop - el.clientHeight < 400) loadMore();
   };
 
+
+  // A show chosen from the search dropdown. Done in an effect rather than in
+  // the click handler so it runs after the list has been replaced, and the
+  // row it selects is the row the list is showing.
+  useEffect(() => {
+    if (!pendingShow) return;
+    handleCollectionSelect(pendingShow);
+    setPendingShow(null);
+  }, [pendingShow]);   // deliberately only pendingShow: this fires on the pick
 
   const handleCollectionSelect = async (collection) => {
     setSelectedCollection(collection);
@@ -544,6 +705,81 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
     }
   };
 
+  // Which looks this user has kept.
+  //
+  // Held as a set of "collection url|look number", loaded once, because the
+  // question is asked of every thumbnail on screen — a request per look to
+  // answer "is this one favourited" would be hundreds of requests to draw a
+  // strip. Favourites are per user by construction: the endpoint reads the
+  // session, so there is no user id to pass and no way to see anyone else's.
+  const [favouriteKeys, setFavouriteKeys] = useState(() => new Set());
+  const [favouriteBusy, setFavouriteBusy] = useState(false);
+
+  const favouriteKey = (collectionUrl, lookNumber) => `${collectionUrl}|${lookNumber}`;
+
+  const loadFavourites = useCallback(async () => {
+    const rows = await FashionArchiveAPI.getFavourites();
+    // The list endpoint nests these — collection.url and look.number, not the
+    // flat column names the write side takes. Reading the flat names produced
+    // "undefined|undefined" for every key, so nothing was ever marked as kept
+    // after a reload while the writes themselves looked fine.
+    setFavouriteKeys(new Set(
+      (rows || [])
+        .map(f => favouriteKey(f.collection?.url, f.look?.number))
+        .filter(k => !k.startsWith('undefined'))));
+  }, []);
+
+  useEffect(() => { loadFavourites(); }, [loadFavourites]);
+
+  const isFavourite = (lookNumber) =>
+    !!selectedCollection
+    && favouriteKeys.has(favouriteKey(selectedCollection.url, lookNumber));
+
+  const toggleFavourite = useCallback(async (lookNumber, imagePath) => {
+    if (!selectedCollection || favouriteBusy) return;
+    const key = favouriteKey(selectedCollection.url, lookNumber);
+    const had = favouriteKeys.has(key);
+
+    // Move the marker first: keeping a look should feel instantaneous, and
+    // the request is undone below if it turns out not to have worked.
+    setFavouriteKeys(prev => {
+      const next = new Set(prev);
+      if (had) next.delete(key); else next.add(key);
+      return next;
+    });
+    setFavouriteBusy(true);
+
+    try {
+      if (had) {
+        await FashionArchiveAPI.removeFavourite(
+          selectedCollection.season_url || '', selectedCollection.url, lookNumber);
+      } else {
+        await FashionArchiveAPI.addFavourite(
+          {
+            name: videoSeasonName(selectedCollection),
+            url: selectedCollection.season_url || '',
+            link_text: selectedCollection.subtitle || '',
+          },
+          {
+            designer: selectedCollection.designer_name || selectedCollection.designer,
+            url: selectedCollection.url,
+          },
+          { number: lookNumber, total: images.length },
+          imagePath,
+        );
+      }
+    } catch (error) {
+      console.error('Could not change favourite:', error);
+      setFavouriteKeys(prev => {          // put it back the way it was
+        const next = new Set(prev);
+        if (had) next.add(key); else next.delete(key);
+        return next;
+      });
+    } finally {
+      setFavouriteBusy(false);
+    }
+  }, [selectedCollection, favouriteKeys, favouriteBusy, images.length]);
+
   // Navigation (no wraparound)
   const prevImage = useCallback(() => {
     if (images.length === 0) return;
@@ -568,14 +804,24 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
       const el = e.target;
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA'
                  || el.tagName === 'SELECT' || el.isContentEditable)) return;
+      if (e.key === '[') { toggleSidebar(); return; }
       if (images.length === 0) return;
+      if (e.key === 'f' || e.key === 'F') {
+        // Derived here rather than read from the render scope: this effect is
+        // declared long before currentLookNumber is, and naming it in the
+        // dependency array below would read it during render, before it
+        // exists.
+        const path = images[currentImageIndex];
+        if (path) toggleFavourite(extractLookNumber(path, currentImageIndex), path);
+        return;
+      }
       if (e.key === 'ArrowLeft') prevImage();
       else if (e.key === 'ArrowRight') nextImage();
       else if (e.key === 'g') setViewMode(v => v === 'grid' ? 'single' : 'grid');
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [images.length, prevImage, nextImage]);
+  }, [images, currentImageIndex, prevImage, nextImage, toggleSidebar, toggleFavourite]);
 
   // Center active thumbnail in strip
   useEffect(() => {
@@ -600,6 +846,34 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
     }
   }, []);
 
+  // Captions off, and kept off.
+  //
+  // cc_load_policy: 0 is not a way to force them off — only 1 is documented,
+  // to force them on — so a viewer whose account has captions enabled gets
+  // them burned over the runway regardless. Dropping the module is the part
+  // that actually works, and it has to be repeated on play because the track
+  // is chosen when playback starts.
+  const silenceCaptions = (player) => {
+    for (const module of ['captions', 'cc']) {
+      try { player.unloadModule(module); } catch (e) { /* not loaded yet */ }
+    }
+  };
+
+  // Ask for the best the video has.
+  //
+  // Whether YouTube listens is another matter: setPlaybackQuality is
+  // deprecated and their player picks its own rate. Probing it here, a video
+  // offering hd2160 sat at medium and would not move. So this asks, because
+  // asking is free, and the read-out below reports what actually came back
+  // rather than what we asked for.
+  const requestBestQuality = (player) => {
+    try {
+      const levels = player.getAvailableQualityLevels?.() || [];
+      const best = levels.find(l => l !== 'auto');
+      if (best) player.setPlaybackQuality(best);
+    } catch (e) { /* the API has been known to drop this entirely */ }
+  };
+
   // Initialize YouTube player when video data changes
   useEffect(() => {
     if (!videoData || !showVideo || !playerContainerRef.current) return;
@@ -612,38 +886,46 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
       playerRef.current = new window.YT.Player(playerContainerRef.current, {
         videoId: videoData.videoId,
         playerVars: {
-          controls: 0,
+          controls: 0,          // our controls, below
           modestbranding: 1,
-          rel: 0,
-          showinfo: 0,
+          rel: 0,               // end screen stays on the same channel
           fs: 0,
-          iv_load_policy: 3,
+          iv_load_policy: 3,    // no annotation cards
           disablekb: 1,
           playsinline: 1,
           cc_load_policy: 0,
           origin: window.location.origin,
-          vq: 'hd720',
+          // No `vq` here. It is not a playerVar — it does nothing on the
+          // embed — and what it expressed was a cap at 720p, which is the
+          // opposite of what this should ask for.
         },
         events: {
           onReady: (e) => {
-            setDuration(e.target.getDuration());
-            // Get available qualities
-            const available = e.target.getAvailableQualityLevels?.() || [];
-            setAvailableQualities(available);
-            // Load with preferred quality
-            e.target.loadVideoById({
-              videoId: videoData.videoId,
-              suggestedQuality: 'hd720'
-            });
+            setDuration(e.getDuration ? e.getDuration() : e.target.getDuration());
+            silenceCaptions(e.target);
+            requestBestQuality(e.target);
+            setVideoQuality(e.target.getPlaybackQuality?.() || 'auto');
             e.target.pauseVideo();
           },
           onStateChange: (e) => {
             setIsPlaying(e.data === window.YT.PlayerState.PLAYING);
-            // Update actual quality when playing
             if (e.data === window.YT.PlayerState.PLAYING) {
-              const actualQuality = e.target.getPlaybackQuality?.();
-              if (actualQuality) setVideoQuality(actualQuality);
+              // Both again on play: the caption track is chosen when
+              // playback starts, so switching it off before then is too
+              // early, and quality levels only exist once it has begun.
+              silenceCaptions(e.target);
+              requestBestQuality(e.target);
+              setVideoQuality(e.target.getPlaybackQuality?.() || 'auto');
             }
+            if (e.data === window.YT.PlayerState.ENDED) {
+              // Park on the first frame rather than let the end screen and
+              // its grid of thumbnails take over the panel.
+              e.target.seekTo(0, true);
+              e.target.pauseVideo();
+            }
+          },
+          onPlaybackQualityChange: (e) => {
+            setVideoQuality(e.target.getPlaybackQuality?.() || 'auto');
           },
         },
       });
@@ -728,57 +1010,19 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
     document.addEventListener('mouseup', handleMouseUp);
   };
 
-  // Video quality
-  const [videoQuality, setVideoQuality] = useState('hd720');
-  const [availableQualities, setAvailableQualities] = useState([]);
+  // What the player is actually serving. Not a control: YouTube decides the
+  // rate and ignores requests to change it, so a button that cycled through
+  // "720p / 1080p" was reporting a preference the player had already
+  // discarded. This says what is on screen.
+  const [videoQuality, setVideoQuality] = useState('auto');
 
-  const cycleQuality = () => {
-    if (!playerRef.current) return;
-
-    // Get available qualities from YouTube
-    const available = playerRef.current.getAvailableQualityLevels?.() || [];
-    const validQualities = ['small', 'medium', 'large', 'hd720', 'hd1080', 'highres'];
-    const filtered = validQualities.filter(q => available.includes(q));
-
-    if (filtered.length === 0) return;
-
-    const currentIdx = filtered.indexOf(videoQuality);
-    const nextIdx = (currentIdx + 1) % filtered.length;
-    const newQuality = filtered[nextIdx];
-
-    // Get current time and playing state
-    const currentTime = playerRef.current.getCurrentTime?.() || 0;
-    const wasPlaying = isPlaying;
-
-    // Set the quality
-    setVideoQuality(newQuality);
-
-    // Reload video at same position with new quality
-    playerRef.current.loadVideoById({
-      videoId: videoData.videoId,
-      startSeconds: currentTime,
-      suggestedQuality: newQuality
-    });
-
-    // Pause if wasn't playing
-    if (!wasPlaying) {
-      setTimeout(() => {
-        playerRef.current?.pauseVideo?.();
-      }, 100);
-    }
+  const QUALITY_LABELS = {
+    tiny: '144p', small: '240p', medium: '360p', large: '480p',
+    hd720: '720p', hd1080: '1080p', hd1440: '1440p', hd2160: '4K',
+    highres: '4K+', auto: 'AUTO', unknown: '—',
   };
 
-  const getQualityLabel = () => {
-    const labels = {
-      small: '240p',
-      medium: '360p',
-      large: '480p',
-      hd720: '720p',
-      hd1080: '1080p',
-      highres: '1440p+'
-    };
-    return labels[videoQuality] || '720p';
-  };
+  const getQualityLabel = () => QUALITY_LABELS[videoQuality] || 'AUTO';
 
   // Derived data
   // Only offer options that actually have shows. The coverage catalog marks
@@ -829,7 +1073,7 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
     return GARMENT_TYPES.map(t => t.value).filter(v => (totals[v] || 0) > 0);
   })();
 
-  const activeFilterCount = ['year', 'season', 'category', 'shootType', 'letter']
+  const activeFilterCount = ['year', 'season', 'category', 'shootType', 'city', 'letter']
     .filter(k => filters[k]).length;
 
   // In designer mode every show is already here, so the filters are applied
@@ -844,9 +1088,18 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
       && want('shootType', row.shoot_type);
   }, [filters]);
 
-  const visibleCollections = designerMode
+  // Indexed, the server already applied every filter, so the rows that came
+  // back are the rows to show. Only the fallback path filters in the browser.
+  const visibleCollections = (!indexReady && designerMode)
     ? designerRows.filter(r => matchesFilters(r))
     : collections;
+
+  // Facet values, with exact counts, from the index. The coverage catalog
+  // could only ever say "at least 20" — that is one results page — so this
+  // is the first time the filters know what they are offering.
+  const facetValues = (key) => serverFacets?.[key]?.map(f => f.value) ?? null;
+  const facetCount = (key, value) =>
+    serverFacets?.[key]?.find(f => String(f.value) === String(value))?.count ?? null;
 
   // Each dropdown lists what is reachable given the *other* filters, so no
   // combination in designer mode leads to an empty list. Picking Men on a
@@ -862,10 +1115,14 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
     return [...new Set(values)];
   };
 
-  const designerYears = designerOptions('year', 'year')?.sort((a, b) => b - a);
-  const designerSeasons = designerOptions('season', 'season')?.sort();
-  const designerCategories = designerOptions('category', 'category');
-  const designerShootTypes = designerOptions('shootType', 'shoot_type');
+  const designerYears = facetValues('year')?.slice().sort((a, b) => b - a)
+    ?? designerOptions('year', 'year')?.sort((a, b) => b - a);
+  const designerSeasons = facetValues('season')?.slice().sort()
+    ?? designerOptions('season', 'season')?.sort();
+  const designerCategories = facetValues('category')
+    ?? designerOptions('category', 'category');
+  const designerShootTypes = facetValues('shootType')
+    ?? designerOptions('shootType', 'shoot_type');
 
   const listLoading = designerMode ? designerLoading : collectionsLoading;
 
@@ -884,8 +1141,20 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
 
       {/* Content Area */}
       <div className="hf2-content">
+        {/* The handle sits on the seam rather than inside the sidebar, so it
+            is still there to pull once the sidebar has gone. */}
+        <button
+          type="button"
+          className={`hf2-sidebar-handle ${sidebarOpen ? '' : 'closed'}`}
+          onClick={toggleSidebar}
+          title={sidebarOpen ? 'Hide the list' : 'Show the list'}
+          aria-label={sidebarOpen ? 'Hide the list' : 'Show the list'}
+        >
+          {sidebarOpen ? '‹' : '›'}
+        </button>
+
         {/* Sidebar */}
-        <div className="hf2-sidebar">
+        <div className={`hf2-sidebar ${sidebarOpen ? '' : 'collapsed'}`}>
         {/* Search. One box: type a designer, press Enter, get everything they
             ever showed. The archive list is organised by season, so a
             designer's own history across thirty years is the one view the
@@ -895,7 +1164,9 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
             ref={searchInputRef}
             type="text"
             className="hf2-search-input"
-            placeholder={designerIndex ? 'Search designers' : 'Search unavailable'}
+            placeholder={!designerIndex ? 'Search unavailable'
+                         : indexReady ? 'Search designers and shows'
+                         : 'Search designers'}
             value={query}
             disabled={!designerIndex}
             onChange={(e) => setQuery(e.target.value)}
@@ -914,26 +1185,53 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
             </button>
           )}
 
-          {searchFocused && shownSuggestions.length > 0 && (
+          {searchFocused && suggestionList.length > 0 && (
             <div className="hf2-search-results">
               {!query.trim() && (
                 <div className="hf2-search-heading">Recently opened</div>
               )}
-              {shownSuggestions.map((d, i) => (
-                <button
-                  key={d.id}
-                  type="button"
-                  className={`hf2-search-option ${i === activeSuggestion ? 'active' : ''}`}
-                  onMouseEnter={() => setActiveSuggestion(i)}
-                  onMouseDown={(e) => e.preventDefault()}   // keep focus until the click lands
-                  onClick={() => openDesigner(d)}
-                >{d.name}</button>
-              ))}
+              {suggestionList.map((item, i) => {
+                const active = i === activeSuggestion ? 'active' : '';
+                // `key` stays off this object: React warns when a key is
+                // spread in with the rest of the props, because it is not a
+                // prop — it is how the list is reconciled.
+                const common = {
+                  type: 'button',
+                  onMouseEnter: () => setActiveSuggestion(i),
+                  onMouseDown: (e) => e.preventDefault(),
+                  onClick: () => chooseSuggestion(item),
+                };
+                if (item.kind === 'designer') {
+                  return (
+                    <button key={item.key} {...common} className={`hf2-search-option ${active}`}>
+                      <span className="label">{item.designer.name}</span>
+                      {/* Exact, from the local index. Entries rather than
+                          shows: a show is listed once per shoot. */}
+                      {item.designer.entries > 0 && (
+                        <span className="meta">{item.designer.entries}</span>
+                      )}
+                    </button>
+                  );
+                }
+                if (item.kind === 'show') {
+                  return (
+                    <button key={item.key} {...common} className={`hf2-search-option show ${active}`}>
+                      <span className="label">{item.show.designer}</span>
+                      <span className="sub">{item.show.subtitle}</span>
+                    </button>
+                  );
+                }
+                return (
+                  <button key={item.key} {...common} className={`hf2-search-option all ${active}`}>
+                    <span className="label">All {item.total} matching shows</span>
+                  </button>
+                );
+              })}
             </div>
           )}
-          {searchFocused && query.trim() && shownSuggestions.length === 0 && (
+          {searchFocused && query.trim() && suggestionList.length === 0 && (
             <div className="hf2-search-results">
-              <div className="hf2-search-empty">No designer by that name</div>
+              <div className="hf2-search-empty">Nothing matches that</div>
             </div>
           )}
         </div>
@@ -949,7 +1247,7 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
               In designer mode that constraint is gone — both genders are
               already loaded — so All appears and is the default. */}
           <div className="hf2-segmented">
-            {(designerMode ? ['', 'Women', 'Men'] : ['Women', 'Men']).map(g => (
+            {((designerMode || indexReady) ? ['', 'Women', 'Men'] : ['Women', 'Men']).map(g => (
               <button
                 key={g || 'all'}
                 type="button"
@@ -967,7 +1265,11 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
               onChange={(e) => setFilter('year', e.target.value)}
             >
               <option value="">All years</option>
-              {(designerYears || years).map(y => <option key={y} value={y}>{y}</option>)}
+              {(designerYears || years).map(y => (
+                <option key={y} value={y}>
+                  {y}{facetCount('year', y) ? ` (${facetCount('year', y)})` : ''}
+                </option>
+              ))}
             </select>
           </label>
 
@@ -1015,6 +1317,25 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
             </select>
           </label>
 
+          {/* City. The index has known this all along — it is on every row —
+              but it took holding the archive to be able to offer it without
+              a crawl per option. */}
+          <label className={`hf2-facet ${indexReady ? '' : 'hidden'}`}>
+            <span className="hf2-facet-label">City</span>
+            <select
+              className={`hf2-facet-select ${filters.city ? 'set' : ''}`}
+              value={filters.city}
+              onChange={(e) => setFilter('city', e.target.value)}
+            >
+              <option value="">All cities</option>
+              {(facetValues('city') || []).map(c => (
+                <option key={c} value={c}>
+                  {c}{facetCount('city', c) ? ` (${facetCount('city', c)})` : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+
           <label className={`hf2-facet ${designerMode ? 'hidden' : ''}`}>
             <span className="hf2-facet-label">Brand</span>
             <select
@@ -1042,13 +1363,14 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
         {/* Collections */}
         <div className="hf2-collections-area">
           <div className="hf2-collections-header">
-            {designerMode ? (
+            {designerMode || searchText ? (
               <>
                 <button type="button" className="hf2-designer-exit" onClick={exitDesigner}>
                   ← Archive
                 </button>
-                <span className="hf2-designer-name" title={designerMode.name}>
-                  {designerMode.name}
+                <span className="hf2-designer-name"
+                      title={designerMode ? designerMode.name : `Search: ${searchText}`}>
+                  {designerMode ? designerMode.name : `“${searchText}”`}
                 </span>
               </>
             ) : (
@@ -1056,11 +1378,14 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
             )}
             {visibleCollections.length > 0 && (
               <span className="count">
-                {/* In designer mode the filtered count is stated against the
-                    whole, so narrowing never looks like their work vanished. */}
-                {designerMode && visibleCollections.length !== designerRows.length
-                  ? `${visibleCollections.length}/${designerRows.length}`
-                  : `${visibleCollections.length}${!designerMode && cursor.hasMore ? '+' : ''}`}
+                {indexReady
+                  // Exact, and the whole point of holding the archive: the
+                  // list can say how many shows match, not how many it has
+                  // managed to fetch so far.
+                  ? cursor.total.toLocaleString()
+                  : designerMode && visibleCollections.length !== designerRows.length
+                    ? `${visibleCollections.length}/${designerRows.length}`
+                    : `${visibleCollections.length}${cursor.hasMore ? '+' : ''}`}
               </span>
             )}
           </div>
@@ -1133,6 +1458,19 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
                 </div>
                 <div className="hf2-image-info">
                   <span className="hf2-look-label">LOOK {String(currentLookNumber).padStart(2, '0')}</span>
+                  {/* Keeping a look was possible in the database and in the API
+                      from the start, and nowhere on the screen. */}
+                  <button
+                    type="button"
+                    className={`hf2-fav-btn ${isFavourite(currentLookNumber) ? 'on' : ''}`}
+                    onClick={() => toggleFavourite(currentLookNumber, images[currentImageIndex])}
+                    title={isFavourite(currentLookNumber)
+                      ? 'Remove from favourites (F)'
+                      : 'Keep this look (F)'}
+                    aria-pressed={isFavourite(currentLookNumber)}
+                  >
+                    {isFavourite(currentLookNumber) ? '★' : '☆'}
+                  </button>
                   <span className="hf2-look-count">{currentImageIndex + 1} / {images.length}</span>
                 </div>
               </div>
@@ -1149,6 +1487,17 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
                     <div className="hf2-video-wrapper" style={{ height: videoHeight }}>
                       <div className="hf2-video-frame">
                         <div ref={playerContainerRef} className="hf2-youtube-player" />
+                        {/* Every piece of YouTube's UI that still shows with
+                            controls off — the title bar, the share and watch
+                            -later buttons, the pause overlay — appears in
+                            response to hovering or clicking the iframe. This
+                            takes those events, so none of it ever appears,
+                            and passes the click to our own play control. */}
+                        <div
+                          className="hf2-video-shield"
+                          onClick={togglePlay}
+                          title={isPlaying ? 'Pause' : 'Play'}
+                        />
                       </div>
                     </div>
 
@@ -1170,9 +1519,10 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
                     <span className="hf2-time">
                       {formatTime(currentTime)} / {formatTime(duration)}
                     </span>
-                    <button className="hf2-quality-btn" onClick={cycleQuality}>
+                    <span className="hf2-quality-readout"
+                          title="What YouTube is serving. The embed API cannot set this.">
                       {getQualityLabel()}
-                    </button>
+                    </span>
                   </div>
                 </div>
               )}
@@ -1189,7 +1539,8 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
                 return (
                   <div
                     key={imgPath}
-                    className={`hf2-grid-item ${idx === currentImageIndex ? 'selected' : ''}`}
+                    className={`hf2-grid-item ${idx === currentImageIndex ? 'selected' : ''} ${
+                      isFavourite(lookNum) ? 'kept' : ''}`}
                     onClick={() => selectImageFromGrid(idx)}
                   >
                     <div className="hf2-grid-image-wrapper">
@@ -1215,7 +1566,8 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
                 <div
                   key={imgPath}
                   ref={idx === currentImageIndex ? activeThumbRef : null}
-                  className={`hf2-thumb ${idx === currentImageIndex ? 'active' : ''}`}
+                  className={`hf2-thumb ${idx === currentImageIndex ? 'active' : ''} ${
+                    isFavourite(extractLookNumber(imgPath, idx)) ? 'kept' : ''}`}
                   onClick={() => setCurrentImageIndex(idx)}
                 >
                   <img

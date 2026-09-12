@@ -26,10 +26,53 @@
      city on most rows. */
   width: 320px;
   min-width: 320px;
+  transition: width 0.18s ease, min-width 0.18s ease;
   background: #fafafa;
   border-right: 1px solid #e0e0e0;
   display: flex;
   flex-direction: column;
+}
+
+/* Folded away. Width rather than display, so it slides instead of vanishing,
+   and overflow hidden so the 320px of content inside does not spill while it
+   is closing. */
+.hf2-sidebar.collapsed {
+  width: 0;
+  min-width: 0;
+  overflow: hidden;
+  border-right-color: transparent;
+}
+
+/* The handle rides the seam between sidebar and image, and is the only part
+   that stays put when the sidebar goes — otherwise there is nothing to pull. */
+.hf2-sidebar-handle {
+  position: fixed;
+  top: 50%;
+  left: 320px;
+  transform: translate(-50%, -50%);
+  z-index: 50;
+  width: 16px;
+  height: 44px;
+  appearance: none;
+  border: 1px solid #e0e0e0;
+  background: #ffffff;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1;
+  color: #999999;
+  cursor: pointer;
+  padding: 0;
+  transition: left 0.18s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.hf2-sidebar-handle:hover {
+  color: #000000;
+  border-color: #000000;
+}
+
+.hf2-sidebar-handle.closed {
+  left: 8px;
+  transform: translate(0, -50%);
 }
 
 /* Navigation Row (Year/Season/Type) */
@@ -631,6 +674,7 @@
 }
 
 .hf2-video-frame {
+  position: relative;     /* the shield above is absolutely placed in here */
   position: absolute;
   top: 50%;
   left: 50%;
@@ -840,7 +884,9 @@
 }
 
 .hf2-search-option {
-  display: block;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
   width: 100%;
   appearance: none;
   border: none;
@@ -862,6 +908,52 @@
 .hf2-search-option.active {
   background: #000000;
   color: #ffffff;
+}
+
+.hf2-search-option .label {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The designer's entry count, right aligned. Exact, from the local index —
+   before the archive was held locally this needed a request per designer. */
+.hf2-search-option .meta {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: #bbbbbb;
+}
+
+.hf2-search-option.active .meta,
+.hf2-search-option.active .sub {
+  color: #999999;
+}
+
+/* A show rather than a designer: the season line identifies which one. */
+.hf2-search-option.show {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 1px;
+}
+
+.hf2-search-option.show .sub {
+  font-size: 10px;
+  line-height: 13px;
+  color: #aaaaaa;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* "All 312 matching shows" — the way out of the first six. */
+.hf2-search-option.all {
+  border-top: 1px solid #ededed;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #666666;
 }
 
 .hf2-search-empty {
@@ -1088,4 +1180,73 @@
 .hf2-segment:disabled {
   color: #cccccc;
   cursor: default;
+}
+
+/* Sits over the iframe and takes the pointer events YouTube's remaining UI
+   reacts to. With controls off, their title bar, share button and pause
+   overlay only appear on hover or click — so nothing hovers or clicks it,
+   and the panel stays ours. Clicking plays and pauses through our controls. */
+.hf2-video-shield {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  cursor: pointer;
+  background: transparent;
+}
+
+/* A read-out, not a button: it reports what YouTube chose to send. The embed
+   API deprecated quality control, so styling this as something pressable
+   would be a lie about what it does. */
+.hf2-quality-readout {
+  font-family: 'JetBrains Mono', 'SF Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: #999999;
+  padding: 0 4px;
+  cursor: default;
+  flex-shrink: 0;
+}
+
+/* Keeping a look. The star sits with the look's own number and count, which
+   is the one place on screen that is about this photograph rather than about
+   the show or the list. */
+.hf2-fav-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1;
+  color: #cccccc;
+  cursor: pointer;
+  padding: 0 6px;
+}
+
+.hf2-fav-btn:hover {
+  color: #000000;
+}
+
+.hf2-fav-btn.on {
+  color: #000000;
+}
+
+/* Kept looks are marked in the strip and the grid, so a show you have been
+   through before shows you where you stopped. A corner rather than an overlay:
+   the photograph is the point. */
+.hf2-thumb.kept::after,
+.hf2-grid-item.kept::after {
+  content: '★';
+  position: absolute;
+  top: 2px;
+  right: 3px;
+  font-size: 9px;
+  line-height: 1;
+  color: #ffffff;
+  text-shadow: 0 0 2px rgba(0, 0, 0, 0.9);
+  pointer-events: none;
+}
+
+.hf2-thumb,
+.hf2-grid-item {
+  position: relative;     /* for the marker above */
 }

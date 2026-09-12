@@ -118,9 +118,8 @@ def auth_resend_verification():
             _service().resend_verification(conn, email=_body().get("email", ""))
     except svc.AuthError as exc:
         return _error(exc)
-    return jsonify(
-        {"success": True, "message": "If that account needs confirming, a new link is on its way."}
-    ), 202
+    return jsonify({"success": True, "message": "If that account needs confirming, "
+                                                "a new link is on its way."}), 202
 
 
 def auth_login():
@@ -174,9 +173,8 @@ def auth_request_reset():
             _service().request_password_reset(conn, email=_body().get("email", ""))
     except svc.AuthError as exc:
         return _error(exc)
-    return jsonify(
-        {"success": True, "message": "If that account exists, a reset link is on its way."}
-    ), 202
+    return jsonify({"success": True, "message": "If that account exists, a reset "
+                                                "link is on its way."}), 202
 
 
 def auth_reset_password():

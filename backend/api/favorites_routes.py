@@ -25,7 +25,9 @@ def _body() -> dict:
 def get_favourites():
     """GET /api/favourites — every favourite for the current user."""
     with db.transaction() as conn:
-        return jsonify({"favourites": favourites.list_all(conn, user_id=current_user().id)})
+        return jsonify(
+            {"favourites": favourites.list_all(conn, user_id=current_user().id)}
+        )
 
 
 def add_favourite():
@@ -96,8 +98,12 @@ def register_favorites_routes(app):
     """
     app.add_url_rule("/api/favourites", "get_favourites", get_favourites, methods=["GET"])
     app.add_url_rule("/api/favourites", "add_favourite", add_favourite, methods=["POST"])
-    app.add_url_rule("/api/favourites", "remove_favourite", remove_favourite, methods=["DELETE"])
-    app.add_url_rule("/api/favourites/check", "check_favourite", check_favourite, methods=["POST"])
+    app.add_url_rule(
+        "/api/favourites", "remove_favourite", remove_favourite, methods=["DELETE"]
+    )
+    app.add_url_rule(
+        "/api/favourites/check", "check_favourite", check_favourite, methods=["POST"]
+    )
     app.add_url_rule(
         "/api/favourites/stats",
         "get_favourites_stats",

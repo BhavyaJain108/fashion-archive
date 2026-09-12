@@ -866,6 +866,191 @@ def category_map(
     return out
 
 
+# The show index: every show firstVIEW lists, held locally.
+#
+# Browsing used to mean crawling their results pages live — every filter
+# change was 1-3 seconds and a handful of requests to someone else's site,
+# for a listing that changes only when a season is added. 55,700 shows is
+# 7.8 MB, which is nothing to hold and everything to be able to query: it
+# makes the archive list instant, makes filter options exact rather than
+# guessed, and makes free-text search over shows possible at all — firstVIEW
+# itself can only search designer names.
+#
+# The crawl is 2,785 pages, about eight minutes at the rate above. It is by
+# far the largest thing this asks of firstVIEW, so it runs once and the
+# result is committed; `refresh_show_index` tops it up for the cost of a
+# couple of dozen requests.
+SHOW_INDEX_VERSION = 1
+
+
+def _index_record(r: CollectionSummary) -> Dict:
+    """One show, in the shape the index stores.
+
+    Short keys: at 55,700 rows the field names are a third of the file.
+    """
+    return {"c": r.collection_id, "d": r.designer, "s": r.season, "y": r.year,
+            "g": r.gender, "n": r.category, "t": r.shoot_type, "p": r.city}
+
+
+def last_results_page(
+    gender: Optional[str],
+    session: Optional[requests.Session] = None,
+    delay: float = REQUEST_DELAY,
+    ceiling: int = 8192,
+) -> int:
+    """The highest page number that still returns rows, found by bisection.
+
+    Roughly a dozen requests instead of walking to the end, and it is what
+    lets the crawl below fan out over a known range rather than discovering
+    the end one page at a time.
+    """
+    sess = session or _session()
+
+    def has_rows(page: int) -> bool:
+        resp = sess.get(build_search_url(gender=gender, page=page), timeout=TIMEOUT)
+        time.sleep(delay)
+        return bool(parse_results_page(resp.content))
+
+    if not has_rows(0):
+        return -1
+
+    lo, hi = 0, 64
+    while hi <= ceiling and has_rows(hi):
+        lo, hi = hi, hi * 2
+    hi = min(hi, ceiling)
+    while lo + 1 < hi:
+        mid = (lo + hi) // 2
+        if has_rows(mid):
+            lo = mid
+        else:
+            hi = mid
+    return lo
+
+
+def build_show_index(
+    out_path: "str | Path | None" = None,
+    genders=(None,) + GENDERS,
+    session: Optional[requests.Session] = None,
+    max_workers: int = MAX_WORKERS,
+    delay: float = REQUEST_DELAY,
+    progress=None,
+) -> Dict:
+    """Crawl every results page and record every show.
+
+    `genders` includes None deliberately: a query with no gender is not
+    "everything", it is the small bucket of shows catalogued without one,
+    and those belong in the index too.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    sess = session or _session()
+    found: Dict[str, Dict] = {}
+    failed: List[str] = []
+
+    for gender in genders:
+        last = last_results_page(gender, session=sess, delay=delay)
+        if last < 0:
+            continue
+        label = gender or "ungendered"
+        if progress:
+            progress(label, 0, last + 1, len(found))
+
+        lock = Lock()
+        done = [0]
+
+        def fetch(page: int, _gender=gender, _label=label, _last=last):
+            for attempt in (1, 2):
+                try:
+                    time.sleep(delay)
+                    resp = sess.get(build_search_url(gender=_gender, page=page),
+                                    timeout=TIMEOUT)
+                    resp.raise_for_status()
+                    rows = parse_results_page(resp.content)
+                    with lock:
+                        for r in rows:
+                            found[r.collection_id] = _index_record(r)
+                        done[0] += 1
+                        if progress and done[0] % 50 == 0:
+                            progress(_label, done[0], _last + 1, len(found))
+                    return
+                except Exception as exc:  # noqa: BLE001 — retry once, then note it
+                    if attempt == 2:
+                        with lock:
+                            failed.append(f"{_label}:{page}")
+                        print(f"show index: {_label} page {page} failed: {exc}")
+
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            list(pool.map(fetch, range(last + 1)))
+
+        if progress:
+            progress(label, last + 1, last + 1, len(found))
+
+    data = {
+        "version": SHOW_INDEX_VERSION,
+        "built_on": date.today().isoformat(),
+        "count": len(found),
+        "failed_pages": failed,
+        "shows": sorted(found.values(), key=lambda r: int(r["c"]) if r["c"].isdigit() else 0),
+    }
+
+    if out_path:
+        path = Path(out_path)
+        payload = json.dumps(data, ensure_ascii=False).encode("utf-8")
+        if path.suffix == ".gz":
+            import gzip as _gzip
+            path.write_bytes(_gzip.compress(payload, 6))
+        else:
+            path.write_bytes(payload)
+    return data
+
+
+def load_show_index(path: "str | Path") -> Optional[Dict]:
+    """Read the show index, or None if missing, unreadable or stale."""
+    try:
+        p = Path(path)
+        blob = p.read_bytes()
+        if p.suffix == ".gz":
+            import gzip as _gzip
+            blob = _gzip.decompress(blob)
+        data = json.loads(blob)
+    except Exception:  # noqa: BLE001
+        return None
+    return data if data.get("version") == SHOW_INDEX_VERSION else None
+
+
+def refresh_show_index(
+    known_ids,
+    genders=(None,) + GENDERS,
+    session: Optional[requests.Session] = None,
+    delay: float = REQUEST_DELAY,
+    max_pages: int = 40,
+) -> List[Dict]:
+    """New shows only: read from page 0 until a page holds nothing new.
+
+    Results are newest first, so anything added since the last build sits at
+    the front. A new season costs a couple of dozen requests rather than the
+    2,785 a rebuild would.
+    """
+    sess = session or _session()
+    fresh: Dict[str, Dict] = {}
+
+    for gender in genders:
+        for page in range(max_pages):
+            resp = sess.get(build_search_url(gender=gender, page=page), timeout=TIMEOUT)
+            resp.raise_for_status()
+            rows = parse_results_page(resp.content)
+            new = [r for r in rows if r.collection_id not in known_ids
+                   and r.collection_id not in fresh]
+            for r in new:
+                fresh[r.collection_id] = _index_record(r)
+            # A full page of shows we already have means we have caught up.
+            if not new:
+                break
+            time.sleep(delay)
+
+    return list(fresh.values())
+
+
 # The designer index. Names only, so the whole thing is small enough to hand
 # to the browser once and match locally: 8,661 designers is 336 KB, ~80 KB
 # over the wire, and Fuse.js over it answers a keystroke with no request.

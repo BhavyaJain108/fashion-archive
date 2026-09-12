@@ -73,3 +73,47 @@ CREATE TABLE IF NOT EXISTS youtube_quota (
     quota_date date PRIMARY KEY,
     units_used integer NOT NULL DEFAULT 0
 );
+
+-- Every show firstVIEW lists, held locally so browsing does not crawl them.
+--
+-- Navigating used to mean a live crawl of their results pages: each filter
+-- change was 1-3 seconds and a handful of requests to someone else's site,
+-- for a listing that only changes when a season is added. 55,700 rows is
+-- small enough to keep and query directly, which makes the archive list
+-- instant, makes the filter options exact instead of guessed, and makes
+-- free-text search over shows possible at all -- firstVIEW's own search
+-- covers designer names and nothing else.
+--
+-- Shared and derived, not user data: it can be rebuilt from the site at any
+-- time, and is seeded from the committed shows.json.gz at boot.
+CREATE TABLE IF NOT EXISTS show_index (
+    collection_id text PRIMARY KEY,
+
+    designer      text,
+    season        text,
+    year          integer,
+    gender        text,
+    category      text,
+    shoot_type    text,
+    city          text,
+
+    -- Everything above, lowercased and unaccented, plus the abbreviations
+    -- people actually type: "fw25", "aw2025", "rtw", "couture". This is what
+    -- lets "chanel fw25" be one query rather than a parse into three filters.
+    search_text   text NOT NULL,
+
+    -- Display order. firstVIEW lists newest first, and within a year the
+    -- later season first; this reproduces that without storing crawl
+    -- positions, so the list reads the way the site's does.
+    sort_rank     integer NOT NULL DEFAULT 0
+);
+
+-- The archive list filters on these constantly.
+CREATE INDEX IF NOT EXISTS idx_show_index_browse
+    ON show_index (gender, year, sort_rank);
+CREATE INDEX IF NOT EXISTS idx_show_index_designer
+    ON show_index (lower(designer));
+-- 55,700 rows is small enough that a scan for a substring is a few
+-- milliseconds, so search needs no extension and no tsvector to maintain.
+CREATE INDEX IF NOT EXISTS idx_show_index_sort
+    ON show_index (sort_rank);

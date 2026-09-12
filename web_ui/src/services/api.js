@@ -117,21 +117,6 @@ class FashionArchiveAPI {
     return response.seasons || [];
   }
 
-  // Download images for a collection (matches tkinter download_and_display_images)
-  static async downloadImages(collection) {
-    const response = await this.callPython('/api/download-images', {
-      collectionUrl: collection.url,
-      designerName: collection.designer
-    });
-    return {
-      imagePaths: response.images?.map(img => img.path) || [],
-      images: response.images || [],
-      designerName: collection.designer,
-      cacheDir: response.cache_dir,
-      count: response.count,
-      error: response.error
-    };
-  }
 
   // Search for a fashion show video (matches tkinter video download)
   // `gender` is part of the cache key server-side, so passing it keeps
@@ -175,11 +160,6 @@ class FashionArchiveAPI {
     return `${this.BASE_URL}/api/images/${imagePath.replace(/^\/+/, '')}`;
   }
 
-  // Clean up cache (matches tkinter cleanup_previous_downloads)
-  static async cleanupDownloads() {
-    const response = await this.callPython('/api/cleanup');
-    return response.success;
-  }
 
   // Consume a Server-Sent Events endpoint, invoking onEvent per frame.
   // Shared by the collection and image streams.
@@ -226,32 +206,6 @@ class FashionArchiveAPI {
     }
   }
 
-  // Stream shows for a season. onUpdate({collections, complete}) fires per
-  // results page, so rows render while the rest of the season is crawled.
-  // `extra` carries optional filters the season URL doesn't encode —
-  // category (Ready-to-Wear / Haute Couture / Swim) and shootType.
-  static async streamCollections(seasonUrl, onUpdate, signal, extra = {}) {
-    const all = [];
-    await this.consumeSSE('/api/collections/stream', { seasonUrl, ...extra }, (evt) => {
-      if (evt.type === 'collections') {
-        all.push(...evt.collections);
-        if (onUpdate) onUpdate({ collections: [...all], complete: false });
-      } else if (evt.type === 'relabel') {
-        // Rows that were indistinguishable get their look counts appended
-        // once the crawl is done, so the list isn't held up waiting for them.
-        for (const row of all) {
-          const label = evt.labels[row.collection_id];
-          if (label) row.designer = label;
-        }
-        if (onUpdate) onUpdate({ collections: [...all], complete: false });
-      } else if (evt.type === 'done') {
-        if (onUpdate) onUpdate({ collections: [...all], complete: true });
-      } else if (evt.type === 'error') {
-        throw new Error(evt.error);
-      }
-    }, signal);
-    return all;
-  }
 
   // Stream one window of the archive.
   //
@@ -293,6 +247,50 @@ class FashionArchiveAPI {
     return { rows: all, ...cursor };
   }
 
+  // Is the archive held locally? When it is, browsing is a database query
+  // rather than a crawl of firstVIEW; when it is not, the streaming crawl
+  // below still works, just slowly. Checked once.
+  static _indexReady = null;
+
+  static async getIndexStatus() {
+    if (this._indexReady !== null) return this._indexReady;
+    try {
+      const response = await fetch(`${this.BASE_URL}/api/index/status`, {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        this.checkAuth(response);
+        this._indexReady = { shows: 0 };
+        return this._indexReady;
+      }
+      this._indexReady = await response.json();
+      return this._indexReady;
+    } catch (error) {
+      console.error('Index status failed:', error);
+      this._indexReady = { shows: 0 };
+      return this._indexReady;
+    }
+  }
+
+  // The archive list, from the local index. One request, no streaming, and
+  // no contact with firstVIEW at all — the rows are already ours.
+  //
+  // `text` is a free-text query, `designer` pins it to one label, and
+  // `facets: true` asks for the counts behind every filter dropdown so none
+  // of them can offer a combination with nothing in it.
+  static async browseCatalog(filters, { text, limit = 200, offset = 0, facets = false } = {}) {
+    return this.callPython('/api/browse', {
+      ...filters, text, limit, offset, facets,
+    });
+  }
+
+  // Free text over every show. The query firstVIEW has no equivalent for:
+  // their search covers designer names only, so "chanel fw25" could not be
+  // asked of them at all.
+  static async searchShows(text, { limit = 60 } = {}) {
+    return this.callPython('/api/search', { text, limit });
+  }
+
   // Every designer firstVIEW lists, fetched once and kept.
   //
   // The whole index comes down in one request — 8,657 names, ~87 KB gzipped —
@@ -307,6 +305,14 @@ class FashionArchiveAPI {
     try {
       const response = await fetch(`${this.BASE_URL}/api/designers`, {
         credentials: 'include',
+        // Revalidate rather than trust what is stored. This payload gains
+        // its entry counts when the show index is built, and an earlier
+        // version of it was served with a day's max-age — so a browser that
+        // saw that one would go on ranking search results by a copy with no
+        // counts in it, for a day, whatever the server now says. Asking
+        // explicitly is what unsticks those; the answer is a 304 with no
+        // body whenever nothing has changed.
+        cache: 'no-cache',
       });
       if (!response.ok) {
         this.checkAuth(response);
@@ -392,22 +398,7 @@ class FashionArchiveAPI {
     }
   }
 
-  // Video search test (matches tkinter open_video_test)
-  static async testVideoSearch(query) {
-    const response = await this.callPython('/api/video-test', { query });
-    return response;
-  }
 
-  // Get application info (matches tkinter show_about)
-  static async getAboutInfo() {
-    try {
-      const response = await fetch(`${this.BASE_URL}/api/about`, { credentials: 'include' });
-      return await response.json();
-    } catch (error) {
-      console.error('About info error:', error);
-      return null;
-    }
-  }
 
   // Favourites API methods
   static async getFavourites() {
@@ -475,22 +466,6 @@ class FashionArchiveAPI {
     }
   }
 
-  static async checkFavourite(seasonUrl, collectionUrl, lookNumber) {
-    try {
-      const response = await this.callPython('/api/favourites/check', {
-        season_url: seasonUrl,
-        collection_url: collectionUrl,
-        look_number: lookNumber
-      });
-      return response.is_favourite || false;
-    } catch (error) {
-      // If unauthorized (not logged in), just return false
-      if (error.message && error.message.includes('UNAUTHORIZED')) {
-        return false;
-      }
-      throw error;
-    }
-  }
 
   static async getFavouriteStats() {
     try {
