@@ -50,12 +50,16 @@ CREATE TABLE IF NOT EXISTS recipe_books (
   learned_at TEXT NOT NULL
 );
 
+-- One archived photograph. `url` is where the shop served it, `stored_url` where we
+-- serve it from now. The second is the one that means anything anywhere else: the
+-- first can stop resolving, and local_path names a directory on one laptop.
 CREATE TABLE IF NOT EXISTS images (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
   product_id   INTEGER NOT NULL REFERENCES products(id),
   url          TEXT NOT NULL,
   local_path   TEXT NOT NULL,
   content_hash TEXT NOT NULL,
+  stored_url   TEXT,
   UNIQUE (product_id, url)
 );
 

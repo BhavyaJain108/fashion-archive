@@ -11,6 +11,25 @@ from backend.archive.domain.run import Coverage
 _SCHEMA = Path(__file__).parent / "schema.sql"
 
 
+# The run a product must have been seen in to count as still listed: the most recent one
+# that got as far as measuring its own coverage. Written once and used by both the
+# per-brand view and search, which drifted apart the last time they each had their own.
+_LATEST_COVERED = (
+    "(SELECT id FROM runs r WHERE r.domain = p.domain AND r.exit_status IN (0,1) "
+    "AND r.coverage_json IS NOT NULL ORDER BY r.id DESC LIMIT 1)"
+)
+
+
+def _like_escape(needle: str) -> str:
+    """A search box is free text; % and _ in it are letters, not wildcards."""
+    return needle.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+# Columns added to tables that predate them. Append here rather than editing a line in
+# schema.sql alone, or existing archives never get the column.
+_ADDED_COLUMNS = (("images", "stored_url", "TEXT"),)
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -18,10 +37,28 @@ def _now() -> str:
 class Catalog:
     def __init__(self, db_path: Path):
         db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._db = sqlite3.connect(db_path)
+        # A timeout rather than the 5-second default: the image pass runs several brands
+        # at once, each with its own connection, and WAL still serialises writers. Without
+        # it a busy moment surfaces as "database is locked" instead of a short wait.
+        self._db = sqlite3.connect(db_path, timeout=30.0)
         self._db.row_factory = sqlite3.Row
         self._db.execute("PRAGMA journal_mode=WAL")
         self._db.executescript(_SCHEMA.read_text())
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """Columns added after a database already existed.
+
+        `CREATE TABLE IF NOT EXISTS` does nothing to a table that is already there, so a
+        new column in schema.sql reaches a fresh database and no other. Every archive
+        older than the change would keep running against a table missing the column, and
+        fail on the first query that named it.
+        """
+        for table, column, decl in _ADDED_COLUMNS:
+            names = {r["name"] for r in self._db.execute(f"PRAGMA table_info({table})")}
+            if column not in names:
+                self._db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+        self._db.commit()
 
     def close(self) -> None:
         self._db.close()
@@ -336,18 +373,145 @@ class Catalog:
         ).fetchall()
         return {r["url"] for r in rows}
 
-    def record_image(self, product_id: int, url: str, local_path: str, content_hash: str) -> None:
+    def stored_image_urls(self, product_id: int) -> set[str]:
+        """Source URLs for this product whose bytes we already hold."""
+        rows = self._db.execute(
+            "SELECT url FROM images WHERE product_id=? AND stored_url IS NOT NULL",
+            (product_id,),
+        ).fetchall()
+        return {r["url"] for r in rows}
+
+    def record_image(
+        self,
+        product_id: int,
+        url: str,
+        local_path: str,
+        content_hash: str,
+        stored_url: str | None = None,
+    ) -> None:
+        # Upsert rather than INSERT OR IGNORE: an image first archived to a directory and
+        # later uploaded is the same row learning where it is served from, not a new one.
         self._db.execute(
-            "INSERT OR IGNORE INTO images (product_id, url, local_path, content_hash) VALUES (?,?,?,?)",
-            (product_id, url, local_path, content_hash),
+            "INSERT INTO images (product_id, url, local_path, content_hash, stored_url) "
+            "VALUES (?,?,?,?,?) ON CONFLICT(product_id, url) DO UPDATE SET "
+            "local_path=excluded.local_path, content_hash=excluded.content_hash, "
+            "stored_url=COALESCE(excluded.stored_url, images.stored_url)",
+            (product_id, url, local_path, content_hash, stored_url),
         )
         self._db.commit()
+
+    def archived_images(self, domain: str) -> dict[str, list[str]]:
+        """Local image files per product, keyed by itemurl.
+
+        The CDN URL in a record is the shop's copy and can stop resolving; these are the
+        bytes we kept. The app offers them as the fallback when the live one 404s, which
+        is the whole reason the files are archived rather than only their addresses.
+        """
+        rows = self._db.execute(
+            "SELECT p.itemurl, i.stored_url FROM images i JOIN products p ON p.id=i.product_id "
+            "WHERE p.domain=? AND i.stored_url IS NOT NULL ORDER BY i.id",
+            (domain,),
+        ).fetchall()
+        out: dict[str, list[str]] = {}
+        for r in rows:
+            out.setdefault(r["itemurl"], []).append(r["stored_url"])
+        return out
+
+    def images_awaiting_archive(self, domain: str) -> list[tuple[int, str, list[str]]]:
+        """(product_id, itemurl, image urls not yet stored) for this brand's live products.
+
+        The unit of work for the image pass. Driven off what the records say rather than
+        off the run that wrote them, so it can be re-run at any time, in any order, and
+        picks up exactly what is still missing.
+        """
+        done: dict[int, set[str]] = {}
+        for r in self._db.execute(
+            "SELECT i.product_id, i.url FROM images i JOIN products p ON p.id=i.product_id "
+            "WHERE p.domain=? AND i.stored_url IS NOT NULL",
+            (domain,),
+        ):
+            done.setdefault(r["product_id"], set()).add(r["url"])
+
+        work = []
+        for row in self._db.execute(
+            f"SELECT p.id, p.itemurl, p.current_json FROM products p "
+            f"WHERE p.domain=? AND p.last_seen_run = {_LATEST_COVERED}",
+            (domain,),
+        ):
+            record = json.loads(row["current_json"])
+            raw = record.get("all_images")
+            try:
+                urls = json.loads(raw) if isinstance(raw, str) else (raw or [])
+            except json.JSONDecodeError:
+                urls = []
+            if not isinstance(urls, list):
+                urls = []
+            missing = [u for u in urls if isinstance(u, str) and u not in done.get(row["id"], ())]
+            if missing:
+                work.append((row["id"], row["itemurl"], missing))
+        return work
+
+    def local_image_files(self, domain: str) -> list[tuple[int, str, str]]:
+        """(product_id, source url, file) for images an earlier run left on disk.
+
+        The bytes are the same bytes. Re-downloading 1,585 photographs to move them into
+        the bucket would ask 30 shops for something we already have.
+        """
+        return [
+            (r["product_id"], r["url"], r["local_path"])
+            for r in self._db.execute(
+                "SELECT i.product_id, i.url, i.local_path FROM images i "
+                "JOIN products p ON p.id=i.product_id "
+                "WHERE p.domain=? AND i.stored_url IS NULL AND i.local_path != ''",
+                (domain,),
+            )
+        ]
+
+    def stored_image_count(self, domain: str) -> int:
+        return self._db.execute(
+            "SELECT COUNT(*) c FROM images i JOIN products p ON p.id=i.product_id "
+            "WHERE p.domain=? AND i.stored_url IS NOT NULL",
+            (domain,),
+        ).fetchone()["c"]
+
+    def search_products(
+        self, domains: list[str], needle: str, limit: int = 200
+    ) -> list[tuple[str, dict]]:
+        """(domain, record) for products of these brands whose record mentions `needle`.
+
+        A LIKE over current_json rather than a column: the search box is asked about
+        titles, materials, colours and categories interchangeably, and every one of them
+        already lives in that blob. Callers re-rank; this only narrows.
+        """
+        if not domains or not needle:
+            return []
+        marks = ",".join("?" * len(domains))
+        rows = self._db.execute(
+            f"SELECT p.domain, p.current_json FROM products p WHERE p.domain IN ({marks}) "
+            f"AND p.last_seen_run = {_LATEST_COVERED} "
+            f"AND p.current_json LIKE ? ESCAPE '\\' LIMIT ?",
+            (*domains, f"%{_like_escape(needle)}%", limit),
+        ).fetchall()
+        return [(r["domain"], json.loads(r["current_json"])) for r in rows]
 
     def image_count(self, domain: str) -> int:
         return self._db.execute(
             "SELECT COUNT(*) c FROM images i JOIN products p ON p.id=i.product_id WHERE p.domain=?",
             (domain,),
         ).fetchone()["c"]
+
+    def live_product_counts(self) -> dict[str, int]:
+        """Products per brand that are still listed — the number the app can show.
+
+        `status_rows` counts every row the archive holds, which includes products the
+        shop has since taken down. Both numbers are true; showing one beside a category
+        tree built from the other is what makes them look like a bug.
+        """
+        rows = self._db.execute(
+            f"SELECT p.domain, COUNT(*) AS n FROM products p "
+            f"WHERE p.last_seen_run = {_LATEST_COVERED} GROUP BY p.domain"
+        ).fetchall()
+        return {r["domain"]: r["n"] for r in rows}
 
     def status_rows(self) -> list[dict]:
         rows = self._db.execute(

@@ -30,6 +30,29 @@ def load_brands(path: Path) -> list[Brand]:
     return [Brand(**b) for b in data.get("brands", [])]
 
 
+def image_sink(images_dir: Path):
+    """Where archived photographs go: the bucket when it is configured, a directory when
+    it is not. The same two implementations the rest of the app already chooses between,
+    so there is one answer to "where are the images" and not two."""
+    from backend.storage.images import LocalImageStore, R2ImageStore
+    from config.config import config
+
+    if (
+        config.R2_ACCOUNT_ID
+        and config.R2_ACCESS_KEY_ID
+        and config.R2_SECRET_ACCESS_KEY
+        and config.R2_BUCKET
+    ):
+        return R2ImageStore(
+            account_id=config.R2_ACCOUNT_ID,
+            access_key_id=config.R2_ACCESS_KEY_ID,
+            secret_access_key=config.R2_SECRET_ACCESS_KEY,
+            bucket=config.R2_BUCKET,
+            public_base=config.R2_PUBLIC_BASE,
+        )
+    return LocalImageStore(root=images_dir, api_base=config.API_BASE_URL)
+
+
 def _seed(catalog: Catalog, brands_path: Path) -> list[Brand]:
     brands = load_brands(brands_path)
     for b in brands:
@@ -40,10 +63,48 @@ def _seed(catalog: Catalog, brands_path: Path) -> list[Brand]:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="archive")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("plan", "scrape", "status", "capability", "daemon", "brands", "hosts", "show"):
+    for name in (
+        "plan",
+        "scrape",
+        "status",
+        "capability",
+        "daemon",
+        "brands",
+        "hosts",
+        "show",
+        "images",
+    ):
         sp = sub.add_parser(name)
         sp.add_argument("--db", type=Path, default=_DEFAULT_DB)
         sp.add_argument("--brands", type=Path, default=_DEFAULT_BRANDS)
+        if name == "images":
+            sp.add_argument("domain", nargs="?")
+            sp.add_argument("--all", action="store_true", help="every brand in brands.yml")
+            sp.add_argument(
+                "--shown",
+                action="store_true",
+                help="only the brands the app shows (small and mid) — usually what you want",
+            )
+            sp.add_argument(
+                "--limit", type=int, default=0, help="images per brand (0 = all of them)"
+            )
+            sp.add_argument("--workers", type=int, default=4, help="brands fetched at once")
+            sp.add_argument("--gap", type=float, default=0.5, help="seconds between hits on a host")
+            sp.add_argument(
+                "--width",
+                type=int,
+                default=0,
+                help="CDN resize width where the CDN offers one (0 = original resolution)",
+            )
+            sp.add_argument("--images-dir", type=Path, default=Path("backend/archive/data/images"))
+            sp.add_argument(
+                "--dry-run", action="store_true", help="say how much is outstanding, fetch nothing"
+            )
+            sp.add_argument(
+                "--adopt-only",
+                action="store_true",
+                help="upload what is already on disk and ask no shop for anything",
+            )
         if name == "show":
             sp.add_argument("domain")
             sp.add_argument("--limit", type=int, default=3)
@@ -78,7 +139,11 @@ def main(argv: list[str] | None = None) -> int:
             group.add_argument("--full", action="store_true")
             sp.add_argument("--locks", type=Path, default=Path("backend/archive/data/locks"))
             sp.add_argument("--logs", type=Path, default=Path("backend/archive/data/logs"))
-            sp.add_argument("--no-images", action="store_true")
+            sp.add_argument(
+                "--archive-images",
+                action="store_true",
+                help="fetch image bytes during the scrape (normally left to `images`)",
+            )
             sp.add_argument("--images-dir", type=Path, default=Path("backend/archive/data/images"))
             sp.add_argument(
                 "--image-sample",
@@ -160,10 +225,13 @@ def main(argv: list[str] | None = None) -> int:
             if carried:
                 print(f"  standing down on {carried} host(s) refused recently")
             transport = HttpxTransport(sink=requests_log, budget=host_budget)
+            # A scrape records image URLs; the bytes are the image pass's job. Fetching
+            # them here made every scrape wait on 40,000 photographs, which is why the
+            # old default only ever archived five products per brand.
             image_store = (
-                None
-                if args.no_images
-                else ImageStore(args.images_dir, width=args.image_width or None)
+                ImageStore(image_sink(args.images_dir), width=args.image_width or None)
+                if args.archive_images
+                else None
             )
             image_budget = None if args.image_sample == 0 else args.image_sample
 
@@ -240,6 +308,57 @@ def main(argv: list[str] | None = None) -> int:
                 worst = max(worst, code)
             _report_spend()
             return worst
+
+        if args.cmd == "images":
+            from backend.archive.runner.archive_images import archive_all, outstanding
+
+            if args.shown:
+                from backend.archive.roster import app_roster
+
+                domains = [e.domain for e in app_roster(args.brands)]
+            elif args.all:
+                domains = [b.domain for b in brands]
+            else:
+                domains = [b.domain for b in brands if b.domain == args.domain]
+            if not domains:
+                print("nothing to do: name a brand, or pass --shown or --all")
+                return 1
+
+            if args.dry_run:
+                total = 0
+                for domain in domains:
+                    n = outstanding(catalog, domain)
+                    total += n
+                    if n:
+                        print(f"{domain:<32}{n:>7} outstanding")
+                print(f"{'':<32}{total:>7} in total")
+                return 0
+
+            sink = image_sink(args.images_dir)
+            print(f"storing to {type(sink).__name__}, {args.workers} brand(s) at a time")
+
+            def _report(outcome):
+                print(
+                    f"{outcome.domain:<32}{outcome.stored:>7} stored "
+                    f"({outcome.adopted} off disk, {outcome.fetched} fetched)  "
+                    f"{outcome.failed} failed  {outcome.outstanding} left"
+                )
+
+            results = archive_all(
+                domains,
+                args.db,
+                sink,
+                workers=args.workers,
+                gap=args.gap,
+                limit=args.limit,
+                width=args.width or None,
+                adopt_only=args.adopt_only,
+                on_done=_report,
+            )
+            kept = sum(r.stored for r in results)
+            left = sum(r.outstanding for r in results)
+            print(f"\n{kept} image(s) stored, {left} still outstanding")
+            return 0
 
         if args.cmd == "capability":
             targets = brands if args.all else [b for b in brands if b.domain == args.domain]
