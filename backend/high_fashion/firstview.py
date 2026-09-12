@@ -24,7 +24,7 @@ Access
 This adapter is written for a personal, local archive with the rights
 holder's permission. Two deliberate choices follow from that:
 
-  * REQUEST_DELAY / MAX_WORKERS keep the crawl gentle. The legacy
+  * REQUEST_DELAY / IMAGE_DELAY / MAX_WORKERS keep the crawl gentle. The legacy
     nowfashion path used 20 unthrottled threads; this does not.
   * Only the two resolutions the site itself serves in its viewer
     (thumbnail, mid_def) are requested. No probing for undisclosed
@@ -55,8 +55,16 @@ BASE_URL = "https://www.firstview.com"
 USER_AGENT = "fashion-archive/1.0 (personal archive; +local)"
 
 # Politeness knobs.
-REQUEST_DELAY = 0.5   # seconds between image requests, per worker
-MAX_WORKERS = 3       # concurrent image downloads
+REQUEST_DELAY = 0.5   # seconds between results-page requests, per worker
+
+# Fetching a show's looks is the one place where the pace is visible to the
+# person waiting, and images are static files rather than rendered pages —
+# cheaper for firstVIEW to serve than the HTML above. Six workers a quarter
+# second apart is a ceiling of ~21 images a second, which is roughly what a
+# browser does when it opens a gallery page of the same size. Lower these two
+# if firstVIEW ever objects; nothing else depends on the rate.
+IMAGE_DELAY = 0.25    # seconds between image requests, per worker
+MAX_WORKERS = 6       # concurrent image downloads
 TIMEOUT = 30
 
 QUALITY_THUMBNAIL = "thumbnail"
@@ -347,7 +355,7 @@ def iter_download_collection(
     quality: str = QUALITY_FULL,
     session: Optional[requests.Session] = None,
     max_workers: int = MAX_WORKERS,
-    delay: float = REQUEST_DELAY,
+    delay: float = IMAGE_DELAY,
 ):
     """Download a show, yielding events as it goes.
 
@@ -362,7 +370,7 @@ def iter_download_collection(
     in as images arrive. A 264-look show otherwise shows nothing for a
     minute.
     """
-    from concurrent.futures import ThreadPoolExecutor
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
     sess = session or _session()
     coll = collection if isinstance(collection, Collection) else fetch_collection(collection, sess)
@@ -402,8 +410,12 @@ def iter_download_collection(
             return {"ok": False, "url": url, "index": look.index, "error": str(e)}
 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        # imap-style: results stream back in completion order.
-        for res in pool.map(fetch_one, coll.looks):
+        # as_completed, not pool.map: map yields in the order the looks were
+        # submitted, so one slow image held back every image behind it even
+        # though they had already downloaded.
+        futures = [pool.submit(fetch_one, look) for look in coll.looks]
+        for fut in as_completed(futures):
+            res = fut.result()
             if res.pop("ok"):
                 results.append(res)
                 yield "image", res
@@ -431,7 +443,7 @@ def download_collection(
     quality: str = QUALITY_FULL,
     session: Optional[requests.Session] = None,
     max_workers: int = MAX_WORKERS,
-    delay: float = REQUEST_DELAY,
+    delay: float = IMAGE_DELAY,
     progress=None,
 ) -> Dict:
     """Download every look in a show. Blocking wrapper around

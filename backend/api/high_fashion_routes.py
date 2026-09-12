@@ -268,6 +268,42 @@ def _upload_images(store, designer_name, entries):
     return uploaded
 
 
+# Uploads run on our own bucket, so unlike fetching from firstVIEW there is
+# no politeness budget to respect — the only limit is how many sockets are
+# worth holding open. Measured on this bucket: one upload is ~0.47s, twelve
+# at a time clear ~16 a second.
+UPLOAD_WORKERS = 12
+
+
+def _upload_one(store, designer_name, entry):
+    """Upload one downloaded look. Returns its entry, or None if it failed.
+
+    Runs on a worker thread, so it raises nothing: a single unreadable file
+    must not take down the show around it.
+    """
+    try:
+        data = Path(entry['local_path']).read_bytes()
+    except OSError as exc:
+        print(f"Failed to read {entry['local_path']}: {exc}")
+        return None
+
+    key = images.runway_key(designer_name, entry['filename'])
+    try:
+        url = store.save(key, data)
+    except Exception as exc:  # noqa: BLE001 — one lost look, not a lost show
+        print(f"Failed to upload {key}: {exc}")
+        return None
+
+    return {
+        'path': url,
+        'key': key,
+        'source_url': entry['source_url'],
+        'index': entry['index'],
+        'filename': entry['filename'],
+        'success': True,
+    }
+
+
 def _record_recent(collection_id, payload, images_list=None):
     """Note that the signed-in user opened this show.
 
@@ -659,41 +695,79 @@ def stream_download_images():
         # Same store-and-temp-dir contract as download_images: each look is
         # uploaded as it lands and the event carries a URL, never a path on
         # this machine. The temp directory goes away in the finally.
+        #
+        # Uploads run in a pool rather than one after another. Fetching a look
+        # from firstVIEW takes ~0.026s; storing it in R2 takes ~0.47s, so a
+        # serial upload per look *was* the download — 89 looks took 44.6s, of
+        # which 41.6s was this one step waiting on R2. The fetch was never the
+        # slow part, and hurrying firstVIEW would have bought almost nothing.
         store = images.get_store()
         temp_dir = tempfile.mkdtemp(prefix='runway_')
         designer = designer_hint or 'unknown'
         uploaded_all = []
+        pending = []
+        done_payload = None
+
+        def deliver(futures):
+            """Emit an SSE frame for each finished upload in `futures`."""
+            for fut in futures:
+                up = fut.result()          # _upload_one swallows its own errors
+                if up is None:
+                    continue
+                uploaded_all.append(up)
+                yield _sse({'type': 'image', **up})
+
         try:
-            for kind, payload in fv.iter_download_collection(
-                collection_url, out_root=temp_dir, quality=quality
-            ):
-                if kind == 'meta':
-                    designer = designer_hint or payload.get('designer') or 'unknown'
-                    payload = {k: v for k, v in payload.items() if k != 'cache_dir'}
-                elif kind == 'image':
-                    entry = {
-                        'local_path': payload['path'],
-                        'source_url': payload['url'],
-                        'index': payload['index'],
-                        'filename': payload['filename'],
-                    }
-                    uploaded = _upload_images(store, designer, [entry])
-                    if not uploaded:
-                        continue
-                    uploaded_all.append(uploaded[0])
-                    payload = uploaded[0]
-                elif kind == 'done':
-                    # `images` here still hold local paths; the client has
-                    # already received each one as a URL above. Store the
-                    # uploaded set so the next open skips firstVIEW entirely.
-                    _cache_store(collection_id, quality, uploaded_all,
-                                 {**payload, 'designer': designer}, store)
-                    _record_recent(collection_id,
-                                   {**payload, 'designer': designer},
-                                   uploaded_all)
-                    payload = {k: v for k, v in payload.items()
-                               if k not in ('images', 'cache_dir')}
-                yield _sse({'type': kind, **payload})
+            with ThreadPoolExecutor(max_workers=UPLOAD_WORKERS) as pool:
+                for kind, payload in fv.iter_download_collection(
+                    collection_url, out_root=temp_dir, quality=quality
+                ):
+                    if kind == 'meta':
+                        designer = designer_hint or payload.get('designer') or 'unknown'
+                        payload = {k: v for k, v in payload.items() if k != 'cache_dir'}
+                        yield _sse({'type': 'meta', **payload})
+
+                    elif kind == 'image':
+                        pending.append(pool.submit(_upload_one, store, designer, {
+                            'local_path': payload['path'],
+                            'source_url': payload['url'],
+                            'index': payload['index'],
+                            'filename': payload['filename'],
+                        }))
+                        # Hand back whatever has already landed without
+                        # blocking on the rest, so looks keep appearing while
+                        # later ones are still uploading.
+                        ready = [f for f in pending if f.done()]
+                        pending = [f for f in pending if not f.done()]
+                        yield from deliver(ready)
+
+                    elif kind == 'error':
+                        # One look that would not download. Named apart from a
+                        # stream error: the client aborts the whole show on
+                        # `error`, so a single missing image used to end the
+                        # download of every image after it.
+                        yield _sse({'type': 'image_error', **payload})
+
+                    elif kind == 'done':
+                        done_payload = payload
+
+                # Every look has been fetched; wait out the uploads still going.
+                yield from deliver(as_completed(pending))
+
+            if done_payload is not None:
+                # `images` in done_payload still hold local paths; the client
+                # has already received each one as a URL above. Store the
+                # uploaded set so the next open skips firstVIEW entirely.
+                uploaded_all.sort(key=lambda i: i.get('index', 0))
+                _cache_store(collection_id, quality, uploaded_all,
+                             {**done_payload, 'designer': designer}, store)
+                _record_recent(collection_id,
+                               {**done_payload, 'designer': designer},
+                               uploaded_all)
+                done_payload = {k: v for k, v in done_payload.items()
+                                if k not in ('images', 'cache_dir')}
+                yield _sse({'type': 'done', **done_payload,
+                            'count': len(uploaded_all)})
         except Exception as e:
             import traceback
             print(f"ERROR stream_download_images: {traceback.format_exc()}")

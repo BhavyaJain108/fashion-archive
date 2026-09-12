@@ -313,6 +313,11 @@ class FashionArchiveAPI {
         if (onMeta) onMeta(evt);
       } else if (evt.type === 'image') {
         if (onImage) onImage(evt);
+      } else if (evt.type === 'image_error') {
+        // One look that would not download. The show is still worth showing,
+        // so this is noted and skipped — throwing here ended the download of
+        // every look behind the failed one.
+        console.warn(`Look ${evt.index} failed:`, evt.error);
       } else if (evt.type === 'done') {
         result = evt;
         if (onDone) onDone(evt);
