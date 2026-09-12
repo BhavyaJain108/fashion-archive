@@ -154,6 +154,38 @@ app.extensions['auth_service'] = AuthService(
 if config.DATABASE_URL:
     auth_db.init_pool(config.DATABASE_URL)
     print("✅ Postgres pool ready, auth schema applied")
+
+    # The show index ships as a file and is loaded on first boot. Seeding here
+    # rather than by hand means a fresh deploy or a scratch database comes up
+    # searchable, with no step anyone has to remember — and rebuilding it from
+    # firstVIEW is 2,785 requests, which is not something a cold start should
+    # ever quietly do.
+    def _seed_show_index():
+        from pathlib import Path
+
+        from backend.high_fashion import firstview as fv
+        from backend.high_fashion import show_index
+
+        path = Path(__file__).parent / "high_fashion" / "shows.json.gz"
+        if not path.exists():
+            print("⚠️  show index file missing — browsing falls back to "
+                  "crawling firstVIEW live")
+            return
+        try:
+            with auth_db.transaction() as conn:
+                if show_index.count(conn) > 0:
+                    return
+                data = fv.load_show_index(path)
+                if not data:
+                    print("⚠️  show index file unreadable or stale")
+                    return
+                written = show_index.seed(conn, data["shows"])
+            print(f"✅ Show index seeded: {written:,} shows "
+                  f"(built {data.get('built_on')})")
+        except Exception as exc:  # noqa: BLE001 — a missing index is slow, not broken
+            print(f"⚠️  show index seeding failed: {exc}")
+
+    _seed_show_index()
 else:
     print("⚠️  DATABASE_URL not set — authenticated endpoints will fail")
 

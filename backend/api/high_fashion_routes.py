@@ -675,12 +675,34 @@ def _designer_index_payload():
     global _designers_payload
     if _designers_payload is None:
         from backend.high_fashion import firstview as fv
+        from backend.high_fashion import show_index
 
         data = fv.load_designer_index(DESIGNERS_PATH)
         if data is None:
             return None
+
+        # Attach how many catalogue entries each designer has. This is the
+        # count that used to be impossible without a request per designer —
+        # one GROUP BY over the local index answers it for all 8,657 at once.
+        #
+        # Entries, not distinct runway shows: firstVIEW lists a show once per
+        # shoot, so the number includes the Details and Atmosphere sets.
+        indexed = 0
+        try:
+            with db.transaction() as conn:
+                if show_index.count(conn) > 0:
+                    counts = show_index.designer_counts(
+                        conn, [d['name'] for d in data['designers']])
+                    for d in data['designers']:
+                        n = counts.get(d['name'].lower())
+                        if n:
+                            d['entries'] = n
+                            indexed += 1
+        except Exception as exc:  # noqa: BLE001 — counts are a nicety
+            print(f"designer counts unavailable: {exc}")
+
         raw = json.dumps(data, ensure_ascii=False).encode('utf-8')
-        etag = f'W/"designers-{data.get("built_on")}-{data.get("count")}"'
+        etag = f'W/"designers-{data.get("built_on")}-{data.get("count")}-{indexed}"'
         _designers_payload = (raw, gzip.compress(raw, 6), etag)
     return _designers_payload
 
@@ -713,9 +735,14 @@ def get_designers():
     headers = {
         'Content-Type': 'application/json; charset=utf-8',
         'ETag': etag,
-        # It changes only when the file is rebuilt and redeployed, and the
-        # ETag catches that, so there is no reason to refetch it on every load.
-        'Cache-Control': 'public, max-age=86400',
+        # no-cache means "revalidate", not "do not store": the browser still
+        # keeps it and still gets a 304 with no body, but it asks first.
+        #
+        # max-age=86400 was wrong. The payload changes when the show index is
+        # rebuilt — that is what puts the entry counts in it — and a day of
+        # not asking meant clients ranking search results by a copy that had
+        # no counts at all, which is exactly the bug this caused.
+        'Cache-Control': 'no-cache',
     }
     if accepts_gzip:
         headers['Content-Encoding'] = 'gzip'
@@ -768,6 +795,176 @@ def stream_designer_collections():
 
     return Response(generate(), mimetype='text/event-stream',
                     headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+
+def _index_row_to_dict(row):
+    """An indexed show, in the shape the list already renders."""
+    from backend.high_fashion import firstview as fv
+
+    bits = []
+    if row.get('season') and row.get('year'):
+        bits.append(f"{_SEASON_SHORT.get(row['season'], row['season'])} {row['year']}")
+    elif row.get('year'):
+        bits.append(str(row['year']))
+    if row.get('gender'):
+        bits.append(row['gender'])
+    if row.get('category'):
+        bits.append(_CATEGORY_SHORT.get(row['category'], row['category']))
+    if row.get('shoot_type') and row['shoot_type'] != 'Runway Collection':
+        bits.append(_SHOOT_SHORT.get(row['shoot_type'], row['shoot_type']))
+    if row.get('city'):
+        bits.append(row['city'])
+
+    return {
+        'designer': row.get('designer') or '',
+        'designer_name': row.get('designer'),
+        'subtitle': ' · '.join(bits),
+        'url': fv.collection_url(row['collection_id']),
+        'collection_id': row['collection_id'],
+        'season': row.get('season'),
+        'year': row.get('year'),
+        'gender': row.get('gender'),
+        'category': row.get('category'),
+        'shoot_type': row.get('shoot_type'),
+        'city': row.get('city'),
+        'look_count': None,
+        'text': '', 'photos': '', 'date': '',
+    }
+
+
+def _index_available():
+    """Whether the local index has anything in it.
+
+    Everything below falls back to crawling firstVIEW when it does not, so a
+    database without the index is slow rather than broken.
+    """
+    try:
+        from backend.high_fashion import show_index
+        with db.transaction() as conn:
+            return show_index.count(conn) > 0
+    except Exception as exc:  # noqa: BLE001
+        print(f"show index unavailable: {exc}")
+        return False
+
+
+def browse_catalog():
+    """POST /api/browse - the archive list, straight from the local index.
+
+    What /api/catalog/stream did by crawling firstVIEW, in one query against
+    55,700 rows we already hold: no request to their site, no streaming, and
+    a page of results in single-digit milliseconds instead of 1-3 seconds.
+
+    Takes the same filters, plus `text` for a free-text query and `offset`
+    for paging. Returns the facet counts alongside, so the filter dropdowns
+    can offer exactly what is reachable and nothing that is not.
+    """
+    from backend.high_fashion import show_index
+
+    data = request.get_json() or {}
+    filters = {k: data.get(k) for k in
+               ('gender', 'year', 'season', 'category', 'shootType', 'city',
+                'designer', 'letter')}
+    filters = {k: v for k, v in filters.items() if v not in (None, '')}
+    text = (data.get('text') or '').strip()
+    limit = max(1, min(int(data.get('limit', 200)), 500))
+    offset = max(0, int(data.get('offset', 0)))
+
+    try:
+        with db.transaction() as conn:
+            result = show_index.query(conn, filters=filters, text=text or None,
+                                      limit=limit, offset=offset)
+            payload = {
+                'collections': [_index_row_to_dict(r) for r in result['rows']],
+                'total': result['total'],
+                'hasMore': result['hasMore'],
+                'offset': offset,
+                'success': True,
+            }
+            if data.get('facets'):
+                payload['facets'] = show_index.facets(
+                    conn, filters=filters, text=text or None)
+            return jsonify(payload)
+    except Exception as e:
+        import traceback
+        print(f"ERROR browse_catalog: {traceback.format_exc()}")
+        return jsonify({'error': str(e), 'success': False}), 500
+
+
+def search_shows():
+    """POST /api/search - free text over every show in the archive.
+
+    The thing firstVIEW cannot do: their search covers designer names only,
+    so "chanel fw25" had no query to be and would otherwise have to be
+    guessed apart into a designer and two filters.
+
+    Here it is one query. Each term must match, and the indexed text carries
+    the abbreviations people actually type — fw25, aw2025, rtw, couture — so
+    word order does not matter and nothing has to be parsed.
+
+    Returns matching shows and, alongside them, the designers whose names
+    match, with exact entry counts.
+    """
+    from backend.high_fashion import show_index
+
+    data = request.get_json() or {}
+    text = (data.get('text') or '').strip()
+    limit = max(1, min(int(data.get('limit', 60)), 200))
+
+    if not text:
+        return jsonify({'shows': [], 'designers': [], 'total': 0, 'success': True})
+
+    try:
+        with db.transaction() as conn:
+            result = show_index.query(conn, text=text, limit=limit)
+            designers = show_index.top_designers(conn, text=text, limit=8)
+        return jsonify({
+            'shows': [_index_row_to_dict(r) for r in result['rows']],
+            'total': result['total'],
+            'hasMore': result['hasMore'],
+            'designers': designers,
+            'success': True,
+        })
+    except Exception as e:
+        import traceback
+        print(f"ERROR search_shows: {traceback.format_exc()}")
+        return jsonify({'error': str(e), 'success': False}), 500
+
+
+def get_index_status():
+    """GET /api/index/status - how much of the archive is held locally."""
+    from backend.high_fashion import show_index
+
+    try:
+        with db.transaction() as conn:
+            return jsonify({'shows': show_index.count(conn), 'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e), 'shows': 0, 'success': False}), 500
+
+
+def refresh_index():
+    """POST /api/index/refresh - pick up shows added since the index was built.
+
+    Results are newest first, so this reads from page 0 until it meets ids it
+    already has: a new season costs a couple of dozen requests rather than
+    the 2,785 a rebuild would.
+    """
+    from backend.high_fashion import firstview as fv
+    from backend.high_fashion import show_index
+
+    try:
+        with db.transaction() as conn:
+            known = show_index.known_ids(conn)
+        fresh = fv.refresh_show_index(known)
+        added = 0
+        if fresh:
+            with db.transaction() as conn:
+                added = show_index.upsert(conn, fresh)
+        return jsonify({'added': added, 'checked_against': len(known),
+                        'success': True})
+    except Exception as e:
+        import traceback
+        print(f"ERROR refresh_index: {traceback.format_exc()}")
+        return jsonify({'error': str(e), 'success': False}), 500
 
 
 def stream_download_images():
@@ -1107,10 +1304,14 @@ def register_high_fashion_routes(app):
     app.add_url_rule('/api/catalog/stream', 'stream_catalog_sse', stream_catalog, methods=['POST'])
     app.add_url_rule('/api/designers', 'get_designers', get_designers, methods=['GET'])
     app.add_url_rule('/api/designer/stream', 'stream_designer_sse', stream_designer_collections, methods=['POST'])
+    app.add_url_rule('/api/browse', 'browse_catalog', browse_catalog, methods=['POST'])
+    app.add_url_rule('/api/search', 'search_shows', search_shows, methods=['POST'])
+    app.add_url_rule('/api/index/status', 'get_index_status', get_index_status, methods=['GET'])
+    app.add_url_rule('/api/index/refresh', 'refresh_index', refresh_index, methods=['POST'])
     app.add_url_rule('/api/download-images/stream', 'stream_download_images', stream_download_images, methods=['POST'])
     app.add_url_rule('/api/download-video', 'download_video_fashion', download_video, methods=['POST'])
     app.add_url_rule('/api/images/<path:key>', 'serve_stored_image', serve_stored_image, methods=['GET'])
     app.add_url_rule('/api/video', 'serve_fashion_video', serve_fashion_video, methods=['GET'])
     app.add_url_rule('/api/cleanup', 'cleanup_fashion_cache', cleanup_fashion_cache, methods=['POST'])
 
-    print("✅ High Fashion API routes registered (16 endpoints)")
+    print("✅ High Fashion API routes registered (20 endpoints)")

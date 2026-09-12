@@ -304,6 +304,50 @@ class FashionArchiveAPI {
     return { rows: all, ...cursor };
   }
 
+  // Is the archive held locally? When it is, browsing is a database query
+  // rather than a crawl of firstVIEW; when it is not, the streaming crawl
+  // below still works, just slowly. Checked once.
+  static _indexReady = null;
+
+  static async getIndexStatus() {
+    if (this._indexReady !== null) return this._indexReady;
+    try {
+      const response = await fetch(`${this.BASE_URL}/api/index/status`, {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        this.checkAuth(response);
+        this._indexReady = { shows: 0 };
+        return this._indexReady;
+      }
+      this._indexReady = await response.json();
+      return this._indexReady;
+    } catch (error) {
+      console.error('Index status failed:', error);
+      this._indexReady = { shows: 0 };
+      return this._indexReady;
+    }
+  }
+
+  // The archive list, from the local index. One request, no streaming, and
+  // no contact with firstVIEW at all — the rows are already ours.
+  //
+  // `text` is a free-text query, `designer` pins it to one label, and
+  // `facets: true` asks for the counts behind every filter dropdown so none
+  // of them can offer a combination with nothing in it.
+  static async browseCatalog(filters, { text, limit = 200, offset = 0, facets = false } = {}) {
+    return this.callPython('/api/browse', {
+      ...filters, text, limit, offset, facets,
+    });
+  }
+
+  // Free text over every show. The query firstVIEW has no equivalent for:
+  // their search covers designer names only, so "chanel fw25" could not be
+  // asked of them at all.
+  static async searchShows(text, { limit = 60 } = {}) {
+    return this.callPython('/api/search', { text, limit });
+  }
+
   // Every designer firstVIEW lists, fetched once and kept.
   //
   // The whole index comes down in one request — 8,657 names, ~87 KB gzipped —
@@ -318,6 +362,14 @@ class FashionArchiveAPI {
     try {
       const response = await fetch(`${this.BASE_URL}/api/designers`, {
         credentials: 'include',
+        // Revalidate rather than trust what is stored. This payload gains
+        // its entry counts when the show index is built, and an earlier
+        // version of it was served with a day's max-age — so a browser that
+        // saw that one would go on ranking search results by a copy with no
+        // counts in it, for a day, whatever the server now says. Asking
+        // explicitly is what unsticks those; the answer is a 304 with no
+        // body whenever nothing has changed.
+        cache: 'no-cache',
       });
       if (!response.ok) {
         this.checkAuth(response);
