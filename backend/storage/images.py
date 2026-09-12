@@ -136,6 +136,17 @@ class R2ImageStore:
         except Exception:
             return False
 
+    def delete(self, key: str) -> None:
+        """Remove one object.
+
+        Cache eviction looks for this by name and skips deleting when it is
+        absent, so without it the 100-show limit bounded the index in Postgres
+        and nothing else: evicted rows left their images in the bucket for
+        good. Deleting an object that is not there is not an error in S3, and
+        is not one here either.
+        """
+        self._client.delete_object(Bucket=self._bucket, Key=key)
+
 
 class LocalImageStore:
     """Development fallback: a directory plus an API URL.
@@ -165,6 +176,18 @@ class LocalImageStore:
 
     def exists(self, key: str) -> bool:
         return self._safe_path(key).is_file()
+
+    def delete(self, key: str) -> None:
+        """Remove one file, and any directories it leaves empty."""
+        path = self._safe_path(key)
+        path.unlink(missing_ok=True)
+        for parent in path.parents:
+            if parent == self._root or not parent.is_relative_to(self._root):
+                break
+            try:
+                parent.rmdir()          # only succeeds while it is empty
+            except OSError:
+                break
 
     def _safe_path(self, key: str) -> Path:
         """Resolve a key inside the root, refusing anything that escapes it.
