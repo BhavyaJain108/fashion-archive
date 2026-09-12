@@ -64,10 +64,15 @@ def archive_brand(
     *,
     limit: int = 0,
     width: int | None = None,
+    adopt_only: bool = False,
 ) -> Outcome:
     """One brand's outstanding images, into the sink. Its own DB connection, so this is
     safe to run for several brands at once; the host budget is shared, which is the part
-    that has to be, or two Shopify stores would double the rate on one CDN."""
+    that has to be, or two Shopify stores would double the rate on one CDN.
+
+    `adopt_only` moves what is already on disk and asks no shop for anything — the step
+    that makes the local image directory redundant so it can be deleted.
+    """
     catalog = Catalog(db_path)
     try:
         out = Outcome(domain)
@@ -85,7 +90,9 @@ def archive_brand(
             if store.adopt(catalog, product_id, domain, url, _resolve(path, db_path)):
                 out.adopted += 1
 
-        for product_id, _itemurl, urls in catalog.images_awaiting_archive(domain):
+        for product_id, _itemurl, urls in (
+            [] if adopt_only else catalog.images_awaiting_archive(domain)
+        ):
             if budgeted is not None and out.stored >= budgeted:
                 break
             if budgeted is not None:
@@ -110,6 +117,7 @@ def archive_all(
     gap: float = 0.5,
     limit: int = 0,
     width: int | None = None,
+    adopt_only: bool = False,
     on_done=None,
 ) -> list[Outcome]:
     budget = HostBudget(gap=gap)
@@ -117,7 +125,14 @@ def archive_all(
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = {
             pool.submit(
-                archive_brand, domain, db_path, sink, budget, limit=limit, width=width
+                archive_brand,
+                domain,
+                db_path,
+                sink,
+                budget,
+                limit=limit,
+                width=width,
+                adopt_only=adopt_only,
             ): domain
             for domain in domains
         }

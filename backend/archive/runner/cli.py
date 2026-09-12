@@ -100,6 +100,11 @@ def main(argv: list[str] | None = None) -> int:
             sp.add_argument(
                 "--dry-run", action="store_true", help="say how much is outstanding, fetch nothing"
             )
+            sp.add_argument(
+                "--adopt-only",
+                action="store_true",
+                help="upload what is already on disk and ask no shop for anything",
+            )
         if name == "show":
             sp.add_argument("domain")
             sp.add_argument("--limit", type=int, default=3)
@@ -347,6 +352,7 @@ def main(argv: list[str] | None = None) -> int:
                 gap=args.gap,
                 limit=args.limit,
                 width=args.width or None,
+                adopt_only=args.adopt_only,
                 on_done=_report,
             )
             kept = sum(r.stored for r in results)
