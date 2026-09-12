@@ -1192,8 +1192,10 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
               )}
               {suggestionList.map((item, i) => {
                 const active = i === activeSuggestion ? 'active' : '';
+                // `key` stays off this object: React warns when a key is
+                // spread in with the rest of the props, because it is not a
+                // prop — it is how the list is reconciled.
                 const common = {
-                  key: item.key,
                   type: 'button',
                   onMouseEnter: () => setActiveSuggestion(i),
                   onMouseDown: (e) => e.preventDefault(),
@@ -1201,7 +1203,7 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
                 };
                 if (item.kind === 'designer') {
                   return (
-                    <button {...common} className={`hf2-search-option ${active}`}>
+                    <button key={item.key} {...common} className={`hf2-search-option ${active}`}>
                       <span className="label">{item.designer.name}</span>
                       {/* Exact, from the local index. Entries rather than
                           shows: a show is listed once per shoot. */}
@@ -1213,14 +1215,14 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
                 }
                 if (item.kind === 'show') {
                   return (
-                    <button {...common} className={`hf2-search-option show ${active}`}>
+                    <button key={item.key} {...common} className={`hf2-search-option show ${active}`}>
                       <span className="label">{item.show.designer}</span>
                       <span className="sub">{item.show.subtitle}</span>
                     </button>
                   );
                 }
                 return (
-                  <button {...common} className={`hf2-search-option all ${active}`}>
+                  <button key={item.key} {...common} className={`hf2-search-option all ${active}`}>
                     <span className="label">All {item.total} matching shows</span>
                   </button>
                 );

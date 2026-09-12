@@ -117,21 +117,6 @@ class FashionArchiveAPI {
     return response.seasons || [];
   }
 
-  // Download images for a collection (matches tkinter download_and_display_images)
-  static async downloadImages(collection) {
-    const response = await this.callPython('/api/download-images', {
-      collectionUrl: collection.url,
-      designerName: collection.designer
-    });
-    return {
-      imagePaths: response.images?.map(img => img.path) || [],
-      images: response.images || [],
-      designerName: collection.designer,
-      cacheDir: response.cache_dir,
-      count: response.count,
-      error: response.error
-    };
-  }
 
   // Search for a fashion show video (matches tkinter video download)
   // `gender` is part of the cache key server-side, so passing it keeps
@@ -175,11 +160,6 @@ class FashionArchiveAPI {
     return `${this.BASE_URL}/api/images/${imagePath.replace(/^\/+/, '')}`;
   }
 
-  // Clean up cache (matches tkinter cleanup_previous_downloads)
-  static async cleanupDownloads() {
-    const response = await this.callPython('/api/cleanup');
-    return response.success;
-  }
 
   // Consume a Server-Sent Events endpoint, invoking onEvent per frame.
   // Shared by the collection and image streams.
@@ -226,32 +206,6 @@ class FashionArchiveAPI {
     }
   }
 
-  // Stream shows for a season. onUpdate({collections, complete}) fires per
-  // results page, so rows render while the rest of the season is crawled.
-  // `extra` carries optional filters the season URL doesn't encode —
-  // category (Ready-to-Wear / Haute Couture / Swim) and shootType.
-  static async streamCollections(seasonUrl, onUpdate, signal, extra = {}) {
-    const all = [];
-    await this.consumeSSE('/api/collections/stream', { seasonUrl, ...extra }, (evt) => {
-      if (evt.type === 'collections') {
-        all.push(...evt.collections);
-        if (onUpdate) onUpdate({ collections: [...all], complete: false });
-      } else if (evt.type === 'relabel') {
-        // Rows that were indistinguishable get their look counts appended
-        // once the crawl is done, so the list isn't held up waiting for them.
-        for (const row of all) {
-          const label = evt.labels[row.collection_id];
-          if (label) row.designer = label;
-        }
-        if (onUpdate) onUpdate({ collections: [...all], complete: false });
-      } else if (evt.type === 'done') {
-        if (onUpdate) onUpdate({ collections: [...all], complete: true });
-      } else if (evt.type === 'error') {
-        throw new Error(evt.error);
-      }
-    }, signal);
-    return all;
-  }
 
   // Stream one window of the archive.
   //
@@ -444,22 +398,7 @@ class FashionArchiveAPI {
     }
   }
 
-  // Video search test (matches tkinter open_video_test)
-  static async testVideoSearch(query) {
-    const response = await this.callPython('/api/video-test', { query });
-    return response;
-  }
 
-  // Get application info (matches tkinter show_about)
-  static async getAboutInfo() {
-    try {
-      const response = await fetch(`${this.BASE_URL}/api/about`, { credentials: 'include' });
-      return await response.json();
-    } catch (error) {
-      console.error('About info error:', error);
-      return null;
-    }
-  }
 
   // Favourites API methods
   static async getFavourites() {
@@ -527,22 +466,6 @@ class FashionArchiveAPI {
     }
   }
 
-  static async checkFavourite(seasonUrl, collectionUrl, lookNumber) {
-    try {
-      const response = await this.callPython('/api/favourites/check', {
-        season_url: seasonUrl,
-        collection_url: collectionUrl,
-        look_number: lookNumber
-      });
-      return response.is_favourite || false;
-    } catch (error) {
-      // If unauthorized (not logged in), just return false
-      if (error.message && error.message.includes('UNAUTHORIZED')) {
-        return false;
-      }
-      throw error;
-    }
-  }
 
   static async getFavouriteStats() {
     try {

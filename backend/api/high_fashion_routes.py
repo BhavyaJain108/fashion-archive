@@ -2,45 +2,37 @@
 High Fashion API Routes
 ========================
 
-Endpoints backed by firstVIEW (see backend/high_fashion/FIRSTVIEW.md):
-- Seasons listing
-- Collections by season
-- Images download
-- Video streaming
+Browsing, searching and fetching shows. See backend/high_fashion/FIRSTVIEW.md
+for how the source site is laid out.
+
+Two ways in, and which one runs depends on whether the archive is held
+locally:
+
+  * the local index — /api/browse, /api/search — one query against 55,700
+    rows we already have, with no request to firstVIEW at all;
+  * the live crawl — /api/seasons, /api/catalog/stream, /api/designer/stream
+    — kept as the fallback for a database without the index, so browsing
+    without it is slow rather than broken.
+
+Images are fetched from firstVIEW once, stored in R2, and replayed from
+there afterwards.
 """
 
-from flask import jsonify, request, send_file, Response
+from flask import jsonify, request, Response
 
 import gzip
 import json
+import re
 import shutil
 import tempfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 
 from backend.storage import images
 from backend.auth import db
 from backend.auth.middleware import current_user
 from backend.high_fashion import collection_cache
 from backend.userdata import recents
-import os
-import requests
-from bs4 import BeautifulSoup
-import re
-from urllib.parse import urljoin, quote, urlparse
-import subprocess
-from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from threading import Lock
-
-# Legacy header block; firstview.py sets its own session headers.
-HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-    'Accept-Language': 'en-US,en;q=0.5',
-    'Accept-Encoding': 'gzip, deflate',
-    'DNT': '1',
-    'Connection': 'keep-alive',
-    'Upgrade-Insecure-Requests': '1',
-}
 
 # Which year/season/gender/category combinations actually have shows.
 # Built by firstview.build_coverage. Committed rather than left in cache/,
@@ -103,27 +95,6 @@ def get_seasons():
         return jsonify({'error': str(e), 'success': False}), 500
 
 
-def _season_filters(q, data):
-    """Filters for a season query, from the seasonUrl's params.
-
-    No shoot type is applied unless the client asks: filtering to Runway
-    Collection hid shows that only exist as Runway Details. Rows are
-    labelled with their shoot type instead, so repeats stay tellable apart.
-    """
-    from backend.high_fashion import firstview as fv
-    one = lambda k: q.get(k, [None])[0]
-    shoot_type = data.get('shootType', one('s_t'))
-    return dict(
-        gender=one('s_g'),
-        year=int(one('filter_year')) if one('filter_year') else None,
-        season=one('filter_season'),
-        category=data.get('category', one('s_n')),
-        shoot_type=shoot_type or None,
-        city_id=one('s_p'),
-        letter=one('l'),
-    )
-
-
 # Season names are long and the subtitle carries five other fields; the
 # abbreviations are the ones the industry already uses.
 _SEASON_SHORT = {
@@ -131,7 +102,7 @@ _SEASON_SHORT = {
     'Spring / Summer': 'S/S',
 }
 
-# The subtitle now carries six fields in one line of a 320px column, so the
+# The subtitle carries six fields in one line of a 320px column, so the
 # long-form names are abbreviated to the trade's own shorthand. Without this
 # the city — often the only thing separating two rows — was the field that
 # got ellipsised off the end.
@@ -219,38 +190,6 @@ def _row_to_dict(r):
         # ids (1, 2, 3, 5) in the one module that already knows them.
         'season_url': _season_url(r.gender, r.year, r.season),
     }
-
-
-def get_collections():
-    """POST /api/collections - Shows for a season.
-
-    `seasonUrl` is a collection_results.php URL as handed out by
-    /api/seasons; its query params are read back and re-run. Pages through
-    the full result set, so a big season returns hundreds of shows.
-    """
-    try:
-        from urllib.parse import urlparse, parse_qs
-        from backend.high_fashion import firstview as fv
-
-        data = request.get_json() or {}
-        season_url = data.get('seasonUrl', '')
-        if not season_url:
-            return jsonify({'error': 'seasonUrl is required', 'success': False}), 400
-
-        q = parse_qs(urlparse(season_url).query)
-        one = lambda k: q.get(k, [None])[0]
-
-        filters = _season_filters(q, data)
-        max_pages = int(data.get('maxPages', 60))
-
-        rows = fv.search_collections(max_pages=max_pages, **filters)
-        fv.fill_look_counts(rows)
-        collections = [_row_to_dict(r) for r in rows]
-
-        return jsonify({'collections': collections, 'success': True})
-
-    except Exception as e:
-        return jsonify({'error': str(e), 'success': False}), 500
 
 
 def extract_look_number(img):
@@ -413,89 +352,6 @@ def _cache_store(collection_id, quality, uploaded, meta, store):
         print(f"cache store failed for {collection_id}: {exc}")
 
 
-def download_images():
-    """POST /api/download-images - Download every look in one show.
-
-    `collectionUrl` is a collection_images.php URL (or a bare id).
-
-    Images are fetched into a temp directory and uploaded to the image
-    store, which returns browser-loadable URLs; the temp directory is
-    removed in the finally below, so a failed run cannot leave the
-    container's disk filling up. `path` on each entry is a URL, not a
-    filesystem path.
-
-    There is no organizer pass here. It existed to sift runway looks out of
-    a page that also carried logos, ad pixels and avatars; firstVIEW returns
-    the collection's looks and nothing else, so there is nothing to discard.
-    """
-    temp_dir = None
-    try:
-        from backend.high_fashion import firstview as fv
-
-        data = request.get_json() or {}
-        collection_url = data.get('collectionUrl', '')
-        if not collection_url:
-            return jsonify({'error': 'collectionUrl is required', 'success': False}), 400
-
-        quality = data.get('quality', fv.QUALITY_FULL)
-        collection_id = fv.collection_id_from_url(collection_url) or collection_url
-
-        # Already in R2? Hand back the stored URLs and make no request to
-        # firstVIEW at all.
-        hit = _cache_lookup(collection_id, quality)
-        if hit:
-            _record_recent(collection_id, hit, hit['images'])
-            return jsonify({
-                'success': True,
-                'images': hit['images'],
-                'count': len(hit['images']),
-                'failed': [],
-                'designer': hit.get('designer'),
-                'season': hit.get('season'),
-                'cached': True,
-            })
-
-        store = images.get_store()
-        temp_dir = tempfile.mkdtemp(prefix='runway_')
-
-        result = fv.download_collection(
-            collection_url,
-            out_root=temp_dir,
-            quality=quality,
-        )
-
-        designer_name = data.get('designerName') or result.get('designer') or 'unknown'
-        entries = [{
-            'local_path': img['path'],
-            'source_url': img['url'],
-            'index': img['index'],
-            'filename': img['filename'],
-        } for img in result.get('images', [])]
-
-        uploaded = _upload_images(store, designer_name, entries)
-        _cache_store(collection_id, quality, uploaded, result, store)
-        _record_recent(collection_id, result, uploaded)
-
-        return jsonify({
-            'success': bool(uploaded),
-            'images': uploaded,
-            'count': len(uploaded),
-            'failed': result.get('failed', []),
-            'designer': result.get('designer'),
-            'season': result.get('season'),
-            'cached': False,
-        })
-
-    except Exception as e:
-        import traceback
-        error_details = traceback.format_exc()
-        print(f"ERROR in download_images: {error_details}")
-        return jsonify({'error': str(e), 'traceback': error_details, 'success': False}), 500
-    finally:
-        if temp_dir:
-            shutil.rmtree(temp_dir, ignore_errors=True)
-
-
 def serve_stored_image(key):
     """GET /api/images/<key> - serve an image from the local store.
 
@@ -525,52 +381,6 @@ def _sse(payload: dict) -> str:
     """One Server-Sent Event frame."""
     import json as _json
     return f"data: {_json.dumps(payload)}\n\n"
-
-
-def stream_collections():
-    """POST /api/collections/stream - shows for a season, as they are found.
-
-    Emits one {type:'collections'} event per results page, then
-    {type:'done'}. A big season is 30+ pages; this puts the first 20 rows
-    on screen in well under a second instead of after the whole crawl.
-    """
-    from urllib.parse import urlparse, parse_qs
-    from backend.high_fashion import firstview as fv
-
-    # Request context is gone inside the generator, so read params now.
-    data = request.get_json() or {}
-    season_url = data.get('seasonUrl', '')
-    if not season_url:
-        return jsonify({'error': 'seasonUrl is required', 'success': False}), 400
-
-    q = parse_qs(urlparse(season_url).query)
-    filters = _season_filters(q, data)
-    max_pages = int(data.get('maxPages', 60))
-
-    def generate():
-        total = 0
-        try:
-            seen = []
-            for batch in fv.iter_search_collections(max_pages=max_pages, **filters):
-                seen.extend(batch)
-                rows = [_row_to_dict(r) for r in batch]
-                total += len(rows)
-                yield _sse({'type': 'collections', 'collections': rows, 'total': total})
-            # Breaking ties costs one request per colliding row, so it runs
-            # after everything is on screen: the list stays fast, and the
-            # few ambiguous rows get their look counts a moment later.
-            fv.fill_look_counts(seen)
-            relabelled = {r.collection_id: _row_to_dict(r)['designer']
-                          for r in seen if r.look_count}
-            if relabelled:
-                yield _sse({'type': 'relabel', 'labels': relabelled})
-
-            yield _sse({'type': 'done', 'total': total, 'success': True})
-        except Exception as e:
-            yield _sse({'type': 'error', 'error': str(e), 'success': False})
-
-    return Response(generate(), mimetype='text/event-stream',
-                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
 
 def _number_ties(rows):
@@ -1244,43 +1054,6 @@ def get_video_quota():
         return jsonify({'error': str(e), 'success': False}), 500
 
 
-def serve_fashion_video():
-    """GET /api/video?path={path} - Serve cached video"""
-    try:
-        video_path = request.args.get('path', '')
-
-        if not video_path or not os.path.exists(video_path):
-            return jsonify({'error': 'Video not found'}), 404
-
-        return send_file(video_path, mimetype='video/mp4')
-
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-def cleanup_fashion_cache():
-    """POST /api/cleanup - Clear locally downloaded images.
-
-    Only the images directory is removed, not the whole of
-    backend/high_fashion/cache. Development-only in practice: production
-    downloads into a temp directory and uploads to the image store, so
-    there is nothing here to clear.
-    """
-    try:
-        images_dir = Path("backend/high_fashion/cache/images")
-        if images_dir.exists():
-            shutil.rmtree(images_dir)
-            images_dir.mkdir(parents=True, exist_ok=True)
-
-        return jsonify({
-            'success': True,
-            'message': 'Downloaded images cleared'
-        })
-
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
 def get_recents():
     """GET /api/recents - shows the signed-in user has opened, newest first."""
     try:
@@ -1316,13 +1089,10 @@ def register_high_fashion_routes(app):
     """Register all high fashion routes"""
 
     app.add_url_rule('/api/seasons', 'get_seasons', get_seasons, methods=['POST'])
-    app.add_url_rule('/api/collections', 'get_collections', get_collections, methods=['POST'])
-    app.add_url_rule('/api/download-images', 'download_images', download_images, methods=['POST'])
     app.add_url_rule('/api/recents', 'get_recents', get_recents, methods=['GET'])
     app.add_url_rule('/api/recents', 'clear_recents', clear_recents, methods=['DELETE'])
     app.add_url_rule('/api/cache/stats', 'get_cache_stats', get_cache_stats, methods=['GET'])
     app.add_url_rule('/api/video/quota', 'get_video_quota', get_video_quota, methods=['GET'])
-    app.add_url_rule('/api/collections/stream', 'stream_collections_sse', stream_collections, methods=['POST'])
     app.add_url_rule('/api/catalog/stream', 'stream_catalog_sse', stream_catalog, methods=['POST'])
     app.add_url_rule('/api/designers', 'get_designers', get_designers, methods=['GET'])
     app.add_url_rule('/api/designer/stream', 'stream_designer_sse', stream_designer_collections, methods=['POST'])
@@ -1333,7 +1103,5 @@ def register_high_fashion_routes(app):
     app.add_url_rule('/api/download-images/stream', 'stream_download_images', stream_download_images, methods=['POST'])
     app.add_url_rule('/api/download-video', 'download_video_fashion', download_video, methods=['POST'])
     app.add_url_rule('/api/images/<path:key>', 'serve_stored_image', serve_stored_image, methods=['GET'])
-    app.add_url_rule('/api/video', 'serve_fashion_video', serve_fashion_video, methods=['GET'])
-    app.add_url_rule('/api/cleanup', 'cleanup_fashion_cache', cleanup_fashion_cache, methods=['POST'])
 
-    print("✅ High Fashion API routes registered (20 endpoints)")
+    print("✅ High Fashion API routes registered (15 endpoints)")
