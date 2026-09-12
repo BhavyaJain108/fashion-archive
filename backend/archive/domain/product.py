@@ -10,8 +10,9 @@ import json
 
 from pydantic import BaseModel, Field
 
-# Fields whose change appends a new observation (price/stock history).
-# The E0005 export standard, in order (backend/prod_page_v2/e0005/field_specs.py).
+# The E0005 export standard, in order. This tuple is the definition: it used to cite
+# prod_page_v2/e0005/field_specs.py as the authority, and that file went with the
+# generation it belonged to. Order matters — a flat export is read by position.
 E0005_FIELDS = (
     "itemurl",
     "product_title",

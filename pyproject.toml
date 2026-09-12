@@ -7,14 +7,9 @@ requires-python = ">=3.10"
 [tool.ruff]
 line-length = 100
 target-version = "py310"
-# Scope ruff to our own code; skip vendored/generated dirs.
+# Scope ruff to our own code; skip vendored dirs. The rest of this list was scraped
+# HTML and extraction dumps belonging to the generation that has been deleted.
 extend-exclude = [
-    "backend/extractions",
-    "backend/nav_v8/extractions",
-    "backend/prod_page_v2/explorations",
-    "backend/prod_page_v2/extractions",
-    "backend/scraper/navigation/extractions",
-    "backend/scraper/tests/product_html",
     "web_ui/node_modules",
 ]
 
