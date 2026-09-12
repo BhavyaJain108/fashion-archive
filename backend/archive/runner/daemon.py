@@ -26,7 +26,8 @@ from pathlib import Path
 from backend.archive.connectors.base import ChannelBusy
 from backend.archive.scheduler import Scheduler
 from backend.archive.score import score
-from backend.archive.store.catalog import Catalog
+from backend.archive.store.catalog_objects import Catalog
+from backend.archive.store.objects import DirectoryObjectStore, ObjectStore
 
 POLL_SECONDS = 10
 # How long to stand a brand down when its host asks us to slow down. Long enough that
@@ -78,10 +79,11 @@ def run_once(catalog: Catalog, scheduler: Scheduler, do_brand, log=print) -> boo
     return True
 
 
-def worker(db_path: Path, worker_id: str, do_brand_factory, version: str, log=print) -> None:
+def worker(root: Path, worker_id: str, do_brand_factory, version: str, log=print) -> None:
     """One worker: claim, scrape, release, until told to stop or the code changes."""
-    catalog = Catalog(db_path)
-    scheduler = Scheduler(catalog, worker_id=worker_id)
+    store: ObjectStore = DirectoryObjectStore(root)
+    catalog = Catalog(store)
+    scheduler = Scheduler(store, worker_id=worker_id)
     do_brand = do_brand_factory(catalog)
     try:
         while not scheduler.should_stop():
@@ -94,18 +96,17 @@ def worker(db_path: Path, worker_id: str, do_brand_factory, version: str, log=pr
         catalog.close()
 
 
-def serve(db_path: Path, do_brand_factory, workers: int = 1, log=print) -> None:
+def serve(root: Path, do_brand_factory, workers: int = 1, log=print) -> None:
     """Run N workers over one schedule until the stop flag is set."""
     version = code_version()
-    catalog = Catalog(db_path)
-    Scheduler(catalog).set_code_version(version)
-    catalog.close()
+    store: ObjectStore = DirectoryObjectStore(root)
+    Scheduler(store).set_code_version(version)
     log(f"daemon up: {workers} worker(s) on {version[:8]} at {datetime.now(timezone.utc):%H:%M}")
 
     threads = [
         threading.Thread(
             target=worker,
-            args=(db_path, f"worker-{i + 1}", do_brand_factory, version),
+            args=(root, f"worker-{i + 1}", do_brand_factory, version),
             kwargs={"log": log},
             daemon=True,
         )

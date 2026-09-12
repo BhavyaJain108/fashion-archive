@@ -163,3 +163,33 @@ def test_r2_delete_then_get_is_none(r2):
     r2.put("x.json", b"{}")
     r2.delete("x.json")
     assert r2.get("x.json") is None
+
+
+@pytest.mark.unit
+def test_a_conditional_write_is_one_operation_not_two(tmp_path):
+    """Four threads racing to create the same key: exactly one may win.
+
+    The first version checked the etag and then wrote as separate steps, so two
+    threads both passed the check and both wrote. It looked correct single-threaded
+    and claimed a brand twice as soon as the daemon had workers.
+    """
+    import threading
+
+    winners: list[bool] = []
+    barrier = threading.Barrier(4)
+
+    def race():
+        store = DirectoryObjectStore(tmp_path)  # a fresh instance, as a worker builds
+        barrier.wait()
+        try:
+            store.put("claim.json", b"mine", if_none_match=True)
+            winners.append(True)
+        except Conflict:
+            pass
+
+    threads = [threading.Thread(target=race) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert winners == [True]

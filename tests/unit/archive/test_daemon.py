@@ -8,7 +8,8 @@ from backend.archive.domain.brand import Brand
 from backend.archive.domain.product import ProductRecord
 from backend.archive.runner.daemon import run_once
 from backend.archive.scheduler import Scheduler
-from backend.archive.store.catalog import Catalog
+from backend.archive.store.catalog_objects import Catalog
+from backend.archive.store.objects import DirectoryObjectStore
 
 
 def rec(url="https://kuurth.com/products/a") -> ProductRecord:
@@ -24,17 +25,19 @@ def rec(url="https://kuurth.com/products/a") -> ProductRecord:
 
 @pytest.fixture()
 def env(tmp_path):
-    cat = Catalog(tmp_path / "c.db")
+    store = DirectoryObjectStore(tmp_path)
+    cat = Catalog(store)
     cat.upsert_brand(Brand(domain="kuurth.com", homepage_url="https://kuurth.com"))
-    sched = Scheduler(cat)
+    sched = Scheduler(store)
     sched.add("kuurth.com", cadence_seconds=3600)
     return cat, sched
 
 
 @pytest.mark.unit
 def test_nothing_due_is_not_an_error(tmp_path):
-    cat = Catalog(tmp_path / "c.db")
-    assert run_once(cat, Scheduler(cat), lambda b: ([], 0.0), log=lambda *a: None) is False
+    store = DirectoryObjectStore(tmp_path)
+    cat = Catalog(store)
+    assert run_once(cat, Scheduler(store), lambda b: ([], 0.0), log=lambda *a: None) is False
 
 
 @pytest.mark.unit
@@ -75,19 +78,21 @@ def test_a_crashing_brand_does_not_stop_the_loop(env):
 
 @pytest.mark.unit
 def test_parallel_workers_share_the_schedule_without_collisions(tmp_path):
-    """Claiming is atomic, so workers need no coordination beyond the database."""
-    cat = Catalog(tmp_path / "c.db")
+    """Claiming is a conditional write, so workers need no coordination at all — and a
+    brand taken twice would show up here as a duplicate in `done`."""
+    store = DirectoryObjectStore(tmp_path)
+    cat = Catalog(store)
     domains = [f"brand{i}.test" for i in range(12)]
     for d in domains:
         cat.upsert_brand(Brand(domain=d, homepage_url=f"https://{d}"))
-        Scheduler(cat).add(d, cadence_seconds=3600)
+        Scheduler(store).add(d, cadence_seconds=3600)
 
     done: list[str] = []
     lock = threading.Lock()
 
     def drain(worker_id):
-        c = Catalog(tmp_path / "c.db")
-        s = Scheduler(c, worker_id=worker_id)
+        c = Catalog(DirectoryObjectStore(tmp_path))
+        s = Scheduler(DirectoryObjectStore(tmp_path), worker_id=worker_id)
         while True:
             due = s.claim_next()
             if due is None:

@@ -9,7 +9,8 @@ refuses a stale If-Match with PreconditionFailed, which is the behaviour relied 
 
 import hashlib
 import json
-import os
+import secrets
+import threading
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -55,11 +56,26 @@ class DirectoryObjectStore:
     Writes land through a temporary file and a rename, so a reader never sees half an
     object — the same guarantee R2 gives, and the reason a killed run leaves the last
     flushed state rather than a truncated one.
+
+    A conditional write has to be one operation, not a check followed by a write. R2
+    does that server-side; here it takes a lock, shared by every instance pointing at
+    the same directory, because the workers in one process each build their own store
+    and without it two of them both passed the check and both wrote — which showed up
+    as a brand claimed twice and a release refused.
+
+    The lock is per process. Two processes sharing a directory would still race, so
+    this implementation is for development and the tests; production is R2, where the
+    condition is enforced by the service.
     """
+
+    _locks: dict[Path, threading.Lock] = {}
+    _locks_guard = threading.Lock()
 
     def __init__(self, root: Path):
         self._root = Path(root).resolve()
         self._root.mkdir(parents=True, exist_ok=True)
+        with DirectoryObjectStore._locks_guard:
+            self._lock = DirectoryObjectStore._locks.setdefault(self._root, threading.Lock())
 
     def _path(self, key: str) -> Path:
         candidate = (self._root / key).resolve()
@@ -83,13 +99,22 @@ class DirectoryObjectStore:
         if_none_match: bool = False,
     ) -> str:
         path = self._path(key)
+        with self._lock:
+            return self._put_locked(path, key, body, if_match, if_none_match)
+
+    def _put_locked(
+        self, path: Path, key: str, body: bytes, if_match: str | None, if_none_match: bool
+    ) -> str:
         current = self.get(key)
         if if_none_match and current is not None:
             raise Conflict(f"{key} already exists")
         if if_match is not None and (current is None or current[1] != if_match):
             raise Conflict(f"{key} changed under us")
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+        # A token per write, not per process: four threads in one process share a pid,
+        # and with the pid in the name they collided — one thread's rename deleted the
+        # file another was about to rename, and a brand went missing from the schedule.
+        tmp = path.with_name(f"{path.name}.{secrets.token_hex(4)}.tmp")
         tmp.write_bytes(body)
         tmp.replace(path)
         return _etag(body)
