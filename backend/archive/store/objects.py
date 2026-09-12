@@ -158,7 +158,23 @@ class R2ObjectStore:
     def __init__(self, bucket: str, client: Any = None, prefix: str = ""):
         self._bucket = bucket
         self._prefix = prefix
-        self._client = client if client is not None else _r2_client()
+        self._given = client
+        self._built: Any = None
+
+    @property
+    def _client(self) -> Any:
+        """Built on first use, not at construction.
+
+        Deciding *which* store to use should not touch the network stack. Building the
+        client eagerly meant object_store() raised PartialCredentialsError anywhere the
+        credentials were incomplete — which is every CI runner, and would be any
+        machine with half a config.
+        """
+        if self._given is not None:
+            return self._given
+        if self._built is None:
+            self._built = _r2_client()
+        return self._built
 
     def _key(self, key: str) -> str:
         return f"{self._prefix}{key}"

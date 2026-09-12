@@ -205,7 +205,12 @@ def test_an_explicit_path_beats_a_configured_bucket(tmp_path, monkeypatch):
 
     monkeypatch.setattr(config, "R2_ACCOUNT_ID", "acct", raising=False)
     monkeypatch.setattr(config, "R2_ACCESS_KEY_ID", "key", raising=False)
+    monkeypatch.setattr(config, "R2_SECRET_ACCESS_KEY", "secret", raising=False)
     monkeypatch.setattr(config, "R2_BUCKET", "bucket", raising=False)
 
     assert isinstance(object_store(tmp_path), DirectoryObjectStore)
+    # Naming the store must not build a client: this ran green locally, where
+    # config/.env has real credentials, and failed on CI with
+    # PartialCredentialsError. The client is lazy now, and this asserts the choice
+    # rather than the connection.
     assert type(object_store()).__name__ == "R2ObjectStore"
