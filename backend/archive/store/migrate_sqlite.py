@@ -18,12 +18,17 @@ from pathlib import Path
 from backend.archive.store.objects import DirectoryObjectStore, ObjectStore, dumps
 
 
-# Integer run ids become strings. The old rows carry no per-run clock beyond
-# started_at, so the string keeps the original ordering by padding the id — a run's
-# identity has to sort the way it did, or "the latest covered run" changes meaning and
-# a brand's whole catalogue stops being current.
-def _run_key(run_id: int) -> str:
-    return f"legacy-{run_id:08d}"
+def _run_key(run_id: int, started_at: str) -> str:
+    """A migrated run's id, sorting by when it started.
+
+    New ids are `<iso-8601>-<6 hex>` and the store orders runs lexically, so a
+    migrated id has to begin with a timestamp too. The first attempt was
+    `legacy-00000042`, and 'l' (108) sorts after '2' (50) — every migrated run
+    outranked every new one, `_latest_covered_run` always returned an old one, and
+    a brand that had just been re-scraped showed zero products. The padded integer
+    stays as a tiebreak for runs that share a start time.
+    """
+    return f"{started_at}-legacy{run_id:06d}"
 
 
 def migrate(db_path: Path, store: ObjectStore) -> dict[str, int]:
@@ -61,8 +66,11 @@ def migrate(db_path: Path, store: ObjectStore) -> dict[str, int]:
     # --- runs
     runs = db.execute("SELECT * FROM runs ORDER BY id").fetchall()
     per_brand: dict[str, list[str]] = {}
+    # id -> key, because products, history, evidence and scorecards all refer to runs
+    # by integer and every one of them has to agree on the new name.
+    run_keys: dict[int, str] = {r["id"]: _run_key(r["id"], r["started_at"]) for r in runs}
     for row in runs:
-        key = _run_key(row["id"])
+        key = _run_key(row["id"], row["started_at"])
         put(
             f"runs/{row['domain']}/{key}.json",
             {
@@ -89,8 +97,8 @@ def migrate(db_path: Path, store: ObjectStore) -> dict[str, int]:
             "record": json.loads(row["current_json"]),
             "product_code": row["product_code"],
             "change_hint": row["change_hint"],
-            "first_seen_run": _run_key(row["first_seen_run"]),
-            "last_seen_run": _run_key(row["last_seen_run"]),
+            "first_seen_run": run_keys[row["first_seen_run"]],
+            "last_seen_run": run_keys[row["last_seen_run"]],
         }
         product_urls[row["id"]] = (domain, row["itemurl"])
     counts["products"] = len(product_urls)
@@ -102,7 +110,7 @@ def migrate(db_path: Path, store: ObjectStore) -> dict[str, int]:
         if not found:
             continue
         domain, itemurl = found
-        history.setdefault((domain, _run_key(row["run_id"])), []).append(
+        history.setdefault((domain, run_keys.get(row["run_id"], "")), []).append(
             {
                 "itemurl": itemurl,
                 "price": row["price"],
@@ -151,7 +159,7 @@ def migrate(db_path: Path, store: ObjectStore) -> dict[str, int]:
         evidence.setdefault(row["domain"], {})[f"{row['field']}|{row['source']}"] = {
             "examined": row["examined"],
             "found": row["found"],
-            "run_id": _run_key(row["run_id"]),
+            "run_id": run_keys.get(row["run_id"], ""),
             "searched_at": row["searched_at"],
         }
         evidence_rows += 1
@@ -161,7 +169,7 @@ def migrate(db_path: Path, store: ObjectStore) -> dict[str, int]:
 
     cards = db.execute("SELECT * FROM scorecards").fetchall()
     for row in cards:
-        key = _run_key(row["run_id"])
+        key = run_keys.get(row["run_id"], str(row["run_id"]))
         put(
             f"scores/{row['domain']}/{key}.json",
             {"card": json.loads(row["card_json"]), "run_id": key, "scored_at": row["scored_at"]},

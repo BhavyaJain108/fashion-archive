@@ -135,7 +135,12 @@ def main(argv: list[str] | None = None) -> int:
             )
         if name == "scrape":
             sp.add_argument("domain", nargs="?")
-            sp.add_argument("--all", action="store_true")
+            sp.add_argument("--all", action="store_true", help="every brand in brands.yml")
+            sp.add_argument(
+                "--shown",
+                action="store_true",
+                help="only the brands the app shows (small and mid) — usually what you want",
+            )
             group = sp.add_mutually_exclusive_group()
             group.add_argument("--delta", action="store_true")
             group.add_argument("--full", action="store_true")
@@ -215,7 +220,15 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         if args.cmd == "scrape":
-            targets = brands if args.all else [b for b in brands if b.domain == args.domain]
+            if args.shown:
+                from backend.archive.roster import app_roster
+
+                wanted = {e.domain for e in app_roster(args.brands)}
+                targets = [b for b in brands if b.domain in wanted]
+            elif args.all:
+                targets = brands
+            else:
+                targets = [b for b in brands if b.domain == args.domain]
             if not targets and args.domain:
                 targets = [Brand(domain=args.domain, homepage_url=f"https://{args.domain}")]
                 catalog.upsert_brand(targets[0])

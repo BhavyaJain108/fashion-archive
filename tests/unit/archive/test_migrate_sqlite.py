@@ -69,7 +69,7 @@ def legacy(tmp_path):
     db.execute("INSERT INTO brands VALUES ('z.com','https://z.com',NULL,NULL,'gated')")
     db.execute(
         "INSERT INTO runs (id,domain,mode,started_at,finished_at,exit_status,coverage_json) "
-        "VALUES (1,'k.com','full','t0','t1',0,?)",
+        "VALUES (1,'k.com','full','2026-09-08T17:44:32+00:00','2026-09-08T17:50:00+00:00',0,?)",
         (COV,),
     )
     for pid, slug in ((1, "tee"), (2, "cap")):
@@ -89,7 +89,7 @@ def legacy(tmp_path):
     )
     db.execute("INSERT INTO field_evidence VALUES ('k.com','color_info','channel',10,4,1,'t1')")
     db.execute("INSERT INTO schedule VALUES ('k.com',1,3600,'t2',NULL,NULL)")
-    db.execute("INSERT INTO extraction_versions VALUES ('k.com','abc','t1')")
+    db.execute("INSERT INTO extraction_versions VALUES ('k.com','abc','2026-09-08T17:50:00+00:00')")
     db.commit()
     db.close()
     return path
@@ -123,13 +123,52 @@ def test_the_migrated_archive_reads_back_through_the_new_store(legacy, tmp_path)
 
 
 @pytest.mark.unit
-def test_run_ids_keep_their_original_order(legacy, tmp_path):
-    """A run's identity has to sort the way it did. If it stops, "the latest covered
-    run" changes meaning and a brand's whole catalogue stops being current."""
-    assert _run_key(2) < _run_key(10) < _run_key(100)
+def test_a_migrated_run_sorts_before_a_later_one(legacy, tmp_path):
+    """The store orders runs lexically, so a migrated id must begin with a timestamp.
+
+    `legacy-00000042` did not: 'l' sorts after '2', so every migrated run outranked
+    every new one. The first uncapped re-scrape of staud.clothing found 1,530 products
+    and the page showed zero, because the latest covered run was still a migrated one.
+    """
+    from backend.archive.store.catalog import new_run_id
+
+    assert _run_key(1, "2026-09-08T17:44:32+00:00") < new_run_id()
+    assert _run_key(2, "2026-09-01T00:00:00+00:00") < _run_key(1, "2026-09-08T00:00:00+00:00")
+
+
+@pytest.mark.unit
+def test_the_latest_migrated_run_is_the_one_that_started_last(legacy, tmp_path):
     store = DirectoryObjectStore(tmp_path / "objects")
     migrate(legacy, store)
-    assert Catalog(store).latest_run("k.com")["id"] == _run_key(1)
+    assert Catalog(store).latest_run("k.com")["id"] == _run_key(1, "2026-09-08T17:44:32+00:00")
+
+
+@pytest.mark.unit
+def test_a_run_after_a_migration_is_the_one_the_live_view_uses(legacy, tmp_path):
+    """The whole point: scrape a migrated brand and its new products must be visible."""
+    from backend.archive.domain.product import ProductRecord
+    from backend.archive.domain.run import Coverage
+
+    store = DirectoryObjectStore(tmp_path / "objects")
+    migrate(legacy, store)
+    cat = Catalog(store)
+    assert len(cat.current_products("k.com")) == 2
+
+    run = cat.open_run("k.com", "full")
+    for slug in ("tee", "cap", "hat"):
+        cat.record_product(
+            "k.com",
+            run,
+            ProductRecord(itemurl=f"https://k.com/p/{slug}", product_title=slug, price=1.0),
+            None,
+        )
+    cat.finalize_run(
+        run,
+        0,
+        Coverage(extracted=3, channel_counts={}, coverage_pct=1.0, field_fill={}, verdict="ok"),
+    )
+    cat.close()
+    assert len(Catalog(store).current_products("k.com")) == 3
 
 
 @pytest.mark.unit
