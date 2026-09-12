@@ -9,27 +9,23 @@ Endpoints backed by firstVIEW (see backend/high_fashion/FIRSTVIEW.md):
 - Video streaming
 """
 
-from flask import jsonify, request, send_file, Response
-
 import gzip
 import json
+import os
+import re
 import shutil
 import tempfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+from urllib.parse import urlparse
 
-from backend.storage import images
+from flask import Response, jsonify, request, send_file
+
 from backend.auth import db
 from backend.auth.middleware import current_user
 from backend.high_fashion import collection_cache
+from backend.storage import images
 from backend.userdata import recents
-import os
-import requests
-from bs4 import BeautifulSoup
-import re
-from urllib.parse import urljoin, quote, urlparse
-import subprocess
-from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from threading import Lock
 
 # Legacy header block; firstview.py sets its own session headers.
 HEADERS = {
@@ -114,7 +110,6 @@ def _season_filters(q, data):
     Collection hid shows that only exist as Runway Details. Rows are
     labelled with their shoot type instead, so repeats stay tellable apart.
     """
-    from backend.high_fashion import firstview as fv
 
     one = lambda k: q.get(k, [None])[0]
     shoot_type = data.get("shootType", one("s_t"))
@@ -214,7 +209,8 @@ def get_collections():
     the full result set, so a big season returns hundreds of shows.
     """
     try:
-        from urllib.parse import urlparse, parse_qs
+        from urllib.parse import parse_qs, urlparse
+
         from backend.high_fashion import firstview as fv
 
         data = request.get_json() or {}
@@ -530,7 +526,8 @@ def stream_collections():
     {type:'done'}. A big season is 30+ pages; this puts the first 20 rows
     on screen in well under a second instead of after the whole crawl.
     """
-    from urllib.parse import urlparse, parse_qs
+    from urllib.parse import parse_qs
+
     from backend.high_fashion import firstview as fv
 
     # Request context is gone inside the generator, so read params now.

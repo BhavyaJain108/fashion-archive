@@ -52,8 +52,9 @@ class NoCatalogue(RuntimeError):
 
 def _catalog() -> Catalog:
     backing = store()
-    if not backing.list("brands/"):
-        raise NoCatalogue("no archive in this store: nothing under brands/")
+    # One GET rather than a LIST: fleet.json names every brand the archive knows.
+    if backing.get("fleet.json") is None and not backing.list("brands/"):
+        raise NoCatalogue("no archive in this store: no fleet.json and nothing under brands/")
     return Catalog(backing)
 
 
@@ -90,7 +91,11 @@ def _matches(record: dict, category: str) -> bool:
 
 
 def _brand_row(
-    entry: RosterEntry, status: dict | None, catalog: Catalog, live: int | None = None
+    entry: RosterEntry,
+    status: dict | None,
+    catalog: Catalog,
+    live: int | None = None,
+    images: int | None = None,
 ) -> dict:
     products = live if live is not None else (status["products"] if status else 0)
     return {
@@ -102,7 +107,7 @@ def _brand_row(
         "notes": entry.notes,
         "state": (status or {}).get("state", "new"),
         "products": products,
-        "images": catalog.stored_image_count(entry.domain) if products else 0,
+        "images": images if images is not None else 0,
         "coverage_pct": (status or {}).get("coverage_pct"),
         "verdict": (status or {}).get("verdict"),
         "last_run": (status or {}).get("freshness"),
@@ -114,10 +119,19 @@ def get_brands():
     """GET /api/archive/brands — the roster the app shows, with what the archive holds."""
     catalog = _catalog()
     try:
+        # Three reads for the whole sidebar: the fleet object twice and the brand
+        # list once. Per-brand it was 130 round trips and 21.6 seconds.
         status = {r["domain"]: r for r in catalog.status_rows()}
         live = catalog.live_product_counts()
+        images = catalog.stored_image_counts()
         brands = [
-            _brand_row(e, status.get(e.domain), catalog, live.get(e.domain, 0))
+            _brand_row(
+                e,
+                status.get(e.domain),
+                catalog,
+                live.get(e.domain, 0),
+                images.get(e.domain, 0),
+            )
             for e in app_roster()
         ]
         return jsonify({"brands": brands, "total": len(brands)})
@@ -138,7 +152,7 @@ def get_brand(brand_id):
     try:
         status = next((r for r in catalog.status_rows() if r["domain"] == brand_id), None)
         records = catalog.current_products(brand_id)
-        row = _brand_row(entry, status, catalog, len(records))
+        row = _brand_row(entry, status, catalog, len(records), catalog.stored_image_count(brand_id))
         row["field_fill"] = _field_fill(records)
         cards = catalog.scorecards(brand_id, limit=1)
         row["scorecard"] = cards[0] if cards else None

@@ -32,6 +32,9 @@ from backend.archive.store.objects import Conflict, ObjectStore, dumps, loads
 
 FLUSH_EVERY = 200
 
+# One object describing every brand, so the sidebar is one read and not 130.
+FLEET = "fleet.json"
+
 # What a tile and the search box need. The rest of a record is the connector's own
 # payload, kept so a mapping can be re-derived, and meaningless to a browser.
 SEARCH_FIELDS = (
@@ -78,6 +81,9 @@ class Catalog:
         self._dirty: set[str] = set()
         self._pending_observations: dict[tuple[str, str], list[dict]] = {}
         self._since_flush = 0
+        # Read once per instance. Three fleet views were each fetching it, and a
+        # round trip to the bucket is ~400ms — the sidebar paid for it three times.
+        self._fleet: dict[str, dict] | None = None
 
     # --- object helpers ---
     def _read(self, key: str, default: Any = None) -> Any:
@@ -94,6 +100,7 @@ class Catalog:
     def upsert_brand(self, brand: Brand) -> None:
         key = f"brands/{brand.domain}.json"
         existing = self._read(key, {})
+        state = existing.get("state", "new")
         self._write(
             key,
             {
@@ -101,9 +108,27 @@ class Catalog:
                 "homepage_url": brand.homepage_url,
                 "display_name": brand.display_name,
                 "notes": brand.notes,
-                "state": existing.get("state", "new"),
+                "state": state,
             },
         )
+        if brand.domain not in self.fleet():
+            # An entry from the start, even at zero. Otherwise the fleet object
+            # describes only brands that have run, and reading the rest cost one
+            # request each — 2 seconds to say five brands have no products.
+            self._merge_into_fleet(
+                brand.domain,
+                {
+                    "domain": brand.domain,
+                    "products": 0,
+                    "live_products": 0,
+                    "images": 0,
+                    "state": state,
+                    "freshness": None,
+                    "mode": None,
+                    "coverage_pct": None,
+                    "verdict": None,
+                },
+            )
 
     def get_brand(self, domain: str) -> Brand | None:
         row = self._read(f"brands/{domain}.json")
@@ -132,9 +157,15 @@ class Catalog:
         row = self._read(key, {"domain": domain, "homepage_url": f"https://{domain}"})
         row["state"] = state
         self._write(key, row)
+        entry = dict(self.fleet().get(domain, {"domain": domain, "products": 0}))
+        entry["state"] = state
+        self._merge_into_fleet(domain, entry)
 
     def get_brand_state(self, domain: str) -> str:
-        return self._read(f"brands/{domain}.json", {}).get("state", "new")
+        entry = self.fleet().get(domain)
+        if entry and entry.get("state"):
+            return str(entry["state"])
+        return str(self._read(f"brands/{domain}.json", {}).get("state", "new"))
 
     # --- plans ---
     def save_plan(self, plan: ScrapePlan) -> None:
@@ -297,21 +328,45 @@ class Catalog:
         live = self._latest_covered_run(domain)
         latest = self.latest_run(domain)
         coverage = (latest or {}).get("coverage") or {}
-        self._write(
-            f"catalogue/{domain}.meta.json",
-            {
-                "domain": domain,
-                "products": len(products),
-                "live_products": sum(
-                    1 for r in products.values() if live and r["last_seen_run"] == live
-                ),
-                "state": self.get_brand_state(domain),
-                "freshness": (latest or {}).get("finished_at"),
-                "mode": (latest or {}).get("mode"),
-                "coverage_pct": coverage.get("coverage_pct"),
-                "verdict": coverage.get("verdict"),
-            },
-        )
+        meta = {
+            "domain": domain,
+            "products": len(products),
+            "live_products": sum(
+                1 for r in products.values() if live and r["last_seen_run"] == live
+            ),
+            "images": self.stored_image_count(domain),
+            "state": self.get_brand_state(domain),
+            "freshness": (latest or {}).get("finished_at"),
+            "mode": (latest or {}).get("mode"),
+            "coverage_pct": coverage.get("coverage_pct"),
+            "verdict": coverage.get("verdict"),
+        }
+        self._write(f"catalogue/{domain}.meta.json", meta)
+        self._merge_into_fleet(domain, meta)
+
+    def _merge_into_fleet(self, domain: str, meta: dict, attempts: int = 5) -> None:
+        """Keep one object describing every brand.
+
+        The sidebar is a single view and so it is a single read. Assembled from the
+        per-brand objects it took 130 sequential round trips and 21.6 seconds — what
+        had been one SQL query became one request per brand per kind.
+
+        Two workers finishing different brands both rewrite this, so it is a
+        compare-and-swap with a retry: read, merge only this brand's entry, write if
+        unchanged, and on refusal read again. Merging one entry rather than writing the
+        whole map is what makes a retry safe.
+        """
+        for _ in range(attempts):
+            found = self._store.get(FLEET)
+            fleet = loads(found[0]) if found else {}
+            etag = found[1] if found else None
+            fleet[domain] = meta
+            try:
+                self._store.put(FLEET, dumps(fleet), if_match=etag)
+                self._fleet = fleet
+                return
+            except Conflict:
+                continue
 
     def mark_seen(self, domain: str, run_id: str, urls: list[str]) -> None:
         products = self._catalogue(domain)["products"]
@@ -557,40 +612,42 @@ class Catalog:
         self._write(f"versions/{domain}.json", {"version": version, "seen_at": _now()})
 
     # --- the fleet view ---
-    def _meta(self, domain: str) -> dict:
-        return self._read(f"catalogue/{domain}.meta.json", {})
+    def fleet(self) -> dict[str, dict]:
+        """Every brand's counts and freshness, in one read."""
+        if self._fleet is None:
+            self._fleet = self._read(FLEET, {})
+        return self._fleet
 
     def live_product_counts(self) -> dict[str, int]:
         """Products per brand that are still listed — the number the app can show.
 
-        From the meta objects, never the catalogues. Reading 32 catalogues to draw a
-        column of numbers would pull 55 MB for something a few hundred bytes can say.
+        One object, never the catalogues. Reading 32 catalogues to draw a column of
+        numbers would pull 55 MB for something a few hundred bytes can say, and reading
+        32 meta objects took 21.6 seconds of round trips to say it.
         """
-        counts = {}
-        for key in self._store.list("catalogue/"):
-            if not key.endswith(".meta.json"):
-                continue
-            row = self._read(key, {})
-            if row.get("live_products"):
-                counts[row["domain"]] = row["live_products"]
-        return counts
+        return {
+            domain: meta["live_products"]
+            for domain, meta in self.fleet().items()
+            if meta.get("live_products")
+        }
+
+    def stored_image_counts(self) -> dict[str, int]:
+        return {domain: meta.get("images", 0) for domain, meta in self.fleet().items()}
 
     def status_rows(self) -> list[dict]:
-        out = []
-        for key in self._store.list("brands/"):
-            domain = self._domain_of(key)
-            meta = self._meta(domain)
-            out.append(
-                {
-                    "domain": domain,
-                    "state": self.get_brand_state(domain),
-                    "products": meta.get("products", 0),
-                    "coverage_pct": meta.get("coverage_pct"),
-                    "verdict": meta.get("verdict"),
-                    "freshness": meta.get("freshness"),
-                    "mode": meta.get("mode"),
-                }
-            )
+        fleet = self.fleet()
+        out = [
+            {
+                "domain": domain,
+                "state": meta.get("state", "new"),
+                "products": meta.get("products", 0),
+                "coverage_pct": meta.get("coverage_pct"),
+                "verdict": meta.get("verdict"),
+                "freshness": meta.get("freshness"),
+                "mode": meta.get("mode"),
+            }
+            for domain, meta in fleet.items()
+        ]
         return sorted(out, key=lambda r: r["domain"])
 
 
