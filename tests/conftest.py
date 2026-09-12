@@ -1,9 +1,10 @@
 """Shared pytest config.
 
-The backend uses flat top-level imports (`from stages.storage import ...`)
-and runs with `backend/` as the working dir. We mirror that here so tests
-can `from stages.urls import dedupe_urls_by_path`. We also expose the repo
-root for any future test that needs to reach web_ui/ or config/.
+Two roots on the path. The repo root serves the absolute imports the archive and
+the API use (`from backend.archive...`); `backend/` serves the flat ones the auth,
+userdata and storage tests use (`from auth.tokens import ...`), which mirror how
+`backend/app.py` is run. The old scraper's flat imports were a third reason for
+this and are gone, but the first two remain.
 """
 
 from __future__ import annotations

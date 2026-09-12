@@ -1,12 +1,6 @@
+"""Where files live.
+
+One module: `images`, which puts image bytes in R2 or a local directory and returns
+a URL. The brand/product store that used to live here wrote JSON trees under
+extractions/ for a scraper that no longer exists.
 """
-Storage Package
-===============
-
-Provides unified storage interface for brand and product data.
-Uses extractions/{domain}/ folder structure.
-"""
-
-from .extraction_manager import ExtractionManager
-from .storage_layer import Storage, get_storage
-
-__all__ = ['ExtractionManager', 'Storage', 'get_storage']
