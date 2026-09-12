@@ -11,6 +11,8 @@ Endpoints backed by firstVIEW (see backend/high_fashion/FIRSTVIEW.md):
 
 from flask import jsonify, request, send_file, Response
 
+import gzip
+import json
 import shutil
 import tempfile
 
@@ -656,6 +658,118 @@ def stream_catalog():
                     headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
 
+# The designer index, committed alongside the coverage catalog and for the
+# same reason: derived data that costs 27 requests to someone else's site and
+# only changes when firstVIEW adds a label. Rebuild with
+# firstview.build_designer_index(DESIGNERS_PATH).
+DESIGNERS_PATH = "backend/high_fashion/designers.json"
+
+# Built once on first request and held: the file is 335 KB of JSON that never
+# changes between deploys, and gzipping it per request would be 80 KB of work
+# to send the same 80 KB.
+_designers_payload = None
+
+
+def _designer_index_payload():
+    """The index as (raw_json, gzipped_json, etag), or None if it is missing."""
+    global _designers_payload
+    if _designers_payload is None:
+        from backend.high_fashion import firstview as fv
+
+        data = fv.load_designer_index(DESIGNERS_PATH)
+        if data is None:
+            return None
+        raw = json.dumps(data, ensure_ascii=False).encode('utf-8')
+        etag = f'W/"designers-{data.get("built_on")}-{data.get("count")}"'
+        _designers_payload = (raw, gzip.compress(raw, 6), etag)
+    return _designers_payload
+
+
+def get_designers():
+    """GET /api/designers - every designer firstVIEW lists, names and ids.
+
+    Sent whole, once, so the search box can match locally. 8,657 names is
+    335 KB raw and about 80 KB gzipped — small enough that holding it in the
+    browser beats a request per keystroke, and the only way to get fuzzy
+    matching at all: firstVIEW's own search is a plain substring, so a typo
+    like "commes" finds nothing.
+    """
+    payload = _designer_index_payload()
+    if payload is None:
+        # Absent rather than empty: the search box should say it cannot search
+        # rather than silently behave as though the archive had no designers.
+        return jsonify({
+            'error': 'designer index is not built',
+            'success': False,
+        }), 503
+
+    raw, gzipped, etag = payload
+
+    if request.headers.get('If-None-Match') == etag:
+        return Response(status=304, headers={'ETag': etag})
+
+    accepts_gzip = 'gzip' in (request.headers.get('Accept-Encoding') or '')
+    body = gzipped if accepts_gzip else raw
+    headers = {
+        'Content-Type': 'application/json; charset=utf-8',
+        'ETag': etag,
+        # It changes only when the file is rebuilt and redeployed, and the
+        # ETag catches that, so there is no reason to refetch it on every load.
+        'Cache-Control': 'public, max-age=86400',
+    }
+    if accepts_gzip:
+        headers['Content-Encoding'] = 'gzip'
+    return Response(body, headers=headers)
+
+
+def stream_designer_collections():
+    """POST /api/designer/stream - every show by one designer, as they arrive.
+
+    The one view the season filters cannot produce. collection_designer.php
+    ignores year, season and gender entirely, so this is a designer's whole
+    working life in one list: Yohji Yamamoto is 175 shows over 1995-2027,
+    both genders, across nine pages.
+
+    Paged out as it crawls, like /api/catalog/stream, so rows appear at once
+    rather than after five seconds.
+    """
+    from backend.high_fashion import firstview as fv
+
+    data = request.get_json() or {}
+    designer_id = str(data.get('designerId') or '').strip()
+    if not designer_id:
+        return jsonify({'error': 'designerId is required', 'success': False}), 400
+
+    def generate():
+        total = 0
+        try:
+            window = []
+            sent = {}
+            for chunk in fv.iter_designer_collections(designer_id):
+                window.extend(chunk['rows'])
+                rows = [_row_to_dict(r) for r in chunk['rows']]
+                sent.update({row['collection_id']: row['subtitle'] for row in rows})
+                total += len(rows)
+                yield _sse({'type': 'collections', 'collections': rows,
+                            'total': total, 'page': chunk['page']})
+
+            fv.fill_look_counts(window)
+            final = [_row_to_dict(r) for r in window]
+            _number_ties(final)
+            relabelled = {row['collection_id']: row['subtitle'] for row in final
+                          if row['subtitle'] != sent.get(row['collection_id'])}
+            if relabelled:
+                yield _sse({'type': 'relabel', 'labels': relabelled})
+
+            yield _sse({'type': 'done', 'total': total, 'hasMore': False,
+                        'success': True})
+        except Exception as e:
+            yield _sse({'type': 'error', 'error': str(e), 'success': False})
+
+    return Response(generate(), mimetype='text/event-stream',
+                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+
 def stream_download_images():
     """POST /api/download-images/stream - a show's looks, as they download.
 
@@ -991,10 +1105,12 @@ def register_high_fashion_routes(app):
     app.add_url_rule('/api/video/quota', 'get_video_quota', get_video_quota, methods=['GET'])
     app.add_url_rule('/api/collections/stream', 'stream_collections_sse', stream_collections, methods=['POST'])
     app.add_url_rule('/api/catalog/stream', 'stream_catalog_sse', stream_catalog, methods=['POST'])
+    app.add_url_rule('/api/designers', 'get_designers', get_designers, methods=['GET'])
+    app.add_url_rule('/api/designer/stream', 'stream_designer_sse', stream_designer_collections, methods=['POST'])
     app.add_url_rule('/api/download-images/stream', 'stream_download_images', stream_download_images, methods=['POST'])
     app.add_url_rule('/api/download-video', 'download_video_fashion', download_video, methods=['POST'])
     app.add_url_rule('/api/images/<path:key>', 'serve_stored_image', serve_stored_image, methods=['GET'])
     app.add_url_rule('/api/video', 'serve_fashion_video', serve_fashion_video, methods=['GET'])
     app.add_url_rule('/api/cleanup', 'cleanup_fashion_cache', cleanup_fashion_cache, methods=['POST'])
 
-    print("✅ High Fashion API routes registered (14 endpoints)")
+    print("✅ High Fashion API routes registered (16 endpoints)")

@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import json
 import re
+import string
 import time
 from dataclasses import dataclass, asdict, field
 from datetime import date
@@ -863,6 +864,109 @@ def category_map(
         ):
             out[r.collection_id] = label
     return out
+
+
+# The designer index. Names only, so the whole thing is small enough to hand
+# to the browser once and match locally: 8,661 designers is 336 KB, ~80 KB
+# over the wire, and Fuse.js over it answers a keystroke with no request.
+#
+# firstVIEW does have its own designer search (alpha_list.php?s=), but it is a
+# plain substring match — "commes" finds nothing, where a local fuzzy index
+# finds Comme des Garçons. Holding the names is what buys typo tolerance.
+DESIGNER_INDEX_VERSION = 1
+
+# Records that are plainly not designers. Kept deliberately narrow: "Y3",
+# "Yu" and "2B" are real labels, so nothing is dropped for being short.
+_JUNK_DESIGNER_RE = re.compile(r"(?i)^(?:-to delete-|timt\d*)$")
+
+
+def build_designer_index(
+    out_path: "str | Path | None" = None,
+    delay: float = REQUEST_DELAY,
+    session: Optional[requests.Session] = None,
+    progress=None,
+) -> Dict:
+    """Every designer firstVIEW lists, walked A-Z from alpha_list.php.
+
+    27 requests and about 30 seconds. Like the coverage catalog this is
+    derived data that only changes when the site adds a label, so the result
+    is committed rather than rebuilt at runtime — a cold start must not mean
+    half a minute of somebody else's bandwidth before the search box works.
+    """
+    sess = session or _session()
+    found: Dict[str, str] = {}
+
+    # `None` first: alpha_list's default page carries the symbol entries that
+    # no letter claims.
+    for letter in [None] + list(string.ascii_uppercase):
+        try:
+            for d in list_designers(letter=letter, session=sess):
+                found[d.designer_id] = d.name
+        except Exception as exc:  # noqa: BLE001 — one dead letter is not a dead index
+            print(f"designer index: letter {letter!r} failed: {exc}")
+        if progress:
+            progress(letter, len(found))
+        time.sleep(delay)
+
+    designers = sorted(
+        ({"id": did, "name": name} for did, name in found.items()
+         if not _JUNK_DESIGNER_RE.match(name.strip())),
+        key=lambda d: d["name"].lower(),
+    )
+
+    data = {
+        "version": DESIGNER_INDEX_VERSION,
+        "built_on": date.today().isoformat(),
+        "count": len(designers),
+        "designers": designers,
+    }
+
+    if out_path:
+        Path(out_path).write_text(json.dumps(data, ensure_ascii=False))
+    return data
+
+
+def load_designer_index(path: "str | Path") -> Optional[Dict]:
+    """Read the designer index, or None if missing, unreadable or stale."""
+    try:
+        data = json.loads(Path(path).read_text())
+    except Exception:  # noqa: BLE001
+        return None
+    return data if data.get("version") == DESIGNER_INDEX_VERSION else None
+
+
+def iter_designer_collections(
+    designer_id: str,
+    session: Optional[requests.Session] = None,
+    max_pages: int = 100,
+    delay: float = REQUEST_DELAY,
+):
+    """Yield each page of one designer's shows as it arrives.
+
+    A prolific designer runs to nine pages — Yohji Yamamoto is 175 shows
+    across 1995-2027 — so the blocking version means five seconds of nothing.
+    Same crawl, handed back a page at a time.
+    """
+    sess = session or _session()
+    seen: set[str] = set()
+
+    for page in range(max_pages):
+        url = f"{BASE_URL}/collection_designer.php?s_d={designer_id}"
+        if page:
+            url += f"&page={page}"
+        resp = sess.get(url, timeout=TIMEOUT)
+        resp.raise_for_status()
+        rows = parse_results_page(resp.content)
+
+        fresh = [r for r in rows if r.collection_id not in seen]
+        seen.update(r.collection_id for r in fresh)
+
+        exhausted = len(rows) < RESULTS_PER_PAGE or not fresh
+        yield {"page": page, "rows": fresh, "last": exhausted}
+        if exhausted:
+            return
+        if page + 1 < max_pages:
+            time.sleep(delay)
 
 
 COVERAGE_VERSION = 1

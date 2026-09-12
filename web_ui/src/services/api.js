@@ -304,6 +304,62 @@ class FashionArchiveAPI {
     return { rows: all, ...cursor };
   }
 
+  // Every designer firstVIEW lists, fetched once and kept.
+  //
+  // The whole index comes down in one request — 8,657 names, ~87 KB gzipped —
+  // because matching has to happen locally. firstVIEW's own designer search is
+  // a plain substring, so "commes" finds nothing; fuzzy matching needs the
+  // names in hand. The response carries an ETag and a day's cache lifetime, so
+  // a reload is a 304 rather than another 87 KB.
+  static _designerIndex = null;
+
+  static async getDesigners() {
+    if (this._designerIndex) return this._designerIndex;
+    try {
+      const response = await fetch(`${this.BASE_URL}/api/designers`, {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        this.checkAuth(response);
+        // 503 means the index was never built. Worth telling apart from an
+        // empty archive, so the caller gets null rather than [].
+        return null;
+      }
+      const data = await response.json();
+      this._designerIndex = data.designers || [];
+      return this._designerIndex;
+    } catch (error) {
+      console.error('Designer index failed to load:', error);
+      return null;
+    }
+  }
+
+  // Every show by one designer, across all years and both genders.
+  //
+  // A different query from the catalog: collection_designer.php ignores year,
+  // season and gender, so this is the only way to see a designer's whole
+  // working life. Yohji Yamamoto is 175 shows over 1995-2027.
+  static async streamDesignerCollections(designerId, { onUpdate, signal } = {}) {
+    const all = [];
+    await this.consumeSSE('/api/designer/stream', { designerId }, (evt) => {
+      if (evt.type === 'collections') {
+        all.push(...evt.collections);
+        if (onUpdate) onUpdate({ rows: [...all], complete: false });
+      } else if (evt.type === 'relabel') {
+        for (const row of all) {
+          const label = evt.labels[row.collection_id];
+          if (label) row.subtitle = label;
+        }
+        if (onUpdate) onUpdate({ rows: [...all], complete: false });
+      } else if (evt.type === 'done') {
+        if (onUpdate) onUpdate({ rows: [...all], complete: true });
+      } else if (evt.type === 'error') {
+        throw new Error(evt.error);
+      }
+    }, signal);
+    return all;
+  }
+
   // Stream one show's looks. onMeta fires once with every look's metadata
   // (before any file lands); onImage fires per downloaded image.
   static async streamCollectionImages(collectionUrl, { onMeta, onImage, onDone, signal } = {}) {

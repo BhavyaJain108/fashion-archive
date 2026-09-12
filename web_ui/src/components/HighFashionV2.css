@@ -752,6 +752,163 @@
 }
 
 /* ---------------------------------------------------------------------
+   Search
+
+   One box above the filters. The filters organise the archive by season,
+   which is the right shape for browsing and the wrong shape for "show me
+   everything Margiela ever did" — that is what this answers.
+
+   It sits above the filters rather than among them because it does not
+   narrow the list, it replaces it.
+   --------------------------------------------------------------------- */
+
+.hf2-search {
+  position: relative;
+  padding: 10px 10px 8px;
+  border-bottom: 1px solid #ededed;
+  background: #fafafa;
+  flex-shrink: 0;
+}
+
+.hf2-search-input {
+  width: 100%;
+  appearance: none;
+  border: none;
+  border-bottom: 1px solid #d5d5d5;
+  border-radius: 0;
+  background: transparent;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 20px;
+  color: #000000;
+  padding: 2px 18px 4px 0;
+}
+
+.hf2-search-input::placeholder {
+  color: #bbbbbb;
+}
+
+.hf2-search-input:focus {
+  outline: none;
+  border-bottom-color: #000000;
+}
+
+.hf2-search-input:disabled {
+  color: #cccccc;
+  cursor: not-allowed;
+}
+
+.hf2-search-clear {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  appearance: none;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 20px;
+  color: #bbbbbb;
+  cursor: pointer;
+  padding: 2px 0 4px;
+}
+
+.hf2-search-clear:hover {
+  color: #000000;
+}
+
+/* Over the filters, not pushing them down: the list underneath should not
+   jump every time a suggestion appears. */
+.hf2-search-results {
+  position: absolute;
+  top: 100%;
+  left: 10px;
+  right: 10px;
+  z-index: 40;
+  background: #ffffff;
+  border: 1px solid #000000;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.hf2-search-heading {
+  font-size: 9px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: #bbbbbb;
+  padding: 7px 10px 4px;
+}
+
+.hf2-search-option {
+  display: block;
+  width: 100%;
+  appearance: none;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 18px;
+  color: #333333;
+  text-align: left;
+  padding: 5px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* One highlight, driven by the keyboard, and the mouse moves it rather than
+   adding a second — otherwise hovering while arrowing shows two selections. */
+.hf2-search-option.active {
+  background: #000000;
+  color: #ffffff;
+}
+
+.hf2-search-empty {
+  font-size: 11px;
+  color: #cccccc;
+  padding: 10px;
+}
+
+/* A filter that means nothing in the current mode: gone, not greyed. The
+   A-Z jump is for finding a designer, and one is already chosen. */
+.hf2-facet.hidden {
+  display: none;
+}
+
+/* Designer mode: the header says whose history this is and how to leave. */
+.hf2-designer-exit {
+  appearance: none;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #999999;
+  cursor: pointer;
+  padding: 0 8px 0 0;
+  flex-shrink: 0;
+}
+
+.hf2-designer-exit:hover {
+  color: #000000;
+}
+
+.hf2-designer-name {
+  flex: 1;
+  min-width: 0;
+  color: #000000;
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------------------------------------------------------------------
    Filters (sidebar)
 
    Every filter is optional. The list below opens on the whole archive and

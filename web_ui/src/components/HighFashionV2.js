@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { FashionArchiveAPI } from '../services/api';
+import { prepare as prepareDesigners, search as searchDesigners } from '../lib/designerSearch';
 import TopBar from './TopBar';
 import './HighFashionV2.css';
 
@@ -94,6 +95,23 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
   const [collectionsLoading, setCollectionsLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [cursor, setCursor] = useState({ nextPage: 0, hasMore: false });
+
+  // Search. The index is every designer firstVIEW lists, fetched once and
+  // matched in the browser — see lib/designerSearch.js for why locally.
+  const [designerIndex, setDesignerIndex] = useState(null);
+  const [query, setQuery] = useState('');
+  const [suggestions, setSuggestions] = useState([]);
+  const [activeSuggestion, setActiveSuggestion] = useState(0);
+  const [searchFocused, setSearchFocused] = useState(false);
+  const [recentDesigners, setRecentDesigners] = useState([]);
+
+  // Designer mode. A designer's shows come from a different query that
+  // ignores year, season and gender entirely, so this is their whole working
+  // life in one list — and the filters narrow it here rather than refetching.
+  const [designerMode, setDesignerMode] = useState(null);   // {id, name}
+  const [designerRows, setDesignerRows] = useState([]);
+  const [designerLoading, setDesignerLoading] = useState(false);
+  const searchInputRef = useRef(null);
   // A failed request and an empty result are different answers. Showing
   // "no shows match these filters" for a dropped connection or an expired
   // session reads as an empty archive, which is the wrong thing to believe.
@@ -206,6 +224,139 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
     return match ? parseInt(match[1]) : fallbackIdx + 1;
   };
 
+  // The designer index, once. Failure is not fatal — the archive still
+  // browses, the search box just says it cannot search.
+  useEffect(() => {
+    let cancelled = false;
+    FashionArchiveAPI.getDesigners().then(designers => {
+      if (cancelled) return;
+      setDesignerIndex(designers ? prepareDesigners(designers) : null);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Designers you have actually opened, offered when the box is empty. Taken
+  // from the recents table rather than from what you have typed, so it
+  // reflects where you have been rather than what you searched for and
+  // abandoned.
+  useEffect(() => {
+    if (!designerIndex) return;
+    let cancelled = false;
+    FashionArchiveAPI.getRecents().then(rows => {
+      if (cancelled) return;
+      const byName = new Map(designerIndex.map(d => [d._n, d]));
+      const out = [];
+      const seen = new Set();
+      for (const row of rows || []) {
+        const match = byName.get(
+          (row.designer || '').toLowerCase().normalize('NFD')
+            .replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]/g, ' ')
+            .replace(/\s+/g, ' ').trim());
+        if (!match || seen.has(match.id)) continue;
+        seen.add(match.id);
+        out.push(match);
+        if (out.length >= 6) break;
+      }
+      setRecentDesigners(out);
+    });
+    return () => { cancelled = true; };
+  }, [designerIndex]);
+
+  useEffect(() => {
+    if (!designerIndex) { setSuggestions([]); return; }
+    setSuggestions(query.trim() ? searchDesigners(designerIndex, query, 8) : []);
+    setActiveSuggestion(0);
+  }, [query, designerIndex]);
+
+  // What the dropdown shows: matches while typing, where you have been when
+  // the box is empty.
+  const shownSuggestions = query.trim() ? suggestions : recentDesigners;
+
+  const openDesigner = useCallback((designer) => {
+    if (!designer) return;
+    abortCollections();
+    abortImages();
+    setDesignerMode({ id: designer.id, name: designer.name });
+    setDesignerRows([]);
+    setQuery('');
+    setSuggestions([]);
+    setSearchFocused(false);
+    if (searchInputRef.current) searchInputRef.current.blur();
+    setSelectedCollection(null);
+    setCollections([]);
+    setImages([]);
+    setExpectedLookCount(0);
+    // Their whole history is in hand, so gender stops being a required
+    // choice here and starts as "all" — showing half a designer's work by
+    // default would be a strange way to answer "show me everything they did".
+    setFilters(prev => ({ ...prev, gender: '', letter: '' }));
+  }, [abortCollections, abortImages]);
+
+  const exitDesigner = useCallback(() => {
+    abortCollections();
+    abortImages();
+    setDesignerMode(null);
+    setDesignerRows([]);
+    setSelectedCollection(null);
+    setCollections([]);
+    setImages([]);
+    setExpectedLookCount(0);
+    // The catalog has no "all genders" — a query without one returns a small
+    // bucket of ungendered shows — so it has to become a real choice again.
+    setFilters(prev => ({ ...prev, gender: prev.gender || 'Women' }));
+  }, [abortCollections, abortImages]);
+
+  // One designer's shows, streamed. Nine pages for a prolific designer, so
+  // rows land as they arrive rather than after five seconds.
+  useEffect(() => {
+    if (!designerMode) return;
+
+    const controller = new AbortController();
+    collectionsAbort.current = controller;
+    let cancelled = false;
+    const isCurrent = () => !cancelled && collectionsAbort.current === controller;
+
+    setDesignerLoading(true);
+    (async () => {
+      try {
+        await FashionArchiveAPI.streamDesignerCollections(designerMode.id, {
+          signal: controller.signal,
+          onUpdate: ({ rows }) => {
+            if (!isCurrent()) return;
+            setDesignerRows(rows);
+          },
+        });
+      } catch (error) {
+        if (error.name === 'AbortError' || cancelled) return;
+        console.error('Failed to load designer:', error);
+        setListError(error.message || 'Could not reach the archive');
+      } finally {
+        if (isCurrent()) setDesignerLoading(false);
+      }
+    })();
+
+    return () => { cancelled = true; controller.abort(); };
+  }, [designerMode]);
+
+  const handleSearchKeyDown = (e) => {
+    const options = shownSuggestions;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setActiveSuggestion(i => Math.min(options.length - 1, i + 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setActiveSuggestion(i => Math.max(0, i - 1));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      openDesigner(options[activeSuggestion]);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      if (query) setQuery('');
+      else if (designerMode) exitDesigner();
+      else e.currentTarget.blur();
+    }
+  };
+
   // Changing any filter restarts the list from the top. Filters are
   // additive: setting one narrows the query, clearing it widens it again,
   // and none of them is a prerequisite for any other.
@@ -243,6 +394,10 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
   // changes; the streaming means rows appear as each page lands rather than
   // after the whole window.
   useEffect(() => {
+    // In designer mode the list comes from the designer query instead, and
+    // the filters narrow what is already loaded rather than refetching.
+    if (designerMode) return;
+
     const controller = new AbortController();
     collectionsAbort.current = controller;
     let cancelled = false;
@@ -280,11 +435,12 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
     })();
 
     return () => { cancelled = true; controller.abort(); };
-  }, [filters]);
+  }, [filters, designerMode]);
 
   // The next window, appended. Called when the list is scrolled near its
   // end; `hasMore` comes from the server having handed back a full page.
   const loadMore = useCallback(async () => {
+    if (designerMode) return;      // their whole history is already loaded
     if (loadingMore || collectionsLoading || !cursor.hasMore) return;
     const controller = collectionsAbort.current;
     setLoadingMore(true);
@@ -310,7 +466,7 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
     } finally {
       setLoadingMore(false);
     }
-  }, [filters, cursor, loadingMore, collectionsLoading]);
+  }, [filters, cursor, loadingMore, collectionsLoading, designerMode]);
 
   const handleListScroll = (e) => {
     const el = e.currentTarget;
@@ -407,6 +563,11 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
   // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e) => {
+      // Not while typing: 'g' in the search box used to toggle grid view, and
+      // the arrows used to walk the looks instead of the suggestions.
+      const el = e.target;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA'
+                 || el.tagName === 'SELECT' || el.isContentEditable)) return;
       if (images.length === 0) return;
       if (e.key === 'ArrowLeft') prevImage();
       else if (e.key === 'ArrowRight') nextImage();
@@ -671,6 +832,43 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
   const activeFilterCount = ['year', 'season', 'category', 'shootType', 'letter']
     .filter(k => filters[k]).length;
 
+  // In designer mode every show is already here, so the filters are applied
+  // in the browser: choosing 2003, or Men, is instant and costs no request.
+  const matchesFilters = useCallback((row, except) => {
+    const want = (key, value) =>
+      except === key || !filters[key] || String(filters[key]) === String(value);
+    return want('gender', row.gender)
+      && want('year', row.year)
+      && want('season', row.season)
+      && want('category', row.category)
+      && want('shootType', row.shoot_type);
+  }, [filters]);
+
+  const visibleCollections = designerMode
+    ? designerRows.filter(r => matchesFilters(r))
+    : collections;
+
+  // Each dropdown lists what is reachable given the *other* filters, so no
+  // combination in designer mode leads to an empty list. Picking Men on a
+  // designer who never showed menswear in 2020 should not leave 2020 on
+  // offer — that is the dead end the archive filters were built to avoid,
+  // and it would be no better here.
+  const designerOptions = (key, field) => {
+    if (!designerMode) return null;
+    const values = designerRows
+      .filter(r => matchesFilters(r, key))
+      .map(r => r[field])
+      .filter(v => v !== null && v !== undefined && v !== '');
+    return [...new Set(values)];
+  };
+
+  const designerYears = designerOptions('year', 'year')?.sort((a, b) => b - a);
+  const designerSeasons = designerOptions('season', 'season')?.sort();
+  const designerCategories = designerOptions('category', 'category');
+  const designerShootTypes = designerOptions('shootType', 'shoot_type');
+
+  const listLoading = designerMode ? designerLoading : collectionsLoading;
+
   const currentLookNumber = images.length > 0
     ? extractLookNumber(images[currentImageIndex], currentImageIndex)
     : 0;
@@ -688,22 +886,76 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
       <div className="hf2-content">
         {/* Sidebar */}
         <div className="hf2-sidebar">
+        {/* Search. One box: type a designer, press Enter, get everything they
+            ever showed. The archive list is organised by season, so a
+            designer's own history across thirty years is the one view the
+            filters below cannot produce at all. */}
+        <div className="hf2-search">
+          <input
+            ref={searchInputRef}
+            type="text"
+            className="hf2-search-input"
+            placeholder={designerIndex ? 'Search designers' : 'Search unavailable'}
+            value={query}
+            disabled={!designerIndex}
+            onChange={(e) => setQuery(e.target.value)}
+            onFocus={() => setSearchFocused(true)}
+            // A click on a suggestion blurs the input first, so closing is
+            // deferred a beat or the option is gone before it is chosen.
+            onBlur={() => setTimeout(() => setSearchFocused(false), 120)}
+            onKeyDown={handleSearchKeyDown}
+            spellCheck={false}
+            autoComplete="off"
+          />
+          {query && (
+            <button type="button" className="hf2-search-clear"
+                    onClick={() => { setQuery(''); searchInputRef.current?.focus(); }}>
+              ✕
+            </button>
+          )}
+
+          {searchFocused && shownSuggestions.length > 0 && (
+            <div className="hf2-search-results">
+              {!query.trim() && (
+                <div className="hf2-search-heading">Recently opened</div>
+              )}
+              {shownSuggestions.map((d, i) => (
+                <button
+                  key={d.id}
+                  type="button"
+                  className={`hf2-search-option ${i === activeSuggestion ? 'active' : ''}`}
+                  onMouseEnter={() => setActiveSuggestion(i)}
+                  onMouseDown={(e) => e.preventDefault()}   // keep focus until the click lands
+                  onClick={() => openDesigner(d)}
+                >{d.name}</button>
+              ))}
+            </div>
+          )}
+          {searchFocused && query.trim() && shownSuggestions.length === 0 && (
+            <div className="hf2-search-results">
+              <div className="hf2-search-empty">No designer by that name</div>
+            </div>
+          )}
+        </div>
+
         {/* Filters. Every one of them is optional and additive: the list
             below starts as the whole archive and each choice narrows it.
             One thin row per filter, left aligned, so five of them cost less
             height than a single scroll wheel did. */}
         <div className="hf2-filters">
-          {/* Gender is the exception — firstVIEW has no "both", and a query
-              without it returns a small bucket of ungendered shows rather
-              than everything. Two values, so a split bar, not a menu. */}
+          {/* Gender is the one filter the archive list cannot leave empty:
+              firstVIEW has no "both", and a query without a gender returns a
+              small bucket of ungendered shows rather than everything.
+              In designer mode that constraint is gone — both genders are
+              already loaded — so All appears and is the default. */}
           <div className="hf2-segmented">
-            {['Women', 'Men'].map(g => (
+            {(designerMode ? ['', 'Women', 'Men'] : ['Women', 'Men']).map(g => (
               <button
-                key={g}
+                key={g || 'all'}
                 type="button"
                 className={`hf2-segment ${g === filters.gender ? 'selected' : ''}`}
                 onClick={() => setFilter('gender', g)}
-              >{g}</button>
+              >{g || 'All'}</button>
             ))}
           </div>
 
@@ -715,7 +967,7 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
               onChange={(e) => setFilter('year', e.target.value)}
             >
               <option value="">All years</option>
-              {years.map(y => <option key={y} value={y}>{y}</option>)}
+              {(designerYears || years).map(y => <option key={y} value={y}>{y}</option>)}
             </select>
           </label>
 
@@ -727,7 +979,7 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
               onChange={(e) => setFilter('season', e.target.value)}
             >
               <option value="">All seasons</option>
-              {seasonsAvailable.map(sn => (
+              {(designerSeasons || seasonsAvailable).map(sn => (
                 <option key={sn} value={sn}>{SEASON_LABELS[sn] || sn}</option>
               ))}
             </select>
@@ -741,7 +993,8 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
               onChange={(e) => setFilter('category', e.target.value)}
             >
               <option value="">All types</option>
-              {GARMENT_TYPES.filter(t => categoriesAvailable.includes(t.value)).map(t => (
+              {GARMENT_TYPES.filter(t => (designerCategories || categoriesAvailable)
+                                             .includes(t.value)).map(t => (
                 <option key={t.value} value={t.value}>{t.label}</option>
               ))}
             </select>
@@ -755,13 +1008,14 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
               onChange={(e) => setFilter('shootType', e.target.value)}
             >
               <option value="">All shoots</option>
-              {SHOOT_TYPES.map(t => (
+              {SHOOT_TYPES.filter(t => !designerShootTypes
+                                       || designerShootTypes.includes(t.value)).map(t => (
                 <option key={t.value} value={t.value}>{t.label}</option>
               ))}
             </select>
           </label>
 
-          <label className="hf2-facet">
+          <label className={`hf2-facet ${designerMode ? 'hidden' : ''}`}>
             <span className="hf2-facet-label">Brand</span>
             <select
               className={`hf2-facet-select ${filters.letter ? 'set' : ''}`}
@@ -788,26 +1042,45 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
         {/* Collections */}
         <div className="hf2-collections-area">
           <div className="hf2-collections-header">
-            <span>Shows</span>
-            {collections.length > 0 && (
+            {designerMode ? (
+              <>
+                <button type="button" className="hf2-designer-exit" onClick={exitDesigner}>
+                  ← Archive
+                </button>
+                <span className="hf2-designer-name" title={designerMode.name}>
+                  {designerMode.name}
+                </span>
+              </>
+            ) : (
+              <span>Shows</span>
+            )}
+            {visibleCollections.length > 0 && (
               <span className="count">
-                {collections.length}{cursor.hasMore ? '+' : ''}
+                {/* In designer mode the filtered count is stated against the
+                    whole, so narrowing never looks like their work vanished. */}
+                {designerMode && visibleCollections.length !== designerRows.length
+                  ? `${visibleCollections.length}/${designerRows.length}`
+                  : `${visibleCollections.length}${!designerMode && cursor.hasMore ? '+' : ''}`}
               </span>
             )}
           </div>
           <div className="hf2-collections-scroll" onScroll={handleListScroll}>
-            {collectionsLoading && collections.length === 0 ? (
+            {listLoading && visibleCollections.length === 0 ? (
               <div className="hf2-collections-loading">Loading…</div>
             ) : listError ? (
               <div className="hf2-collections-error">
                 <span>Could not load shows</span>
                 <span className="detail">{listError}</span>
               </div>
-            ) : collections.length === 0 ? (
-              <div className="hf2-collections-empty">No shows match these filters</div>
+            ) : visibleCollections.length === 0 ? (
+              <div className="hf2-collections-empty">
+                {designerMode
+                  ? `${designerMode.name} has no shows matching these filters`
+                  : 'No shows match these filters'}
+              </div>
             ) : (
               <>
-                {collections.map((col, idx) => (
+                {visibleCollections.map((col, idx) => (
                   <div
                     key={col.collection_id || col.url}
                     className={`hf2-collection-item ${col.url === selectedCollection?.url ? 'selected' : ''}`}
@@ -824,7 +1097,10 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
                     </span>
                   </div>
                 ))}
-                {cursor.hasMore && (
+                {designerMode && designerLoading && (
+                  <div className="hf2-collections-more">Loading more…</div>
+                )}
+                {!designerMode && cursor.hasMore && (
                   <div className="hf2-collections-more">
                     {loadingMore ? 'Loading more…' : 'Scroll for more'}
                   </div>
