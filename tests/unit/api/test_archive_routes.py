@@ -175,3 +175,30 @@ def test_health_reports_the_catalogue_it_actually_read(client):
     assert body["ok"] is True
     assert body["brands_shown"] == 1
     assert body["products"] == 3
+
+
+@pytest.mark.unit
+def test_a_missing_catalogue_says_so_instead_of_inventing_an_empty_one(tmp_path, monkeypatch):
+    """On a host with no disk there is no catalogue. Catalog() would create one, and
+    every endpoint would then succeed with every brand at zero products — an archive
+    that looks like it scraped nothing rather than one that is not there."""
+    roster = tmp_path / "brands.yml"
+    roster.write_text(YML)
+    gone = tmp_path / "nowhere" / "catalog.db"
+    monkeypatch.setattr(archive_routes, "db_path", lambda: gone)
+    monkeypatch.setattr(archive_routes, "app_roster", lambda: _roster(roster))
+
+    app = Flask(__name__)
+    archive_routes.register_archive_routes(app)
+    client = app.test_client()
+
+    for url in (
+        "/api/archive/health",
+        "/api/archive/brands",
+        "/api/archive/products?brand_id=shown.com",
+        "/api/archive/products/search?q=wool",
+    ):
+        status, body = get(client, url)
+        assert status == 503, url
+        assert body["code"] == "NO_CATALOGUE"
+    assert not gone.exists(), "asking for the archive must not create one"

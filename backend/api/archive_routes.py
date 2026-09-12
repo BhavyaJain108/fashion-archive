@@ -37,8 +37,22 @@ def db_path() -> Path:
     return Path(os.environ.get("ARCHIVE_DB") or _ROOT / "backend/archive/data/catalog.db")
 
 
+class NoCatalogue(RuntimeError):
+    """The catalogue is not on this machine.
+
+    Worth its own error because `Catalog` creates a database when the file is missing,
+    which on a host with no disk is the worst possible answer: every endpoint succeeds,
+    every brand reports zero products, and the page looks like an archive that has
+    scraped nothing rather than one that is not there. The scraper writes SQLite on the
+    machine it runs on; serving it elsewhere is the publish step, not this.
+    """
+
+
 def _catalog() -> Catalog:
-    return Catalog(db_path())
+    path = db_path()
+    if not path.exists():
+        raise NoCatalogue(f"no archive catalogue at {path}")
+    return Catalog(path)
 
 
 def _slim(record: dict) -> dict:
@@ -284,9 +298,7 @@ def search_products():
 def get_health():
     """GET /api/archive/health — whether the catalogue is where the app thinks it is."""
     path = db_path()
-    if not path.exists():
-        return jsonify({"ok": False, "db": str(path), "error": "catalogue not found"}), 503
-    catalog = _catalog()
+    catalog = _catalog()  # raises NoCatalogue, which the handler turns into a 503
     try:
         shown = [e.domain for e in app_roster()]
         live = catalog.live_product_counts()
@@ -304,7 +316,12 @@ def get_health():
         catalog.close()
 
 
+def _no_catalogue(error: NoCatalogue):
+    return jsonify({"ok": False, "error": str(error), "code": "NO_CATALOGUE"}), 503
+
+
 def register_archive_routes(app: Flask) -> None:
+    app.register_error_handler(NoCatalogue, _no_catalogue)
     app.add_url_rule("/api/archive/health", "archive_health", get_health, methods=["GET"])
     app.add_url_rule("/api/archive/brands", "archive_brands", get_brands, methods=["GET"])
     app.add_url_rule("/api/archive/brands/<brand_id>", "archive_brand", get_brand, methods=["GET"])
