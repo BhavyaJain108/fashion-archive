@@ -59,17 +59,6 @@ def health_check():
 # REGISTER API MODULES
 # =============================================================================
 
-# 1. Premium Scraper API (unified brand management system)
-try:
-    print("🔧 Registering Premium Scraper API...")
-    from backend.api import register_routes
-    register_routes(app)
-    print("✅ Premium Scraper API registered (22 endpoints)")
-except Exception as e:
-    print(f"❌ Error registering Premium Scraper API: {e}")
-    import traceback
-    traceback.print_exc()
-
 # 2. High Fashion API (seasons, collections, images, videos)
 try:
     print("🔧 Registering High Fashion API...")
@@ -181,7 +170,6 @@ if __name__ == '__main__':
     print("=" * 80)
     print("")
     print("📦 Registered API Groups:")
-    print("  ✓ Premium Scraper API (22 endpoints) - Brand & product management")
     print("  ✓ High Fashion API (7 endpoints) - Seasons, collections, images, videos")
     print("  ✓ Favorites API (6 endpoints) - Favorite looks management (user-specific)")
     print("  ✓ Authentication API (4 endpoints) - User login & sessions")
@@ -191,7 +179,6 @@ if __name__ == '__main__':
     print("")
     print("💡 Quick Start:")
     print("  GET  /api/health - Health check")
-    print("  GET  /api/brands - List all brands")
     print("  POST /api/seasons - Get fashion seasons")
     print("  GET  /api/favourites - Get favorite looks")
     print("")
