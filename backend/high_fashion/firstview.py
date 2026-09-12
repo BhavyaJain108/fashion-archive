@@ -14,10 +14,11 @@ Page chain
            a[href]               collection_image_closeup.php?of={index}
                                    &collection={cid}&image={image_id}
 
-  The mid-def image is derived directly from the image id:
-      /files/photo_mid_def_{image_id}.jpg
-  so the per-look closeup pages never need to be fetched. One request per
-  collection, then one per image.
+  The mid-def image is derived from the thumbnail's own URL by rewriting
+  the filename and keeping the directory, so the per-look closeup pages
+  never need to be fetched. One request per collection, then one per image.
+  Deriving it from the image id instead does not work: older collections
+  live under /files/0/{year}/{cid}/ and only the page knows that.
 
 Access
 ------
@@ -77,14 +78,18 @@ QUALITY_MID_DEF = QUALITY_FULL
 # other depending on its vintage. Both are fully derivable from the
 # collection page, so neither needs the per-look closeup pages.
 #
-#   legacy  /files/photo_thumbnail_{id}.jpg  ->  /files/photo_mid_def_{id}.jpg
-#                                                423 x 634
-#   hashed  /files/{cid}/thumb_{id}-{hash}.jpg -> /files/{cid}/{id}-{hash}.jpg
-#                                                567 x 850
+#   legacy flat      /files/photo_thumbnail_{id}.jpg
+#                 -> /files/photo_mid_def_{id}.jpg              423 x 634
+#   legacy foldered  /files/0/{year}/{cid}/photo_thumbnail_{id}.jpg
+#                 -> /files/0/{year}/{cid}/photo_mid_def_{id}.jpg
+#   hashed           /files/{cid}/thumb_{id}-{hash}.jpg
+#                 -> /files/{cid}/{id}-{hash}.jpg               567 x 850
 #
-# The hash is opaque and identical across both sizes, so the large URL is
-# the thumbnail URL minus its `thumb_` prefix. It cannot be guessed from
-# an image id alone — it must come off the page.
+# All three derive the same way: take the thumbnail URL off the page and
+# rewrite the filename in place. None of them can be rebuilt from an image
+# id alone, because the directory is not a function of the id — which is
+# what made every pre-2019 show download nothing but 404s. The flat form is
+# the foldered form with an empty directory, so one substitution covers both.
 SCHEME_LEGACY = "legacy"
 SCHEME_HASHED = "hashed"
 
@@ -195,9 +200,11 @@ def collection_url(collection_id: str, all_looks: bool = True) -> str:
 def legacy_image_url(image_id: str, quality: str = QUALITY_FULL) -> str:
     """Build a legacy-scheme file URL for an image id.
 
-    Only applies to collections using the `photo_*_{id}.jpg` layout; the
-    hashed scheme cannot be constructed this way. Prefer reading URLs off
-    the collection page via `parse_collection_page`.
+    Only applies to collections whose assets sit flat in /files/. Neither
+    the hashed scheme nor the foldered legacy layout
+    (/files/0/{year}/{cid}/...) can be constructed from an id, because the
+    directory is not derivable from it. Prefer reading URLs off the
+    collection page via `parse_collection_page`, which handles all three.
     """
     if quality == QUALITY_THUMBNAIL:
         return f"{BASE_URL}/files/photo_thumbnail_{image_id}.jpg"
@@ -213,6 +220,18 @@ image_url = legacy_image_url
 def _full_from_hashed_thumb(src: str) -> str:
     """`/files/{cid}/thumb_{id}-{hash}.jpg` -> the same path without `thumb_`."""
     return re.sub(r"/thumb_(?=[^/]+$)", "/", src)
+
+
+def _full_from_legacy_thumb(src: str) -> str:
+    """`.../photo_thumbnail_{id}.jpg` -> `.../photo_mid_def_{id}.jpg`.
+
+    In place, keeping whatever directory the thumbnail was served from.
+    Collections before about 2019 sit under /files/0/{year}/{cid}/ rather
+    than flat in /files/, and rebuilding the URL from the image id threw
+    that directory away — so every look in every older show 404ed while the
+    file sat there under its real path.
+    """
+    return re.sub(r"photo_thumbnail_(?=\d+\.jpg$)", "photo_mid_def_", src)
 
 
 def _parse_popover(data_content: str) -> Dict[str, Optional[str]]:
@@ -267,7 +286,7 @@ def parse_collection_page(html: bytes | str, source_url: str) -> Collection:
         elif legacy:
             image_id = legacy.group(1)
             scheme = SCHEME_LEGACY
-            full_src = f"/files/photo_mid_def_{image_id}.jpg"
+            full_src = _full_from_legacy_thumb(src)
         else:
             continue
 
