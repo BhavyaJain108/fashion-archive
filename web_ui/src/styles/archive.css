@@ -25,7 +25,38 @@
   --ar-font: 'JetBrains Mono', 'SF Mono', 'Monaco', monospace;
 }
 
+/* --- Reset -------------------------------------------------------- */
+
+/* Came from global.css, which this file replaced. The body font was VT323
+   at 24px; nothing renders in that language any more. */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: var(--ar-font);
+  font-size: 12px;
+  background: var(--ar-bg);
+  color: var(--ar-ink-2);
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 /* --- Page shell ---------------------------------------------------- */
+
+/* The outer shell: one box holding whichever page is current, plus the
+   sign-in overlay. Was .columns-container, whose background referred to
+   --mac-bg, a variable nothing ever defined. */
+.ar-app {
+  display: flex;
+  height: 100vh;
+  background: var(--ar-bg);
+}
+
 
 .ar-page {
   display: flex;

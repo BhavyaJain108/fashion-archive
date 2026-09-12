@@ -109,9 +109,9 @@ function App() {
   // a flash of the sign-in form.
   if (!authChecked) {
     return (
-      <div className="columns-container">
-        <div className="loading">
-          <div className="mac-label">Loading Fashion Archive...</div>
+      <div className="ar-page">
+        <div className="ar-loading">
+          <span className="headline">Loading archive</span>
         </div>
       </div>
     );
@@ -125,7 +125,7 @@ function App() {
   };
 
   return (
-    <div className="columns-container">
+    <div className="ar-app">
       {currentPage === 'high-fashion' ? (
         <HighFashionV2 {...pageProps} />
       ) : currentPage === 'my-brands' ? (
