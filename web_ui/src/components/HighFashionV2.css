@@ -1206,3 +1206,47 @@
   cursor: default;
   flex-shrink: 0;
 }
+
+/* Keeping a look. The star sits with the look's own number and count, which
+   is the one place on screen that is about this photograph rather than about
+   the show or the list. */
+.hf2-fav-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1;
+  color: #cccccc;
+  cursor: pointer;
+  padding: 0 6px;
+}
+
+.hf2-fav-btn:hover {
+  color: #000000;
+}
+
+.hf2-fav-btn.on {
+  color: #000000;
+}
+
+/* Kept looks are marked in the strip and the grid, so a show you have been
+   through before shows you where you stopped. A corner rather than an overlay:
+   the photograph is the point. */
+.hf2-thumb.kept::after,
+.hf2-grid-item.kept::after {
+  content: '★';
+  position: absolute;
+  top: 2px;
+  right: 3px;
+  font-size: 9px;
+  line-height: 1;
+  color: #ffffff;
+  text-shadow: 0 0 2px rgba(0, 0, 0, 0.9);
+  pointer-events: none;
+}
+
+.hf2-thumb,
+.hf2-grid-item {
+  position: relative;     /* for the marker above */
+}

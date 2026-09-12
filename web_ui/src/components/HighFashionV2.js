@@ -705,6 +705,81 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
     }
   };
 
+  // Which looks this user has kept.
+  //
+  // Held as a set of "collection url|look number", loaded once, because the
+  // question is asked of every thumbnail on screen — a request per look to
+  // answer "is this one favourited" would be hundreds of requests to draw a
+  // strip. Favourites are per user by construction: the endpoint reads the
+  // session, so there is no user id to pass and no way to see anyone else's.
+  const [favouriteKeys, setFavouriteKeys] = useState(() => new Set());
+  const [favouriteBusy, setFavouriteBusy] = useState(false);
+
+  const favouriteKey = (collectionUrl, lookNumber) => `${collectionUrl}|${lookNumber}`;
+
+  const loadFavourites = useCallback(async () => {
+    const rows = await FashionArchiveAPI.getFavourites();
+    // The list endpoint nests these — collection.url and look.number, not the
+    // flat column names the write side takes. Reading the flat names produced
+    // "undefined|undefined" for every key, so nothing was ever marked as kept
+    // after a reload while the writes themselves looked fine.
+    setFavouriteKeys(new Set(
+      (rows || [])
+        .map(f => favouriteKey(f.collection?.url, f.look?.number))
+        .filter(k => !k.startsWith('undefined'))));
+  }, []);
+
+  useEffect(() => { loadFavourites(); }, [loadFavourites]);
+
+  const isFavourite = (lookNumber) =>
+    !!selectedCollection
+    && favouriteKeys.has(favouriteKey(selectedCollection.url, lookNumber));
+
+  const toggleFavourite = useCallback(async (lookNumber, imagePath) => {
+    if (!selectedCollection || favouriteBusy) return;
+    const key = favouriteKey(selectedCollection.url, lookNumber);
+    const had = favouriteKeys.has(key);
+
+    // Move the marker first: keeping a look should feel instantaneous, and
+    // the request is undone below if it turns out not to have worked.
+    setFavouriteKeys(prev => {
+      const next = new Set(prev);
+      if (had) next.delete(key); else next.add(key);
+      return next;
+    });
+    setFavouriteBusy(true);
+
+    try {
+      if (had) {
+        await FashionArchiveAPI.removeFavourite(
+          selectedCollection.season_url || '', selectedCollection.url, lookNumber);
+      } else {
+        await FashionArchiveAPI.addFavourite(
+          {
+            name: videoSeasonName(selectedCollection),
+            url: selectedCollection.season_url || '',
+            link_text: selectedCollection.subtitle || '',
+          },
+          {
+            designer: selectedCollection.designer_name || selectedCollection.designer,
+            url: selectedCollection.url,
+          },
+          { number: lookNumber, total: images.length },
+          imagePath,
+        );
+      }
+    } catch (error) {
+      console.error('Could not change favourite:', error);
+      setFavouriteKeys(prev => {          // put it back the way it was
+        const next = new Set(prev);
+        if (had) next.add(key); else next.delete(key);
+        return next;
+      });
+    } finally {
+      setFavouriteBusy(false);
+    }
+  }, [selectedCollection, favouriteKeys, favouriteBusy, images.length]);
+
   // Navigation (no wraparound)
   const prevImage = useCallback(() => {
     if (images.length === 0) return;
@@ -731,13 +806,22 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
                  || el.tagName === 'SELECT' || el.isContentEditable)) return;
       if (e.key === '[') { toggleSidebar(); return; }
       if (images.length === 0) return;
+      if (e.key === 'f' || e.key === 'F') {
+        // Derived here rather than read from the render scope: this effect is
+        // declared long before currentLookNumber is, and naming it in the
+        // dependency array below would read it during render, before it
+        // exists.
+        const path = images[currentImageIndex];
+        if (path) toggleFavourite(extractLookNumber(path, currentImageIndex), path);
+        return;
+      }
       if (e.key === 'ArrowLeft') prevImage();
       else if (e.key === 'ArrowRight') nextImage();
       else if (e.key === 'g') setViewMode(v => v === 'grid' ? 'single' : 'grid');
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [images.length, prevImage, nextImage, toggleSidebar]);
+  }, [images, currentImageIndex, prevImage, nextImage, toggleSidebar, toggleFavourite]);
 
   // Center active thumbnail in strip
   useEffect(() => {
@@ -1372,6 +1456,19 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
                 </div>
                 <div className="hf2-image-info">
                   <span className="hf2-look-label">LOOK {String(currentLookNumber).padStart(2, '0')}</span>
+                  {/* Keeping a look was possible in the database and in the API
+                      from the start, and nowhere on the screen. */}
+                  <button
+                    type="button"
+                    className={`hf2-fav-btn ${isFavourite(currentLookNumber) ? 'on' : ''}`}
+                    onClick={() => toggleFavourite(currentLookNumber, images[currentImageIndex])}
+                    title={isFavourite(currentLookNumber)
+                      ? 'Remove from favourites (F)'
+                      : 'Keep this look (F)'}
+                    aria-pressed={isFavourite(currentLookNumber)}
+                  >
+                    {isFavourite(currentLookNumber) ? '★' : '☆'}
+                  </button>
                   <span className="hf2-look-count">{currentImageIndex + 1} / {images.length}</span>
                 </div>
               </div>
@@ -1440,7 +1537,8 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
                 return (
                   <div
                     key={imgPath}
-                    className={`hf2-grid-item ${idx === currentImageIndex ? 'selected' : ''}`}
+                    className={`hf2-grid-item ${idx === currentImageIndex ? 'selected' : ''} ${
+                      isFavourite(lookNum) ? 'kept' : ''}`}
                     onClick={() => selectImageFromGrid(idx)}
                   >
                     <div className="hf2-grid-image-wrapper">
@@ -1466,7 +1564,8 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
                 <div
                   key={imgPath}
                   ref={idx === currentImageIndex ? activeThumbRef : null}
-                  className={`hf2-thumb ${idx === currentImageIndex ? 'active' : ''}`}
+                  className={`hf2-thumb ${idx === currentImageIndex ? 'active' : ''} ${
+                    isFavourite(extractLookNumber(imgPath, idx)) ? 'kept' : ''}`}
                   onClick={() => setCurrentImageIndex(idx)}
                 >
                   <img

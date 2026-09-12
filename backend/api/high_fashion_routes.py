@@ -148,6 +148,23 @@ _SHOOT_SHORT = {
 }
 
 
+def _season_url(gender, year, season):
+    """The results query for one season, or '' when the row does not name one.
+
+    Some shows are catalogued without a season at all, so this has to be
+    allowed to come back empty rather than inventing a query that would
+    return the wrong shows.
+    """
+    if not (gender and year and season):
+        return ''
+    from backend.high_fashion import firstview as fv
+
+    try:
+        return fv.build_search_url(gender=gender, year=int(year), season=season)
+    except Exception:  # noqa: BLE001 — an unknown season is not worth failing a row over
+        return ''
+
+
 def _row_to_dict(r):
     """One results row, with a label that distinguishes near-identical shows.
 
@@ -197,6 +214,10 @@ def _row_to_dict(r):
         'city': r.city,
         'look_count': r.look_count,
         'designer_name': r.designer,
+        # The season this show sits in, as a real query against the site.
+        # Favourites key off it, and building it here keeps firstVIEW's season
+        # ids (1, 2, 3, 5) in the one module that already knows them.
+        'season_url': _season_url(r.gender, r.year, r.season),
     }
 
 
@@ -827,6 +848,7 @@ def _index_row_to_dict(row):
         'category': row.get('category'),
         'shoot_type': row.get('shoot_type'),
         'city': row.get('city'),
+        'season_url': _season_url(row.get('gender'), row.get('year'), row.get('season')),
         'look_count': None,
         'text': '', 'photos': '', 'date': '',
     }
