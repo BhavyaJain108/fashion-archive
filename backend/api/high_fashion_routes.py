@@ -620,11 +620,18 @@ def download_video():
             # was already specific.
             try:
                 verdict = ClaudeVideoVerifier().verify_video_matches(query_text, candidates)
-                if verdict.is_match:
+                if not getattr(verdict, 'available', True):
+                    # The verifier could not run. That is not the same as "no
+                    # video matched" — reading it that way is what made every
+                    # lookup fail while a retired model id went unnoticed.
+                    print(f"video verifier unavailable ({verdict.reasoning}); "
+                          f"taking top result")
+                    chosen = candidates[0]
+                elif verdict.is_match:
                     idx = verdict.best_match_index
                     chosen = candidates[idx] if idx is not None else candidates[0]
             except Exception as exc:  # noqa: BLE001
-                print(f"video verifier unavailable, taking first result: {exc}")
+                print(f"video verifier raised, taking top result: {exc}")
                 chosen = candidates[0]
 
         result = None

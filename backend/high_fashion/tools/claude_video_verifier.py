@@ -47,6 +47,10 @@ class VerificationResult:
     confidence: float
     reasoning: str
     best_match_index: Optional[int] = None
+    # False when the verifier could not run at all. Callers must not read a
+    # failure as "no video matched": that is how a retired model id silently
+    # turned every lookup into "not found".
+    available: bool = True
 
 
 class ClaudeVideoVerifier:
@@ -88,7 +92,12 @@ class ClaudeVideoVerifier:
         try:
             # Call Claude API
             response = self.client.messages.create(
-                model="claude-3-haiku-20240307",
+                # claude-3-haiku-20240307 was retired and returned 404, which
+                # this method caught and reported as is_match=False — so every
+                # lookup looked like "no video matches" rather than a broken
+                # verifier. Haiku is still the right tier: this is a short
+                # classification over five titles.
+                model="claude-haiku-4-5",
                 max_tokens=1000,
                 temperature=0.0,  # Set to 0 for maximum consistency
                 messages=[{
@@ -98,7 +107,8 @@ class ClaudeVideoVerifier:
             )
             
             # Parse response
-            return self._parse_claude_response(response.content[0].text, len(videos))
+            text = next((b.text for b in response.content if b.type == "text"), "")
+            return self._parse_claude_response(text, len(videos))
             
         except Exception as e:
             print(f"Error calling Claude API: {e}")
@@ -106,7 +116,8 @@ class ClaudeVideoVerifier:
                 is_match=False,
                 confidence=0.0,
                 reasoning=f"API call failed: {str(e)}",
-                best_match_index=None
+                best_match_index=None,
+                available=False,
             )
     
     def _create_verification_prompt(self, search_query: str, video_titles: List[str]) -> str:
