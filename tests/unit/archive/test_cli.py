@@ -1,6 +1,8 @@
 import pytest
 
+from backend.archive.runner import cli
 from backend.archive.runner.cli import load_brands, main
+from tests.unit.archive.test_end_to_end import mock_transport  # noqa: E402
 
 YML = """
 brands:
@@ -31,3 +33,74 @@ def test_status_on_an_empty_store_lists_seeded_brands(tmp_path, capsys):
     out = capsys.readouterr().out
     assert code == 0
     assert "kuurth.com" in out and "coltmcr.com" in out and "BRAND" in out
+
+
+@pytest.mark.unit
+def test_a_scrape_fetches_the_photographs_too(tmp_path, monkeypatch, capsys):
+    """Images come with the catalogue by default. Two commands meant the records could
+    drift into being links to other people's servers, which is the thing the archive
+    exists not to be."""
+    called: list[list[str]] = []
+
+    import backend.archive.runner.archive_images as pass_module
+
+    monkeypatch.setattr(cli, "HttpxTransport", lambda *a, **k: mock_transport())
+    monkeypatch.setattr(pass_module, "outstanding", lambda cat, domain: 3)
+    monkeypatch.setattr(
+        pass_module,
+        "archive_all",
+        lambda domains, *a, **k: called.append(list(domains)) or [],
+    )
+
+    brands = tmp_path / "brands.yml"
+    brands.write_text(YML)
+    code = cli.main(
+        [
+            "scrape",
+            "kuurth.com",
+            "--full",
+            "--objects",
+            str(tmp_path / "objects"),
+            "--brands",
+            str(brands),
+            "--locks",
+            str(tmp_path / "locks"),
+            "--logs",
+            str(tmp_path / "logs"),
+        ]
+    )
+    assert code == 0
+    assert called == [["kuurth.com"]], "the image pass did not run"
+
+
+@pytest.mark.unit
+def test_no_images_skips_the_pass(tmp_path, monkeypatch):
+    called: list[list[str]] = []
+
+    import backend.archive.runner.archive_images as pass_module
+
+    monkeypatch.setattr(cli, "HttpxTransport", lambda *a, **k: mock_transport())
+    monkeypatch.setattr(pass_module, "outstanding", lambda cat, domain: 3)
+    monkeypatch.setattr(
+        pass_module, "archive_all", lambda domains, *a, **k: called.append(list(domains)) or []
+    )
+
+    brands = tmp_path / "brands.yml"
+    brands.write_text(YML)
+    cli.main(
+        [
+            "scrape",
+            "kuurth.com",
+            "--full",
+            "--no-images",
+            "--objects",
+            str(tmp_path / "objects"),
+            "--brands",
+            str(brands),
+            "--locks",
+            str(tmp_path / "locks"),
+            "--logs",
+            str(tmp_path / "logs"),
+        ]
+    )
+    assert called == []

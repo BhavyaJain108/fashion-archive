@@ -114,6 +114,13 @@ def main(argv: list[str] | None = None) -> int:
         if name == "daemon":
             sp.add_argument("action", choices=["start", "stop", "status"])
             sp.add_argument("--workers", type=int, default=1)
+            sp.add_argument(
+                "--no-images",
+                action="store_true",
+                help="scrape catalogues only, leaving the photographs to `images`",
+            )
+            sp.add_argument("--gap", type=float, default=0.5)
+            sp.add_argument("--images-dir", type=Path, default=Path("backend/archive/data/images"))
         if name == "brands":
             sp.add_argument("action", choices=["add", "drop", "pause", "resume", "cadence"])
             sp.add_argument("domain", nargs="?")
@@ -149,7 +156,13 @@ def main(argv: list[str] | None = None) -> int:
             sp.add_argument(
                 "--archive-images",
                 action="store_true",
-                help="fetch image bytes during the scrape (normally left to `images`)",
+                help="fetch image bytes inline, product by product (slow; the pass "
+                "that runs afterwards is usually what you want)",
+            )
+            sp.add_argument(
+                "--no-images",
+                action="store_true",
+                help="skip the image pass that otherwise follows the scrape",
             )
             sp.add_argument("--images-dir", type=Path, default=Path("backend/archive/data/images"))
             sp.add_argument(
@@ -323,6 +336,37 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"{b.domain}  exit={code}")
                 worst = max(worst, code)
             _report_spend()
+
+            # The photographs, unless told not to. A record naming an image we do not
+            # hold is a link to someone else's server, and the two halves drifting
+            # apart is what "keep the bytes, not the addresses" was meant to prevent.
+            #
+            # After the catalogue rather than during it: a scrape reads a brand in
+            # about a minute and its photographs take an hour, so fetching inline
+            # would make every scrape wait on the slow half. Two phases, one command.
+            if not args.no_images:
+                from backend.archive.runner.archive_images import archive_all, outstanding
+
+                pending = sum(outstanding(catalog, b.domain) for b in targets)
+                if pending:
+                    print(f"\nimages: {pending} outstanding across {len(targets)} brand(s)")
+                    sink = image_sink(args.images_dir)
+                    results = archive_all(
+                        [b.domain for b in targets],
+                        store,
+                        sink,
+                        gap=args.gap,
+                        width=args.image_width or None,
+                        on_done=lambda o: print(
+                            f"{o.domain:<32}{o.fetched:>7} fetched  "
+                            f"{o.failed} failed  {o.outstanding} left"
+                        ),
+                    )
+                    kept = sum(r.fetched for r in results)
+                    left = sum(r.outstanding for r in results)
+                    print(f"images: {kept} stored, {left} still outstanding")
+                else:
+                    print("\nimages: nothing outstanding")
             return worst
 
         if args.cmd == "images":
@@ -491,6 +535,7 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
             sched.request_stop(False)  # a fresh start clears a previous stop
             catalog.close()
+            budget = HostBudget(gap=args.gap)
 
             def factory(cat):
                 def do_brand(brand):
@@ -502,6 +547,14 @@ def main(argv: list[str] | None = None) -> int:
                         locks_dir=args.locks if hasattr(args, "locks") else Path("locks"),
                         log_dir=Path("backend/archive/data/logs"),
                     )
+                    # The photographs with the catalogue, the same as a hand-run
+                    # scrape. A daemon that kept the records fresh and let the images
+                    # fall behind would be filling the archive with links to other
+                    # people's servers.
+                    if not args.no_images:
+                        from backend.archive.runner.archive_images import archive_brand
+
+                        archive_brand(brand.domain, store, image_sink(args.images_dir), budget)
                     rows = cat.current_products(brand.domain)
                     return [ProductRecord(**cast(Any, r)) for r in rows], 0.0
 
