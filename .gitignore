@@ -17,8 +17,12 @@ dist/
 downloads_cache/
 eggs/
 .eggs/
-lib/
-lib64/
+# Anchored to the root. These come from the Python packaging template, and unanchored
+# they match a directory of that name at any depth — `lib/` was silently swallowing
+# web_ui/src/lib/, so a commit that imported from it compiled for its author and broke
+# master for everyone else.
+/lib/
+/lib64/
 parts/
 sdist/
 var/
