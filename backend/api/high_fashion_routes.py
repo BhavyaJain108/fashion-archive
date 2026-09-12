@@ -337,12 +337,21 @@ def _record_recent(collection_id, payload, images_list=None):
 
 def _cache_lookup(collection_id, quality):
     """A previously stored show, or None. Never raises: a cache that is down
-    should make things slow, not broken."""
+    should make things slow, not broken.
+
+    An entry holding no images counts as a miss, and is dropped. Shows whose
+    looks all failed to download used to be stored as empty and then replayed
+    from that empty entry for good — so a show broken once stayed broken even
+    after the cause was fixed. Treating it as a miss lets those heal on the
+    next open rather than needing anything run against the database.
+    """
     try:
         with db.transaction() as conn:
-            hit = collection_cache.get(
-                conn, collection_id=collection_id, quality=quality
-            )
+            hit = collection_cache.get(conn, collection_id=collection_id, quality=quality)
+            if hit and not hit.get('images'):
+                print(f"cache: dropping empty entry for {collection_id}")
+                collection_cache.forget(conn, collection_id=collection_id)
+                return None
             if hit:
                 collection_cache.touch(conn, collection_id=collection_id)
             return hit
@@ -352,7 +361,15 @@ def _cache_lookup(collection_id, quality):
 
 
 def _cache_store(collection_id, quality, uploaded, meta, store):
-    """Record a freshly fetched show, then trim the cache to its limit."""
+    """Record a freshly fetched show, then trim the cache to its limit.
+
+    A show that produced no images is not recorded. There is nothing to serve
+    from it, and storing it would turn one bad fetch into a permanent empty
+    show — the next open should try again.
+    """
+    if not uploaded:
+        print(f"cache: not storing {collection_id}, no images were downloaded")
+        return
     try:
         with db.transaction() as conn:
             collection_cache.put(

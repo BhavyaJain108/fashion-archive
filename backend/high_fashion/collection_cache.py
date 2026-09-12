@@ -65,6 +65,15 @@ def touch(conn, *, collection_id: str) -> None:
     )
 
 
+def forget(conn, *, collection_id: str) -> None:
+    """Drop one entry without touching R2.
+
+    For entries that should never have been written — an empty one, say.
+    There are no objects to delete, because nothing was ever stored.
+    """
+    conn.execute("DELETE FROM cached_collections WHERE collection_id = %s", (collection_id,))
+
+
 def put(
     conn,
     *,
