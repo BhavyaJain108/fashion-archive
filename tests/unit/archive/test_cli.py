@@ -22,11 +22,12 @@ def test_load_brands(tmp_path):
 
 
 @pytest.mark.unit
-def test_status_on_empty_db_lists_seeded_brands(tmp_path, capsys):
+def test_status_on_an_empty_store_lists_seeded_brands(tmp_path, capsys):
     p = tmp_path / "brands.yml"
     p.write_text(YML)
-    db = tmp_path / "catalog.db"
-    code = main(["status", "--db", str(db), "--brands", str(p)])  # status must not need network
+    objects = tmp_path / "objects"
+    # --objects, not R2: an explicit path is what keeps a test off the real bucket.
+    code = main(["status", "--objects", str(objects), "--brands", str(p)])
     out = capsys.readouterr().out
     assert code == 0
     assert "kuurth.com" in out and "coltmcr.com" in out and "BRAND" in out

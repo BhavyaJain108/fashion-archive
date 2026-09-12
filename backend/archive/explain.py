@@ -12,7 +12,6 @@ Run: python -m backend.archive.explain <domain> <field> [<field> ...] [--url URL
 
 import argparse
 import sys
-from pathlib import Path
 
 from backend.archive import finder_llm as F
 from backend.archive.finder import (
@@ -22,6 +21,7 @@ from backend.archive.finder import (
 )
 from backend.archive.observe import Spend
 from backend.archive.store.catalog import Catalog
+from backend.archive.store.objects import object_store
 from backend.archive.transport import HttpxTransport
 
 _RULE = "─" * 78
@@ -96,7 +96,7 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--url", help="a specific product page; default is one that lacks the field")
     args = ap.parse_args(argv)
 
-    catalog = Catalog(Path("backend/archive/data/catalog.db"))
+    catalog = Catalog(object_store())
     try:
         rows = catalog.current_products(args.domain)
         if args.url:

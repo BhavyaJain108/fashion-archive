@@ -1,8 +1,6 @@
 """The image pass: what it fetches, what it refuses to fetch twice, and where it stops."""
 
-import hashlib
 import json
-import pathlib
 
 import httpx
 import pytest
@@ -11,13 +9,9 @@ from backend.archive.budget import HostBudget
 from backend.archive.domain.brand import Brand
 from backend.archive.domain.product import ProductRecord
 from backend.archive.domain.run import Coverage
-from backend.archive.runner.archive_images import (
-    _resolve,
-    archive_all,
-    archive_brand,
-    outstanding,
-)
+from backend.archive.runner.archive_images import archive_all, archive_brand, outstanding
 from backend.archive.store.catalog import Catalog
+from backend.archive.store.objects import DirectoryObjectStore
 from backend.storage.images import LocalImageStore
 
 COV = Coverage(extracted=2, channel_counts={}, coverage_pct=1.0, field_fill={}, verdict="ok")
@@ -35,8 +29,8 @@ def product(slug, images):
 
 @pytest.fixture()
 def db(tmp_path):
-    path = tmp_path / "catalog.db"
-    catalog = Catalog(path)
+    store = DirectoryObjectStore(tmp_path / "objects")
+    catalog = Catalog(store)
     catalog.upsert_brand(Brand(domain="kuurth.com", homepage_url="https://kuurth.com"))
     run = catalog.open_run("kuurth.com", "full")
     catalog.record_product(
@@ -45,7 +39,7 @@ def db(tmp_path):
     catalog.record_product("kuurth.com", run, product("dory", ["https://cdn.x/c.jpg"]), None)
     catalog.finalize_run(run, 0, COV)
     catalog.close()
-    return path
+    return store
 
 
 @pytest.fixture()
@@ -125,25 +119,6 @@ def test_outstanding_counts_what_is_left_without_fetching(db, sink, no_network):
 
 
 @pytest.mark.unit
-def test_bytes_already_on_disk_are_adopted_rather_than_refetched(db, sink, tmp_path, no_network):
-    """An earlier run left 1,585 photographs in a directory. Asking the shops for them
-    again to move them into the bucket would be a request none of them owes us."""
-    on_disk = tmp_path / "old.jpg"
-    on_disk.write_bytes(JPEG)
-    catalog = Catalog(db)
-    pid = catalog.product_id_for("kuurth.com", "https://kuurth.com/products/nemo")
-    catalog.record_image(pid, "https://cdn.x/a.jpg", str(on_disk), "whatever")
-    catalog.close()
-
-    out = archive_brand("kuurth.com", db, sink, HostBudget(gap=0))
-    assert out.adopted == 1
-    assert out.fetched == 2
-    assert "https://cdn.x/a.jpg" not in no_network
-    key = f"archive/kuurth.com/{hashlib.sha256(JPEG).hexdigest()[:2]}/"
-    assert sink.exists(f"{key}{hashlib.sha256(JPEG).hexdigest()}.jpg")
-
-
-@pytest.mark.unit
 def test_one_brand_failing_does_not_end_the_pass(db, sink, monkeypatch):
     import backend.archive.runner.archive_images as module
 
@@ -156,15 +131,3 @@ def test_one_brand_failing_does_not_end_the_pass(db, sink, monkeypatch):
     results = archive_all(["broken.com", "fine.com"], db, sink, workers=2)
     assert {r.domain for r in results} == {"broken.com", "fine.com"}
     assert sum(r.fetched for r in results) == 1
-
-
-@pytest.mark.unit
-def test_old_image_paths_resolve_beside_the_catalogue_not_the_cwd():
-    """The photographs sit beside the database that indexes them. Resolving against the
-    working directory instead made adoption fail silently from any other directory, and
-    the pass quietly re-downloaded what it already had."""
-    db = pathlib.Path("/srv/archive/backend/archive/data/catalog.db")
-    assert _resolve("backend/archive/data/images/x/aa/b.jpg", db) == pathlib.Path(
-        "/srv/archive/backend/archive/data/images/x/aa/b.jpg"
-    )
-    assert _resolve("/already/absolute.jpg", db) == pathlib.Path("/already/absolute.jpg")

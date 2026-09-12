@@ -1,0 +1,30 @@
+# The scraper's own image, not the API's.
+#
+# 27 of the 32 brands the app shows need only plain HTTP and a bulk-JSON endpoint; the
+# 4 that want a real browser are exactly the 4 that currently produce nothing. So this
+# carries no Chromium and is a few hundred MB rather than a gigabyte. The API's
+# Dockerfile keeps Playwright for the runway scraping, which genuinely needs it.
+#
+# It stores nothing locally. The catalogue and the photographs both go to R2, so the
+# container is disposable and it does not matter whether it runs on a laptop, a VM or
+# a worker.
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Dependencies first, so this layer is cached unless they change. Its own list rather
+# than the API's minus a few lines: subtracting left opencv-python, yt-dlp, numpy and
+# Pillow in an image that opens none of them.
+COPY requirements-scraper.txt .
+RUN pip install --no-cache-dir -r requirements-scraper.txt
+
+COPY backend/__init__.py backend/__init__.py
+COPY backend/archive backend/archive
+COPY backend/storage backend/storage
+COPY config config
+
+# Unbuffered, or a long pass's progress sits in a pipe until it finishes.
+ENV PYTHONUNBUFFERED=1
+
+ENTRYPOINT ["python", "-m", "backend.archive.runner.cli"]
+CMD ["status"]

@@ -5,9 +5,9 @@ Run: python -m backend.archive.report [domain ...]
 """
 
 import sys
-from pathlib import Path
 
 from backend.archive.store.catalog import Catalog
+from backend.archive.store.objects import object_store
 
 FIELDS = (
     "product_title",
@@ -39,7 +39,7 @@ def _lane(catalog: Catalog, domain: str) -> str:
 
 
 def main(argv: list[str]) -> int:
-    catalog = Catalog(Path("backend/archive/data/catalog.db"))
+    catalog = Catalog(object_store())
     try:
         status = {r["domain"]: r for r in catalog.status_rows()}
         domains = argv or [d for d, r in status.items() if r["products"] or r["state"] != "new"]

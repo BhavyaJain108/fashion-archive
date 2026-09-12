@@ -5,16 +5,21 @@ import pytest
 from backend.archive.domain.brand import Brand
 from backend.archive.scheduler import Scheduler
 from backend.archive.store.catalog import Catalog
+from backend.archive.store.objects import DirectoryObjectStore
 
 T0 = datetime(2026, 9, 9, 12, 0, tzinfo=timezone.utc)
 
 
 @pytest.fixture()
 def cat(tmp_path):
-    c = Catalog(tmp_path / "c.db")
+    """The store, not a catalogue. The scheduler reads the control plane directly —
+    it never needed the products, and coupling it to the catalogue was an artefact of
+    both living in one database file."""
+    store = DirectoryObjectStore(tmp_path)
+    catalog = Catalog(store)
     for d in ("kuurth.com", "staud.clothing"):
-        c.upsert_brand(Brand(domain=d, homepage_url=f"https://{d}"))
-    return c
+        catalog.upsert_brand(Brand(domain=d, homepage_url=f"https://{d}"))
+    return store
 
 
 @pytest.mark.unit

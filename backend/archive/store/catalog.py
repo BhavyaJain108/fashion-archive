@@ -1,444 +1,530 @@
-"""The only module that touches the DB (spec §4.4). Append-only runs/observations."""
+"""The only module that touches storage, now over objects instead of a table.
+
+Every method the SQLite version had, with the same name and the same meaning, so
+nothing above this file knows the difference. Underneath, the layout is one object
+per brand per kind, because two workers never scrape the same brand — the claim
+prevents it — so nothing but the control plane is ever contended.
+
+Three things are worth knowing before reading further.
+
+`catalogue/<domain>.json` holds every product with its untouched connector payload.
+The largest is 9.8 MB. It is read once at the start of a run, mutated in memory, and
+flushed — writing it per product would be 9.8 MB per product. So `close()` is
+load-bearing here in a way it was not before.
+
+`catalogue/<domain>.meta.json` holds only counts, state and freshness. The sidebar
+draws 32 brands, and reading 32 catalogues to do it would pull 55 MB over the wire
+for a column of numbers.
+
+`search/<domain>.json` holds the fields a tile and a search need and nothing else.
+A stored record averages 7.8 KB because of that payload; the slim form of a
+500-product brand is 275 KB. Search reads these.
+"""
 
 import json
-import sqlite3
+import secrets
 from datetime import datetime, timezone
-from pathlib import Path
+from typing import Any
 
 from backend.archive.domain.brand import Brand, ScrapePlan
 from backend.archive.domain.run import Coverage
+from backend.archive.store.objects import Conflict, ObjectStore, dumps, loads
 
-_SCHEMA = Path(__file__).parent / "schema.sql"
+FLUSH_EVERY = 200
 
+# One object describing every brand, so the sidebar is one read and not 130.
+FLEET = "fleet.json"
 
-# The run a product must have been seen in to count as still listed: the most recent one
-# that got as far as measuring its own coverage. Written once and used by both the
-# per-brand view and search, which drifted apart the last time they each had their own.
-_LATEST_COVERED = (
-    "(SELECT id FROM runs r WHERE r.domain = p.domain AND r.exit_status IN (0,1) "
-    "AND r.coverage_json IS NOT NULL ORDER BY r.id DESC LIMIT 1)"
+# What a tile and the search box need. The rest of a record is the connector's own
+# payload, kept so a mapping can be re-derived, and meaningless to a browser.
+SEARCH_FIELDS = (
+    "itemurl",
+    "product_title",
+    "product_code",
+    "brand",
+    "price",
+    "full_price",
+    "currency",
+    "in_stock",
+    "main_image_url",
+    "all_images",
+    "size_info",
+    "size_availability",
+    "size_stock_counts",
+    "color_info",
+    "material_info",
+    "description",
+    "additional_tags",
+    *(f"category{i}" for i in range(1, 11)),
 )
-
-
-def _like_escape(needle: str) -> str:
-    """A search box is free text; % and _ in it are letters, not wildcards."""
-    return needle.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-
-
-# Columns added to tables that predate them. Append here rather than editing a line in
-# schema.sql alone, or existing archives never get the column.
-_ADDED_COLUMNS = (("images", "stored_url", "TEXT"),)
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def new_run_id() -> str:
+    """Sortable by time, unique without a counter to hand out.
+
+    The SQLite version used an autoincrementing integer, which an object store has no
+    way to produce. A timestamp plus six hex characters sorts the same way and needs
+    no coordination between workers.
+    """
+    return f"{_now()}-{secrets.token_hex(3)}"
+
+
 class Catalog:
-    def __init__(self, db_path: Path):
-        db_path.parent.mkdir(parents=True, exist_ok=True)
-        # A timeout rather than the 5-second default: the image pass runs several brands
-        # at once, each with its own connection, and WAL still serialises writers. Without
-        # it a busy moment surfaces as "database is locked" instead of a short wait.
-        self._db = sqlite3.connect(db_path, timeout=30.0)
-        self._db.row_factory = sqlite3.Row
-        self._db.execute("PRAGMA journal_mode=WAL")
-        self._db.executescript(_SCHEMA.read_text())
-        self._migrate()
+    def __init__(self, store: ObjectStore):
+        self._store = store
+        # A brand's catalogue, held while a run writes to it. domain -> (products, dirty)
+        self._open: dict[str, dict[str, Any]] = {}
+        self._dirty: set[str] = set()
+        self._pending_observations: dict[tuple[str, str], list[dict]] = {}
+        self._since_flush = 0
+        # Read once per instance. Three fleet views were each fetching it, and a
+        # round trip to the bucket is ~400ms — the sidebar paid for it three times.
+        self._fleet: dict[str, dict] | None = None
 
-    def _migrate(self) -> None:
-        """Columns added after a database already existed.
+    # --- object helpers ---
+    def _read(self, key: str, default: Any = None) -> Any:
+        found = self._store.get(key)
+        return loads(found[0]) if found else default
 
-        `CREATE TABLE IF NOT EXISTS` does nothing to a table that is already there, so a
-        new column in schema.sql reaches a fresh database and no other. Every archive
-        older than the change would keep running against a table missing the column, and
-        fail on the first query that named it.
-        """
-        for table, column, decl in _ADDED_COLUMNS:
-            names = {r["name"] for r in self._db.execute(f"PRAGMA table_info({table})")}
-            if column not in names:
-                self._db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
-        self._db.commit()
+    def _write(self, key: str, value: Any) -> None:
+        self._store.put(key, dumps(value))
 
     def close(self) -> None:
-        self._db.close()
+        self.flush()
 
     # --- brands ---
     def upsert_brand(self, brand: Brand) -> None:
-        self._db.execute(
-            "INSERT INTO brands (domain, homepage_url, display_name, notes) VALUES (?,?,?,?) "
-            "ON CONFLICT(domain) DO UPDATE SET homepage_url=excluded.homepage_url, "
-            "display_name=excluded.display_name, notes=excluded.notes",
-            (brand.domain, brand.homepage_url, brand.display_name, brand.notes),
+        key = f"brands/{brand.domain}.json"
+        existing = self._read(key, {})
+        state = existing.get("state", "new")
+        self._write(
+            key,
+            {
+                "domain": brand.domain,
+                "homepage_url": brand.homepage_url,
+                "display_name": brand.display_name,
+                "notes": brand.notes,
+                "state": state,
+            },
         )
-        self._db.commit()
+        if brand.domain not in self.fleet():
+            # An entry from the start, even at zero. Otherwise the fleet object
+            # describes only brands that have run, and reading the rest cost one
+            # request each — 2 seconds to say five brands have no products.
+            self._merge_into_fleet(
+                brand.domain,
+                {
+                    "domain": brand.domain,
+                    "products": 0,
+                    "live_products": 0,
+                    "images": 0,
+                    "state": state,
+                    "freshness": None,
+                    "mode": None,
+                    "coverage_pct": None,
+                    "verdict": None,
+                },
+            )
 
     def get_brand(self, domain: str) -> Brand | None:
-        row = self._db.execute("SELECT * FROM brands WHERE domain=?", (domain,)).fetchone()
+        row = self._read(f"brands/{domain}.json")
         if not row:
             return None
         return Brand(
             domain=row["domain"],
             homepage_url=row["homepage_url"],
-            display_name=row["display_name"],
-            notes=row["notes"],
+            display_name=row.get("display_name"),
+            notes=row.get("notes"),
         )
 
     def list_brands(self) -> list[Brand]:
-        rows = self._db.execute("SELECT * FROM brands ORDER BY domain").fetchall()
         return [
-            Brand(
-                domain=r["domain"],
-                homepage_url=r["homepage_url"],
-                display_name=r["display_name"],
-                notes=r["notes"],
-            )
-            for r in rows
+            b
+            for b in (self.get_brand(self._domain_of(k)) for k in self._store.list("brands/"))
+            if b is not None
         ]
 
+    @staticmethod
+    def _domain_of(key: str) -> str:
+        return key.split("/", 1)[1].removesuffix(".json")
+
     def set_brand_state(self, domain: str, state: str) -> None:
-        self._db.execute("UPDATE brands SET state=? WHERE domain=?", (state, domain))
-        self._db.commit()
+        key = f"brands/{domain}.json"
+        row = self._read(key, {"domain": domain, "homepage_url": f"https://{domain}"})
+        row["state"] = state
+        self._write(key, row)
+        entry = dict(self.fleet().get(domain, {"domain": domain, "products": 0}))
+        entry["state"] = state
+        self._merge_into_fleet(domain, entry)
 
     def get_brand_state(self, domain: str) -> str:
-        row = self._db.execute("SELECT state FROM brands WHERE domain=?", (domain,)).fetchone()
-        return row["state"] if row else "new"
+        entry = self.fleet().get(domain)
+        if entry and entry.get("state"):
+            return str(entry["state"])
+        return str(self._read(f"brands/{domain}.json", {}).get("state", "new"))
 
     # --- plans ---
     def save_plan(self, plan: ScrapePlan) -> None:
-        self._db.execute(
-            "INSERT INTO scrape_plans (domain, plan_json, fingerprinted_at) VALUES (?,?,?) "
-            "ON CONFLICT(domain) DO UPDATE SET plan_json=excluded.plan_json, "
-            "fingerprinted_at=excluded.fingerprinted_at",
-            (plan.domain, plan.model_dump_json(), plan.fingerprinted_at),
+        self._write(
+            f"plans/{plan.domain}.json",
+            {"plan": json.loads(plan.model_dump_json()), "fingerprinted_at": _now()},
         )
-        self._db.commit()
 
     def load_plan(self, domain: str) -> ScrapePlan | None:
-        row = self._db.execute(
-            "SELECT plan_json FROM scrape_plans WHERE domain=?", (domain,)
-        ).fetchone()
-        return ScrapePlan.model_validate_json(row["plan_json"]) if row else None
+        row = self._read(f"plans/{domain}.json")
+        return ScrapePlan(**row["plan"]) if row else None
 
     # --- runs ---
-    def open_run(self, domain: str, mode: str) -> int:
-        cur = self._db.execute(
-            "INSERT INTO runs (domain, mode, started_at) VALUES (?,?,?)", (domain, mode, _now())
+    def open_run(self, domain: str, mode: str) -> str:
+        run_id = new_run_id()
+        self._write(
+            f"runs/{domain}/{run_id}.json",
+            {
+                "id": run_id,
+                "domain": domain,
+                "mode": mode,
+                "started_at": _now(),
+                "finished_at": None,
+                "exit_status": None,
+                "coverage": None,
+            },
         )
-        self._db.commit()
-        assert cur.lastrowid is not None  # an INSERT always yields one
-        return cur.lastrowid
+        index = self._read(f"runs/{domain}/index.json", {"runs": []})
+        index["runs"].append(run_id)
+        self._write(f"runs/{domain}/index.json", index)
+        return run_id
 
-    def finalize_run(self, run_id: int, exit_status: int, coverage: Coverage | None) -> None:
-        self._db.execute(
-            "UPDATE runs SET finished_at=?, exit_status=?, coverage_json=? WHERE id=?",
-            (_now(), exit_status, coverage.model_dump_json() if coverage else None, run_id),
-        )
-        self._db.commit()
+    def run_ids(self, domain: str) -> list[str]:
+        return sorted(self._read(f"runs/{domain}/index.json", {"runs": []})["runs"])
+
+    def _run(self, domain: str, run_id: str) -> dict | None:
+        return self._read(f"runs/{domain}/{run_id}.json")
+
+    def _domain_of_run(self, run_id: str) -> str | None:
+        for key in self._store.list("runs/"):
+            if key.endswith(f"/{run_id}.json"):
+                return key.split("/")[1]
+        return None
+
+    def finalize_run(self, run_id: str, exit_status: int, coverage: Coverage | None) -> None:
+        domain = self._domain_of_run(run_id)
+        if domain is None:
+            return
+        self.flush()
+        row = self._run(domain, run_id) or {}
+        row["finished_at"] = _now()
+        row["exit_status"] = exit_status
+        row["coverage"] = json.loads(coverage.model_dump_json()) if coverage else None
+        self._write(f"runs/{domain}/{run_id}.json", row)
+        # After the run row, not before. Both of these filter on the latest covered
+        # run, and during the flush above this run had no coverage yet — so they would
+        # have matched the previous run and left the index describing products that
+        # were no longer the current ones. On a brand's second run that emptied it.
+        self._write_search_index(domain)
+        self._refresh_meta(domain)
 
     def latest_run(self, domain: str) -> dict | None:
-        row = self._db.execute(
-            "SELECT * FROM runs WHERE domain=? ORDER BY id DESC LIMIT 1", (domain,)
-        ).fetchone()
-        return dict(row) if row else None
+        for run_id in reversed(self.run_ids(domain)):
+            row = self._run(domain, run_id)
+            if row and row.get("exit_status") is not None:
+                return row
+        return None
 
-    # --- products & observations ---
-    def record_product(self, domain: str, run_id: int, record, change_hint: str | None) -> bool:
+    def _latest_covered_run(self, domain: str) -> str | None:
+        """The run a product must have been seen in to count as still listed.
+
+        The most recent one that got as far as measuring its own coverage. A run that
+        never reached the catalogue — rate limited, or its plan failed — finalises
+        without coverage, and treating it as the reference made 500 stored products
+        stop being current: the records were still there, they had just stopped being
+        visible. A run that did read the catalogue and did not see a product still
+        delists it, which is the point of this view.
+        """
+        for run_id in reversed(self.run_ids(domain)):
+            row = self._run(domain, run_id)
+            if row and row.get("exit_status") in (0, 1) and row.get("coverage") is not None:
+                return run_id
+        return None
+
+    # --- the catalogue ---
+    def _catalogue(self, domain: str) -> dict[str, Any]:
+        if domain not in self._open:
+            self._open[domain] = self._read(f"catalogue/{domain}.json", {"products": {}})
+        return self._open[domain]
+
+    def record_product(self, domain: str, run_id: str, record, change_hint: str | None) -> bool:
         from backend.archive.domain.product import WATCHED_FIELDS
 
-        row = self._db.execute(
-            "SELECT id, current_json FROM products WHERE domain=? AND itemurl=?",
-            (domain, record.itemurl),
-        ).fetchone()
-        record_json = record.model_dump_json()
+        products = self._catalogue(domain)["products"]
+        current = json.loads(record.model_dump_json())
+        previous = products.get(record.itemurl)
         changed = True
-        if row:
-            prev = json.loads(row["current_json"])
-            cur = record.model_dump()
-            changed = any(prev.get(f) != cur.get(f) for f in WATCHED_FIELDS)
-            self._db.execute(
-                "UPDATE products SET last_seen_run=?, change_hint=?, current_json=? WHERE id=?",
-                (run_id, change_hint, record_json, row["id"]),
+        if previous:
+            changed = any(previous["record"].get(f) != current.get(f) for f in WATCHED_FIELDS)
+            previous.update(
+                {"record": current, "change_hint": change_hint, "last_seen_run": run_id}
             )
-            product_id = row["id"]
         else:
-            cur_ = self._db.execute(
-                "INSERT INTO products (domain, itemurl, product_code, change_hint, "
-                "first_seen_run, last_seen_run, current_json) VALUES (?,?,?,?,?,?,?)",
-                (
-                    domain,
-                    record.itemurl,
-                    record.product_code,
-                    change_hint,
-                    run_id,
-                    run_id,
-                    record_json,
-                ),
-            )
-            product_id = cur_.lastrowid
+            products[record.itemurl] = {
+                "record": current,
+                "product_code": record.product_code,
+                "change_hint": change_hint,
+                "first_seen_run": run_id,
+                "last_seen_run": run_id,
+            }
         if changed:
-            self._db.execute(
-                "INSERT INTO observations (product_id, run_id, price, full_price, in_stock, size_availability) "
-                "VALUES (?,?,?,?,?,?)",
-                (
-                    product_id,
-                    run_id,
-                    record.price,
-                    record.full_price,
-                    None if record.in_stock is None else int(record.in_stock),
-                    record.size_availability,
-                ),
+            self._pending_observations.setdefault((domain, run_id), []).append(
+                {
+                    "itemurl": record.itemurl,
+                    "price": record.price,
+                    "full_price": record.full_price,
+                    "in_stock": None if record.in_stock is None else int(record.in_stock),
+                    "size_availability": record.size_availability,
+                }
             )
-        self._db.commit()
+        self._dirty.add(domain)
+        self._since_flush += 1
+        if self._since_flush >= FLUSH_EVERY:
+            self.flush()
         return changed
 
-    def mark_seen(self, domain: str, run_id: int, urls: list[str]) -> None:
-        self._db.executemany(
-            "UPDATE products SET last_seen_run=? WHERE domain=? AND itemurl=?",
-            [(run_id, domain, u) for u in urls],
-        )
-        self._db.commit()
+    def flush(self) -> None:
+        """Write what is held in memory.
+
+        Called every FLUSH_EVERY products and on close. A run killed between flushes
+        loses at most that many products, where the SQLite version lost none — which
+        is the cost of not writing a 9.8 MB object per product, and acceptable because
+        a killed run is re-run from the start rather than resumed.
+        """
+        for domain in sorted(self._dirty):
+            self._write(f"catalogue/{domain}.json", self._open[domain])
+            self._write_search_index(domain)
+            self._refresh_meta(domain)
+        self._dirty.clear()
+        for (domain, run_id), rows in sorted(self._pending_observations.items()):
+            key = f"history/{domain}/{run_id}.json"
+            held = self._read(key, {"observations": []})
+            held["observations"].extend(rows)
+            self._write(key, held)
+        self._pending_observations.clear()
+        self._since_flush = 0
+
+    def _write_search_index(self, domain: str) -> None:
+        products = self._catalogue(domain)["products"]
+        live = self._latest_covered_run(domain)
+        slim = [
+            {k: row["record"].get(k) for k in SEARCH_FIELDS}
+            for row in products.values()
+            if live is None or row["last_seen_run"] == live
+        ]
+        self._write(f"search/{domain}.json", {"products": slim})
+
+    def _refresh_meta(self, domain: str) -> None:
+        products = self._catalogue(domain)["products"]
+        live = self._latest_covered_run(domain)
+        latest = self.latest_run(domain)
+        coverage = (latest or {}).get("coverage") or {}
+        meta = {
+            "domain": domain,
+            "products": len(products),
+            "live_products": sum(
+                1 for r in products.values() if live and r["last_seen_run"] == live
+            ),
+            "images": self.stored_image_count(domain),
+            "state": self.get_brand_state(domain),
+            "freshness": (latest or {}).get("finished_at"),
+            "mode": (latest or {}).get("mode"),
+            "coverage_pct": coverage.get("coverage_pct"),
+            "verdict": coverage.get("verdict"),
+        }
+        self._write(f"catalogue/{domain}.meta.json", meta)
+        self._merge_into_fleet(domain, meta)
+
+    def _merge_into_fleet(self, domain: str, meta: dict, attempts: int = 5) -> None:
+        """Keep one object describing every brand.
+
+        The sidebar is a single view and so it is a single read. Assembled from the
+        per-brand objects it took 130 sequential round trips and 21.6 seconds — what
+        had been one SQL query became one request per brand per kind.
+
+        Two workers finishing different brands both rewrite this, so it is a
+        compare-and-swap with a retry: read, merge only this brand's entry, write if
+        unchanged, and on refusal read again. Merging one entry rather than writing the
+        whole map is what makes a retry safe.
+        """
+        for _ in range(attempts):
+            found = self._store.get(FLEET)
+            fleet = loads(found[0]) if found else {}
+            etag = found[1] if found else None
+            fleet[domain] = meta
+            try:
+                self._store.put(FLEET, dumps(fleet), if_match=etag)
+                self._fleet = fleet
+                return
+            except Conflict:
+                continue
+
+    def mark_seen(self, domain: str, run_id: str, urls: list[str]) -> None:
+        products = self._catalogue(domain)["products"]
+        for url in urls:
+            if url in products:
+                products[url]["last_seen_run"] = run_id
+        self._dirty.add(domain)
 
     def get_change_hints(self, domain: str) -> dict[str, str]:
-        rows = self._db.execute(
-            "SELECT itemurl, change_hint FROM products WHERE domain=? AND change_hint IS NOT NULL",
-            (domain,),
-        ).fetchall()
-        return {r["itemurl"]: r["change_hint"] for r in rows}
-
-    def observation_count(self, domain: str) -> int:
-        return self._db.execute(
-            "SELECT COUNT(*) c FROM observations o JOIN products p ON p.id=o.product_id WHERE p.domain=?",
-            (domain,),
-        ).fetchone()["c"]
-
-    def current_products(self, domain: str, live_only: bool = True) -> list[dict]:
-        if live_only:
-            # The most recent run that got as far as measuring its own coverage. A run
-            # that never reached the catalogue — rate limited, or its plan failed —
-            # finalises without coverage, and treating it as the reference made 500
-            # stored products stop being "current": the rows were still here, they had
-            # just stopped being visible. A run that did read the catalogue and did not
-            # see a product still delists it, which is the point of this view.
-            latest = self._db.execute(
-                "SELECT id FROM runs WHERE domain=? AND exit_status IN (0,1) "
-                "AND coverage_json IS NOT NULL ORDER BY id DESC LIMIT 1",
-                (domain,),
-            ).fetchone()
-            if not latest:
-                return []
-            rows = self._db.execute(
-                "SELECT current_json FROM products WHERE domain=? AND last_seen_run=?",
-                (domain, latest["id"]),
-            ).fetchall()
-        else:
-            rows = self._db.execute(
-                "SELECT current_json FROM products WHERE domain=?", (domain,)
-            ).fetchall()
-        return [json.loads(r["current_json"]) for r in rows]
-
-    # --- learned field rules ---
-    def rewrite_field(self, domain: str, field: str, value) -> int:
-        """Set one field to one value across a brand's current products.
-
-        Used when a check over the whole catalogue shows a field was mapped from the
-        wrong place — that verdict can only be reached once every product is in, so the
-        repair happens after the run rather than per product.
-        """
-        rows = self._db.execute(
-            "SELECT id, current_json FROM products WHERE domain=?", (domain,)
-        ).fetchall()
-        for row in rows:
-            record = json.loads(row["current_json"])
-            record[field] = value
-            self._db.execute(
-                "UPDATE products SET current_json=? WHERE id=?",
-                (json.dumps(record), row["id"]),
-            )
-        self._db.commit()
-        return len(rows)
-
-    def record_requests(self, rows: list[tuple]) -> None:
-        """Store a batch of (host, status, latency_ms, retry_after, at) observations."""
-        if not rows:
-            return
-        self._db.executemany(
-            "INSERT INTO requests (host, status, latency_ms, retry_after, at) VALUES (?,?,?,?,?)",
-            rows,
-        )
-        self._db.commit()
-
-    def host_stats(self, since: str | None = None) -> list[dict]:
-        """How each host has been answering us."""
-        where = "WHERE at >= ?" if since else ""
-        args = (since,) if since else ()
-        return [
-            dict(r)
-            for r in self._db.execute(
-                f"SELECT host, COUNT(*) AS requests, "
-                f"  SUM(status = 200) AS ok, "
-                f"  SUM(status IN (429, 503)) AS busy, "
-                f"  SUM(status IN (401, 403)) AS refused, "
-                f"  SUM(status IS NULL) AS errored, "
-                f"  CAST(AVG(latency_ms) AS INTEGER) AS avg_ms, "
-                f"  MAX(retry_after) AS max_retry_after "
-                f"FROM requests {where} GROUP BY host ORDER BY requests DESC",
-                args,
-            )
-        ]
-
-    def extraction_version_for(self, domain: str) -> str | None:
-        row = self._db.execute(
-            "SELECT version FROM extraction_versions WHERE domain=?", (domain,)
-        ).fetchone()
-        return row["version"] if row else None
-
-    def set_extraction_version(self, domain: str, version: str) -> None:
-        self._db.execute(
-            "INSERT INTO extraction_versions (domain, version, seen_at) VALUES (?,?,?) "
-            "ON CONFLICT(domain) DO UPDATE SET version=excluded.version, "
-            "seen_at=excluded.seen_at",
-            (domain, version, datetime.now(timezone.utc).isoformat()),
-        )
-        self._db.commit()
-
-    def save_scorecard(self, run_id: int, domain: str, card) -> None:
-        self._db.execute(
-            "INSERT INTO scorecards (run_id, domain, card_json, scored_at) VALUES (?,?,?,?) "
-            "ON CONFLICT(run_id) DO UPDATE SET card_json=excluded.card_json, "
-            "scored_at=excluded.scored_at",
-            (run_id, domain, json.dumps(card.as_dict()), datetime.now(timezone.utc).isoformat()),
-        )
-        self._db.commit()
-
-    def scorecards(self, domain: str, limit: int = 20) -> list[dict]:
-        return [
-            {**json.loads(r["card_json"]), "run_id": r["run_id"], "scored_at": r["scored_at"]}
-            for r in self._db.execute(
-                "SELECT run_id, card_json, scored_at FROM scorecards WHERE domain=? "
-                "ORDER BY run_id DESC LIMIT ?",
-                (domain, limit),
-            )
-        ]
-
-    def record_evidence(self, domain: str, run_id: int, rows: list[tuple]) -> None:
-        """Store what this run searched, per field and source. The latest run wins."""
-        now = datetime.now(timezone.utc).isoformat()
-        self._db.executemany(
-            "INSERT INTO field_evidence (domain, field, source, examined, found, run_id, "
-            "searched_at) VALUES (?,?,?,?,?,?,?) "
-            "ON CONFLICT(domain, field, source) DO UPDATE SET "
-            "examined=excluded.examined, found=excluded.found, run_id=excluded.run_id, "
-            "searched_at=excluded.searched_at",
-            [(domain, f, src, n, hits, run_id, now) for f, src, n, hits in rows],
-        )
-        self._db.commit()
-
-    def load_evidence(self, domain: str) -> dict[tuple[str, str], tuple[int, int]]:
         return {
-            (r["field"], r["source"]): (r["examined"], r["found"])
-            for r in self._db.execute(
-                "SELECT field, source, examined, found FROM field_evidence WHERE domain=?",
-                (domain,),
-            )
+            url: row["change_hint"]
+            for url, row in self._catalogue(domain)["products"].items()
+            if row.get("change_hint") is not None
         }
 
+    def observation_count(self, domain: str) -> int:
+        self.flush()
+        total = 0
+        for key in self._store.list(f"history/{domain}/"):
+            total += len(self._read(key, {"observations": []})["observations"])
+        return total
+
+    def current_products(self, domain: str, live_only: bool = True) -> list[dict]:
+        products = self._catalogue(domain)["products"]
+        if not live_only:
+            return [row["record"] for row in products.values()]
+        live = self._latest_covered_run(domain)
+        if live is None:
+            return []
+        return [row["record"] for row in products.values() if row["last_seen_run"] == live]
+
+    def rewrite_field(self, domain: str, field: str, value) -> int:
+        """Set one field to one value across a brand's products.
+
+        Used when a check over the whole catalogue shows a field was mapped from the
+        wrong place — a verdict only reachable once every product is in, so the repair
+        happens after the run rather than per product.
+        """
+        products = self._catalogue(domain)["products"]
+        for row in products.values():
+            row["record"][field] = value
+        self._dirty.add(domain)
+        self.flush()
+        return len(products)
+
+    def search_products(
+        self, domains: list[str], needle: str, limit: int = 200
+    ) -> list[tuple[str, dict]]:
+        """Products of these brands whose slim record mentions `needle`.
+
+        Over search/<domain>.json rather than the catalogues: the question is asked
+        about titles, materials, colours and categories interchangeably, all of which
+        are in the slim form, and the full records are 200 times the bytes.
+        """
+        if not domains or not needle:
+            return []
+        self.flush()
+        wanted = needle.lower()
+        hits: list[tuple[str, dict]] = []
+        for domain in domains:
+            for record in self._read(f"search/{domain}.json", {"products": []})["products"]:
+                if wanted in dumps(record).decode().lower():
+                    hits.append((domain, record))
+                    if len(hits) >= limit:
+                        return hits
+        return hits
+
+    # --- learned field rules ---
     def save_recipe_book(self, book) -> None:
-        self._db.execute(
-            "INSERT INTO recipe_books (domain, book_json, learned_at) VALUES (?,?,?) "
-            "ON CONFLICT(domain) DO UPDATE SET book_json=excluded.book_json, "
-            "learned_at=excluded.learned_at",
-            (book.domain, book.model_dump_json(), book.learned_at),
+        self._write(
+            f"rules/{book.domain}.json",
+            {"book": json.loads(book.model_dump_json()), "learned_at": _now()},
         )
-        self._db.commit()
 
     def load_recipe_book(self, domain: str):
         from backend.archive.domain.recipe import RecipeBook
 
-        row = self._db.execute(
-            "SELECT book_json FROM recipe_books WHERE domain=?", (domain,)
-        ).fetchone()
-        return RecipeBook.model_validate_json(row["book_json"]) if row else None
+        row = self._read(f"rules/{domain}.json")
+        return RecipeBook(**row["book"]) if row else None
+
+    # --- evidence ---
+    def record_evidence(self, domain: str, run_id: str, rows: list[tuple]) -> None:
+        key = f"evidence/{domain}.json"
+        held = self._read(key, {})
+        for field, source, examined, found in rows:
+            held[f"{field}|{source}"] = {
+                "examined": examined,
+                "found": found,
+                "run_id": run_id,
+                "searched_at": _now(),
+            }
+        self._write(key, held)
+
+    def load_evidence(self, domain: str) -> dict[tuple[str, str], tuple[int, int]]:
+        held = self._read(f"evidence/{domain}.json", {})
+        out = {}
+        for pair, row in held.items():
+            field, source = pair.split("|", 1)
+            out[(field, source)] = (row["examined"], row["found"])
+        return out
 
     # --- images ---
-    def product_id_for(self, domain: str, itemurl: str) -> int | None:
-        row = self._db.execute(
-            "SELECT id FROM products WHERE domain=? AND itemurl=?", (domain, itemurl)
-        ).fetchone()
-        return row["id"] if row else None
-
-    def known_image_urls(self, product_id: int) -> set[str]:
-        rows = self._db.execute(
-            "SELECT url FROM images WHERE product_id=?", (product_id,)
-        ).fetchall()
-        return {r["url"] for r in rows}
-
-    def stored_image_urls(self, product_id: int) -> set[str]:
-        """Source URLs for this product whose bytes we already hold."""
-        rows = self._db.execute(
-            "SELECT url FROM images WHERE product_id=? AND stored_url IS NOT NULL",
-            (product_id,),
-        ).fetchall()
-        return {r["url"] for r in rows}
+    def _images(self, domain: str) -> dict[str, list[dict]]:
+        return self._read(f"images/{domain}.json", {})
 
     def record_image(
         self,
-        product_id: int,
+        domain: str,
+        itemurl: str,
         url: str,
-        local_path: str,
         content_hash: str,
         stored_url: str | None = None,
     ) -> None:
-        # Upsert rather than INSERT OR IGNORE: an image first archived to a directory and
-        # later uploaded is the same row learning where it is served from, not a new one.
-        self._db.execute(
-            "INSERT INTO images (product_id, url, local_path, content_hash, stored_url) "
-            "VALUES (?,?,?,?,?) ON CONFLICT(product_id, url) DO UPDATE SET "
-            "local_path=excluded.local_path, content_hash=excluded.content_hash, "
-            "stored_url=COALESCE(excluded.stored_url, images.stored_url)",
-            (product_id, url, local_path, content_hash, stored_url),
-        )
-        self._db.commit()
+        key = f"images/{domain}.json"
+        held = self._read(key, {})
+        rows = held.setdefault(itemurl, [])
+        for row in rows:
+            if row["url"] == url:
+                row["content_hash"] = content_hash
+                row["stored_url"] = stored_url or row.get("stored_url")
+                break
+        else:
+            rows.append({"url": url, "content_hash": content_hash, "stored_url": stored_url})
+        self._write(key, held)
+
+    def known_image_urls(self, domain: str, itemurl: str) -> set[str]:
+        return {row["url"] for row in self._images(domain).get(itemurl, [])}
+
+    def stored_image_urls(self, domain: str, itemurl: str) -> set[str]:
+        return {
+            row["url"] for row in self._images(domain).get(itemurl, []) if row.get("stored_url")
+        }
 
     def archived_images(self, domain: str) -> dict[str, list[str]]:
-        """Local image files per product, keyed by itemurl.
+        """Where we serve each product's photographs from, keyed by itemurl.
 
-        The CDN URL in a record is the shop's copy and can stop resolving; these are the
-        bytes we kept. The app offers them as the fallback when the live one 404s, which
-        is the whole reason the files are archived rather than only their addresses.
+        The URL in a record is the shop's copy and can stop resolving; these are the
+        bytes we kept, which is the whole reason the files are archived rather than
+        only their addresses.
         """
-        rows = self._db.execute(
-            "SELECT p.itemurl, i.stored_url FROM images i JOIN products p ON p.id=i.product_id "
-            "WHERE p.domain=? AND i.stored_url IS NOT NULL ORDER BY i.id",
-            (domain,),
-        ).fetchall()
-        out: dict[str, list[str]] = {}
-        for r in rows:
-            out.setdefault(r["itemurl"], []).append(r["stored_url"])
+        out = {}
+        for itemurl, rows in self._images(domain).items():
+            urls = [r["stored_url"] for r in rows if r.get("stored_url")]
+            if urls:
+                out[itemurl] = urls
         return out
 
-    def images_awaiting_archive(self, domain: str) -> list[tuple[int, str, list[str]]]:
-        """(product_id, itemurl, image urls not yet stored) for this brand's live products.
+    def images_awaiting_archive(self, domain: str) -> list[tuple[str, list[str]]]:
+        """(itemurl, image urls not yet stored) for this brand's live products.
 
-        The unit of work for the image pass. Driven off what the records say rather than
-        off the run that wrote them, so it can be re-run at any time, in any order, and
-        picks up exactly what is still missing.
+        Driven off what the records say rather than off the run that wrote them, so the
+        image pass can be re-run at any time and picks up exactly what is missing.
         """
-        done: dict[int, set[str]] = {}
-        for r in self._db.execute(
-            "SELECT i.product_id, i.url FROM images i JOIN products p ON p.id=i.product_id "
-            "WHERE p.domain=? AND i.stored_url IS NOT NULL",
-            (domain,),
-        ):
-            done.setdefault(r["product_id"], set()).add(r["url"])
-
+        held = self._images(domain)
         work = []
-        for row in self._db.execute(
-            f"SELECT p.id, p.itemurl, p.current_json FROM products p "
-            f"WHERE p.domain=? AND p.last_seen_run = {_LATEST_COVERED}",
-            (domain,),
-        ):
-            record = json.loads(row["current_json"])
+        for record in self.current_products(domain):
+            itemurl = record.get("itemurl", "")
+            done = {r["url"] for r in held.get(itemurl, []) if r.get("stored_url")}
             raw = record.get("all_images")
             try:
                 urls = json.loads(raw) if isinstance(raw, str) else (raw or [])
@@ -446,95 +532,123 @@ class Catalog:
                 urls = []
             if not isinstance(urls, list):
                 urls = []
-            missing = [u for u in urls if isinstance(u, str) and u not in done.get(row["id"], ())]
+            missing = [u for u in urls if isinstance(u, str) and u not in done]
             if missing:
-                work.append((row["id"], row["itemurl"], missing))
+                work.append((itemurl, missing))
         return work
 
-    def local_image_files(self, domain: str) -> list[tuple[int, str, str]]:
-        """(product_id, source url, file) for images an earlier run left on disk.
-
-        The bytes are the same bytes. Re-downloading 1,585 photographs to move them into
-        the bucket would ask 30 shops for something we already have.
-        """
-        return [
-            (r["product_id"], r["url"], r["local_path"])
-            for r in self._db.execute(
-                "SELECT i.product_id, i.url, i.local_path FROM images i "
-                "JOIN products p ON p.id=i.product_id "
-                "WHERE p.domain=? AND i.stored_url IS NULL AND i.local_path != ''",
-                (domain,),
-            )
-        ]
-
     def stored_image_count(self, domain: str) -> int:
-        return self._db.execute(
-            "SELECT COUNT(*) c FROM images i JOIN products p ON p.id=i.product_id "
-            "WHERE p.domain=? AND i.stored_url IS NOT NULL",
-            (domain,),
-        ).fetchone()["c"]
+        return sum(1 for rows in self._images(domain).values() for r in rows if r.get("stored_url"))
 
-    def search_products(
-        self, domains: list[str], needle: str, limit: int = 200
-    ) -> list[tuple[str, dict]]:
-        """(domain, record) for products of these brands whose record mentions `needle`.
+    # --- scorecards, request ledger, extraction versions ---
+    def save_scorecard(self, run_id: str, domain: str, card) -> None:
+        self._write(
+            f"scores/{domain}/{run_id}.json",
+            {"card": card.as_dict(), "run_id": run_id, "scored_at": _now()},
+        )
 
-        A LIKE over current_json rather than a column: the search box is asked about
-        titles, materials, colours and categories interchangeably, and every one of them
-        already lives in that blob. Callers re-rank; this only narrows.
-        """
-        if not domains or not needle:
-            return []
-        marks = ",".join("?" * len(domains))
-        rows = self._db.execute(
-            f"SELECT p.domain, p.current_json FROM products p WHERE p.domain IN ({marks}) "
-            f"AND p.last_seen_run = {_LATEST_COVERED} "
-            f"AND p.current_json LIKE ? ESCAPE '\\' LIMIT ?",
-            (*domains, f"%{_like_escape(needle)}%", limit),
-        ).fetchall()
-        return [(r["domain"], json.loads(r["current_json"])) for r in rows]
+    def scorecards(self, domain: str, limit: int = 20) -> list[dict]:
+        keys = sorted(self._store.list(f"scores/{domain}/"), reverse=True)[:limit]
+        out = []
+        for key in keys:
+            row = self._read(key)
+            if row:
+                out.append({**row["card"], "run_id": row["run_id"], "scored_at": row["scored_at"]})
+        return out
 
-    def image_count(self, domain: str) -> int:
-        return self._db.execute(
-            "SELECT COUNT(*) c FROM images i JOIN products p ON p.id=i.product_id WHERE p.domain=?",
-            (domain,),
-        ).fetchone()["c"]
+    def record_requests(self, rows: list[tuple]) -> None:
+        """Store a batch of (host, status, latency_ms, retry_after, at) observations."""
+        if not rows:
+            return
+        self._write(
+            f"requests/{_now()}-{secrets.token_hex(3)}.json",
+            {"rows": [list(r) for r in rows]},
+        )
+
+    def host_stats(self, since: str | None = None) -> list[dict]:
+        """How each host has been answering us."""
+        tallies: dict[str, dict[str, Any]] = {}
+        for key in self._store.list("requests/"):
+            for host, status, latency, retry_after, at in self._read(key, {"rows": []})["rows"]:
+                if since and at < since:
+                    continue
+                t = tallies.setdefault(
+                    host,
+                    {
+                        "host": host,
+                        "requests": 0,
+                        "ok": 0,
+                        "busy": 0,
+                        "refused": 0,
+                        "errored": 0,
+                        "_latency": [],
+                        "max_retry_after": None,
+                    },
+                )
+                t["requests"] += 1
+                if status == 200:
+                    t["ok"] += 1
+                elif status in (429, 503):
+                    t["busy"] += 1
+                elif status in (401, 403):
+                    t["refused"] += 1
+                elif status is None:
+                    t["errored"] += 1
+                if latency is not None:
+                    t["_latency"].append(latency)
+                if retry_after is not None:
+                    t["max_retry_after"] = max(t["max_retry_after"] or 0, retry_after)
+        out = []
+        for t in tallies.values():
+            latency = t.pop("_latency")
+            t["avg_ms"] = int(sum(latency) / len(latency)) if latency else None
+            out.append(t)
+        return sorted(out, key=lambda t: -t["requests"])
+
+    def extraction_version_for(self, domain: str) -> str | None:
+        return self._read(f"versions/{domain}.json", {}).get("version")
+
+    def set_extraction_version(self, domain: str, version: str) -> None:
+        self._write(f"versions/{domain}.json", {"version": version, "seen_at": _now()})
+
+    # --- the fleet view ---
+    def fleet(self) -> dict[str, dict]:
+        """Every brand's counts and freshness, in one read."""
+        if self._fleet is None:
+            self._fleet = self._read(FLEET, {})
+        return self._fleet
 
     def live_product_counts(self) -> dict[str, int]:
         """Products per brand that are still listed — the number the app can show.
 
-        `status_rows` counts every row the archive holds, which includes products the
-        shop has since taken down. Both numbers are true; showing one beside a category
-        tree built from the other is what makes them look like a bug.
+        One object, never the catalogues. Reading 32 catalogues to draw a column of
+        numbers would pull 55 MB for something a few hundred bytes can say, and reading
+        32 meta objects took 21.6 seconds of round trips to say it.
         """
-        rows = self._db.execute(
-            f"SELECT p.domain, COUNT(*) AS n FROM products p "
-            f"WHERE p.last_seen_run = {_LATEST_COVERED} GROUP BY p.domain"
-        ).fetchall()
-        return {r["domain"]: r["n"] for r in rows}
+        return {
+            domain: meta["live_products"]
+            for domain, meta in self.fleet().items()
+            if meta.get("live_products")
+        }
+
+    def stored_image_counts(self) -> dict[str, int]:
+        return {domain: meta.get("images", 0) for domain, meta in self.fleet().items()}
 
     def status_rows(self) -> list[dict]:
-        rows = self._db.execute(
-            """SELECT b.domain, b.state,
-                      (SELECT COUNT(*) FROM products p WHERE p.domain=b.domain) AS products,
-                      r.coverage_json, r.finished_at, r.mode
-               FROM brands b
-               LEFT JOIN runs r ON r.id = (SELECT id FROM runs WHERE domain=b.domain
-                                           AND exit_status IS NOT NULL ORDER BY id DESC LIMIT 1)
-               ORDER BY b.domain"""
-        ).fetchall()
-        out = []
-        for r in rows:
-            cov = json.loads(r["coverage_json"]) if r["coverage_json"] else None
-            out.append(
-                {
-                    "domain": r["domain"],
-                    "state": r["state"],
-                    "products": r["products"],
-                    "coverage_pct": cov["coverage_pct"] if cov else None,
-                    "verdict": cov["verdict"] if cov else None,
-                    "freshness": r["finished_at"],
-                    "mode": r["mode"],
-                }
-            )
-        return out
+        fleet = self.fleet()
+        out = [
+            {
+                "domain": domain,
+                "state": meta.get("state", "new"),
+                "products": meta.get("products", 0),
+                "coverage_pct": meta.get("coverage_pct"),
+                "verdict": meta.get("verdict"),
+                "freshness": meta.get("freshness"),
+                "mode": meta.get("mode"),
+            }
+            for domain, meta in fleet.items()
+        ]
+        return sorted(out, key=lambda r: r["domain"])
+
+
+__all__ = ["Catalog", "Conflict", "FLUSH_EVERY", "new_run_id"]

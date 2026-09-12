@@ -24,12 +24,12 @@ Run: python -m backend.archive.recommend [domain ...]
 """
 
 import sys
-from pathlib import Path
 
 from backend.archive.domain.product import E0005_FIELDS
 from backend.archive.evidence import describe
 from backend.archive.score import regressions
 from backend.archive.store.catalog import Catalog
+from backend.archive.store.objects import object_store
 from backend.archive.validate import check_brand_catalogue
 
 # What one brand may cost per run before it is worth a look. Per brand, not per
@@ -175,7 +175,7 @@ def recommend(catalog: Catalog, domain: str) -> list[tuple[int, str, str]]:
 
 
 def main(argv: list[str]) -> int:
-    catalog = Catalog(Path("backend/archive/data/catalog.db"))
+    catalog = Catalog(object_store())
     try:
         domains = argv or [
             r["domain"] for r in catalog.status_rows() if catalog.current_products(r["domain"])

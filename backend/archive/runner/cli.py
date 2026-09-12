@@ -19,10 +19,12 @@ from backend.archive.planner import compose_plan
 from backend.archive.runner.run import run_brand
 from backend.archive.score import score
 from backend.archive.store.catalog import Catalog
+from backend.archive.store.objects import ObjectStore, object_store
 from backend.archive.transport import HttpxTransport, Transport
 
 _DEFAULT_BRANDS = Path(__file__).parent.parent / "brands.yml"
-_DEFAULT_DB = Path("backend/archive/data/catalog.db")
+# Where objects go when neither --objects nor R2 says otherwise; object_store() owns
+# the choice, so there is nothing to decide here.
 
 
 def load_brands(path: Path) -> list[Brand]:
@@ -75,7 +77,12 @@ def main(argv: list[str] | None = None) -> int:
         "images",
     ):
         sp = sub.add_parser(name)
-        sp.add_argument("--db", type=Path, default=_DEFAULT_DB)
+        sp.add_argument(
+            "--objects",
+            type=Path,
+            default=None,
+            help="keep objects in this directory instead of R2",
+        )
         sp.add_argument("--brands", type=Path, default=_DEFAULT_BRANDS)
         if name == "images":
             sp.add_argument("domain", nargs="?")
@@ -99,11 +106,6 @@ def main(argv: list[str] | None = None) -> int:
             sp.add_argument("--images-dir", type=Path, default=Path("backend/archive/data/images"))
             sp.add_argument(
                 "--dry-run", action="store_true", help="say how much is outstanding, fetch nothing"
-            )
-            sp.add_argument(
-                "--adopt-only",
-                action="store_true",
-                help="upload what is already on disk and ask no shop for anything",
             )
         if name == "show":
             sp.add_argument("domain")
@@ -199,7 +201,8 @@ def main(argv: list[str] | None = None) -> int:
             )
     args = ap.parse_args(argv)
 
-    catalog = Catalog(args.db)
+    store: ObjectStore = object_store(args.objects)
+    catalog = Catalog(store)
     try:
         brands = _seed(catalog, args.brands) if args.brands.exists() else []
 
@@ -339,20 +342,18 @@ def main(argv: list[str] | None = None) -> int:
 
             def _report(outcome):
                 print(
-                    f"{outcome.domain:<32}{outcome.stored:>7} stored "
-                    f"({outcome.adopted} off disk, {outcome.fetched} fetched)  "
+                    f"{outcome.domain:<32}{outcome.fetched:>7} fetched  "
                     f"{outcome.failed} failed  {outcome.outstanding} left"
                 )
 
             results = archive_all(
                 domains,
-                args.db,
+                store,
                 sink,
                 workers=args.workers,
                 gap=args.gap,
                 limit=args.limit,
                 width=args.width or None,
-                adopt_only=args.adopt_only,
                 on_done=_report,
             )
             kept = sum(r.stored for r in results)
@@ -432,7 +433,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.cmd == "brands":
             from backend.archive.scheduler import Scheduler
 
-            sched = Scheduler(catalog)
+            sched = Scheduler(store)
             if args.action == "add":
                 catalog.upsert_brand(
                     catalog.get_brand(args.domain)
@@ -458,7 +459,7 @@ def main(argv: list[str] | None = None) -> int:
             from backend.archive.runner.daemon import serve
             from backend.archive.scheduler import Scheduler
 
-            sched = Scheduler(catalog)
+            sched = Scheduler(store)
             if args.action == "stop":
                 sched.request_stop()
                 print("stop requested — workers finish the brand they are on and exit")
@@ -493,7 +494,7 @@ def main(argv: list[str] | None = None) -> int:
 
                 return do_brand
 
-            serve(args.db, factory, workers=args.workers)
+            serve(args.objects, factory, workers=args.workers)
             return 0
 
         # status
