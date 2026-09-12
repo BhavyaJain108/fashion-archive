@@ -8,6 +8,7 @@ from backend.archive.domain.product import ProductRecord, ProductRef
 from backend.archive.planner import compose_plan
 from backend.archive.runner.run import run_brand, select_delta
 from backend.archive.store.catalog import Catalog
+from backend.archive.store.objects import DirectoryObjectStore
 
 BRAND = Brand(domain="kuurth.com", homepage_url="https://kuurth.com")
 OPEN_CAP = Capability(
@@ -47,7 +48,7 @@ def test_select_delta_keeps_new_and_changed_only():
 
 @pytest.fixture()
 def env(tmp_path):
-    cat = Catalog(tmp_path / "catalog.db")
+    cat = Catalog(DirectoryObjectStore(tmp_path))
     cat.upsert_brand(BRAND)
     return cat, tmp_path / "locks", tmp_path / "logs"
 

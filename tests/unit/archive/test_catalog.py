@@ -11,7 +11,7 @@ from backend.archive.domain.brand import (
 )
 from backend.archive.domain.product import ProductRecord
 from backend.archive.domain.run import Coverage
-from backend.archive.store.catalog_objects import FLUSH_EVERY, Catalog
+from backend.archive.store.catalog import FLUSH_EVERY, Catalog
 from backend.archive.store.objects import DirectoryObjectStore
 
 COV = Coverage(extracted=1, channel_counts={}, coverage_pct=1.0, field_fill={}, verdict="ok")

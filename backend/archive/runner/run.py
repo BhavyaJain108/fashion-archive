@@ -318,8 +318,7 @@ def run_brand(
             within_budget = image_product_budget is None or imaged_products < image_product_budget
             images = rec.image_list()
             if appended and image_store is not None and images and within_budget:
-                pid = catalog.product_id_for(brand.domain, rec.itemurl)
-                n = image_store.archive(work_transport, catalog, pid, brand.domain, images)
+                n = image_store.archive(work_transport, catalog, rec.itemurl, brand.domain, images)
                 imaged_products += 1
                 if n:
                     log("images-archived", url=rec.itemurl, count=n)

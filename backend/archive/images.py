@@ -45,9 +45,9 @@ class ImageStore:
         return sha, url
 
     def archive(
-        self, transport: Transport, catalog: Catalog, product_id: int, domain: str, urls: list[str]
+        self, transport: Transport, catalog: Catalog, itemurl: str, domain: str, urls: list[str]
     ) -> int:
-        known = catalog.stored_image_urls(product_id)
+        known = catalog.stored_image_urls(domain, itemurl)
         stored = 0
         for url in urls:
             if url in known:
@@ -60,11 +60,11 @@ class ImageStore:
             if resp.status_code != 200 or not ctype.startswith("image/"):
                 continue
             sha, served = self.store(domain, resp.content, ctype)
-            catalog.record_image(product_id, url, "", sha, stored_url=served)
+            catalog.record_image(domain, itemurl, url, sha, stored_url=served)
             stored += 1
         return stored
 
-    def adopt(self, catalog: Catalog, product_id: int, domain: str, url: str, path: Path) -> bool:
+    def adopt(self, catalog: Catalog, itemurl: str, domain: str, url: str, path: Path) -> bool:
         """Move an image an earlier run already fetched into the sink, off disk.
 
         Same bytes, so the shop is not asked for them a second time.
@@ -75,7 +75,7 @@ class ImageStore:
             return False
         ctype = _CONTENT_TYPE_BY_SUFFIX.get(path.suffix.lower(), "image/jpeg")
         sha, served = self.store(domain, content, ctype)
-        catalog.record_image(product_id, url, str(path), sha, stored_url=served)
+        catalog.record_image(domain, itemurl, url, sha, stored_url=served)
         return True
 
 

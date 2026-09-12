@@ -4,7 +4,7 @@ import pytest
 
 from backend.archive.domain.brand import Brand
 from backend.archive.scheduler import Scheduler
-from backend.archive.store.catalog_objects import Catalog
+from backend.archive.store.catalog import Catalog
 from backend.archive.store.objects import DirectoryObjectStore
 
 T0 = datetime(2026, 9, 9, 12, 0, tzinfo=timezone.utc)

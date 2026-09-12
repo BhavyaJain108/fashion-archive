@@ -86,10 +86,10 @@ def test_structured_lane_end_to_end_with_delta(tmp_path, capsys, monkeypatch):
     monkeypatch.setattr(cli, "HttpxTransport", lambda *a, **k: wp_structured_transport())
     brands = tmp_path / "brands.yml"
     brands.write_text('brands:\n  - {domain: liniss.com, homepage_url: "https://liniss.com"}\n')
-    db = tmp_path / "catalog.db"
+    objects = tmp_path / "objects"
     common = [
-        "--db",
-        str(db),
+        "--objects",
+        str(objects),
         "--brands",
         str(brands),
         "--locks",
@@ -101,8 +101,9 @@ def test_structured_lane_end_to_end_with_delta(tmp_path, capsys, monkeypatch):
     assert cli.main(["scrape", "liniss.com", "--delta", *common]) == 0
 
     from backend.archive.store.catalog import Catalog
+    from backend.archive.store.objects import DirectoryObjectStore
 
-    cat = Catalog(db)
+    cat = Catalog(DirectoryObjectStore(objects))
     assert cat.observation_count("liniss.com") == 1  # one product, one first-sight, no re-write
     plan = cat.load_plan("liniss.com")
     assert plan.composition == "t0×sitemap×structured_data×per_item"
@@ -147,15 +148,15 @@ def test_woo_lane_end_to_end(tmp_path, capsys, monkeypatch):
     brands.write_text(
         'brands:\n  - {domain: wiacollections.com, homepage_url: "https://wiacollections.com"}\n'
     )
-    db = tmp_path / "catalog.db"
+    objects = tmp_path / "objects"
     assert (
         cli.main(
             [
                 "scrape",
                 "wiacollections.com",
                 "--full",
-                "--db",
-                str(db),
+                "--objects",
+                str(objects),
                 "--brands",
                 str(brands),
                 "--locks",
@@ -167,8 +168,9 @@ def test_woo_lane_end_to_end(tmp_path, capsys, monkeypatch):
         == 0
     )
     from backend.archive.store.catalog import Catalog
+    from backend.archive.store.objects import DirectoryObjectStore
 
-    cat = Catalog(db)
+    cat = Catalog(DirectoryObjectStore(objects))
     assert cat.load_plan("wiacollections.com").composition == "t0×woo_api×platform_json×per_item"
     prods = cat.current_products("wiacollections.com")
     assert {p["product_title"] for p in prods} == {"Wia Jacket", "Wia Tee"}
@@ -181,10 +183,10 @@ def test_scrape_then_delta_then_status(tmp_path, capsys, monkeypatch):
     monkeypatch.setattr(cli, "HttpxTransport", lambda *a, **k: mock_transport())
     brands = tmp_path / "brands.yml"
     brands.write_text(YML)
-    db = tmp_path / "catalog.db"
+    objects = tmp_path / "objects"
     common = [
-        "--db",
-        str(db),
+        "--objects",
+        str(objects),
         "--brands",
         str(brands),
         "--locks",
@@ -197,6 +199,6 @@ def test_scrape_then_delta_then_status(tmp_path, capsys, monkeypatch):
 
     assert cli.main(["scrape", "kuurth.com", "--full", *common]) == 0
     assert cli.main(["scrape", "kuurth.com", "--delta", *common]) == 0  # nothing changed → still ok
-    assert cli.main(["status", "--db", str(db), "--brands", str(brands)]) == 0
+    assert cli.main(["status", "--objects", str(objects), "--brands", str(brands)]) == 0
     out = capsys.readouterr().out
     assert "kuurth.com" in out and "active" in out and "100%" in out

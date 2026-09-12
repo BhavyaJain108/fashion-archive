@@ -193,3 +193,19 @@ def test_a_conditional_write_is_one_operation_not_two(tmp_path):
     for t in threads:
         t.join()
     assert winners == [True]
+
+
+@pytest.mark.unit
+def test_an_explicit_path_beats_a_configured_bucket(tmp_path, monkeypatch):
+    """R2 used to win whenever it was configured, so a caller asking for a temporary
+    directory got the production bucket — and the end-to-end tests wrote 41 objects of
+    fixture data into it. An explicit path is an instruction."""
+    from backend.archive.store.objects import object_store
+    from config.config import config
+
+    monkeypatch.setattr(config, "R2_ACCOUNT_ID", "acct", raising=False)
+    monkeypatch.setattr(config, "R2_ACCESS_KEY_ID", "key", raising=False)
+    monkeypatch.setattr(config, "R2_BUCKET", "bucket", raising=False)
+
+    assert isinstance(object_store(tmp_path), DirectoryObjectStore)
+    assert type(object_store()).__name__ == "R2ObjectStore"

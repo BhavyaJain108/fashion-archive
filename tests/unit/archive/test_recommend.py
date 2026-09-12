@@ -7,6 +7,7 @@ from backend.archive.domain.product import ProductRecord
 from backend.archive.recommend import recommend
 from backend.archive.score import score
 from backend.archive.store.catalog import Catalog
+from backend.archive.store.objects import DirectoryObjectStore
 
 
 def rec(n, **kw) -> ProductRecord:
@@ -24,7 +25,7 @@ def rec(n, **kw) -> ProductRecord:
 
 @pytest.fixture()
 def cat(tmp_path):
-    c = Catalog(tmp_path / "c.db")
+    c = Catalog(DirectoryObjectStore(tmp_path))
     c.upsert_brand(Brand(domain="kuurth.com", homepage_url="https://kuurth.com"))
     return c
 

@@ -26,7 +26,7 @@ from pathlib import Path
 from backend.archive.connectors.base import ChannelBusy
 from backend.archive.scheduler import Scheduler
 from backend.archive.score import score
-from backend.archive.store.catalog_objects import Catalog
+from backend.archive.store.catalog import Catalog
 from backend.archive.store.objects import DirectoryObjectStore, ObjectStore
 
 POLL_SECONDS = 10

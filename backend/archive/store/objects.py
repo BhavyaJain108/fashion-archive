@@ -214,17 +214,29 @@ class R2ObjectStore:
         self._client.delete_object(Bucket=self._bucket, Key=self._key(key))
 
 
-def object_store(local_root: Path | None = None) -> ObjectStore:
-    """R2 when it is configured, a directory when it is not.
+DEFAULT_LOCAL_ROOT = Path("backend/archive/data/objects")
 
-    One answer to "where does the archive keep things", decided in one place — the
-    same shape backend/storage/images.py uses for the photographs.
+
+def object_store(local_root: Path | None = None) -> ObjectStore:
+    """Where the archive keeps things, decided in one place.
+
+    A path always means that directory. Only when no path is given does this reach for
+    R2, and only if it is configured.
+
+    The order matters and was wrong once: R2 was preferred whenever it was configured,
+    so a caller that had explicitly asked for a temporary directory got the bucket.
+    The end-to-end tests pass `--objects <tmp_path>`, and on a machine with R2
+    credentials they wrote 41 objects of fixture data into the production bucket. An
+    explicit path is an instruction, not a hint.
     """
+    if local_root is not None:
+        return DirectoryObjectStore(local_root)
+
     from config.config import config
 
     if config.R2_ACCOUNT_ID and config.R2_ACCESS_KEY_ID and config.R2_BUCKET:
         return R2ObjectStore(config.R2_BUCKET, prefix="archive-store/")
-    return DirectoryObjectStore(local_root or Path("backend/archive/data/objects"))
+    return DirectoryObjectStore(DEFAULT_LOCAL_ROOT)
 
 
 def dumps(value: Any) -> bytes:

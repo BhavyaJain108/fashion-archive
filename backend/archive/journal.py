@@ -22,6 +22,7 @@ from typing import Any, cast
 from backend.archive.domain.product import E0005_FIELDS, ProductRecord
 from backend.archive.score import REQUIRED, score
 from backend.archive.store.catalog import Catalog
+from backend.archive.store.objects import object_store
 
 _CSS = """
 :root { color-scheme: light }
@@ -149,7 +150,7 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--out", type=Path)
     args = ap.parse_args(argv)
 
-    catalog = Catalog(Path("backend/archive/data/catalog.db"))
+    catalog = Catalog(object_store())
     try:
         page = render(catalog, args.domain, args.limit, args.offset)
     finally:

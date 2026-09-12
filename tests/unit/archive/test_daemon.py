@@ -8,7 +8,7 @@ from backend.archive.domain.brand import Brand
 from backend.archive.domain.product import ProductRecord
 from backend.archive.runner.daemon import run_once
 from backend.archive.scheduler import Scheduler
-from backend.archive.store.catalog_objects import Catalog
+from backend.archive.store.catalog import Catalog
 from backend.archive.store.objects import DirectoryObjectStore
 
 

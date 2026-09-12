@@ -3,12 +3,13 @@ import pytest
 
 from backend.archive.observe import RequestLog, Spend
 from backend.archive.store.catalog import Catalog
+from backend.archive.store.objects import DirectoryObjectStore
 from backend.archive.transport import HttpxTransport
 
 
 @pytest.mark.unit
 def test_every_response_is_recorded_with_what_the_host_said(tmp_path):
-    cat = Catalog(tmp_path / "c.db")
+    cat = Catalog(DirectoryObjectStore(tmp_path))
     log = RequestLog(cat, batch=2)
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -33,7 +34,7 @@ def test_every_response_is_recorded_with_what_the_host_said(tmp_path):
 @pytest.mark.unit
 def test_a_refused_request_is_distinguished_from_a_rate_limit(tmp_path):
     """403 is a WAF calling us a bot; 429 is a shop asking us to slow down."""
-    cat = Catalog(tmp_path / "c.db")
+    cat = Catalog(DirectoryObjectStore(tmp_path))
     log = RequestLog(cat, batch=1)
     t = HttpxTransport(
         client=httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(403))),
@@ -48,7 +49,7 @@ def test_a_refused_request_is_distinguished_from_a_rate_limit(tmp_path):
 
 @pytest.mark.unit
 def test_a_connection_failure_is_recorded_too(tmp_path):
-    cat = Catalog(tmp_path / "c.db")
+    cat = Catalog(DirectoryObjectStore(tmp_path))
     log = RequestLog(cat, batch=1)
 
     def boom(request):

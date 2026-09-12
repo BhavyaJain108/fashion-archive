@@ -10,6 +10,7 @@ from backend.archive.domain.brand import Brand
 from backend.archive.domain.product import ProductRecord
 from backend.archive.domain.run import Coverage
 from backend.archive.store.catalog import Catalog
+from backend.archive.store.objects import DirectoryObjectStore
 
 COV = Coverage(extracted=3, channel_counts={}, coverage_pct=1.0, field_fill={}, verdict="ok")
 
@@ -35,8 +36,8 @@ def product(slug, title, category1=None, category2=None, price=100.0):
 
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
-    db = tmp_path / "catalog.db"
-    catalog = Catalog(db)
+    objects = DirectoryObjectStore(tmp_path / "objects")
+    catalog = Catalog(objects)
     for domain in ("shown.com", "outlet.com"):
         catalog.upsert_brand(Brand(domain=domain, homepage_url=f"https://{domain}"))
     run = catalog.open_run("shown.com", "full")
@@ -48,7 +49,7 @@ def client(tmp_path, monkeypatch):
 
     roster = tmp_path / "brands.yml"
     roster.write_text(YML)
-    monkeypatch.setattr(archive_routes, "db_path", lambda: db)
+    monkeypatch.setattr(archive_routes, "store", lambda: objects)
     monkeypatch.setattr(archive_routes, "app_roster", lambda: _roster(roster))
 
     app = Flask(__name__)
@@ -80,7 +81,7 @@ def test_roster_carries_what_the_archive_holds(client):
 def test_the_count_beside_a_brand_is_what_you_can_browse(tmp_path, client):
     # The archive keeps a product the shop has taken down, but the tree is built from
     # the live view. Counting all rows here and live rows there reads as a bug.
-    catalog = Catalog(tmp_path / "catalog.db")
+    catalog = Catalog(DirectoryObjectStore(tmp_path / "objects"))
     run = catalog.open_run("shown.com", "full")
     catalog.record_product("shown.com", run, product("tee", "Cotton Tee", "TOPS", "TEES"), None)
     catalog.finalize_run(run, 0, COV)
@@ -151,12 +152,11 @@ def test_wildcards_typed_into_the_search_box_are_letters(client):
 def test_archived_copies_travel_as_urls(tmp_path, client):
     # The copy we kept is offered beside the shop's own URL, so a tile whose CDN link has
     # died falls back to our bytes before it falls back to a placeholder.
-    catalog = Catalog(tmp_path / "catalog.db")
-    pid = catalog.product_id_for("shown.com", "https://shown.com/products/tee")
+    catalog = Catalog(DirectoryObjectStore(tmp_path / "objects"))
     catalog.record_image(
-        pid,
+        "shown.com",
+        "https://shown.com/products/tee",
         "https://cdn.shown.com/tee.jpg",
-        "",
         "aa",
         stored_url="https://images.example.com/archive/shown.com/aa/aa.jpg",
     )
@@ -184,8 +184,8 @@ def test_a_missing_catalogue_says_so_instead_of_inventing_an_empty_one(tmp_path,
     that looks like it scraped nothing rather than one that is not there."""
     roster = tmp_path / "brands.yml"
     roster.write_text(YML)
-    gone = tmp_path / "nowhere" / "catalog.db"
-    monkeypatch.setattr(archive_routes, "db_path", lambda: gone)
+    empty = DirectoryObjectStore(tmp_path / "nowhere")
+    monkeypatch.setattr(archive_routes, "store", lambda: empty)
     monkeypatch.setattr(archive_routes, "app_roster", lambda: _roster(roster))
 
     app = Flask(__name__)
@@ -201,4 +201,4 @@ def test_a_missing_catalogue_says_so_instead_of_inventing_an_empty_one(tmp_path,
         status, body = get(client, url)
         assert status == 503, url
         assert body["code"] == "NO_CATALOGUE"
-    assert not gone.exists(), "asking for the archive must not create one"
+    assert empty.list("") == [], "asking for the archive must not create one"

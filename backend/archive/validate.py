@@ -29,9 +29,9 @@ Run: python -m backend.archive.validate [domain ...]
 
 import sys
 from collections import Counter
-from pathlib import Path
 
 from backend.archive.store.catalog import Catalog
+from backend.archive.store.objects import object_store
 
 # Should be nearly all distinct: each value points at one product.
 IDENTIFYING = ("itemurl", "product_title", "product_code", "main_image_url", "description")
@@ -181,7 +181,7 @@ def check_brand_catalogue(rows: list[dict]) -> list[tuple[str, str]]:
 
 
 def main(argv: list[str]) -> int:
-    catalog = Catalog(Path("backend/archive/data/catalog.db"))
+    catalog = Catalog(object_store())
     try:
         domains = argv or [r["domain"] for r in catalog.status_rows()]
         total = 0

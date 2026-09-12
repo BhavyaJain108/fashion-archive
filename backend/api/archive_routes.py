@@ -17,6 +17,7 @@ from flask import Flask, jsonify, request
 
 from backend.archive.roster import RosterEntry, app_roster
 from backend.archive.store.catalog import Catalog
+from backend.archive.store.objects import ObjectStore, object_store
 
 _ROOT = Path(__file__).resolve().parents[2]
 _MAX_CATEGORY_LEVELS = 10
@@ -33,26 +34,27 @@ ALL = "*"
 UNCATEGORISED = "(uncategorised)"
 
 
-def db_path() -> Path:
-    return Path(os.environ.get("ARCHIVE_DB") or _ROOT / "backend/archive/data/catalog.db")
+def store() -> ObjectStore:
+    """The archive's store. R2 in production; a directory when ARCHIVE_OBJECTS says so."""
+    local = os.environ.get("ARCHIVE_OBJECTS")
+    return object_store(Path(local) if local else None)
 
 
 class NoCatalogue(RuntimeError):
-    """The catalogue is not on this machine.
+    """There is no archive in this store.
 
-    Worth its own error because `Catalog` creates a database when the file is missing,
-    which on a host with no disk is the worst possible answer: every endpoint succeeds,
-    every brand reports zero products, and the page looks like an archive that has
-    scraped nothing rather than one that is not there. The scraper writes SQLite on the
-    machine it runs on; serving it elsewhere is the publish step, not this.
+    Worth its own error, because every read of an absent object answers "nothing"
+    rather than failing. Without this check each endpoint would succeed, every brand
+    would report zero products, and the page would look like an archive that had
+    scraped nothing rather than one that is not there.
     """
 
 
 def _catalog() -> Catalog:
-    path = db_path()
-    if not path.exists():
-        raise NoCatalogue(f"no archive catalogue at {path}")
-    return Catalog(path)
+    backing = store()
+    if not backing.list("brands/"):
+        raise NoCatalogue("no archive in this store: nothing under brands/")
+    return Catalog(backing)
 
 
 def _slim(record: dict) -> dict:
@@ -297,7 +299,6 @@ def search_products():
 
 def get_health():
     """GET /api/archive/health — whether the catalogue is where the app thinks it is."""
-    path = db_path()
     catalog = _catalog()  # raises NoCatalogue, which the handler turns into a 503
     try:
         shown = [e.domain for e in app_roster()]
@@ -306,7 +307,7 @@ def get_health():
         return jsonify(
             {
                 "ok": True,
-                "db": str(path),
+                "store": type(store()).__name__,
                 "brands_shown": len(shown),
                 "brands_with_products": sum(1 for n in counts if n),
                 "products": sum(counts),
