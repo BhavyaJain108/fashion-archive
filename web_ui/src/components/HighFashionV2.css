@@ -20,8 +20,12 @@
 
 /* Sidebar */
 .hf2-sidebar {
-  width: 280px;
-  min-width: 280px;
+  /* 320, not 280: the subtext under each brand now carries season, year,
+     gender, category and city, because the list is no longer filtered down
+     to one season before you see it. At 280 that line ellipsised away the
+     city on most rows. */
+  width: 320px;
+  min-width: 320px;
   background: #fafafa;
   border-right: 1px solid #e0e0e0;
   display: flex;
@@ -198,6 +202,24 @@
 .hf2-collection-item:hover .sub,
 .hf2-collection-item.selected .sub {
   color: #888888;
+}
+
+/* A failure, said as a failure. The empty state below means the archive
+   really has nothing for these filters; this one means we never found out. */
+.hf2-collections-error {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 24px 12px;
+  text-align: center;
+  font-size: 11px;
+  color: #cc0000;
+}
+
+.hf2-collections-error .detail {
+  color: #aaaaaa;
+  font-size: 10px;
+  line-height: 14px;
 }
 
 .hf2-collections-empty,
@@ -485,7 +507,22 @@
   cursor: pointer;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  transition: all 0.15s ease;
+  /* Colour and border only. `all` animated width too, so the button visibly
+     stretched as its label changed. */
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+/* The label is VIDEO, then SEARCHING, then HIDE VIDEO or a failure reason —
+   different lengths in a bar pinned to the right edge, so the button used to
+   grow leftwards on click and shove SINGLE/GRID across the screen. The slot
+   is sized for the longest label and the text is centred in it. */
+.hf2-video-btn-label {
+  display: inline-block;
+  /* Sized for the longest label the button can show ("LOOKUP FAILED",
+     100.4px at this face), so no state widens it. */
+  min-width: 104px;
+  text-align: center;
+  white-space: nowrap;
 }
 
 .hf2-video-btn:hover {
@@ -502,6 +539,14 @@
 .hf2-video-btn.loading {
   color: #999999;
   cursor: wait;
+}
+
+/* The browser greys a disabled button by its own rules; say it here so the
+   searching state looks deliberate rather than broken. */
+.hf2-video-btn:disabled {
+  opacity: 1;
+  color: #bbbbbb;
+  border-color: #ededed;
 }
 
 .hf2-video-btn.error {
@@ -709,95 +754,57 @@
 /* ---------------------------------------------------------------------
    Filters (sidebar)
 
-   The control follows the option set, rather than every facet getting the
-   same box:
+   Every filter is optional. The list below opens on the whole archive and
+   each choice narrows it, so nothing here is a step you must complete
+   before the app will show you anything.
 
-     Year    39 options, 4 characters each — the only one that cannot be
-             shown in full. A horizontal scroller fits ~6 per line, so it
-             costs one line instead of three, and reads as a timeline.
-             Centred on the current year, neighbours fading at both ends.
+   That changes what the controls have to be. When a filter was a required
+   step, it made sense to spend height displaying its options — a scroller
+   for 39 years, a row of chips for 4 seasons. Now that none of them is
+   required, the options are worth nothing until you go looking for them,
+   and the height they cost is paid on every screen. So each filter is one
+   line stating its current value, and reveals its options only when asked.
 
-     Season  4 options   these all fit, so they are simply shown. Nothing
-     Gender  2 options   scrolls that does not need to, and Gender in
-     Type    4 options   particular is just two buttons.
+   Six filters now cost less height than the year scroller alone did.
 
-   Their labels are long ("Backstage Beauty and Fashion"), so they wrap
-   onto a second line rather than truncating.
+   Gender keeps its split bar below: it is the one value that is never
+   unset, so its options are always worth showing.
    --------------------------------------------------------------------- */
 
 .hf2-filters {
   border-bottom: 1px solid #e0e0e0;
   background: #fafafa;
   flex-shrink: 0;
+  padding-bottom: 4px;
 }
 
-.hf2-filter-row {
-  border-bottom: 1px solid #ededed;
-}
-
-.hf2-filter-row:last-child {
-  border-bottom: none;
-}
-
-.hf2-filter-row.disabled {
-  opacity: 0.4;
-  pointer-events: none;
-}
-
-/* Options that fit one line: spread across the row, no wrapping. Seasons
-   are abbreviated (F/W, S/S) so all four sit in a 280px column. */
-.hf2-filter-items.row {
+/* One filter: label left, value right, on a single line. Left aligned and
+   in a fixed column so the six labels form a straight edge. */
+.hf2-facet {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 2px;
-  padding: 3px 8px;
-  white-space: nowrap;
+  gap: 8px;
+  padding: 0 10px;
+  height: 24px;
+  cursor: pointer;
 }
 
-/* Options that all fit: shown in full, wrapping as needed. */
-.hf2-filter-items.wrap {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0 2px;
-  padding: 3px 8px;
+.hf2-facet-label {
+  flex: 0 0 42px;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #bbbbbb;
 }
 
-/* Year: one line, scrolls sideways, current value centred. */
-.hf2-filter-items.scroll-x {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 3px 0;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
-  -webkit-overflow-scrolling: touch;
-  overscroll-behavior-x: contain;     /* don't drag the page sideways */
-  /* Fade both ends so it reads as a continuing timeline. */
-  -webkit-mask-image: linear-gradient(to right,
-      transparent 0, #000 18%, #000 82%, transparent 100%);
-  mask-image: linear-gradient(to right,
-      transparent 0, #000 18%, #000 82%, transparent 100%);
-}
-
-.hf2-filter-items::-webkit-scrollbar {
-  width: 0;
-  height: 0;
-}
-
-/* Half-width spacers, so the first and last year can reach the centre. */
-.hf2-filter-items.scroll-x::before,
-.hf2-filter-items.scroll-x::after {
-  content: '';
-  flex: 0 0 calc(50% - 22px);
-}
-
-/* Selection is bold black; the horizontal strip marks it with an underline,
-   the wrapped rows with the vertical nav's left edge. No boxes, no radius. */
-.hf2-chip {
+/* A native select: it is the shortest control that can hold 39 years, and
+   the platform already knows how to open, scroll and type-ahead it. The
+   styling only removes the chrome. */
+.hf2-facet-select {
+  flex: 1 1 auto;
+  min-width: 0;
   appearance: none;
+  -webkit-appearance: none;
   border: none;
   border-radius: 0;
   background: transparent;
@@ -806,52 +813,71 @@
   line-height: 20px;
   color: #999999;
   cursor: pointer;
-  white-space: nowrap;
-  transition: color 0.1s ease;
-}
-
-.hf2-chip:hover {
-  color: #000000;
-}
-
-.hf2-filter-items.scroll-x .hf2-chip {
-  flex: 0 0 auto;
-  padding: 0 7px;
-  border-bottom: 2px solid transparent;
-}
-
-.hf2-filter-items.scroll-x .hf2-chip.selected {
-  color: #000000;
-  font-weight: 700;
-  border-bottom-color: #000000;
-}
-
-.hf2-filter-items.wrap .hf2-chip {
-  padding: 0 6px;
-  border-left: 2px solid transparent;
+  padding: 0 14px 0 0;
   text-align: left;
+  /* The caret, drawn rather than loaded: no external asset, and it stays
+     hairline-thin at any zoom. */
+  background-image:
+    linear-gradient(45deg, transparent 50%, #cccccc 50%),
+    linear-gradient(135deg, #cccccc 50%, transparent 50%);
+  background-position: right 5px center, right 1px center;
+  background-size: 4px 4px, 4px 4px;
+  background-repeat: no-repeat;
 }
 
-.hf2-filter-items.wrap .hf2-chip.selected {
+.hf2-facet:hover .hf2-facet-select {
+  color: #000000;
+}
+
+/* A filter that is actually doing something reads as set, so the state of
+   the list is legible without opening anything. */
+.hf2-facet-select.set {
   color: #000000;
   font-weight: 700;
-  border-left-color: #000000;
 }
 
-.hf2-filter-empty {
+.hf2-facet-select:focus {
+  outline: none;
+}
+
+/* Says what the list currently is, and undoes it. Doubles as the only
+   place the filter count is stated. */
+.hf2-filter-clear {
+  display: block;
+  width: calc(100% - 20px);
+  margin: 4px 10px 2px;
+  appearance: none;
+  border: none;
+  border-top: 1px solid #ededed;
+  background: transparent;
+  font-family: inherit;
   font-size: 10px;
-  line-height: 20px;
-  color: #cccccc;
-  font-style: italic;
-  padding: 0 8px;
-  white-space: nowrap;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #000000;
+  text-align: left;
+  padding: 7px 0 3px;
+  cursor: pointer;
 }
 
-/* Combinations the archive has nothing for: visible, but not clickable. */
-.hf2-chip:disabled {
-  color: #dddddd;
+.hf2-filter-clear:hover:not(:disabled) {
+  color: #cc0000;
+}
+
+/* Nothing to clear: this is just the caption for an unfiltered list. */
+.hf2-filter-clear:disabled {
+  color: #cccccc;
   cursor: default;
-  pointer-events: none;
+}
+
+/* The list is a window on a much longer result set, so it says so at the
+   bottom rather than ending as though that were everything. */
+.hf2-collections-more {
+  padding: 10px 12px 18px;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #cccccc;
 }
 
 /* ---------------------------------------------------------------------
@@ -865,7 +891,7 @@
 
 .hf2-segmented {
   display: flex;
-  margin: 4px 8px 5px;
+  margin: 8px 10px 7px;
   border: 1px solid #000000;
 }
 

@@ -73,8 +73,14 @@ class FashionArchiveAPI {
     return this.authRequest('reset', { token, password });
   }
 
-  // Helper to call Python backend
-  static async callPython(endpoint, data = {}) {
+  // Helper to call Python backend.
+  //
+  // `acceptErrors` returns the parsed body on a 4xx/5xx instead of throwing.
+  // Some endpoints answer a failure with a reason worth showing — "quota
+  // spent for today", "no API key configured" — and throwing discards it,
+  // which is how a missing YOUTUBE_API_KEY in production showed up as
+  // "NOT FOUND", indistinguishable from a show with no video.
+  static async callPython(endpoint, data = {}, { acceptErrors = false } = {}) {
     try {
       // The session cookie rides along via credentials: 'include'.
       const headers = { 'Content-Type': 'application/json' };
@@ -88,6 +94,13 @@ class FashionArchiveAPI {
 
       if (!response.ok) {
         this.checkAuth(response);
+        if (acceptErrors) {
+          // A body is not guaranteed on an error — a proxy 502 is HTML.
+          return await response.json().catch(() => ({
+            success: false,
+            error: `Request failed (${response.status})`,
+          }));
+        }
         throw new Error(`API call failed: ${response.statusText}`);
       }
 
@@ -135,7 +148,7 @@ class FashionArchiveAPI {
         designerName,
         seasonName,
         gender
-      });
+      }, { acceptErrors: true });
       if (response.success) {
         return {
           videoId: response.videoId,
@@ -249,6 +262,46 @@ class FashionArchiveAPI {
       }
     }, signal);
     return all;
+  }
+
+  // Stream one window of the archive.
+  //
+  // The browsing call. `filters` needs nothing but a gender — firstVIEW
+  // answers a gender-only query with every show it holds, newest first — so
+  // the list opens on the whole archive rather than on an instruction to
+  // pick a year. Year, season, category, shoot type and initial each just
+  // narrow the same query.
+  //
+  // One call is a window, not the whole result: `startPage`/`pages` in,
+  // `nextPage`/`hasMore` out, so the caller asks for more as the reader
+  // scrolls instead of waiting on a 900-page crawl.
+  static async streamCatalog(filters, { startPage = 0, pages = 5, onUpdate, signal } = {}) {
+    const all = [];
+    let cursor = { nextPage: startPage, hasMore: false, total: 0 };
+
+    await this.consumeSSE('/api/catalog/stream',
+      { ...filters, startPage, pages },
+      (evt) => {
+        if (evt.type === 'collections') {
+          all.push(...evt.collections);
+          if (onUpdate) onUpdate({ rows: [...all], complete: false });
+        } else if (evt.type === 'relabel') {
+          // Rows indistinguishable on every printed field get their look
+          // counts appended once the window is already on screen.
+          for (const row of all) {
+            const label = evt.labels[row.collection_id];
+            if (label) row.subtitle = label;
+          }
+          if (onUpdate) onUpdate({ rows: [...all], complete: false });
+        } else if (evt.type === 'done') {
+          cursor = { nextPage: evt.nextPage, hasMore: !!evt.hasMore, total: evt.total };
+          if (onUpdate) onUpdate({ rows: [...all], complete: true });
+        } else if (evt.type === 'error') {
+          throw new Error(evt.error);
+        }
+      }, signal);
+
+    return { rows: all, ...cursor };
   }
 
   // Stream one show's looks. onMeta fires once with every look's metadata

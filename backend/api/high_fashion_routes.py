@@ -122,6 +122,30 @@ def _season_filters(q, data):
     )
 
 
+# Season names are long and the subtitle carries five other fields; the
+# abbreviations are the ones the industry already uses.
+_SEASON_SHORT = {
+    'Fall / Winter': 'F/W',
+    'Spring / Summer': 'S/S',
+}
+
+# The subtitle now carries six fields in one line of a 320px column, so the
+# long-form names are abbreviated to the trade's own shorthand. Without this
+# the city — often the only thing separating two rows — was the field that
+# got ellipsised off the end.
+_CATEGORY_SHORT = {
+    'Ready-to-Wear': 'RTW',
+    'Haute Couture': 'Couture',
+}
+
+_SHOOT_SHORT = {
+    'Runway Details': 'Details',
+    'Runway Atmosphere': 'Atmosphere',
+    'Backstage Beauty and Fashion': 'Backstage',
+    'Bridal Collection': 'Bridal',
+}
+
+
 def _row_to_dict(r):
     """One results row, with a label that distinguishes near-identical shows.
 
@@ -131,11 +155,25 @@ def _row_to_dict(r):
     shows the same name twice with nothing to tell them apart.
     """
     name = r.designer or r.title
+
+    # Everything that is not the brand name goes in the subtitle, including
+    # season and year. The list is no longer filtered down to one season
+    # before you can see it, so a row has to say for itself which show it is.
     bits = []
-    if r.category and r.category != 'Ready-to-Wear':
-        bits.append(r.category)
+    if r.season and r.year:
+        bits.append(f'{_SEASON_SHORT.get(r.season, r.season)} {r.year}')
+    elif r.year:
+        bits.append(str(r.year))
+    if r.gender:
+        bits.append(r.gender)
+    if r.category:
+        bits.append(_CATEGORY_SHORT.get(r.category, r.category))
+    # Runway Collection is the plain case and is left unsaid; naming it on
+    # nine rows in ten would push the fields that differ off the line.
     if r.shoot_type and r.shoot_type != 'Runway Collection':
-        bits.append(r.shoot_type)
+        bits.append(_SHOOT_SHORT.get(r.shoot_type, r.shoot_type))
+    if r.city:
+        bits.append(r.city)
     if r.look_count:
         bits.append(f'{r.look_count} looks')
 
@@ -459,6 +497,112 @@ def stream_collections():
                     headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
 
+def _number_ties(rows):
+    """Number rows that even a look count cannot tell apart.
+
+    firstVIEW catalogues some shows twice — Carrieri F/W 2026 is 57796 and
+    57797, both Women, RTW, Barcelona, both 72 looks. They are not
+    duplicates: the two sets share not one image, so dropping either would
+    hide 72 photographs. What they lack is anything printed that differs,
+    which is what made the list look like it was repeating itself.
+
+    Mutates `rows` in place.
+    """
+    from collections import defaultdict
+
+    groups = defaultdict(list)
+    for row in rows:
+        groups[(row['designer'], row['subtitle'])].append(row)
+
+    for group in groups.values():
+        if len(group) < 2:
+            continue
+        for n, row in enumerate(group, 1):
+            row['subtitle'] = f"{row['subtitle']} · set {n}"
+
+
+def stream_catalog():
+    """POST /api/catalog/stream - a window of the archive, as it is found.
+
+    The browsing endpoint. Unlike /api/collections it takes no seasonUrl and
+    requires nothing but a gender: firstVIEW answers a gender-only query with
+    every show it holds for that gender, newest first, which is what lets the
+    app open on the whole archive instead of making you pick a year, then a
+    season, then a gender before it will show you anything.
+
+    Every other filter — year, season, category, shoot type, city, initial —
+    is optional and simply narrows the same query.
+
+    Gender is the one axis that cannot be left out. A completely unfiltered
+    query does not mean "everything"; it returns a 34-row bucket of shows
+    catalogued with no gender at all.
+
+    Paged by request: `startPage` and `pages` read a window, and `done`
+    carries `nextPage`/`hasMore` so the client can ask for the next one when
+    the reader nears the bottom. Reading it all eagerly would be 900+
+    requests to someone else's site for a list nobody scrolls to the end of.
+    """
+    from backend.high_fashion import firstview as fv
+
+    data = request.get_json() or {}
+
+    filters = dict(
+        gender=data.get('gender') or 'Women',
+        year=int(data['year']) if data.get('year') else None,
+        season=data.get('season') or None,
+        category=data.get('category') or None,
+        shoot_type=data.get('shootType') or None,
+        city_id=data.get('cityId') or None,
+        letter=data.get('letter') or None,
+    )
+    start_page = max(0, int(data.get('startPage', 0)))
+    # Five pages is 100 rows: enough to fill the list and a screen of scroll
+    # past it, without holding the connection open for a crawl.
+    pages = max(1, min(int(data.get('pages', 5)), 25))
+
+    def generate():
+        total = 0
+        next_page = start_page
+        has_more = False
+        try:
+            window = []
+            sent = {}
+            for chunk in fv.iter_search_pages(
+                start_page=start_page, pages=pages, **filters
+            ):
+                window.extend(chunk['rows'])
+                rows = [_row_to_dict(r) for r in chunk['rows']]
+                sent.update({row['collection_id']: row['subtitle'] for row in rows})
+                total += len(rows)
+                next_page = chunk['page'] + 1
+                has_more = not chunk['last']
+                yield _sse({
+                    'type': 'collections',
+                    'collections': rows,
+                    'total': total,
+                    'page': chunk['page'],
+                })
+
+            # Telling near-identical rows apart costs a request each, so it
+            # runs once the window is already on screen rather than holding
+            # it back. Only rows whose label actually changed are re-sent.
+            fv.fill_look_counts(window)
+            final = [_row_to_dict(r) for r in window]
+            _number_ties(final)
+            relabelled = {row['collection_id']: row['subtitle'] for row in final
+                          if row['subtitle'] != sent.get(row['collection_id'])}
+            if relabelled:
+                yield _sse({'type': 'relabel', 'labels': relabelled})
+
+            yield _sse({'type': 'done', 'total': total, 'nextPage': next_page,
+                        'hasMore': has_more, 'success': True})
+        except Exception as e:
+            yield _sse({'type': 'error', 'error': str(e), 'success': False})
+
+    return Response(generate(), mimetype='text/event-stream',
+                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+
 def stream_download_images():
     """POST /api/download-images/stream - a show's looks, as they download.
 
@@ -755,10 +899,11 @@ def register_high_fashion_routes(app):
     app.add_url_rule('/api/cache/stats', 'get_cache_stats', get_cache_stats, methods=['GET'])
     app.add_url_rule('/api/video/quota', 'get_video_quota', get_video_quota, methods=['GET'])
     app.add_url_rule('/api/collections/stream', 'stream_collections_sse', stream_collections, methods=['POST'])
+    app.add_url_rule('/api/catalog/stream', 'stream_catalog_sse', stream_catalog, methods=['POST'])
     app.add_url_rule('/api/download-images/stream', 'stream_download_images', stream_download_images, methods=['POST'])
     app.add_url_rule('/api/download-video', 'download_video_fashion', download_video, methods=['POST'])
     app.add_url_rule('/api/images/<path:key>', 'serve_stored_image', serve_stored_image, methods=['GET'])
     app.add_url_rule('/api/video', 'serve_fashion_video', serve_fashion_video, methods=['GET'])
     app.add_url_rule('/api/cleanup', 'cleanup_fashion_cache', cleanup_fashion_cache, methods=['POST'])
 
-    print("✅ High Fashion API routes registered (13 endpoints)")
+    print("✅ High Fashion API routes registered (14 endpoints)")

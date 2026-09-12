@@ -627,6 +627,48 @@ def iter_search_collections(
             time.sleep(delay)
 
 
+def iter_search_pages(
+    session: Optional[requests.Session] = None,
+    start_page: int = 0,
+    pages: int = 1,
+    delay: float = REQUEST_DELAY,
+    **filters,
+):
+    """Yield one window of the result set, a page at a time.
+
+    `iter_search_collections` always starts at page 0, which is fine for a
+    single season but not for browsing the archive unfiltered: asking for
+    gender alone returns every show ever, newest first, and that runs to
+    900+ pages. Reading it means fetching a window at a time and asking for
+    the next one when the reader gets near the bottom.
+
+    Yields ``{"page": int, "rows": [...], "last": bool}``. ``last`` is True
+    on the page that ends the results — a short page, or an empty one — so
+    the caller knows there is no point asking for more.
+    """
+    sess = session or _session()
+    seen: set[str] = set()
+
+    for offset in range(pages):
+        page = start_page + offset
+        url = build_search_url(page=page, **filters)
+        resp = sess.get(url, timeout=TIMEOUT)
+        resp.raise_for_status()
+        rows = parse_results_page(resp.content)
+
+        # A repeated page means the site has run past the end and is
+        # re-serving the last one; treat it as the end rather than looping.
+        fresh = [r for r in rows if r.collection_id not in seen]
+        seen.update(r.collection_id for r in fresh)
+
+        exhausted = len(rows) < RESULTS_PER_PAGE or not fresh
+        yield {"page": page, "rows": fresh, "last": exhausted}
+        if exhausted:
+            return
+        if offset + 1 < pages:
+            time.sleep(delay)
+
+
 def search_collections(
     session: Optional[requests.Session] = None,
     max_pages: int = 1,

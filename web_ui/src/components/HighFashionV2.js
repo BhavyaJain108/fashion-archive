@@ -3,20 +3,20 @@ import { FashionArchiveAPI } from '../services/api';
 import TopBar from './TopBar';
 import './HighFashionV2.css';
 
-// Garment category — firstVIEW's `s_n` filter. Exactly one is always
-// selected: "All" mixed Ready-to-Wear and Couture shows of the same
-// designer into rows that looked like repeats.
+// Garment category — firstVIEW's `s_n` filter. Optional, like every filter
+// but gender: left unset, Ready-to-Wear, Couture and Swim all appear, and
+// each row says which it is.
 const GARMENT_TYPES = [
   { value: 'Ready-to-Wear', label: 'Ready-to-Wear' },
   { value: 'Haute Couture', label: 'Haute Couture' },
   { value: 'Swim', label: 'Swim' },
 ];
 
-// Shoot type — firstVIEW's `s_t`. This is what actually caused the
-// duplicates: one show is catalogued several times, once per shoot, and the
-// list showed all of them under the same brand name. Picking exactly one
-// shoot removes the repeats without hiding anything — the other shoots are
-// one click away.
+// Shoot type — firstVIEW's `s_t`. One show is catalogued several times, once
+// per shoot, which is why the list used to look full of duplicates. They are
+// genuinely different shoots of the same show, so the fix is to label them —
+// the shoot type rides in each row's subtext — rather than to hide all but
+// one, which is what forcing a single choice here amounted to.
 const SHOOT_TYPES = [
   { value: 'Runway Collection', label: 'Collection' },
   { value: 'Runway Details', label: 'Details' },
@@ -26,27 +26,78 @@ const SHOOT_TYPES = [
   { value: 'Bridal Collection', label: 'Bridal' },
 ];
 
-// Seasons are shown abbreviated so all four fit one row of a 280px column.
+// Seasons are shown abbreviated: the subtext carries five other fields.
 const SEASON_LABELS = {
   'Fall / Winter': 'F/W',
   'Spring / Summer': 'S/S',
 };
 
-function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, currentUser }) {
-  // Hierarchy state
-  const [parsedSeasons, setParsedSeasons] = useState({});
-  const [selectedYear, setSelectedYear] = useState(null);
-  const [selectedSeason, setSelectedSeason] = useState(null);
-  const [selectedGender, setSelectedGender] = useState(null);
-  // Garment category and shoot type: independent of the year/season/gender
-  // hierarchy, and always exactly one of each.
-  const [selectedType, setSelectedType] = useState('Ready-to-Wear');
-  const [selectedShootType, setSelectedShootType] = useState('Runway Collection');
+// Jumping by initial is the only way firstVIEW offers to reach a designer
+// directly, and with the whole archive in one list it is the difference
+// between finding Yohji Yamamoto and scrolling for a very long time.
+const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 
-  // Collections state
+// The season a video search should ask about, taken from the row rather
+// than from the filters — with the filters empty there is no selected
+// season to read, and the row has always known its own.
+function videoSeasonName(collection) {
+  if (!collection) return '';
+  const { season, year } = collection;
+  if (season && year) return `${season} ${year}`;
+  return year ? String(year) : '';
+}
+
+// Why a lookup failed, in the button and in its tooltip. These are
+// different problems and only one of them is about this show.
+function videoFailureLabel(result) {
+  if (!result) return { label: 'NO VIDEO', detail: 'No runway video found.' };
+  if (result.notConfigured) {
+    return { label: 'NO API KEY',
+             detail: 'The server has no YouTube API key configured, so video '
+                   + 'lookup is switched off. This is a server setting, not '
+                   + 'a missing video.' };
+  }
+  if (result.quotaExhausted) {
+    return { label: 'QUOTA SPENT',
+             detail: result.error || 'Today\'s YouTube quota is spent. '
+                   + 'Videos already found still play; new lookups resume '
+                   + 'tomorrow.' };
+  }
+  return { label: 'NO VIDEO', detail: result.error || 'No runway video found.' };
+}
+
+function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, currentUser }) {
+  // What the archive holds, used only to keep dead options out of the
+  // filters — a year with no shows for the chosen gender is not offered.
+  const [parsedSeasons, setParsedSeasons] = useState({});
+
+  // The filter set. Everything except gender is optional and starts empty,
+  // so the list opens on the whole archive instead of on an instruction to
+  // choose a year, then a season, then a gender before anything appears.
+  //
+  // Gender is the one axis that cannot be empty: a firstVIEW query with no
+  // gender does not mean "everything", it returns a 34-row bucket of shows
+  // catalogued with no gender at all.
+  const [filters, setFilters] = useState({
+    gender: 'Women',
+    year: '',
+    season: '',
+    category: '',
+    shootType: '',
+    letter: '',
+  });
+
+  // Collections state. `cursor` is where the next window starts; the list is
+  // a window on 900+ pages, not a list that was ever fully fetched.
   const [collections, setCollections] = useState([]);
   const [selectedCollection, setSelectedCollection] = useState(null);
   const [collectionsLoading, setCollectionsLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [cursor, setCursor] = useState({ nextPage: 0, hasMore: false });
+  // A failed request and an empty result are different answers. Showing
+  // "no shows match these filters" for a dropped connection or an expired
+  // session reads as an empty archive, which is the wrong thing to believe.
+  const [listError, setListError] = useState(null);
 
   // Images state
   const [images, setImages] = useState([]);
@@ -84,29 +135,15 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
     if (imagesAbort.current) imagesAbort.current.abort();
   }, []);
 
-  // Park the year strip on the selected year. Only the scrolling facet
-  // needs this — the others show every option at once, so there is nothing
-  // to scroll into view.
-  const filtersRef = useRef(null);
-  useEffect(() => {
-    const root = filtersRef.current;
-    if (!root) return;
-    root.querySelectorAll('.hf2-filter-items.scroll-x').forEach(strip => {
-      const chip = strip.querySelector('.hf2-chip.selected');
-      if (!chip) return;
-      // Measure with rects: offsetLeft is relative to the nearest positioned
-      // ancestor, which is not the strip, and gave a wrong offset.
-      const s = strip.getBoundingClientRect();
-      const c = chip.getBoundingClientRect();
-      const delta = (c.left + c.width / 2) - (s.left + s.width / 2);
-      strip.scrollTo({ left: strip.scrollLeft + delta, behavior: 'smooth' });
-    });
-  }, [parsedSeasons, selectedYear]);
   const [viewMode, setViewMode] = useState('single'); // 'single' or 'grid'
 
   // Video state
   const [videoData, setVideoData] = useState(null);
   const [videoState, setVideoState] = useState('idle'); // 'idle', 'loading', 'ready', 'error'
+  // Why a lookup failed. "No video for this show" and "the server has no
+  // YouTube key" are different problems, and collapsing both into NOT FOUND
+  // is what made a missing key in production look like an empty archive.
+  const [videoError, setVideoError] = useState(null);
   const [showVideo, setShowVideo] = useState(false);
   const [videoHeight, setVideoHeight] = useState(300);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -169,100 +206,119 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
     return match ? parseInt(match[1]) : fallbackIdx + 1;
   };
 
-  // Selection handlers
-  const handleYearSelect = (year) => {
+  // Changing any filter restarts the list from the top. Filters are
+  // additive: setting one narrows the query, clearing it widens it again,
+  // and none of them is a prerequisite for any other.
+  const setFilter = (key, value) => {
     abortCollections();
     abortImages();
-    setSelectedYear(year);
-    setSelectedSeason(null);
-    setSelectedGender(null);
-    setSelectedCollection(null);
-    setCollections([]);
-    setCollectionsLoading(false);
-    setImages([]);
-    setImagesLoading(false);
-    setExpectedLookCount(0);
-  };
-
-  const handleSeasonSelect = (season) => {
-    abortCollections();
-    abortImages();
-    setSelectedSeason(season);
-    setSelectedGender(null);
-    setSelectedCollection(null);
-    setCollections([]);
-    setCollectionsLoading(false);
-    setImages([]);
-    setImagesLoading(false);
-    setExpectedLookCount(0);
-  };
-
-  const handleGenderSelect = (gender) => {
-    abortCollections();
-    abortImages();
-    setSelectedGender(gender);
+    setFilters(prev => {
+      const next = { ...prev, [key]: value };
+      // Season is the only pair with a real dependency: a year that has no
+      // Cruise show should not stay stuck on Cruise when you switch to it.
+      if (key === 'year' && value && next.season) {
+        const has = parsedSeasons[value]?.[next.season]?.[next.gender]?.available;
+        if (has === false) next.season = '';
+      }
+      return next;
+    });
     setSelectedCollection(null);
     setCollections([]);
     setImages([]);
     setExpectedLookCount(0);
   };
 
-  const handleTypeSelect = (type) => {
+  const clearFilters = () => {
     abortCollections();
     abortImages();
-    setSelectedType(type);
+    setFilters(prev => ({ gender: prev.gender, year: '', season: '',
+                          category: '', shootType: '', letter: '' }));
     setSelectedCollection(null);
     setCollections([]);
     setImages([]);
     setExpectedLookCount(0);
   };
 
-  const handleShootTypeSelect = (shootType) => {
-    abortCollections();
-    abortImages();
-    setSelectedShootType(shootType);
-    setSelectedCollection(null);
-    setCollections([]);
-    setImages([]);
-    setExpectedLookCount(0);
-  };
-
-  // Collections load whenever the full filter set is satisfied. Driving this
-  // from an effect rather than the gender handler means changing the garment
-  // category re-queries too, without duplicating the streaming logic.
+  // The first window of the current filter set. Reruns whenever a filter
+  // changes; the streaming means rows appear as each page lands rather than
+  // after the whole window.
   useEffect(() => {
-    const seasonData = parsedSeasons[selectedYear]?.[selectedSeason]?.[selectedGender];
-    if (!seasonData) return;
-
     const controller = new AbortController();
     collectionsAbort.current = controller;
     let cancelled = false;
+    const isCurrent = () => !cancelled && collectionsAbort.current === controller;
 
     setCollectionsLoading(true);
+    setCursor({ nextPage: 0, hasMore: false });
+    setListError(null);
+
     (async () => {
       try {
-        await FashionArchiveAPI.streamCollections(
-          seasonData.url,
-          ({ collections, complete }) => {
-            // A late frame from a superseded stream must not repopulate the list.
-            if (cancelled || collectionsAbort.current !== controller) return;
-            setCollections(collections);
-            if (!complete) setCollectionsLoading(false);
+        const result = await FashionArchiveAPI.streamCatalog(filters, {
+          startPage: 0,
+          signal: controller.signal,
+          onUpdate: ({ rows }) => {
+            // A late frame from a superseded stream must not repopulate the
+            // list — clicking through filters faster than a window completes
+            // used to leave the previous one writing into state.
+            if (!isCurrent()) return;
+            setCollections(rows);
+            setCollectionsLoading(false);
           },
-          controller.signal,
-          { category: selectedType || undefined, shootType: selectedShootType || undefined },
-        );
+        });
+        if (isCurrent()) {
+          setCursor({ nextPage: result.nextPage, hasMore: result.hasMore });
+        }
       } catch (error) {
         if (error.name === 'AbortError' || cancelled) return;
         console.error('Failed to load collections:', error);
         setCollections([]);
+        setListError(error.message || 'Could not reach the archive');
       } finally {
-        if (!cancelled) setCollectionsLoading(false);
+        if (isCurrent()) setCollectionsLoading(false);
       }
     })();
 
     return () => { cancelled = true; controller.abort(); };
-  }, [parsedSeasons, selectedYear, selectedSeason, selectedGender, selectedType, selectedShootType]);
+  }, [filters]);
+
+  // The next window, appended. Called when the list is scrolled near its
+  // end; `hasMore` comes from the server having handed back a full page.
+  const loadMore = useCallback(async () => {
+    if (loadingMore || collectionsLoading || !cursor.hasMore) return;
+    const controller = collectionsAbort.current;
+    setLoadingMore(true);
+    try {
+      const result = await FashionArchiveAPI.streamCatalog(filters, {
+        startPage: cursor.nextPage,
+        signal: controller ? controller.signal : undefined,
+        onUpdate: ({ rows }) => {
+          if (collectionsAbort.current !== controller) return;
+          setCollections(prev => {
+            // Append only what is new: a window is re-delivered in full on
+            // each frame, and the same show can be listed twice by the site.
+            const seen = new Set(prev.map(r => r.collection_id));
+            return [...prev, ...rows.filter(r => !seen.has(r.collection_id))];
+          });
+        },
+      });
+      if (collectionsAbort.current === controller) {
+        setCursor({ nextPage: result.nextPage, hasMore: result.hasMore });
+      }
+    } catch (error) {
+      if (error.name !== 'AbortError') console.error('Failed to load more:', error);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [filters, cursor, loadingMore, collectionsLoading]);
+
+  const handleListScroll = (e) => {
+    const el = e.currentTarget;
+    // 400px of runway, so the next window is usually already in by the time
+    // the reader reaches the bottom.
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 400) loadMore();
+  };
+
 
   const handleCollectionSelect = async (collection) => {
     setSelectedCollection(collection);
@@ -273,6 +329,7 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
     // Reset video state for new collection
     setVideoData(null);
     setVideoState('idle');
+    setVideoError(null);
     setShowVideo(false);
 
     // NB: no cleanupDownloads() here — it rmtree'd the whole cache, so every
@@ -309,23 +366,24 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
     if (!selectedCollection || videoState === 'loading') return;
 
     setVideoState('loading');
+    setVideoError(null);
     try {
-      const seasonName = parsedSeasons[selectedYear]?.[selectedSeason]?.[selectedGender]?.name || '';
       const result = await FashionArchiveAPI.downloadVideo(
         selectedCollection.designer_name || selectedCollection.designer,
-        seasonName,
-        selectedGender
+        videoSeasonName(selectedCollection),
+        selectedCollection.gender || ''
       );
       if (result && result.embedUrl) {
         setVideoData(result);
         setVideoState('ready');
         setShowVideo(true);
       } else {
-        if (result && result.error) console.warn('Video:', result.error);
+        setVideoError(videoFailureLabel(result));
         setVideoState('error');
       }
     } catch (error) {
       console.error('Failed to find video:', error);
+      setVideoError({ label: 'LOOKUP FAILED', detail: String(error.message || error) });
       setVideoState('error');
     }
   };
@@ -563,34 +621,55 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
 
   // Derived data
   // Only offer options that actually have shows. The coverage catalog marks
-  // each year/season/gender available or not; combinations firstVIEW has
-  // nothing for (Men before ~2000, most Men Cruise) are shown greyed and
-  // unclickable rather than hidden, so the shape of the archive stays visible.
-  const hasAny = (node) => {
-    if (!node) return false;
-    return Object.values(node).some(v =>
-      v && typeof v === 'object' && ('available' in v ? v.available : hasAny(v)));
+  // each year/season/gender available or not, so a year firstVIEW holds
+  // nothing for under the chosen gender (Men before ~2000, most Men Cruise)
+  // never becomes a filter that returns an empty list.
+  const availableFor = (yearNode, gender) => {
+    if (!yearNode) return false;
+    return Object.values(yearNode).some(byGender => byGender?.[gender]?.available);
   };
 
-  const years = Object.keys(parsedSeasons).sort((a, b) => b - a);
-  const seasons = selectedYear ? Object.keys(parsedSeasons[selectedYear] || {}).sort() : [];
+  const years = Object.keys(parsedSeasons)
+    .filter(y => availableFor(parsedSeasons[y], filters.gender))
+    .sort((a, b) => b - a);
 
-  const yearEnabled = (y) => hasAny(parsedSeasons[y]);
-  const seasonEnabled = (sn) => hasAny(parsedSeasons[selectedYear]?.[sn]);
-  const genderEnabled = (g) =>
-    parsedSeasons[selectedYear]?.[selectedSeason]?.[g]?.available !== false;
+  // Seasons offered depend on the year when one is chosen, and otherwise on
+  // the archive as a whole — the filters do not require an order.
+  const seasonsAvailable = (() => {
+    const out = new Set();
+    const yearKeys = filters.year ? [filters.year] : Object.keys(parsedSeasons);
+    for (const y of yearKeys) {
+      const node = parsedSeasons[y];
+      if (!node) continue;
+      for (const [season, byGender] of Object.entries(node)) {
+        if (byGender?.[filters.gender]?.available) out.add(season);
+      }
+    }
+    return [...out].sort();
+  })();
 
-  // Garment types available for the current year/season/gender.
-  const currentCombo = parsedSeasons[selectedYear]?.[selectedSeason]?.[selectedGender];
-  const typeEnabled = (value) => {
-    if (!value) return true;                       // "All"
-    const cats = currentCombo?.categories;
-    if (!cats) return true;                        // no catalog yet
-    return (cats[value] || 0) > 0;
-  };
-  const genders = selectedYear && selectedSeason
-    ? Object.keys(parsedSeasons[selectedYear]?.[selectedSeason] || {}).sort()
-    : [];
+  // Categories offered, likewise: the union across whatever is still in
+  // scope, so picking Haute Couture never lands on an empty list.
+  const categoriesAvailable = (() => {
+    const totals = {};
+    const yearKeys = filters.year ? [filters.year] : Object.keys(parsedSeasons);
+    for (const y of yearKeys) {
+      const node = parsedSeasons[y];
+      if (!node) continue;
+      for (const [season, byGender] of Object.entries(node)) {
+        if (filters.season && season !== filters.season) continue;
+        const cats = byGender?.[filters.gender]?.categories;
+        if (!cats) return GARMENT_TYPES.map(t => t.value);   // no catalog yet
+        for (const [name, n] of Object.entries(cats)) {
+          totals[name] = (totals[name] || 0) + n;
+        }
+      }
+    }
+    return GARMENT_TYPES.map(t => t.value).filter(v => (totals[v] || 0) > 0);
+  })();
+
+  const activeFilterCount = ['year', 'season', 'category', 'shootType', 'letter']
+    .filter(k => filters[k]).length;
 
   const currentLookNumber = images.length > 0
     ? extractLookNumber(images[currentImageIndex], currentImageIndex)
@@ -609,119 +688,148 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
       <div className="hf2-content">
         {/* Sidebar */}
         <div className="hf2-sidebar">
-          {/* Navigation Row */}
-        {/* Filters. The control follows the option set: a scroller only
-            where the options cannot all be shown. */}
-        <div className="hf2-filters" ref={filtersRef}>
-          <div className="hf2-filter-row">
-            <div className="hf2-filter-items scroll-x">
-              {years.length === 0
-                ? <span className="hf2-filter-empty">Loading…</span>
-                : years.map(year => (
-                    <button
-                      key={year}
-                      type="button"
-                      className={`hf2-chip ${String(year) === String(selectedYear) ? 'selected' : ''}`}
-                      disabled={!yearEnabled(year)}
-                      onClick={() => handleYearSelect(year)}
-                    >{year}</button>
-                  ))}
-            </div>
+        {/* Filters. Every one of them is optional and additive: the list
+            below starts as the whole archive and each choice narrows it.
+            One thin row per filter, left aligned, so five of them cost less
+            height than a single scroll wheel did. */}
+        <div className="hf2-filters">
+          {/* Gender is the exception — firstVIEW has no "both", and a query
+              without it returns a small bucket of ungendered shows rather
+              than everything. Two values, so a split bar, not a menu. */}
+          <div className="hf2-segmented">
+            {['Women', 'Men'].map(g => (
+              <button
+                key={g}
+                type="button"
+                className={`hf2-segment ${g === filters.gender ? 'selected' : ''}`}
+                onClick={() => setFilter('gender', g)}
+              >{g}</button>
+            ))}
           </div>
 
-          <div className={`hf2-filter-row ${!selectedYear ? 'disabled' : ''}`}>
-            <div className="hf2-filter-items row">
-              {!selectedYear
-                ? <span className="hf2-filter-empty">Select a year</span>
-                : seasons.map(season => (
-                    <button
-                      key={season}
-                      type="button"
-                      title={season}
-                      className={`hf2-chip ${season === selectedSeason ? 'selected' : ''}`}
-                      disabled={!seasonEnabled(season)}
-                      onClick={() => handleSeasonSelect(season)}
-                    >{SEASON_LABELS[season] || season}</button>
-                  ))}
-            </div>
-          </div>
+          <label className="hf2-facet">
+            <span className="hf2-facet-label">Year</span>
+            <select
+              className={`hf2-facet-select ${filters.year ? 'set' : ''}`}
+              value={filters.year}
+              onChange={(e) => setFilter('year', e.target.value)}
+            >
+              <option value="">All years</option>
+              {years.map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
+          </label>
 
-          {/* Gender is two mutually exclusive values, so it gets a split bar
-              rather than a row of small text: the chosen half is filled. */}
-          <div className={`hf2-filter-row ${!selectedSeason ? 'disabled' : ''}`}>
-            {!selectedSeason
-              ? <div className="hf2-filter-items row">
-                  <span className="hf2-filter-empty">Select a season</span>
-                </div>
-              : <div className="hf2-segmented">
-                  {genders.map(g => (
-                    <button
-                      key={g}
-                      type="button"
-                      className={`hf2-segment ${g === selectedGender ? 'selected' : ''}`}
-                      disabled={!genderEnabled(g)}
-                      onClick={() => handleGenderSelect(g)}
-                    >{g}</button>
-                  ))}
-                </div>}
-          </div>
-
-          <div className="hf2-filter-row">
-            <div className="hf2-filter-items row">
-              {GARMENT_TYPES.map(t => (
-                <button
-                  key={t.value}
-                  type="button"
-                  className={`hf2-chip ${t.value === selectedType ? 'selected' : ''}`}
-                  disabled={!typeEnabled(t.value)}
-                  onClick={() => handleTypeSelect(t.value)}
-                >{t.label}</button>
+          <label className="hf2-facet">
+            <span className="hf2-facet-label">Season</span>
+            <select
+              className={`hf2-facet-select ${filters.season ? 'set' : ''}`}
+              value={filters.season}
+              onChange={(e) => setFilter('season', e.target.value)}
+            >
+              <option value="">All seasons</option>
+              {seasonsAvailable.map(sn => (
+                <option key={sn} value={sn}>{SEASON_LABELS[sn] || sn}</option>
               ))}
-            </div>
-          </div>
+            </select>
+          </label>
 
-          <div className="hf2-filter-row">
-            <div className="hf2-filter-items wrap">
+          <label className="hf2-facet">
+            <span className="hf2-facet-label">Type</span>
+            <select
+              className={`hf2-facet-select ${filters.category ? 'set' : ''}`}
+              value={filters.category}
+              onChange={(e) => setFilter('category', e.target.value)}
+            >
+              <option value="">All types</option>
+              {GARMENT_TYPES.filter(t => categoriesAvailable.includes(t.value)).map(t => (
+                <option key={t.value} value={t.value}>{t.label}</option>
+              ))}
+            </select>
+          </label>
+
+          <label className="hf2-facet">
+            <span className="hf2-facet-label">Shoot</span>
+            <select
+              className={`hf2-facet-select ${filters.shootType ? 'set' : ''}`}
+              value={filters.shootType}
+              onChange={(e) => setFilter('shootType', e.target.value)}
+            >
+              <option value="">All shoots</option>
               {SHOOT_TYPES.map(t => (
-                <button
-                  key={t.value}
-                  type="button"
-                  title={t.value}
-                  className={`hf2-chip ${t.value === selectedShootType ? 'selected' : ''}`}
-                  onClick={() => handleShootTypeSelect(t.value)}
-                >{t.label}</button>
+                <option key={t.value} value={t.value}>{t.label}</option>
               ))}
-            </div>
-          </div>
+            </select>
+          </label>
+
+          <label className="hf2-facet">
+            <span className="hf2-facet-label">Brand</span>
+            <select
+              className={`hf2-facet-select ${filters.letter ? 'set' : ''}`}
+              value={filters.letter}
+              onChange={(e) => setFilter('letter', e.target.value)}
+            >
+              <option value="">A–Z</option>
+              {LETTERS.map(l => <option key={l} value={l}>{l}</option>)}
+            </select>
+          </label>
+
+          <button
+            type="button"
+            className="hf2-filter-clear"
+            onClick={clearFilters}
+            disabled={activeFilterCount === 0}
+          >
+            {activeFilterCount === 0
+              ? 'Whole archive'
+              : `Clear ${activeFilterCount} filter${activeFilterCount > 1 ? 's' : ''}`}
+          </button>
         </div>
 
         {/* Collections */}
         <div className="hf2-collections-area">
           <div className="hf2-collections-header">
-            <span>Collections</span>
-            {collections.length > 0 && <span className="count">{collections.length}</span>}
+            <span>Shows</span>
+            {collections.length > 0 && (
+              <span className="count">
+                {collections.length}{cursor.hasMore ? '+' : ''}
+              </span>
+            )}
           </div>
-          <div className="hf2-collections-scroll">
-            {collectionsLoading ? (
-              <div className="hf2-collections-loading">Loading...</div>
-            ) : !selectedGender ? (
-              <div className="hf2-collections-empty">Select year, season, and type</div>
+          <div className="hf2-collections-scroll" onScroll={handleListScroll}>
+            {collectionsLoading && collections.length === 0 ? (
+              <div className="hf2-collections-loading">Loading…</div>
+            ) : listError ? (
+              <div className="hf2-collections-error">
+                <span>Could not load shows</span>
+                <span className="detail">{listError}</span>
+              </div>
             ) : collections.length === 0 ? (
-              <div className="hf2-collections-empty">No collections found</div>
+              <div className="hf2-collections-empty">No shows match these filters</div>
             ) : (
-              collections.map((col, idx) => (
-                <div
-                  key={col.url}
-                  className={`hf2-collection-item ${col.url === selectedCollection?.url ? 'selected' : ''}`}
-                  onClick={() => handleCollectionSelect(col)}
-                >
-                  <span className="num">{String(idx + 1).padStart(3, '0')}</span>
-                  <span className="body">
-                    <span className="name">{cleanDesignerName(col.designer)}</span>
-                    {col.subtitle && <span className="sub">{col.subtitle}</span>}
-                  </span>
-                </div>
-              ))
+              <>
+                {collections.map((col, idx) => (
+                  <div
+                    key={col.collection_id || col.url}
+                    className={`hf2-collection-item ${col.url === selectedCollection?.url ? 'selected' : ''}`}
+                    onClick={() => handleCollectionSelect(col)}
+                  >
+                    <span className="num">{String(idx + 1).padStart(3, '0')}</span>
+                    <span className="body">
+                      <span className="name">{cleanDesignerName(col.designer)}</span>
+                      {/* Abbreviated to fit the column; the tooltip has it in
+                          full for the rows where the tail still gets cut. */}
+                      {col.subtitle && (
+                        <span className="sub" title={col.subtitle}>{col.subtitle}</span>
+                      )}
+                    </span>
+                  </div>
+                ))}
+                {cursor.hasMore && (
+                  <div className="hf2-collections-more">
+                    {loadingMore ? 'Loading more…' : 'Scroll for more'}
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -863,22 +971,32 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
               GRID
             </button>
           </div>
+          {/* The label changes length as the state changes, and the bar is
+              pinned to the right edge — so the text sits in a fixed-width
+              slot. Without it, clicking VIDEO grew the button leftwards and
+              shoved SINGLE/GRID across the screen mid-search. */}
           <button
             className={`hf2-video-btn ${showVideo ? 'active' : ''} ${videoState}`}
+            title={videoState === 'error' && videoError ? videoError.detail : undefined}
             onClick={() => {
               if (videoState === 'idle') {
                 handleVideoSearch();
               } else if (videoState === 'ready') {
                 setShowVideo(!showVideo);
               } else if (videoState === 'error') {
+                // Retry: the reason may have been the server's, not this show's.
+                setVideoError(null);
                 setVideoState('idle');
+                handleVideoSearch();
               }
             }}
             disabled={videoState === 'loading'}
           >
-            {videoState === 'loading' ? 'SEARCHING...' :
-             videoState === 'error' ? 'NOT FOUND' :
-             showVideo ? 'HIDE VIDEO' : 'VIDEO'}
+            <span className="hf2-video-btn-label">
+              {videoState === 'loading' ? 'SEARCHING' :
+               videoState === 'error' ? (videoError?.label || 'NO VIDEO') :
+               showVideo ? 'HIDE VIDEO' : 'VIDEO'}
+            </span>
           </button>
         </div>
       )}
@@ -887,13 +1005,21 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
       {/* Status Bar */}
       <div className="hf2-status-bar">
         <span className="hf2-status-path">
-          {selectedYear && <>{selectedYear}</>}
-          {selectedSeason && <> / {selectedSeason}</>}
-          {selectedGender && <> / {selectedGender}</>}
-          {selectedCollection && (
-            <> / <span className="active">{cleanDesignerName(selectedCollection.designer)}</span></>
+          {selectedCollection ? (
+            <>
+              {videoSeasonName(selectedCollection)}
+              {selectedCollection.gender && <> / {selectedCollection.gender}</>}
+              {' / '}
+              <span className="active">{cleanDesignerName(selectedCollection.designer)}</span>
+            </>
+          ) : (
+            <>
+              {filters.gender}
+              {filters.year && <> / {filters.year}</>}
+              {filters.season && <> / {filters.season}</>}
+              {filters.category && <> / {filters.category}</>}
+            </>
           )}
-          {!selectedYear && 'No selection'}
         </span>
         <span className="hf2-status-look">
           {images.length > 0 && (
