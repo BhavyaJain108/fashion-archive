@@ -53,30 +53,12 @@
   background: var(--ar-wash-strong);
 }
 
-.brand-name.brand-loading {
-  color: var(--ar-ink-4);
-}
-
-.brand-name.brand-long-pressing {
-  cursor: progress;
-}
-
 .brand-name-text {
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-/* "loading..." became "scraping" — it is a scrape, and the word is honest. */
-.brand-loading-text {
-  font-size: 9px;
-  letter-spacing: 0.15em;
-  text-transform: uppercase;
-  color: var(--ar-ink-4);
-  flex-shrink: 0;
-  padding-left: 8px;
 }
 
 .brand-categories {
@@ -157,46 +139,61 @@
 
 /* --- Footer -------------------------------------------------------- */
 
-.add-brand-footer {
+/* No buttons here. A brand joins the archive by being written into
+   brands.yml, so the footer states what the list is and where it lives
+   rather than offering a way to change it from this page. */
+.brand-sidebar-footer {
   padding: 12px;
   border-top: 1px solid var(--ar-line);
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  flex-shrink: 0;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ar-ink-4);
+}
+
+.brand-sidebar-hint {
+  margin-top: 3px;
+  opacity: 0.7;
+  text-transform: none;
+  letter-spacing: 0.04em;
+}
+
+/* Products currently browsable, beside the brand. Same weight as a category
+   count, because it is one: the total of the tree below it. */
+.brand-product-count {
+  margin-left: auto;
+  padding-left: 8px;
+  font-size: 10px;
+  letter-spacing: 0;
+  color: var(--ar-ink-4);
   flex-shrink: 0;
 }
 
-/* Removing a brand discards everything scraped for it, so the button
-   reddens once arm-mode is on — the one place colour is allowed. */
-.brand-name.selected-for-removal {
-  color: var(--ar-danger);
-  border-left-color: var(--ar-danger);
-  background: var(--ar-wash-strong);
-  text-decoration: line-through;
-  text-decoration-color: var(--ar-danger);
-}
-
-.brand-name.selected-for-removal:hover {
-  color: var(--ar-danger);
-}
-
-.remove-brand-list {
-  margin-top: 12px;
-  padding-left: 16px;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--ar-ink);
-  list-style: none;
-}
-
-.remove-brand-list li {
-  margin-bottom: 4px;
-}
-
-.remove-brand-list li::before {
-  content: '— ';
+/* A brand the scraper has never got anything out of still gets a row: an
+   empty brand is a fact about the archive, not something to hide. */
+.brand-name.brand-empty {
   color: var(--ar-ink-4);
+  opacity: 0.6;
+}
+
+.nav-item.nav-loading,
+.nav-item.nav-empty {
+  color: var(--ar-ink-4);
+  font-style: italic;
+  cursor: default;
+}
+
+/* The catalogue could not be read. Ink rather than danger red: the language
+   reserves that colour for confirming a destructive action, and this is the
+   page reporting its own state. */
+.archive-warning {
+  margin: 12px;
+  padding: 8px 10px;
+  border-left: 2px solid var(--ar-ink);
+  background: var(--ar-wash-strong);
+  color: var(--ar-ink);
+  font-size: 11px;
 }
 
 /* --- Gallery ------------------------------------------------------- */
@@ -505,67 +502,4 @@
   text-transform: uppercase;
   letter-spacing: 0.15em;
   color: var(--ar-ink-4);
-}
-
-/* --- Dialogs ------------------------------------------------------- */
-
-/* The scrim dims; it does not blur. */
-.modern-modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.3);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 2000;
-}
-
-.modern-modal {
-  background: var(--ar-bg);
-  border: 1px solid var(--ar-line);
-  border-radius: 0;
-  box-shadow: none;
-  padding: 24px;
-  max-width: 420px;
-  width: 90%;
-  font-family: var(--ar-font);
-}
-
-.modern-modal-title {
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.15em;
-  color: var(--ar-ink);
-  padding-bottom: 12px;
-  margin-bottom: 16px;
-  border-bottom: 1px solid var(--ar-line);
-}
-
-.modern-modal-content {
-  font-size: 11px;
-  line-height: 1.5;
-  color: var(--ar-ink-2);
-  margin-bottom: 16px;
-}
-
-.modern-modal-actions {
-  display: flex;
-  gap: 6px;
-  justify-content: flex-end;
-  margin-top: 20px;
-}
-
-.modern-error {
-  background: transparent;
-  border: 1px solid var(--ar-danger);
-  border-radius: 0;
-  padding: 10px 12px;
-  color: var(--ar-danger);
-  font-size: 10px;
-  letter-spacing: 0.05em;
-  margin-bottom: 16px;
 }

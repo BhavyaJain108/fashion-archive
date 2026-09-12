@@ -112,6 +112,18 @@ except Exception as e:
     import traceback
     traceback.print_exc()
 
+# 6. Archive API (My Brands: the roster in brands.yml, served from the archive
+# catalogue the scraper writes). Registered before install_auth so the hook below
+# covers it like every other route.
+try:
+    print("🔧 Registering Archive API...")
+    from backend.api.archive_routes import register_archive_routes
+    register_archive_routes(app)
+except Exception as e:
+    print(f"❌ Error registering Archive API: {e}")
+    import traceback
+    traceback.print_exc()
+
 # =============================================================================
 # AUTHENTICATION
 # =============================================================================

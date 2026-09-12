@@ -35,6 +35,9 @@ class ImageStore(Protocol):
     def url_for(self, key: str) -> str:
         """The URL `key` would be served from, without storing anything."""
 
+    def exists(self, key: str) -> bool:
+        """Whether the object is already stored, so a caller can skip the work."""
+
 
 # The image types this archive actually stores, pinned rather than looked up.
 #
@@ -190,6 +193,20 @@ def _slug(value: str) -> str:
 
 def runway_key(designer: str, filename: str) -> str:
     return f"runway/{_slug(designer)}/{_slug(filename)}"
+
+
+def product_image_key(domain: str, content_hash: str, extension: str) -> str:
+    """Where one archived product photograph lives.
+
+    Content-addressed: the key is the sha256 of the bytes, so the same photograph
+    reached through two product pages is stored once, and re-running the archiver
+    over a brand rewrites the same objects rather than accumulating copies. The
+    two-character shard keeps any one prefix from holding tens of thousands of
+    objects, which is only a listing convenience — R2 does not care, but anyone
+    looking through the bucket does.
+    """
+    ext = extension if extension.startswith(".") else f".{extension}"
+    return f"archive/{_slug(domain)}/{content_hash[:2]}/{content_hash}{ext}"
 
 
 def favicon_key(brand_id: str, extension: str) -> str:
