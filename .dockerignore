@@ -1,0 +1,16 @@
+# The archive's own data never belongs in an image: it is in R2, and the local copy is
+# 70 MB of catalogue plus whatever images predate the move.
+backend/archive/data
+
+venv
+web_ui/node_modules
+web_ui/build
+.git
+.claude
+.mypy_cache
+.ruff_cache
+.pytest_cache
+**/__pycache__
+data
+docs
+tests

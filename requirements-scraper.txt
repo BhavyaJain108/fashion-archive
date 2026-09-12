@@ -1,0 +1,18 @@
+# What the scraper image installs, named rather than filtered.
+#
+# Subtracting a few lines from requirements.txt left opencv-python, yt-dlp, numpy and
+# Pillow in an image that opens none of them — over 100 MB for nothing. This list was
+# derived from what backend/archive and backend/storage actually import.
+#
+# Deliberately absent: flask and psycopg (the scraper is not the API), and playwright
+# (27 of the 32 brands need only plain HTTP; the 4 that want a browser are the 4 that
+# produce nothing today). Adding the browser lane back means a second, larger image.
+
+httpx>=0.27
+pydantic>=2.5
+PyYAML>=6.0
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
+boto3>=1.34
+anthropic>=0.25.0
+python-dotenv>=1.0.0
