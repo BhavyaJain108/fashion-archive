@@ -1,10 +1,5 @@
+"""REST API endpoints.
+
+Routes are registered by backend/app.py, one module at a time, so this package
+exports nothing — importing it used to pull in the whole brand-scraping API.
 """
-API Package
-===========
-
-REST API endpoints for the premium scraper.
-"""
-
-from .routes import register_routes
-
-__all__ = ['register_routes']
