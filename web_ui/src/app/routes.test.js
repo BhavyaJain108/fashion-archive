@@ -253,10 +253,12 @@ describe('round trip', () => {
 });
 
 describe('FILTER_KEYS', () => {
-  // This is the whole filter set, not a copy of one: HighFashionPage builds
-  // its filter state from FILTER_KEYS rather than from its own literal, so
-  // adding a filter means adding it here. Changing this list is therefore a
-  // deliberate act — update the literal along with it.
+  // The one hand-maintained copy of the filter set, and the point of it: the
+  // page derives its filter state from FILTER_KEYS rather than from a literal
+  // of its own, so nothing else in the app would notice a key appearing or
+  // disappearing here. This assertion is the thing that notices. A failure
+  // here is not a bug — it means somebody changed the filter set, and the
+  // list below has to be changed with it, deliberately.
   test('covers every filter the archive has', () => {
     expect([...FILTER_KEYS].sort()).toEqual([
       'category', 'city', 'gender', 'letter', 'season', 'shootType', 'year',

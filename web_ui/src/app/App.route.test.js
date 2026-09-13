@@ -1,16 +1,13 @@
 import { parseRoute } from './routes';
+import { pageKeyForRoute } from './App';
 
-// The mapping in App.js from a parsed route to the page key the three page
-// components and TopBar use. This tests the mapping, not React — rendering
-// App would need a backend, a cookie and three pages' worth of fetches to
-// answer, none of which is what is interesting here.
-//
-// Kept in step with App.js by hand; if the page keys change, this test is
-// where it shows up.
-const pageKeyFor = (route) =>
-  route.page === 'brands' ? 'my-brands'
-  : route.page === 'library' || route.page === 'album' ? 'favourites'
-  : 'high-fashion';
+// App.js's own mapping from a parsed route to the page key the three page
+// components and TopBar use — imported, not restated. It used to be copied
+// into this file, which meant the test agreed with itself no matter what
+// App.js did. This tests the mapping, not React: rendering App would need a
+// backend, a cookie and three pages' worth of fetches to answer, none of
+// which is what is interesting here.
+const pageKeyFor = pageKeyForRoute;
 
 test.each([
   ['/', 'high-fashion'],

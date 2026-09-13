@@ -6,6 +6,19 @@ import HighFashionPage from '../features/high-fashion/HighFashionPage';
 import { FashionArchiveAPI } from '../shared/api';
 import { useRoute } from '../shared/hooks/useRoute';
 
+// Which page a parsed route opens. Exported because it is the one rule in
+// this file worth testing on its own, and a test that restated it could not
+// fail when this changed.
+//
+// 'album' and 'shared' are routes that later phases fill in; until then they
+// render the library and the archive, which is where an unfinished link
+// should land rather than on a blank screen.
+export function pageKeyForRoute(route) {
+  if (route.page === 'brands') return 'my-brands';
+  if (route.page === 'library' || route.page === 'album') return 'favourites';
+  return 'high-fashion';
+}
+
 // The shell: decide whether anyone is signed in, and which of the three pages
 // to show. Nothing else.
 //
@@ -35,13 +48,7 @@ function App() {
   // address bar changes, useRoute re-renders, a different page draws.
   const [route, go] = useRoute();
 
-  // 'album' and 'shared' are routes that later phases fill in; until then
-  // they render the library and the archive, which is where an unfinished
-  // link should land rather than on a blank screen.
-  const currentPage =
-    route.page === 'brands' ? 'my-brands'
-    : route.page === 'library' || route.page === 'album' ? 'favourites'
-    : 'high-fashion';
+  const currentPage = pageKeyForRoute(route);
 
   // Restore the session on load.
   //
@@ -76,6 +83,10 @@ function App() {
     if (AUTH_PARAMS.some((k) => params.has(k))) {
       AUTH_PARAMS.forEach((k) => params.delete(k));
       const rest = params.toString();
+      // Deliberately not router.js's navigate(): this runs in App's own mount
+      // effect, before any route consumer has mounted, and it is scrubbing a
+      // secret out of the URL rather than making a navigation — there is
+      // nobody to notify and nothing to canonicalize.
       window.history.replaceState(
         {}, '', window.location.pathname + (rest ? `?${rest}` : '')
       );
