@@ -14,6 +14,40 @@ databases:
     region: oregon
 
 services:
+  # The scraper, off the laptop. Everything it needs is in R2, so it holds no state and
+  # a redeploy costs nothing but the run in flight — which is re-run, never resumed.
+  #
+  # It exists because the alternative was a laptop: an overnight fleet scrape slept
+  # mid-run, lost the network on eighteen brands, and killed psylos1's run 19 hours in.
+  # A machine that stays awake is the fix, not a longer timeout.
+  - type: worker
+    name: fashion-archive-scraper
+    runtime: docker
+    dockerfilePath: ./Dockerfile.scraper
+    region: oregon
+    # No Chromium in this image, so it does not need the standard plan the API does.
+    # 27 of the 32 brands shown need only plain HTTP and a bulk-JSON endpoint.
+    plan: starter
+    dockerCommand: python -m backend.archive.runner.cli daemon start --workers 2
+    envVars:
+      # The control plane lives in R2 alongside the catalogue, so cadence, pausing a
+      # brand and stopping the daemon are all edits to objects — no redeploy, and no
+      # database for the scraper at all.
+      - key: R2_BUCKET
+        value: fashion-archive
+      - key: R2_PUBLIC_BASE
+        value: https://images.premiumpropogandafashion.studio
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      # Learning new field rules costs money and is deliberate, not a background
+      # activity. The daemon scrapes and archives; `--find-fields` is run by hand.
+      - key: ANTHROPIC_API_KEY
+        sync: false
+
   - type: web
     name: fashion-archive-api
     runtime: docker

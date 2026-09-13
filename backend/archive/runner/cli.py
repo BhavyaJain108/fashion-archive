@@ -122,7 +122,9 @@ def main(argv: list[str] | None = None) -> int:
             sp.add_argument("--gap", type=float, default=0.5)
             sp.add_argument("--images-dir", type=Path, default=Path("backend/archive/data/images"))
         if name == "brands":
-            sp.add_argument("action", choices=["add", "drop", "pause", "resume", "cadence"])
+            sp.add_argument(
+                "action", choices=["add", "drop", "pause", "resume", "cadence", "seed", "list"]
+            )
             sp.add_argument("domain", nargs="?")
             sp.add_argument("--every", type=int, default=86400, help="cadence in seconds")
         if name == "plan":
@@ -500,7 +502,21 @@ def main(argv: list[str] | None = None) -> int:
             from backend.archive.scheduler import Scheduler
 
             sched = Scheduler(store)
-            if args.action == "add":
+            if args.action == "seed":
+                # Every brand the app shows, onto the schedule. The daemon reads this
+                # and nothing else, so a brand missing from here is a brand that never
+                # gets scraped however carefully it is listed in brands.yml.
+                from backend.archive.roster import app_roster
+
+                added = 0
+                for entry in app_roster(args.brands):
+                    if not any(r["domain"] == entry.domain for r in sched.rows()):
+                        sched.add(entry.domain, args.every)
+                        added += 1
+                print(f"added {added} brand(s) to the schedule")
+            elif args.action == "list":
+                pass
+            elif args.action == "add":
                 catalog.upsert_brand(
                     catalog.get_brand(args.domain)
                     or Brand(domain=args.domain, homepage_url=f"https://{args.domain}")
