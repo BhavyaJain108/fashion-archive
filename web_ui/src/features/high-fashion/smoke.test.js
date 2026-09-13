@@ -33,6 +33,18 @@ const COLLECTION = {
   subtitle: 'Runway Collection — Paris',
 };
 
+// The show that was open a moment ago and is still on screen while another
+// one loads — a different designer and a different season, so a message that
+// names the wrong one is visible in the assertion.
+const PREVIOUS = {
+  collection_id: '5678',
+  url: 'https://example.test/show/5678',
+  designer: 'Helmut Lang Ready To Wear Spring 1998',
+  year: '1998',
+  season: 'Spring',
+  gender: 'Women',
+};
+
 const FILTERS = {
   gender: 'Women', year: '', season: '', category: '',
   shootType: '', city: '', letter: '',
@@ -197,6 +209,7 @@ describe('Viewer', () => {
     currentLookNumber: 1,
     extractLookNumber,
     selectedCollection: COLLECTION,
+    imagesCollection: COLLECTION,
     viewMode: 'single',
     setViewMode: noop,
     selectImageFromGrid: noop,
@@ -268,5 +281,49 @@ describe('Viewer', () => {
   it('says so when the stream failed and left nothing', () => {
     render(<Viewer {...props} images={[]} imagesError={new Error('nope')} />);
     expect(screen.getByText('Could not load this show')).toBeInTheDocument();
+  });
+
+  // The case the kept-previous-show feature creates, and the one that used
+  // to report nothing at all: the request failed, so the pane still holds
+  // the show that was open before, dimmed. Without a message the dim is
+  // indistinguishable from "still loading", and it never clears.
+  it('says so when the stream failed and the previous show is still up', () => {
+    render(
+      <Viewer
+        {...props}
+        imagesStale
+        imagesError={new Error('nope')}
+        selectedCollection={COLLECTION}
+        imagesCollection={PREVIOUS}
+      />
+    );
+    expect(screen.getByText('Could not load this show')).toBeInTheDocument();
+    // The status bar is naming COLLECTION, the show that was asked for, so
+    // the message has to name the one the reader is actually looking at.
+    expect(screen.getByText('Helmut Lang / Spring 1998')).toBeInTheDocument();
+    // And the looks are still there, under it.
+    expect(screen.getAllByAltText('Look 1')).toHaveLength(2);
+  });
+
+  it('leaves the failure notice at full strength over the dimmed looks', () => {
+    render(
+      <Viewer
+        {...props}
+        imagesStale
+        imagesError={new Error('nope')}
+        imagesCollection={PREVIOUS}
+      />
+    );
+    // The dim is applied to the pane's children rather than to the pane, so
+    // that the notice — a child — can sit above it undimmed. A child of an
+    // element with opacity can never be more opaque than its parent.
+    const notice = document.querySelector('.hf2-stale-error');
+    expect(notice).not.toBeNull();
+    expect(notice.parentElement.classList.contains('hf2-main')).toBe(true);
+  });
+
+  it('shows no failure notice when nothing failed', () => {
+    render(<Viewer {...props} imagesStale />);
+    expect(document.querySelector('.hf2-stale-error')).toBeNull();
   });
 });

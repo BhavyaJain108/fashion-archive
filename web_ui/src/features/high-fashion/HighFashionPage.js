@@ -17,6 +17,7 @@ import ShowList from './ShowList';
 import Viewer from './Viewer';
 import StatusBar from './StatusBar';
 import { videoSeasonName } from './seasonName';
+import { useFavourites } from './useFavourites';
 import './HighFashionPage.css';
 
 // Which filters the "Clear N filters" badge counts. Derived from
@@ -171,6 +172,7 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
     isStale: imagesStale,
     error: imagesError,
     imagesKey,
+    imagesCollection,
     reload: reloadImages,
   } = useCollectionImages(selectedCollection);
 
@@ -947,83 +949,17 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
 
   // Which looks this user has kept.
   //
-  // Held as a set of "collection url|look number", loaded once, because the
-  // question is asked of every thumbnail on screen — a request per look to
-  // answer "is this one favourited" would be hundreds of requests to draw a
-  // strip. Favourites are per user by construction: the endpoint reads the
-  // session, so there is no user id to pass and no way to see anyone else's.
-  const [favouriteKeys, setFavouriteKeys] = useState(() => new Set());
-  const [favouriteBusy, setFavouriteBusy] = useState(false);
-
-  const favouriteKey = (collectionUrl, lookNumber) => `${collectionUrl}|${lookNumber}`;
-
-  const loadFavourites = useCallback(async () => {
-    const rows = await FashionArchiveAPI.getFavourites();
-    // The list endpoint nests these — collection.url and look.number, not the
-    // flat column names the write side takes. Reading the flat names produced
-    // "undefined|undefined" for every key, so nothing was ever marked as kept
-    // after a reload while the writes themselves looked fine.
-    setFavouriteKeys(new Set(
-      (rows || [])
-        .map(f => favouriteKey(f.collection?.url, f.look?.number))
-        .filter(k => !k.startsWith('undefined'))));
-  }, []);
-
-  useEffect(() => { loadFavourites(); }, [loadFavourites]);
-
-  const isFavourite = (lookNumber) =>
-    !!selectedCollection
-    && favouriteKeys.has(favouriteKey(selectedCollection.url, lookNumber));
-
-  const toggleFavourite = useCallback(async (lookNumber, imagePath) => {
-    if (!selectedCollection || favouriteBusy) return;
-    // The photograph on screen belongs to the show that was open a moment
-    // ago, and the key below would file it under the show that is opening.
-    // Keeping look 34 of the wrong show is a wrong row in the database, not
-    // a wrong pixel, so this waits rather than guesses.
-    if (imagesStale) return;
-    const key = favouriteKey(selectedCollection.url, lookNumber);
-    const had = favouriteKeys.has(key);
-
-    // Move the marker first: keeping a look should feel instantaneous, and
-    // the request is undone below if it turns out not to have worked.
-    setFavouriteKeys(prev => {
-      const next = new Set(prev);
-      if (had) next.delete(key); else next.add(key);
-      return next;
-    });
-    setFavouriteBusy(true);
-
-    try {
-      if (had) {
-        await FashionArchiveAPI.removeFavourite(
-          selectedCollection.season_url || '', selectedCollection.url, lookNumber);
-      } else {
-        await FashionArchiveAPI.addFavourite(
-          {
-            name: videoSeasonName(selectedCollection),
-            url: selectedCollection.season_url || '',
-            link_text: selectedCollection.subtitle || '',
-          },
-          {
-            designer: selectedCollection.designer_name || selectedCollection.designer,
-            url: selectedCollection.url,
-          },
-          { number: lookNumber, total: images.length },
-          imagePath,
-        );
-      }
-    } catch (error) {
-      console.error('Could not change favourite:', error);
-      setFavouriteKeys(prev => {          // put it back the way it was
-        const next = new Set(prev);
-        if (had) next.add(key); else next.delete(key);
-        return next;
-      });
-    } finally {
-      setFavouriteBusy(false);
-    }
-  }, [selectedCollection, favouriteKeys, favouriteBusy, imagesStale, images.length]);
+  // Keyed on the collection whose photographs are ON SCREEN, not on the one
+  // that was clicked. Those differ for the whole of the stale window — and
+  // on a failed load the window never closes — and the look number always
+  // comes from the images on screen, so reading the url off anything else
+  // files look 34 of the show you are reading under the show you asked for.
+  // The previous shape of this was an `if (imagesStale) return;` in the
+  // writer: it made F a dead key for seconds at a time, silently and
+  // permanently after a failure, and it did nothing at all for the stars,
+  // titles and aria-pressed on the read side, which went on answering for
+  // the wrong show. See useFavourites.
+  const { isFavourite, toggleFavourite } = useFavourites(imagesCollection, images.length);
 
   // Every look the reader chooses themselves goes through here — the arrows,
   // the thumbnail strip, the grid. It cancels any look a deep link was still
@@ -1460,6 +1396,7 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
         imagesLoading={imagesLoading}
         imagesStale={imagesStale}
         imagesError={imagesError}
+        imagesCollection={imagesCollection}
         currentImageIndex={imageIndex}
         setCurrentImageIndex={showLook}
         currentLookNumber={currentLookNumber}

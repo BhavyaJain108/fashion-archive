@@ -290,10 +290,45 @@
 
 /* The show that was open, still on screen while the next one streams its
    first image. Dimmed so it reads as "not what you asked for yet" rather
-   than as the show whose name the status bar is now showing. */
-.hf2-main.stale {
+   than as the show whose name the status bar is now showing.
+
+   The children are dimmed rather than the pane itself, and the failure
+   notice is excluded: opacity on a parent is a ceiling its children cannot
+   rise above, so a notice inside a 45% pane would be a 45% notice. The
+   children of .hf2-main never overlap — it is a flex column — so dimming
+   each of them looks the same as dimming the box. */
+.hf2-main.stale > *:not(.hf2-stale-error) {
   opacity: 0.45;
   transition: opacity 120ms linear;
+}
+
+/* The load failed and there are still photographs underneath: the show that
+   was open before, kept on purpose. Monochrome, the same eleven-pixel
+   uppercase language as every other message, over the top of the pane
+   rather than in the flow, so it does not move the looks it is describing.
+   Sits on .ar-empty for the centred column and the type; the colour is
+   raised off --ar-ink-4, which is the shade for "nothing here" and too
+   faint to carry a failure. */
+.hf2-stale-error {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  flex: none;
+  gap: 4px;
+  padding: 12px 16px;
+  background: var(--ar-bg);
+  border-bottom: 1px solid var(--ar-line);
+  color: var(--ar-ink-2);
+}
+
+.hf2-stale-error-sub {
+  color: var(--ar-ink-3);
+}
+
+.hf2-stale-error .shown {
+  color: var(--ar-ink);
 }
 
 .hf2-placeholder {
@@ -513,6 +548,14 @@
 }
 
 /* Controls Area */
+/* Deliberately outside the staleness dim, and it stays that way. The dim is
+   a statement about the photographs — that they belong to the show you were
+   reading, not the one you asked for — and these are not photographs.
+   SINGLE and GRID go on working on the looks that are on screen for the
+   whole window, and VIDEO belongs to the show being opened rather than the
+   one still showing, so there is no one opacity that would be true of all
+   three. Dimming an enabled control to 45% reads as disabled, which none of
+   them is. */
 .hf2-controls {
   position: fixed;
   top: 60px;

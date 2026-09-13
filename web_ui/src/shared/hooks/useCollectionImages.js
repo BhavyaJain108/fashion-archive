@@ -5,7 +5,8 @@ import { FashionArchiveAPI } from '../api';
 // collection off the screen first.
 //
 //   useCollectionImages(collection)
-//     -> { images, expectedCount, loading, isStale, error, imagesKey, reload }
+//     -> { images, expectedCount, loading, isStale, error,
+//          imagesKey, imagesCollection, reload }
 //
 // The rule this hook exists for: a request for a new collection never
 // clears `images`. What is on screen stays on screen until there is
@@ -25,6 +26,7 @@ import { FashionArchiveAPI } from '../api';
 const EMPTY = {
   images: [],
   imagesKey: null,
+  imagesCollection: null,
   expectedCount: 0,
   loading: false,
   error: null,
@@ -50,6 +52,16 @@ export function useCollectionImages(collection) {
   // photographs into the show on screen. Everything a stream does is
   // guarded on still being the current one.
   const live = useRef(null);
+
+  // The newest object describing whichever show is selected. The stream
+  // effect is keyed on the url alone, so its closure holds whatever object
+  // happened to be current when it started; a deep link that refetches the
+  // open show hands back a richer object for the same url — season_url
+  // among the fields it adds — and that is the one a favourite must be
+  // written against. Declared before the stream effect so it is always
+  // fresh by the time a callback below reads it.
+  const latest = useRef(collection);
+  useEffect(() => { latest.current = collection; });
 
   useEffect(() => {
     if (!key) {
@@ -95,6 +107,7 @@ export function useCollectionImages(collection) {
           ...prev,
           images: paths.filter(Boolean),
           imagesKey: key,
+          imagesCollection: latest.current,
           loading: false,
         }));
       },
@@ -106,7 +119,13 @@ export function useCollectionImages(collection) {
       // status bar would tell. Only an error keeps them.
       setState(prev => (landed
         ? { ...prev, loading: false }
-        : { ...prev, images: [], imagesKey: key, loading: false }));
+        : {
+          ...prev,
+          images: [],
+          imagesKey: key,
+          imagesCollection: latest.current,
+          loading: false,
+        }));
     }).catch((error) => {
       // Superseded by a newer request, which has already taken over the
       // state. Nothing to report and nothing to clear.
@@ -145,6 +164,15 @@ export function useCollectionImages(collection) {
     // hook cannot reset it, and this is how it says when to: look 1 of a
     // new show, and not on a reload of the same one.
     imagesKey: state.imagesKey,
+    // The same answer as an object rather than a url: which collection the
+    // photographs on screen belong to. Favourites are written against it,
+    // because a star is about the photograph the reader is looking at and
+    // during the stale window that is not the collection that was asked
+    // for — least of all after a failed load, where the window never
+    // closes. When the images on screen are the selected show's, the
+    // selected object is by definition the freshest description of it; only
+    // while they are someone else's is the committed one the answer.
+    imagesCollection: state.imagesKey === key ? collection : state.imagesCollection,
     reload,
   };
 }

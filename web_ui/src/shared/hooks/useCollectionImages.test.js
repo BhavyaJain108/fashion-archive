@@ -261,7 +261,15 @@ describe('useCollectionImages', () => {
     expect(calls[0].handlers.signal.aborted).toBe(true);
   });
 
-  test('unmounting mid-stream aborts and sets no state afterwards', () => {
+  // Named for what it actually pins. It used to be called "...and sets no
+  // state afterwards", which it never checked: after unmount RTL freezes
+  // `result.current`, and React 18 makes setState on an unmounted component
+  // a silent no-op, so deleting `live.current = null` from the cleanup left
+  // every assertion here green. Neither the frozen snapshot nor a
+  // console.error spy can see a late write, and the hook exposes no seam
+  // that can. What is real is that the request is aborted and that the
+  // late callbacks are harmless, so that is what the name claims.
+  test('unmounting mid-stream aborts the request', () => {
     const { result, unmount } = mount(A);
     meta(calls[0], 10);
     const before = result.current.images;
@@ -276,5 +284,92 @@ describe('useCollectionImages', () => {
     }).not.toThrow();
     expect(result.current.images).toBe(before);
     expect(errorLog).not.toHaveBeenCalled();
+  });
+
+  // Which collection the photographs on screen belong to, as an object and
+  // not just a url. Favourites are written against it: a star is about the
+  // photograph the reader is looking at, and during the stale window that
+  // is not the collection that was asked for.
+  describe('imagesCollection', () => {
+    test('is null while nothing has landed', () => {
+      const { result } = mount(A);
+      expect(result.current.imagesCollection).toBe(null);
+      meta(calls[0], 12);
+      expect(result.current.imagesCollection).toBe(null);
+    });
+
+    test('is the collection whose first image landed', () => {
+      const { result } = mount(A);
+      image(calls[0], 0, 'a/look-01.jpg');
+      expect(result.current.imagesCollection).toBe(A);
+    });
+
+    test('stays on the show still being looked at while the next one loads',
+      async () => {
+        const { result, rerender } = mount(A);
+        image(calls[0], 0, 'a/look-01.jpg');
+        await done(calls[0]);
+
+        rerender({ collection: B });
+
+        expect(result.current.isStale).toBe(true);
+        expect(result.current.images).toEqual(['a/look-01.jpg']);
+        // The looks on screen are A's, so this is A's — not the B that was
+        // asked for.
+        expect(result.current.imagesCollection).toBe(A);
+
+        image(calls[1], 0, 'b/look-01.jpg');
+        expect(result.current.imagesCollection).toBe(B);
+      });
+
+    // The window a failed load opens never closes on its own: imagesKey
+    // stays on the old show forever. Anything keyed on the requested
+    // collection is wrong for as long as the reader sits there.
+    test('stays on the show still being looked at after a failed load', async () => {
+      const { result, rerender } = mount(A);
+      image(calls[0], 0, 'a/look-01.jpg');
+      await done(calls[0]);
+
+      rerender({ collection: B });
+      await fail(calls[1], new Error('the network blipped'));
+
+      expect(result.current.isStale).toBe(true);
+      expect(result.current.imagesCollection).toBe(A);
+    });
+
+    test('a stream that completed empty commits the collection it emptied for',
+      async () => {
+        const { result, rerender } = mount(A);
+        image(calls[0], 0, 'a/look-01.jpg');
+        await done(calls[0]);
+
+        rerender({ collection: B });
+        await done(calls[1]);
+
+        expect(result.current.images).toEqual([]);
+        expect(result.current.imagesCollection).toBe(B);
+      });
+
+    // A deep link refetches the open show and hands back a different object
+    // for the same url, carrying fields the list row did not have —
+    // season_url among them, which a favourite write needs. Once the images
+    // on screen are that show's, the freshest object for it is the answer.
+    test('upgrades to the newest object for the same show', () => {
+      const { result, rerender } = mount(A);
+      image(calls[0], 0, 'a/look-01.jpg');
+
+      const fuller = { ...A, season_url: 'https://example.test/season/a' };
+      rerender({ collection: fuller });
+
+      expect(FashionArchiveAPI.streamCollectionImages).toHaveBeenCalledTimes(1);
+      expect(result.current.imagesCollection).toBe(fuller);
+    });
+
+    test('is null once the selection is cleared', () => {
+      const { result, rerender } = mount(A);
+      image(calls[0], 0, 'a/look-01.jpg');
+      rerender({ collection: null });
+      expect(result.current.imagesCollection).toBe(null);
+    });
   });
 });

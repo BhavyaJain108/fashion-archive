@@ -1,6 +1,8 @@
 import React from 'react';
 import { FashionArchiveAPI } from '../../shared/api';
+import { cleanDesignerName } from '../../shared/lib/designerName';
 import { lookLabel, lookAlt } from '../../shared/lib/lookLabel';
+import { videoSeasonName } from './seasonName';
 import ThumbStrip from './ThumbStrip';
 import VideoPanel from './VideoPanel';
 
@@ -19,6 +21,7 @@ function Viewer({
   imagesLoading,
   imagesStale,
   imagesError,
+  imagesCollection,
   currentImageIndex,
   setCurrentImageIndex,
   currentLookNumber,
@@ -51,6 +54,17 @@ function Viewer({
   formatTime,
   getQualityLabel,
 }) {
+  // What the reader is actually looking at, named. During the stale window
+  // the status bar is naming the show that was asked for, so a failure
+  // message that says only "could not load" leaves them unable to tell
+  // which show the photographs under it belong to.
+  const shownDesigner = imagesCollection
+    && (imagesCollection.designer_name || imagesCollection.designer);
+  const shownName = [
+    shownDesigner ? cleanDesignerName(shownDesigner) : '',
+    videoSeasonName(imagesCollection),
+  ].filter(Boolean).join(' / ');
+
   return (
     <>
       {/* Main Area */}
@@ -61,6 +75,25 @@ function Viewer({
           first show of a session is stale too, and dimming its "Loading
           images..." helps nobody. */}
       <div className={`hf2-main ${imagesStale && images.length > 0 ? 'stale' : ''}`}>
+        {/* A failure with looks still on screen. The pane is not empty, so
+            the placeholder below never runs, and before this there was no
+            message anywhere: dimmed photographs, the other show's name in
+            the status bar, and nothing to say the load had failed rather
+            than still been running. On a failure the stale window never
+            closes on its own, so "forever" was literal.
+
+            It sits over the pane rather than inside its content because
+            the dim is what it is explaining, and a child of a dimmed
+            element cannot be less transparent than its parent. */}
+        {imagesError && images.length > 0 && (
+          <div className="hf2-stale-error ar-empty" role="alert">
+            <span className="headline">Could not load this show</span>
+            <span className="hf2-stale-error-sub">
+              Still showing <span className="shown">{shownName || 'the previous show'}</span>
+            </span>
+          </div>
+        )}
+
         {/* The placeholder is for an empty pane only. It used to be shown
             whenever a stream was running, which is exactly what blanked the
             show you were reading the moment you clicked another one. */}
