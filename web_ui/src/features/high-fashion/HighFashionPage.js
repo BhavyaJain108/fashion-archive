@@ -1,55 +1,13 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { FashionArchiveAPI } from '../shared/api';
-import { prepare as prepareDesigners, search as searchDesigners } from '../shared/lib/designerSearch';
-import TopBar from '../shared/ui/TopBar';
-import StatusBar from '../features/high-fashion/StatusBar';
-import ThumbStrip from '../features/high-fashion/ThumbStrip';
-import VideoPanel from '../features/high-fashion/VideoPanel';
-import './HighFashionV2.css';
-
-// Garment category — firstVIEW's `s_n` filter. Optional, like every filter
-// but gender: left unset, Ready-to-Wear, Couture and Swim all appear, and
-// each row says which it is.
-const GARMENT_TYPES = [
-  { value: 'Ready-to-Wear', label: 'Ready-to-Wear' },
-  { value: 'Haute Couture', label: 'Haute Couture' },
-  { value: 'Swim', label: 'Swim' },
-];
-
-// Shoot type — firstVIEW's `s_t`. One show is catalogued several times, once
-// per shoot, which is why the list used to look full of duplicates. They are
-// genuinely different shoots of the same show, so the fix is to label them —
-// the shoot type rides in each row's subtext — rather than to hide all but
-// one, which is what forcing a single choice here amounted to.
-const SHOOT_TYPES = [
-  { value: 'Runway Collection', label: 'Collection' },
-  { value: 'Runway Details', label: 'Details' },
-  { value: 'Runway Atmosphere', label: 'Atmosphere' },
-  { value: 'Backstage Beauty and Fashion', label: 'Backstage' },
-  { value: 'Lookbook', label: 'Lookbook' },
-  { value: 'Bridal Collection', label: 'Bridal' },
-];
-
-// Seasons are shown abbreviated: the subtext carries five other fields.
-const SEASON_LABELS = {
-  'Fall / Winter': 'F/W',
-  'Spring / Summer': 'S/S',
-};
-
-// Jumping by initial is the only way firstVIEW offers to reach a designer
-// directly, and with the whole archive in one list it is the difference
-// between finding Yohji Yamamoto and scrolling for a very long time.
-const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
-
-// The season a video search should ask about, taken from the row rather
-// than from the filters — with the filters empty there is no selected
-// season to read, and the row has always known its own.
-function videoSeasonName(collection) {
-  if (!collection) return '';
-  const { season, year } = collection;
-  if (season && year) return `${season} ${year}`;
-  return year ? String(year) : '';
-}
+import { FashionArchiveAPI } from '../../shared/api';
+import { prepare as prepareDesigners, search as searchDesigners } from '../../shared/lib/designerSearch';
+import TopBar from '../../shared/ui/TopBar';
+import Filters, { GARMENT_TYPES } from './Filters';
+import ShowList from './ShowList';
+import Viewer from './Viewer';
+import StatusBar from './StatusBar';
+import { videoSeasonName } from './seasonName';
+import './HighFashionPage.css';
 
 // Why a lookup failed, in the button and in its tooltip. These are
 // different problems and only one of them is about this show.
@@ -70,7 +28,7 @@ function videoFailureLabel(result) {
   return { label: 'NO VIDEO', detail: result.error || 'No runway video found.' };
 }
 
-function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, currentUser }) {
+function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout, currentUser }) {
   // What the archive holds, used only to keep dead options out of the
   // filters — a year with no shows for the chosen gender is not offered.
   const [parsedSeasons, setParsedSeasons] = useState({});
@@ -244,14 +202,6 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
     };
     loadSeasons();
   }, [buildHierarchy]);
-
-  // Clean designer name
-  const cleanDesignerName = (fullName) => {
-    return fullName
-      .replace(/\s+(Ready To Wear|Menswear|Couture|Men & Women)\s+.*/i, '')
-      .replace(/\s+(Fall|Spring|Winter|Summer)\s+.*/i, '')
-      .trim();
-  };
 
   // Extract look number from filename
   const extractLookNumber = (path, fallbackIdx) => {
@@ -1158,434 +1108,88 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
 
         {/* Sidebar */}
         <div className={`hf2-sidebar ${sidebarOpen ? '' : 'collapsed'}`}>
-        {/* Search. One box: type a designer, press Enter, get everything they
-            ever showed. The archive list is organised by season, so a
-            designer's own history across thirty years is the one view the
-            filters below cannot produce at all. */}
-        <div className="hf2-search">
-          <input
-            ref={searchInputRef}
-            type="text"
-            className="hf2-search-input"
-            placeholder={!designerIndex ? 'Search unavailable'
-                         : indexReady ? 'Search designers and shows'
-                         : 'Search designers'}
-            value={query}
-            disabled={!designerIndex}
-            onChange={(e) => setQuery(e.target.value)}
-            onFocus={() => setSearchFocused(true)}
-            // A click on a suggestion blurs the input first, so closing is
-            // deferred a beat or the option is gone before it is chosen.
-            onBlur={() => setTimeout(() => setSearchFocused(false), 120)}
-            onKeyDown={handleSearchKeyDown}
-            spellCheck={false}
-            autoComplete="off"
-          />
-          {query && (
-            <button type="button" className="hf2-search-clear"
-                    onClick={() => { setQuery(''); searchInputRef.current?.focus(); }}>
-              ✕
-            </button>
-          )}
+        <Filters
+          searchInputRef={searchInputRef}
+          designerIndex={designerIndex}
+          query={query}
+          setQuery={setQuery}
+          searchFocused={searchFocused}
+          setSearchFocused={setSearchFocused}
+          handleSearchKeyDown={handleSearchKeyDown}
+          suggestionList={suggestionList}
+          activeSuggestion={activeSuggestion}
+          setActiveSuggestion={setActiveSuggestion}
+          chooseSuggestion={chooseSuggestion}
+          indexReady={indexReady}
+          designerMode={designerMode}
+          filters={filters}
+          setFilter={setFilter}
+          years={years}
+          designerYears={designerYears}
+          seasonsAvailable={seasonsAvailable}
+          designerSeasons={designerSeasons}
+          categoriesAvailable={categoriesAvailable}
+          designerCategories={designerCategories}
+          designerShootTypes={designerShootTypes}
+          facetValues={facetValues}
+          facetCount={facetCount}
+          clearFilters={clearFilters}
+          activeFilterCount={activeFilterCount}
+        />
 
-          {searchFocused && suggestionList.length > 0 && (
-            <div className="hf2-search-results">
-              {!query.trim() && (
-                <div className="hf2-search-heading">Recently opened</div>
-              )}
-              {suggestionList.map((item, i) => {
-                const active = i === activeSuggestion ? 'active' : '';
-                // `key` stays off this object: React warns when a key is
-                // spread in with the rest of the props, because it is not a
-                // prop — it is how the list is reconciled.
-                const common = {
-                  type: 'button',
-                  onMouseEnter: () => setActiveSuggestion(i),
-                  onMouseDown: (e) => e.preventDefault(),
-                  onClick: () => chooseSuggestion(item),
-                };
-                if (item.kind === 'designer') {
-                  return (
-                    <button key={item.key} {...common} className={`hf2-search-option ${active}`}>
-                      <span className="label">{item.designer.name}</span>
-                      {/* Exact, from the local index. Entries rather than
-                          shows: a show is listed once per shoot. */}
-                      {item.designer.entries > 0 && (
-                        <span className="meta">{item.designer.entries}</span>
-                      )}
-                    </button>
-                  );
-                }
-                if (item.kind === 'show') {
-                  return (
-                    <button key={item.key} {...common} className={`hf2-search-option show ${active}`}>
-                      <span className="label">{item.show.designer}</span>
-                      <span className="sub">{item.show.subtitle}</span>
-                    </button>
-                  );
-                }
-                return (
-                  <button key={item.key} {...common} className={`hf2-search-option all ${active}`}>
-                    <span className="label">All {item.total} matching shows</span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-          {searchFocused && query.trim() && suggestionList.length === 0 && (
-            <div className="hf2-search-results">
-              <div className="hf2-search-empty">Nothing matches that</div>
-            </div>
-          )}
-        </div>
-
-        {/* Filters. Every one of them is optional and additive: the list
-            below starts as the whole archive and each choice narrows it.
-            One thin row per filter, left aligned, so five of them cost less
-            height than a single scroll wheel did. */}
-        <div className="hf2-filters">
-          {/* Gender is the one filter the archive list cannot leave empty:
-              firstVIEW has no "both", and a query without a gender returns a
-              small bucket of ungendered shows rather than everything.
-              In designer mode that constraint is gone — both genders are
-              already loaded — so All appears and is the default. */}
-          <div className="hf2-segmented">
-            {((designerMode || indexReady) ? ['', 'Women', 'Men'] : ['Women', 'Men']).map(g => (
-              <button
-                key={g || 'all'}
-                type="button"
-                className={`hf2-segment ${g === filters.gender ? 'selected' : ''}`}
-                onClick={() => setFilter('gender', g)}
-              >{g || 'All'}</button>
-            ))}
-          </div>
-
-          <label className="hf2-facet">
-            <span className="hf2-facet-label">Year</span>
-            <select
-              className={`hf2-facet-select ${filters.year ? 'set' : ''}`}
-              value={filters.year}
-              onChange={(e) => setFilter('year', e.target.value)}
-            >
-              <option value="">All years</option>
-              {(designerYears || years).map(y => (
-                <option key={y} value={y}>
-                  {y}{facetCount('year', y) ? ` (${facetCount('year', y)})` : ''}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="hf2-facet">
-            <span className="hf2-facet-label">Season</span>
-            <select
-              className={`hf2-facet-select ${filters.season ? 'set' : ''}`}
-              value={filters.season}
-              onChange={(e) => setFilter('season', e.target.value)}
-            >
-              <option value="">All seasons</option>
-              {(designerSeasons || seasonsAvailable).map(sn => (
-                <option key={sn} value={sn}>{SEASON_LABELS[sn] || sn}</option>
-              ))}
-            </select>
-          </label>
-
-          <label className="hf2-facet">
-            <span className="hf2-facet-label">Type</span>
-            <select
-              className={`hf2-facet-select ${filters.category ? 'set' : ''}`}
-              value={filters.category}
-              onChange={(e) => setFilter('category', e.target.value)}
-            >
-              <option value="">All types</option>
-              {GARMENT_TYPES.filter(t => (designerCategories || categoriesAvailable)
-                                             .includes(t.value)).map(t => (
-                <option key={t.value} value={t.value}>{t.label}</option>
-              ))}
-            </select>
-          </label>
-
-          <label className="hf2-facet">
-            <span className="hf2-facet-label">Shoot</span>
-            <select
-              className={`hf2-facet-select ${filters.shootType ? 'set' : ''}`}
-              value={filters.shootType}
-              onChange={(e) => setFilter('shootType', e.target.value)}
-            >
-              <option value="">All shoots</option>
-              {SHOOT_TYPES.filter(t => !designerShootTypes
-                                       || designerShootTypes.includes(t.value)).map(t => (
-                <option key={t.value} value={t.value}>{t.label}</option>
-              ))}
-            </select>
-          </label>
-
-          {/* City. The index has known this all along — it is on every row —
-              but it took holding the archive to be able to offer it without
-              a crawl per option. */}
-          <label className={`hf2-facet ${indexReady ? '' : 'hidden'}`}>
-            <span className="hf2-facet-label">City</span>
-            <select
-              className={`hf2-facet-select ${filters.city ? 'set' : ''}`}
-              value={filters.city}
-              onChange={(e) => setFilter('city', e.target.value)}
-            >
-              <option value="">All cities</option>
-              {(facetValues('city') || []).map(c => (
-                <option key={c} value={c}>
-                  {c}{facetCount('city', c) ? ` (${facetCount('city', c)})` : ''}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className={`hf2-facet ${designerMode ? 'hidden' : ''}`}>
-            <span className="hf2-facet-label">Brand</span>
-            <select
-              className={`hf2-facet-select ${filters.letter ? 'set' : ''}`}
-              value={filters.letter}
-              onChange={(e) => setFilter('letter', e.target.value)}
-            >
-              <option value="">A–Z</option>
-              {LETTERS.map(l => <option key={l} value={l}>{l}</option>)}
-            </select>
-          </label>
-
-          <button
-            type="button"
-            className="hf2-filter-clear"
-            onClick={clearFilters}
-            disabled={activeFilterCount === 0}
-          >
-            {activeFilterCount === 0
-              ? 'Whole archive'
-              : `Clear ${activeFilterCount} filter${activeFilterCount > 1 ? 's' : ''}`}
-          </button>
-        </div>
-
-        {/* Collections */}
-        <div className="hf2-collections-area">
-          <div className="hf2-collections-header">
-            {designerMode || searchText ? (
-              <>
-                <button type="button" className="hf2-designer-exit" onClick={exitDesigner}>
-                  ← Archive
-                </button>
-                <span className="hf2-designer-name"
-                      title={designerMode ? designerMode.name : `Search: ${searchText}`}>
-                  {designerMode ? designerMode.name : `“${searchText}”`}
-                </span>
-              </>
-            ) : (
-              <span>Shows</span>
-            )}
-            {visibleCollections.length > 0 && (
-              <span className="count">
-                {indexReady
-                  // Exact, and the whole point of holding the archive: the
-                  // list can say how many shows match, not how many it has
-                  // managed to fetch so far.
-                  ? cursor.total.toLocaleString()
-                  : designerMode && visibleCollections.length !== designerRows.length
-                    ? `${visibleCollections.length}/${designerRows.length}`
-                    : `${visibleCollections.length}${cursor.hasMore ? '+' : ''}`}
-              </span>
-            )}
-          </div>
-          <div className="hf2-collections-scroll" onScroll={handleListScroll}>
-            {listLoading && visibleCollections.length === 0 ? (
-              <div className="hf2-collections-loading">Loading…</div>
-            ) : listError ? (
-              <div className="hf2-collections-error">
-                <span>Could not load shows</span>
-                <span className="detail">{listError}</span>
-              </div>
-            ) : visibleCollections.length === 0 ? (
-              <div className="hf2-collections-empty">
-                {designerMode
-                  ? `${designerMode.name} has no shows matching these filters`
-                  : 'No shows match these filters'}
-              </div>
-            ) : (
-              <>
-                {visibleCollections.map((col, idx) => (
-                  <div
-                    key={col.collection_id || col.url}
-                    className={`hf2-collection-item ${col.url === selectedCollection?.url ? 'selected' : ''}`}
-                    onClick={() => handleCollectionSelect(col)}
-                  >
-                    <span className="num">{String(idx + 1).padStart(3, '0')}</span>
-                    <span className="body">
-                      <span className="name">{cleanDesignerName(col.designer)}</span>
-                      {/* Abbreviated to fit the column; the tooltip has it in
-                          full for the rows where the tail still gets cut. */}
-                      {col.subtitle && (
-                        <span className="sub" title={col.subtitle}>{col.subtitle}</span>
-                      )}
-                    </span>
-                  </div>
-                ))}
-                {designerMode && designerLoading && (
-                  <div className="hf2-collections-more">Loading more…</div>
-                )}
-                {!designerMode && cursor.hasMore && (
-                  <div className="hf2-collections-more">
-                    {loadingMore ? 'Loading more…' : 'Scroll for more'}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        </div>
+        <ShowList
+          designerMode={designerMode}
+          searchText={searchText}
+          exitDesigner={exitDesigner}
+          visibleCollections={visibleCollections}
+          indexReady={indexReady}
+          cursor={cursor}
+          designerRows={designerRows}
+          handleListScroll={handleListScroll}
+          listLoading={listLoading}
+          listError={listError}
+          selectedCollection={selectedCollection}
+          handleCollectionSelect={handleCollectionSelect}
+          designerLoading={designerLoading}
+          loadingMore={loadingMore}
+        />
       </div>
 
-      {/* Main Area */}
-      <div className="hf2-main">
-        {imagesLoading ? (
-          <div className="hf2-placeholder">Loading images...</div>
-        ) : images.length === 0 ? (
-          <div className="hf2-placeholder">
-            {selectedCollection ? 'No images found' : 'Select a collection to view looks'}
-          </div>
-        ) : viewMode === 'single' ? (
-          <div className={`hf2-single-container ${showVideo && videoData ? 'with-video' : ''}`}>
-            {/* Main Content Area */}
-            <div className="hf2-single-content">
-              {/* Image Side */}
-              <div className="hf2-image-side">
-                <div className="hf2-image-frame">
-                  <img
-                    src={FashionArchiveAPI.getImageUrl(images[currentImageIndex])}
-                    alt={`Look ${currentLookNumber}`}
-                  />
-                </div>
-                <div className="hf2-image-info">
-                  <span className="hf2-look-label">LOOK {String(currentLookNumber).padStart(2, '0')}</span>
-                  {/* Keeping a look was possible in the database and in the API
-                      from the start, and nowhere on the screen. */}
-                  <button
-                    type="button"
-                    className={`hf2-fav-btn ${isFavourite(currentLookNumber) ? 'on' : ''}`}
-                    onClick={() => toggleFavourite(currentLookNumber, images[currentImageIndex])}
-                    title={isFavourite(currentLookNumber)
-                      ? 'Remove from favourites (F)'
-                      : 'Keep this look (F)'}
-                    aria-pressed={isFavourite(currentLookNumber)}
-                  >
-                    {isFavourite(currentLookNumber) ? '★' : '☆'}
-                  </button>
-                  <span className="hf2-look-count">{currentImageIndex + 1} / {images.length}</span>
-                </div>
-              </div>
-
-              {/* Video Side */}
-              {showVideo && videoData && (
-                <VideoPanel
-                  videoHeight={videoHeight}
-                  isPlaying={isPlaying}
-                  currentTime={currentTime}
-                  duration={duration}
-                  playerContainerRef={playerContainerRef}
-                  onResizeStart={handleResizeStart}
-                  onTogglePlay={togglePlay}
-                  onSeek={seekTo}
-                  formatTime={formatTime}
-                  getQualityLabel={getQualityLabel}
-                />
-              )}
-            </div>
-          </div>
-        ) : null}
-
-        {/* Grid View */}
-        {viewMode === 'grid' && images.length > 0 && (
-          <div className="hf2-grid-container">
-            <div className="hf2-grid-view">
-              {images.map((imgPath, idx) => {
-                const lookNum = extractLookNumber(imgPath, idx);
-                return (
-                  <div
-                    key={imgPath}
-                    className={`hf2-grid-item ${idx === currentImageIndex ? 'selected' : ''} ${
-                      isFavourite(lookNum) ? 'kept' : ''}`}
-                    onClick={() => selectImageFromGrid(idx)}
-                  >
-                    <div className="hf2-grid-image-wrapper">
-                      <img
-                        src={FashionArchiveAPI.getImageUrl(imgPath)}
-                        alt={`Look ${lookNum}`}
-                        loading="lazy"
-                      />
-                    </div>
-                    <span className="look-num">{String(lookNum).padStart(2, '0')}</span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Horizontal Thumbnail Strip - spans full width in single view */}
-        {viewMode === 'single' && images.length > 0 && (
-          <ThumbStrip
-            images={images}
-            currentImageIndex={currentImageIndex}
-            onSelect={setCurrentImageIndex}
-            isFavourite={isFavourite}
-            stripRef={thumbStripRef}
-            activeThumbRef={activeThumbRef}
-            extractLookNumber={extractLookNumber}
-          />
-        )}
+      <Viewer
+        images={images}
+        imagesLoading={imagesLoading}
+        currentImageIndex={currentImageIndex}
+        setCurrentImageIndex={setCurrentImageIndex}
+        currentLookNumber={currentLookNumber}
+        extractLookNumber={extractLookNumber}
+        selectedCollection={selectedCollection}
+        viewMode={viewMode}
+        setViewMode={setViewMode}
+        selectImageFromGrid={selectImageFromGrid}
+        isFavourite={isFavourite}
+        toggleFavourite={toggleFavourite}
+        thumbStripRef={thumbStripRef}
+        activeThumbRef={activeThumbRef}
+        showVideo={showVideo}
+        setShowVideo={setShowVideo}
+        videoData={videoData}
+        videoState={videoState}
+        setVideoState={setVideoState}
+        videoError={videoError}
+        setVideoError={setVideoError}
+        handleVideoSearch={handleVideoSearch}
+        videoHeight={videoHeight}
+        isPlaying={isPlaying}
+        currentTime={currentTime}
+        duration={duration}
+        playerContainerRef={playerContainerRef}
+        handleResizeStart={handleResizeStart}
+        togglePlay={togglePlay}
+        seekTo={seekTo}
+        formatTime={formatTime}
+        getQualityLabel={getQualityLabel}
+      />
       </div>
-      </div>
-
-      {/* View Toggle & Video Button */}
-      {images.length > 0 && (
-        <div className="hf2-controls">
-          <div className="hf2-view-toggle">
-            <button
-              className={`hf2-view-btn ${viewMode === 'single' ? 'active' : ''}`}
-              onClick={() => setViewMode('single')}
-            >
-              SINGLE
-            </button>
-            <button
-              className={`hf2-view-btn ${viewMode === 'grid' ? 'active' : ''}`}
-              onClick={() => setViewMode('grid')}
-            >
-              GRID
-            </button>
-          </div>
-          {/* The label changes length as the state changes, and the bar is
-              pinned to the right edge — so the text sits in a fixed-width
-              slot. Without it, clicking VIDEO grew the button leftwards and
-              shoved SINGLE/GRID across the screen mid-search. */}
-          <button
-            className={`hf2-video-btn ${showVideo ? 'active' : ''} ${videoState}`}
-            title={videoState === 'error' && videoError ? videoError.detail : undefined}
-            onClick={() => {
-              if (videoState === 'idle') {
-                handleVideoSearch();
-              } else if (videoState === 'ready') {
-                setShowVideo(!showVideo);
-              } else if (videoState === 'error') {
-                // Retry: the reason may have been the server's, not this show's.
-                setVideoError(null);
-                setVideoState('idle');
-                handleVideoSearch();
-              }
-            }}
-            disabled={videoState === 'loading'}
-          >
-            <span className="hf2-video-btn-label">
-              {videoState === 'loading' ? 'SEARCHING' :
-               videoState === 'error' ? (videoError?.label || 'NO VIDEO') :
-               showVideo ? 'HIDE VIDEO' : 'VIDEO'}
-            </span>
-          </button>
-        </div>
-      )}
 
 
       {/* Status Bar */}
@@ -1594,11 +1198,9 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
         filters={filters}
         imagesLength={images.length}
         currentLookNumber={currentLookNumber}
-        videoSeasonName={videoSeasonName}
-        cleanDesignerName={cleanDesignerName}
       />
     </div>
   );
 }
 
-export default HighFashionV2;
+export default HighFashionPage;

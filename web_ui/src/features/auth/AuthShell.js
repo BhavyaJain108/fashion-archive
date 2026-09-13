@@ -6,7 +6,7 @@ import React from 'react';
  * Matches the archive's own visual language rather than inventing one: the
  * JetBrains Mono stack, 10px uppercase labels at 0.15em tracking, hairline
  * #e0e0e0 borders, black on white with #666 body and #999 secondary. Those
- * values come from HighFashionV2.css and TopBar.css, so the sign-in screen
+ * values come from HighFashionPage.css and TopBar.css, so the sign-in screen
  * reads as part of the same application as the page behind it.
  *
  * Kept separate from the forms so spacing, type and error presentation are

@@ -128,7 +128,7 @@ function FavouritesPanel({ currentPage, onPageSwitch, currentUser, onLogout, onO
   }, [visible.length]);
 
   // Center the active thumbnail in the strip — same approach as
-  // HighFashionV2's thumb strip, which faces the identical problem: the
+  // HighFashionPage's thumb strip, which faces the identical problem: the
   // strip's scrollbar is hidden, so without this, arrowing past the visible
   // width moves the active thumb off-screen with no visual cue that more
   // thumbs exist off to the side.
@@ -138,7 +138,7 @@ function FavouritesPanel({ currentPage, onPageSwitch, currentUser, onLogout, onO
       const thumb = activeThumbRef.current;
       // Measure with rects, not thumb.offsetLeft: offsetLeft is relative to
       // the nearest positioned ancestor, and Favourites has none above the
-      // strip (unlike HighFashionV2's .hf2-main), so it fell through to
+      // strip (unlike HighFashionPage's .hf2-main), so it fell through to
       // <body> and picked up the sidebar's width as part of the offset.
       const s = strip.getBoundingClientRect();
       const t = thumb.getBoundingClientRect();

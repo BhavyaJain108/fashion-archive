@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import FavouritesPanel from '../components/FavouritesPanel';
 import MyBrandsPanel from '../components/MyBrandsPanel';
 import AuthPanel from '../features/auth/AuthPanel';
-import HighFashionV2 from '../components/HighFashionV2';
+import HighFashionPage from '../features/high-fashion/HighFashionPage';
 import { FashionArchiveAPI } from '../shared/api';
 
 // The shell: decide whether anyone is signed in, and which of the three pages
@@ -11,7 +11,7 @@ import { FashionArchiveAPI } from '../shared/api';
 // It used to hold the whole archive as well — seasons, collections, the loaded
 // images, the current look, gallery and zoom modes, a video window, and a
 // window-level key handler for the arrows. That was the previous generation of
-// this UI, when App owned the data and the panels drew it. HighFashionV2 owns
+// this UI, when App owned the data and the panels drew it. HighFashionPage owns
 // all of it now and takes four props, none of which was any of that state; the
 // rest sat here being set and never read.
 function App() {
@@ -127,7 +127,7 @@ function App() {
   return (
     <div className="ar-app">
       {currentPage === 'high-fashion' ? (
-        <HighFashionV2 {...pageProps} />
+        <HighFashionPage {...pageProps} />
       ) : currentPage === 'my-brands' ? (
         <MyBrandsPanel {...pageProps} />
       ) : (

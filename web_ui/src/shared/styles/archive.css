@@ -1,7 +1,7 @@
 /* ---------------------------------------------------------------------
    The archive design language.
 
-   Every value here was lifted from HighFashionV2.css, which is where the
+   Every value here was lifted from HighFashionPage.css, which is where the
    language was first built. That file keeps its literal hex values; these
    tokens spell the same colours so the pages agree. Migrating High Fashion
    onto the tokens is deliberately left alone — it works, and this change
