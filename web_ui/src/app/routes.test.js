@@ -253,11 +253,27 @@ describe('round trip', () => {
 });
 
 describe('FILTER_KEYS', () => {
-  // These must match the filter state in HighFashionPage exactly. A key
-  // missing here is a filter that silently will not survive a reload.
+  // This is the whole filter set, not a copy of one: HighFashionPage builds
+  // its filter state from FILTER_KEYS rather than from its own literal, so
+  // adding a filter means adding it here. Changing this list is therefore a
+  // deliberate act — update the literal along with it.
   test('covers every filter the archive has', () => {
     expect([...FILTER_KEYS].sort()).toEqual([
       'category', 'city', 'gender', 'letter', 'season', 'shootType', 'year',
     ]);
+  });
+
+  // The property that makes deriving the page's filter state from this list
+  // worth anything: a key in it survives the trip out to the address bar and
+  // back. A key that did not would be a filter the page offers and a reload
+  // throws away.
+  test('every key survives a round trip through the URL', () => {
+    const filters = {};
+    for (const key of FILTER_KEYS) filters[key] = `v-${key}`;
+
+    const url = buildRoute({ page: 'high-fashion', filters });
+    const [pathname, search] = url.split('?');
+
+    expect(parseRoute(pathname, search).filters).toEqual(filters);
   });
 });

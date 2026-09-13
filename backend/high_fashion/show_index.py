@@ -162,6 +162,9 @@ def known_ids(conn) -> set:
 # ---------------------------------------------------------------------------
 
 _FILTER_COLUMNS = {
+    # A deep link carries the show's id and nothing else — this is the only
+    # way back from a URL like /hf/gucci/1234 to the collection row it names.
+    "collection_id": "collection_id",
     "gender": "gender",
     "year": "year",
     "season": "season",

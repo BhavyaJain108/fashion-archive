@@ -4,6 +4,7 @@ import BrandsPage from '../features/brands/BrandsPage';
 import AuthPanel from '../features/auth/AuthPanel';
 import HighFashionPage from '../features/high-fashion/HighFashionPage';
 import { FashionArchiveAPI } from '../shared/api';
+import { useRoute } from '../shared/hooks/useRoute';
 
 // The shell: decide whether anyone is signed in, and which of the three pages
 // to show. Nothing else.
@@ -29,7 +30,18 @@ function App() {
   const [authNotice, setAuthNotice] = useState('');
   const [resetToken, setResetToken] = useState(null);
 
-  const [currentPage, setCurrentPage] = useState('high-fashion');
+  // Which page is open is a fact about the URL, not a piece of state. Back
+  // and forward work because there is nothing else to keep in step: the
+  // address bar changes, useRoute re-renders, a different page draws.
+  const [route, go] = useRoute();
+
+  // 'album' and 'shared' are routes that later phases fill in; until then
+  // they render the library and the archive, which is where an unfinished
+  // link should land rather than on a blank screen.
+  const currentPage =
+    route.page === 'brands' ? 'my-brands'
+    : route.page === 'library' || route.page === 'album' ? 'favourites'
+    : 'high-fashion';
 
   // Restore the session on load.
   //
@@ -57,10 +69,16 @@ function App() {
       setAuthNotice('That confirmation link is invalid or has expired.');
     }
 
-    // Drop token and status out of the address bar so a reset token is not
-    // left sitting in history or copied out of the URL bar.
-    if (params.toString()) {
-      window.history.replaceState({}, '', window.location.pathname);
+    // Strip only the auth parameters. A reset token must not sit in history
+    // where it can be copied out of the address bar — but the filters live in
+    // this query string now, and wiping the lot would drop them on every load.
+    const AUTH_PARAMS = ['token', 'verified', 'error'];
+    if (AUTH_PARAMS.some((k) => params.has(k))) {
+      AUTH_PARAMS.forEach((k) => params.delete(k));
+      const rest = params.toString();
+      window.history.replaceState(
+        {}, '', window.location.pathname + (rest ? `?${rest}` : '')
+      );
     }
 
     const restore = async () => {
@@ -103,7 +121,16 @@ function App() {
     }
   };
 
-  const handlePageSwitch = (page) => setCurrentPage(page);
+  // The nav writes a URL; the URL decides the page. Filters are deliberately
+  // not carried across — they belong to the archive, and pinning last week's
+  // year filter onto My Brands would be meaningless there.
+  const handlePageSwitch = (page) => {
+    go({
+      page: page === 'my-brands' ? 'brands'
+        : page === 'favourites' ? 'library'
+        : 'high-fashion',
+    });
+  };
 
   // Held back until the cookie check finishes, so a returning user never sees
   // a flash of the sign-in form.

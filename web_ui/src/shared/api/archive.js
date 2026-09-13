@@ -119,9 +119,13 @@ export class ArchiveEndpoints {
   // `text` is a free-text query, `designer` pins it to one label, and
   // `facets: true` asks for the counts behind every filter dropdown so none
   // of them can offer a combination with nothing in it.
-  static async browseCatalog(filters, { text, limit = 200, offset = 0, facets = false } = {}) {
+  // `collectionId` is not a filter anyone picks — it is how a deep link like
+  // /hf/gucci/1234 is turned back into the row it names, and it is the only
+  // lookup by id the archive has.
+  static async browseCatalog(filters, { text, limit = 200, offset = 0, facets = false,
+                                        collectionId } = {}) {
     return ApiClient.callPython('/api/browse', {
-      ...filters, text, limit, offset, facets,
+      ...filters, text, limit, offset, facets, collectionId,
     });
   }
 

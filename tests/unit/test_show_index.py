@@ -15,7 +15,13 @@ Pure string work, no database.
 from __future__ import annotations
 
 import pytest
-from high_fashion.show_index import SEASON_RANK, normalise, search_text, sort_rank
+from high_fashion.show_index import (
+    SEASON_RANK,
+    _where,
+    normalise,
+    search_text,
+    sort_rank,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -129,3 +135,32 @@ class TestSortRank:
 
     def test_a_missing_year_sorts_last(self):
         assert sort_rank(show(y=None)) < sort_rank(show(y=1989))
+
+
+class TestWhere:
+    """The filter-to-SQL translation. Pure string work, no database."""
+
+    def test_no_filters_matches_everything(self):
+        assert _where({}, None) == ("TRUE", [])
+
+    def test_a_collection_id_resolves_one_show(self):
+        """A deep link carries the id and nothing else; without this clause
+        /hf/gucci/1234 has no way back to the row it names."""
+        where, params = _where({"collection_id": "1234"}, None)
+        assert where == "collection_id = %s"
+        assert params == ["1234"]
+
+    def test_an_unknown_key_is_dropped_rather_than_interpolated(self):
+        """Anything not named in _FILTER_COLUMNS never reaches the SQL."""
+        where, params = _where({"nonsense": "1; DROP TABLE show_index"}, None)
+        assert where == "TRUE"
+        assert params == []
+
+    def test_year_is_compared_as_a_number(self):
+        _, params = _where({"year": "2020"}, None)
+        assert params == [2020]
+
+    def test_filters_are_combined_with_and(self):
+        where, params = _where({"gender": "Women", "city": "Paris"}, None)
+        assert where.count(" AND ") == 1
+        assert set(params) == {"Women", "Paris"}

@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { FashionArchiveAPI } from '../../shared/api';
+import { FILTER_KEYS, slugify } from '../../app/routes';
+import { getRoute } from '../../app/router';
+import { useRoute } from '../../shared/hooks/useRoute';
 import { prepare as prepareDesigners, search as searchDesigners } from '../../shared/lib/designerSearch';
 import TopBar from '../../shared/ui/TopBar';
 import Filters, { GARMENT_TYPES } from './Filters';
@@ -28,6 +31,27 @@ function videoFailureLabel(result) {
   return { label: 'NO VIDEO', detail: result.error || 'No runway video found.' };
 }
 
+// Which filters exist is decided in exactly one place — FILTER_KEYS in
+// routes.js — because that is the list the query string is read and written
+// through. Spelling the set out again here is how an eighth filter gets
+// added to the page and then quietly fails to survive a reload, with no test
+// to catch it: the page would have it, the URL would drop it.
+const EMPTY_FILTERS = Array.from(FILTER_KEYS).reduce(
+  (acc, key) => ({ ...acc, [key]: '' }), {});
+
+// The readable half of a show URL. Never parsed back — see routes.js — so a
+// row with an odd designer or no subtitle still produces something.
+const showSlug = (collection) => slugify(
+  collection.designer || collection.designer_name, collection.subtitle);
+
+// A show is only addressable if its id is firstVIEW's own bare integer.
+// Anything else (a crawled row with no id at all) cannot be written into a
+// URL that parseRoute would read back, so it is not written into one.
+const showId = (collection) => {
+  const id = String((collection && collection.collection_id) ?? '');
+  return /^\d+$/.test(id) ? id : null;
+};
+
 function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout, currentUser }) {
   // What the archive holds, used only to keep dead options out of the
   // filters — a year with no shows for the chosen gender is not offered.
@@ -40,16 +64,28 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
   // Gender is the one axis that cannot be empty: a firstVIEW query with no
   // gender does not mean "everything", it returns a 34-row bucket of shows
   // catalogued with no gender at all.
-  const [filters, setFilters] = useState({
+  const [filters, setFilters] = useState(() => ({
+    ...EMPTY_FILTERS,
     // Left empty once the archive is held locally — see the effect below.
     gender: 'Women',
-    year: '',
-    season: '',
-    category: '',
-    shootType: '',
-    city: '',
-    letter: '',
-  });
+    // The URL wins over the defaults on first load, so a shared or
+    // bookmarked filtered view opens filtered rather than opening on
+    // everything and correcting itself.
+    ...getRoute().filters,
+  }));
+
+  // Whether the link that opened this page named a gender. The effect below
+  // widens the default 'Women' to everything once the local index is ready;
+  // a link that says gender=Men meant it, and must not be widened.
+  const genderFromUrl = useRef(Boolean(getRoute().filters.gender));
+
+  const [route, go] = useRoute();
+  // Declared here rather than beside the two effects that use them, because
+  // handleCollectionSelect reads deepLinkLook and is defined above those.
+  // What they are for is explained where the effects are.
+  const firstUrlWrite = useRef(true);
+  const deepLinkPending = useRef(null);
+  const deepLinkLook = useRef(null);
 
   // Collections state. `cursor` is where the next window starts; the list is
   // a window on 900+ pages, not a list that was ever fully fetched.
@@ -217,7 +253,7 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
       // Gender was only ever required because firstVIEW cannot answer a
       // query without one. Our own rows can, so the archive opens on
       // everything rather than on half of it.
-      if (ready) setFilters(prev => ({ ...prev, gender: '' }));
+      if (ready && !genderFromUrl.current) setFilters(prev => ({ ...prev, gender: '' }));
     });
   }, []);
 
@@ -394,8 +430,7 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
   const clearFilters = () => {
     abortCollections();
     abortImages();
-    setFilters(prev => ({ gender: prev.gender, year: '', season: '',
-                          category: '', shootType: '', city: '', letter: '' }));
+    setFilters(prev => ({ ...EMPTY_FILTERS, gender: prev.gender }));
     setSelectedCollection(null);
     setCollections([]);
     setImages([]);
@@ -590,11 +625,33 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
     setPendingShow(null);
   }, [pendingShow]);   // deliberately only pendingShow: this fires on the pick
 
-  const handleCollectionSelect = async (collection) => {
+  // `fromUrl` marks a show opened because the address bar already named it —
+  // on first load, or on Back/Forward. That is a navigation the user has
+  // already made, so it must not push a second history entry for it.
+  const handleCollectionSelect = async (collection, { fromUrl = false } = {}) => {
     setSelectedCollection(collection);
     setImages([]);
     setCurrentImageIndex(0);
     setImagesLoading(true);
+
+    if (!fromUrl) {
+      // A show chosen by hand supersedes any look a link was still waiting
+      // to reach.
+      deepLinkLook.current = null;
+      const id = showId(collection);
+      // The one push in this page. Opening a show is a place you can come
+      // back from; moving between looks is not, so every other write to the
+      // address bar here replaces. That is what makes Back leave the show
+      // rather than walk backwards through forty photographs.
+      if (id) {
+        go({
+          page: 'high-fashion',
+          slug: showSlug(collection),
+          collectionId: id,
+          filters,
+        });
+      }
+    }
 
     // Reset video state for new collection
     setVideoData(null);
@@ -630,6 +687,118 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
       if (isCurrent()) setImagesLoading(false);
     }
   };
+
+  // ── The address bar ────────────────────────────────────────────────────
+  //
+  // Two effects pointing in opposite directions. They do not chase each
+  // other because each has its own reason to stop:
+  //
+  //   URL → state stops when the id in the URL is already the show that is
+  //   open. Every URL the second effect writes names the open show, so it
+  //   can never re-open anything.
+  //
+  //   state → URL stops while a deep link is still being resolved. That is
+  //   the one moment the URL is ahead of the state rather than behind it:
+  //   on the first render of /hf/gucci/1234 nothing is open yet, and an
+  //   unguarded write would replace the address bar with "/" and throw the
+  //   link away before the fetch that resolves it came back.
+  //
+  // Underneath both, navigate() refuses to push or notify when handed the
+  // URL already shown, so a repeated write costs nothing and adds no history.
+
+  // URL → state. First load, and Back/Forward.
+  useEffect(() => {
+    const wanted = route.collectionId;
+
+    if (!wanted) {
+      // The URL no longer names a show, so nothing should be open — this is
+      // what makes Back leave the viewer instead of changing the address bar
+      // and leaving the photographs on screen. Only a show that was itself
+      // addressable is closed this way: a row with no usable id was never
+      // written to the URL, so its absence there is not the user going back.
+      if (selectedCollection && showId(selectedCollection)) {
+        abortImages();
+        setSelectedCollection(null);
+        setImages([]);
+        setExpectedLookCount(0);
+      }
+      return;
+    }
+
+    if (selectedCollection && showId(selectedCollection) === wanted) return;
+
+    let cancelled = false;
+    deepLinkPending.current = wanted;
+    deepLinkLook.current = route.imageNumber;
+    FashionArchiveAPI.browseCatalog({}, { limit: 1, collectionId: wanted })
+      .then((res) => {
+        if (cancelled) return;
+        deepLinkPending.current = null;
+        const col = (res?.collections || res?.rows || [])[0];
+        // An id that names nothing leaves the archive on screen. There is no
+        // show to open, and a 404 page for a mistyped number would be a
+        // worse answer than the list.
+        if (col) handleCollectionSelect(col, { fromUrl: true });
+        else deepLinkLook.current = null;
+      })
+      .catch((error) => {
+        if (!cancelled) deepLinkPending.current = null;
+        console.error('Could not open the show in the URL:', error);
+      });
+
+    return () => { cancelled = true; deepLinkPending.current = null; };
+    // Deliberately only the id. selectedCollection is read above but is not
+    // a dependency: this effect answers "the URL changed", and re-running it
+    // when a show opens is exactly the re-entry the guard exists to avoid.
+  }, [route.collectionId]);
+
+  // state → URL. The address bar follows the viewer.
+  useEffect(() => {
+    if (deepLinkPending.current) return;
+
+    if (!selectedCollection) {
+      // Nothing open: the archive, carrying its filters so a filtered view
+      // is a link somebody can send. Skipped on the first run — the URL as
+      // it arrived is not something to correct, only a change made here is
+      // worth writing.
+      if (firstUrlWrite.current) { firstUrlWrite.current = false; return; }
+      go({ page: 'high-fashion', filters }, { replace: true });
+      return;
+    }
+    firstUrlWrite.current = false;
+
+    const id = showId(selectedCollection);
+    // Not addressable, so there is no URL to write. Leaving the address bar
+    // alone is right here: writing "/" would make the effect above read it
+    // back as "no show open" and close the show that is on screen.
+    if (!id) return;
+
+    go({
+      page: 'high-fashion',
+      slug: showSlug(selectedCollection),
+      collectionId: id,
+      // 1-based: the first look is /1. Null until an image has landed, so
+      // the URL never claims a look that is not on screen.
+      imageNumber: images.length ? currentImageIndex + 1 : null,
+      filters,
+    }, { replace: true });
+    // images.length rather than images: the array identity changes on every
+    // image that lands, and the URL only cares whether there is one.
+  }, [selectedCollection, currentImageIndex, images.length, filters]);
+
+  // The look a deep link named, applied once it has actually arrived.
+  // Images stream in one at a time, so images.length grows: settling on the
+  // first render would put a link to look 12 on look 1. expectedLookCount
+  // comes from the stream's meta event and is how a link to look 200 of a
+  // 40-look show knows to stop at 40 rather than wait forever.
+  useEffect(() => {
+    const wanted = deepLinkLook.current;
+    if (!wanted || !images.length) return;
+    const complete = expectedLookCount > 0 && images.length >= expectedLookCount;
+    if (images.length < wanted && !complete) return;
+    deepLinkLook.current = null;
+    setCurrentImageIndex(Math.min(wanted, images.length) - 1);
+  }, [images.length, expectedLookCount]);
 
   // Search for video
   const handleVideoSearch = async () => {

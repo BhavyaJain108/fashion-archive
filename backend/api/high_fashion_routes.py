@@ -697,6 +697,11 @@ def browse_catalog():
                ('gender', 'year', 'season', 'category', 'shootType', 'city',
                 'designer', 'letter')}
     filters = {k: v for k, v in filters.items() if v not in (None, '')}
+    # A deep link carries the show's id and nothing else. Named separately
+    # from the loop above because the wire name and the column differ, and
+    # because it is not a filter anyone picks — it is how a URL is resolved.
+    if data.get('collectionId'):
+        filters['collection_id'] = str(data['collectionId'])
     text = (data.get('text') or '').strip()
     limit = max(1, min(int(data.get('limit', 200)), 500))
     offset = max(0, int(data.get('offset', 0)))
