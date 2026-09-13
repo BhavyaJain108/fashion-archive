@@ -2,6 +2,9 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { FashionArchiveAPI } from '../shared/api';
 import { prepare as prepareDesigners, search as searchDesigners } from '../shared/lib/designerSearch';
 import TopBar from '../shared/ui/TopBar';
+import StatusBar from '../features/high-fashion/StatusBar';
+import ThumbStrip from '../features/high-fashion/ThumbStrip';
+import VideoPanel from '../features/high-fashion/VideoPanel';
 import './HighFashionV2.css';
 
 // Garment category — firstVIEW's `s_n` filter. Optional, like every filter
@@ -1477,54 +1480,18 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
 
               {/* Video Side */}
               {showVideo && videoData && (
-                <div className="hf2-video-side">
-                  {/* Resizable video area */}
-                  <div className="hf2-video-resizable">
-                    {/* Top resize bar */}
-                    <div className="hf2-resize-bar" onMouseDown={(e) => handleResizeStart(e, 'top')} />
-
-                    {/* Video container with overflow hidden */}
-                    <div className="hf2-video-wrapper" style={{ height: videoHeight }}>
-                      <div className="hf2-video-frame">
-                        <div ref={playerContainerRef} className="hf2-youtube-player" />
-                        {/* Every piece of YouTube's UI that still shows with
-                            controls off — the title bar, the share and watch
-                            -later buttons, the pause overlay — appears in
-                            response to hovering or clicking the iframe. This
-                            takes those events, so none of it ever appears,
-                            and passes the click to our own play control. */}
-                        <div
-                          className="hf2-video-shield"
-                          onClick={togglePlay}
-                          title={isPlaying ? 'Pause' : 'Play'}
-                        />
-                      </div>
-                    </div>
-
-                    {/* Bottom resize bar */}
-                    <div className="hf2-resize-bar" onMouseDown={(e) => handleResizeStart(e, 'bottom')} />
-                  </div>
-
-                  {/* Fixed controls at bottom */}
-                  <div className="hf2-video-controls">
-                    <button className="hf2-play-btn" onClick={togglePlay}>
-                      {isPlaying ? '❚❚' : '▶'}
-                    </button>
-                    <div className="hf2-progress-bar" onClick={seekTo}>
-                      <div
-                        className="hf2-progress-fill"
-                        style={{ width: `${duration ? (currentTime / duration) * 100 : 0}%` }}
-                      />
-                    </div>
-                    <span className="hf2-time">
-                      {formatTime(currentTime)} / {formatTime(duration)}
-                    </span>
-                    <span className="hf2-quality-readout"
-                          title="What YouTube is serving. The embed API cannot set this.">
-                      {getQualityLabel()}
-                    </span>
-                  </div>
-                </div>
+                <VideoPanel
+                  videoHeight={videoHeight}
+                  isPlaying={isPlaying}
+                  currentTime={currentTime}
+                  duration={duration}
+                  playerContainerRef={playerContainerRef}
+                  onResizeStart={handleResizeStart}
+                  onTogglePlay={togglePlay}
+                  onSeek={seekTo}
+                  formatTime={formatTime}
+                  getQualityLabel={getQualityLabel}
+                />
               )}
             </div>
           </div>
@@ -1560,24 +1527,15 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
 
         {/* Horizontal Thumbnail Strip - spans full width in single view */}
         {viewMode === 'single' && images.length > 0 && (
-          <div className="hf2-thumb-strip-container">
-            <div className="hf2-thumb-strip" ref={thumbStripRef}>
-              {images.map((imgPath, idx) => (
-                <div
-                  key={imgPath}
-                  ref={idx === currentImageIndex ? activeThumbRef : null}
-                  className={`hf2-thumb ${idx === currentImageIndex ? 'active' : ''} ${
-                    isFavourite(extractLookNumber(imgPath, idx)) ? 'kept' : ''}`}
-                  onClick={() => setCurrentImageIndex(idx)}
-                >
-                  <img
-                    src={FashionArchiveAPI.getImageUrl(imgPath)}
-                    alt={`Look ${extractLookNumber(imgPath, idx)}`}
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
+          <ThumbStrip
+            images={images}
+            currentImageIndex={currentImageIndex}
+            onSelect={setCurrentImageIndex}
+            isFavourite={isFavourite}
+            stripRef={thumbStripRef}
+            activeThumbRef={activeThumbRef}
+            extractLookNumber={extractLookNumber}
+          />
         )}
       </div>
       </div>
@@ -1631,30 +1589,14 @@ function HighFashionV2({ currentPage = 'high-fashion', onPageSwitch, onLogout, c
 
 
       {/* Status Bar */}
-      <div className="hf2-status-bar">
-        <span className="hf2-status-path">
-          {selectedCollection ? (
-            <>
-              {videoSeasonName(selectedCollection)}
-              {selectedCollection.gender && <> / {selectedCollection.gender}</>}
-              {' / '}
-              <span className="active">{cleanDesignerName(selectedCollection.designer)}</span>
-            </>
-          ) : (
-            <>
-              {filters.gender}
-              {filters.year && <> / {filters.year}</>}
-              {filters.season && <> / {filters.season}</>}
-              {filters.category && <> / {filters.category}</>}
-            </>
-          )}
-        </span>
-        <span className="hf2-status-look">
-          {images.length > 0 && (
-            <>LOOK <span className="active">{String(currentLookNumber).padStart(2, '0')}</span> / {images.length}</>
-          )}
-        </span>
-      </div>
+      <StatusBar
+        selectedCollection={selectedCollection}
+        filters={filters}
+        imagesLength={images.length}
+        currentLookNumber={currentLookNumber}
+        videoSeasonName={videoSeasonName}
+        cleanDesignerName={cleanDesignerName}
+      />
     </div>
   );
 }
