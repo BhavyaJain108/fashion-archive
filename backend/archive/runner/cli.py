@@ -585,7 +585,7 @@ def main(argv: list[str] | None = None) -> int:
 
                 return do_brand
 
-            serve(args.objects, factory, workers=args.workers)
+            serve(lambda: object_store(args.objects), factory, workers=args.workers)
             return 0
 
         # status

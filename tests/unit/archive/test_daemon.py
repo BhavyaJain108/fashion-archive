@@ -109,3 +109,31 @@ def test_parallel_workers_share_the_schedule_without_collisions(tmp_path):
     for t in threads:
         t.join()
     assert sorted(done) == sorted(domains)  # each brand taken exactly once
+
+
+@pytest.mark.unit
+def test_serve_takes_a_store_not_a_directory_path(tmp_path):
+    """On Render the daemon's store is R2, and R2 is not a path on disk. `serve` built
+    its own DirectoryObjectStore from a Path, so `daemon start` with no --objects —
+    exactly what the deployed worker runs — crashed on boot."""
+    from backend.archive.runner.daemon import serve
+
+    store = DirectoryObjectStore(tmp_path)
+    cat = Catalog(store)
+    cat.upsert_brand(Brand(domain="kuurth.com", homepage_url="https://kuurth.com"))
+    Scheduler(store).add("kuurth.com", cadence_seconds=3600)
+
+    seen: list[str] = []
+
+    def factory(_cat):
+        def do_brand(brand):
+            seen.append(brand.domain)
+            Scheduler(DirectoryObjectStore(tmp_path)).request_stop(True)
+            return [rec()], 0.0
+
+        return do_brand
+
+    serve(lambda: DirectoryObjectStore(tmp_path), factory, workers=1, log=lambda *a: None)
+
+    assert seen == ["kuurth.com"]
+    assert Scheduler(DirectoryObjectStore(tmp_path)).code_version() is not None

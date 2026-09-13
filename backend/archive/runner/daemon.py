@@ -21,13 +21,12 @@ import subprocess
 import threading
 import time
 from datetime import datetime, timezone
-from pathlib import Path
 
 from backend.archive.connectors.base import ChannelBusy
 from backend.archive.scheduler import Scheduler
 from backend.archive.score import score
 from backend.archive.store.catalog import Catalog
-from backend.archive.store.objects import DirectoryObjectStore, ObjectStore
+from backend.archive.store.objects import ObjectStore
 
 POLL_SECONDS = 10
 # How long to stand a brand down when its host asks us to slow down. Long enough that
@@ -79,9 +78,12 @@ def run_once(catalog: Catalog, scheduler: Scheduler, do_brand, log=print) -> boo
     return True
 
 
-def worker(root: Path, worker_id: str, do_brand_factory, version: str, log=print) -> None:
-    """One worker: claim, scrape, release, until told to stop or the code changes."""
-    store: ObjectStore = DirectoryObjectStore(root)
+def worker(store_factory, worker_id: str, do_brand_factory, version: str, log=print) -> None:
+    """One worker: claim, scrape, release, until told to stop or the code changes.
+
+    Each worker builds its own store, because a store holds a network client and the
+    workers are threads."""
+    store: ObjectStore = store_factory()
     catalog = Catalog(store)
     scheduler = Scheduler(store, worker_id=worker_id)
     do_brand = do_brand_factory(catalog)
@@ -96,17 +98,19 @@ def worker(root: Path, worker_id: str, do_brand_factory, version: str, log=print
         catalog.close()
 
 
-def serve(root: Path, do_brand_factory, workers: int = 1, log=print) -> None:
-    """Run N workers over one schedule until the stop flag is set."""
+def serve(store_factory, do_brand_factory, workers: int = 1, log=print) -> None:
+    """Run N workers over one schedule until the stop flag is set.
+
+    Takes a callable that makes a store rather than a directory, because in production
+    the store is a bucket and a bucket has no path on disk."""
     version = code_version()
-    store: ObjectStore = DirectoryObjectStore(root)
-    Scheduler(store).set_code_version(version)
+    Scheduler(store_factory()).set_code_version(version)
     log(f"daemon up: {workers} worker(s) on {version[:8]} at {datetime.now(timezone.utc):%H:%M}")
 
     threads = [
         threading.Thread(
             target=worker,
-            args=(root, f"worker-{i + 1}", do_brand_factory, version),
+            args=(store_factory, f"worker-{i + 1}", do_brand_factory, version),
             kwargs={"log": log},
             daemon=True,
         )
