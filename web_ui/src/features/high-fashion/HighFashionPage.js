@@ -310,40 +310,44 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
     setActiveSuggestion(0);
   }, [query, designerIndex]);
 
+  // Opening a designer is the one arguable member of the group, because
+  // "show me everything Prada did" sounds like going somewhere rather than
+  // like narrowing a list. It is not implemented as going anywhere and does
+  // not behave like it: with the archive held locally a designer is an
+  // argument to the same catalogue query as the year and the city —
+  // browseCatalog({ ...filters, designer }) — and the only other thing this
+  // does is reset two filters. It moves the same window the filters move, so
+  // the show stays open, and the page keeps one rule instead of two.
   const openDesigner = useCallback((designer) => {
     if (!designer) return;
     abortCollections();
-    abortImages();
     setDesignerMode({ id: designer.id, name: designer.name });
     setDesignerRows([]);
     setQuery('');
     setSuggestions([]);
     setSearchFocused(false);
     if (searchInputRef.current) searchInputRef.current.blur();
-    setSelectedCollection(null);
     setCollections([]);
-    setImages([]);
-    setExpectedLookCount(0);
     // Their whole history is in hand, so gender stops being a required
     // choice here and starts as "all" — showing half a designer's work by
     // default would be a strange way to answer "show me everything they did".
     setFilters(prev => ({ ...prev, gender: '', letter: '' }));
-  }, [abortCollections, abortImages]);
+  }, [abortCollections]);
 
+  // "← Archive": drop the designer and the search text and go back to the
+  // whole catalogue. Both of those are arguments to the same query as the
+  // filters, so this widens the list exactly as clearFilters does, and the
+  // show stays for the same reason.
   const exitDesigner = useCallback(() => {
     abortCollections();
-    abortImages();
     setDesignerMode(null);
     setSearchText('');
     setDesignerRows([]);
-    setSelectedCollection(null);
     setCollections([]);
-    setImages([]);
-    setExpectedLookCount(0);
     // The catalog has no "all genders" — a query without one returns a small
     // bucket of ungendered shows — so it has to become a real choice again.
     setFilters(prev => ({ ...prev, gender: prev.gender || 'Women' }));
-  }, [abortCollections, abortImages]);
+  }, [abortCollections]);
 
   // Shows whose text matches what is being typed. Only possible because the
   // archive is held locally: firstVIEW can search designer names and nothing
@@ -417,9 +421,23 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
   // Changing any filter restarts the list from the top. Filters are
   // additive: setting one narrows the query, clearing it widens it again,
   // and none of them is a prerequisite for any other.
+  //
+  // The list restarts; the show does not close. This is the one rule the
+  // four sites below share, and it is worth stating once: the list is a
+  // window on a filtered query, and the show in the viewer is what is being
+  // read through the window. Moving the window changes which shows are
+  // offered, not which show is open. `collections` is therefore cleared —
+  // the query changed and must be refetched — while `selectedCollection`,
+  // `images` and `expectedLookCount` are left alone, because they belong to
+  // the show rather than to the list. The in-flight image stream is left
+  // running for the same reason: aborting it would leave the show that
+  // stays open half-loaded, which is the old bug wearing a different face.
+  //
+  // Only two things close the show, and both are the reader saying so:
+  // clicking a different row, and the address bar ceasing to name one
+  // (Back out of the viewer). Neither is here.
   const setFilter = (key, value) => {
     abortCollections();
-    abortImages();
     setFilters(prev => {
       const next = { ...prev, [key]: value };
       // Season is the only pair with a real dependency: a year that has no
@@ -430,20 +448,15 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
       }
       return next;
     });
-    setSelectedCollection(null);
     setCollections([]);
-    setImages([]);
-    setExpectedLookCount(0);
   };
 
+  // Widening the list back out is the same act as narrowing it, from the
+  // other direction. The show stays — see setFilter above.
   const clearFilters = () => {
     abortCollections();
-    abortImages();
     setFilters(prev => ({ ...EMPTY_FILTERS, gender: prev.gender }));
-    setSelectedCollection(null);
     setCollections([]);
-    setImages([]);
-    setExpectedLookCount(0);
   };
 
   // How the list is loaded depends on whether the archive is held locally.

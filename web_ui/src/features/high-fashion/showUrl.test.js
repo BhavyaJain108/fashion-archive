@@ -1,4 +1,4 @@
-import { FILTER_KEYS } from '../../app/routes';
+import { FILTER_KEYS, buildRoute } from '../../app/routes';
 import {
   EMPTY_FILTERS, showId, showSlug, sameShow, clickAction,
   initialUrlSync, deepLinkStarted, deepLinkSettled, deepLinkAbandoned,
@@ -352,5 +352,65 @@ describe('the first-write guard once the user has navigated', () => {
     let s = routeChanged(initialUrlSync('/'), { path: '/hf/x/1' });
     expect(s.firstWrite).toBe(false);
     expect(routeChanged(s, { path: '/hf/x/2' })).toBe(s);
+  });
+});
+
+
+// ── The URL a filter change writes while a show is open ───────────────────
+//
+// Changing a filter used to close the show, so this composition never came
+// up: with nothing open urlWrite answered 'archive' and the address bar fell
+// back to "/" with the filters behind it. The show stays now, and the two
+// halves have to agree — the URL must still name the show *and* carry the
+// new filters, or the next reload opens something the reader was not
+// looking at. buildRoute is the other half, so it is composed here rather
+// than assumed.
+describe('the URL a filter change writes while a show is open', () => {
+  const OPEN = {
+    collection_id: '1234',
+    designer: 'Yohji Yamamoto',
+    subtitle: 'Runway Collection — Paris',
+  };
+
+  // Past the first-write guard, no deep link in flight: an ordinary page
+  // with a show open and the reader changing a filter.
+  const settled = () => ({ ...initialUrlSync('/'), firstWrite: false });
+
+  const urlFor = ({ filters, imagesLength = 2, currentIndex = 0 }) => {
+    const decided = urlWrite(settled(), { hasSelection: true, imagesLength, currentIndex });
+    expect(decided.target).toBe('show');
+    return buildRoute({
+      page: 'high-fashion',
+      slug: showSlug(OPEN),
+      collectionId: showId(OPEN),
+      imageNumber: decided.imageNumber,
+      filters,
+    });
+  };
+
+  test('names the show, and carries the filter that was just set', () => {
+    expect(urlFor({ filters: { gender: 'Men' } }))
+      .toBe('/hf/yohji-yamamoto-runway-collection-paris/1234/1?gender=Men');
+  });
+
+  test('several filters ride along, and the look on screen is kept', () => {
+    expect(urlFor({ filters: { gender: 'Men', year: '1999', city: 'Paris' },
+                    imagesLength: 12, currentIndex: 6 }))
+      .toBe('/hf/yohji-yamamoto-runway-collection-paris/1234/7'
+            + '?city=Paris&gender=Men&year=1999');
+  });
+
+  test('clearing the filters leaves the show and drops the query string', () => {
+    expect(urlFor({ filters: {} }))
+      .toBe('/hf/yohji-yamamoto-runway-collection-paris/1234/1');
+  });
+
+  test('with nothing open it is still the archive that gets written', () => {
+    // The other branch, unchanged. A show closing is what used to send every
+    // filter change down here; only Back and a different row do now.
+    const decided = urlWrite(settled(), { hasSelection: false });
+    expect(decided.target).toBe('archive');
+    expect(buildRoute({ page: 'high-fashion', filters: { gender: 'Men' } }))
+      .toBe('/?gender=Men');
   });
 });
