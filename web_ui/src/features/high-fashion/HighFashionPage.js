@@ -4,7 +4,7 @@ import { getRoute } from '../../app/router';
 import {
   EMPTY_FILTERS, showId, showSlug, clickAction,
   initialUrlSync, deepLinkStarted, deepLinkSettled, deepLinkAbandoned,
-  manualLook, urlWrite, lookToApply,
+  routeChanged, manualLook, urlWrite, lookToApply,
 } from './showUrl';
 import { useRoute } from '../../shared/hooks/useRoute';
 import { prepare as prepareDesigners, search as searchDesigners } from '../../shared/lib/designerSearch';
@@ -74,7 +74,11 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
   // sequence of states rather than any one of them. Declared here rather
   // than beside the two effects that use it, because handleCollectionSelect
   // reads it and is defined above those.
-  const urlSync = useRef(initialUrlSync());
+  // The URL the page mounted on goes in with it: the first-write guard is
+  // there to protect that one URL, and routeChanged below retires the guard
+  // the moment the address bar stops showing it.
+  const urlSync = useRef(
+    initialUrlSync(window.location.pathname + window.location.search));
 
   // Collections state. `cursor` is where the next window starts; the list is
   // a window on 900+ pages, not a list that was ever fully fetched.
@@ -618,13 +622,27 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
   // on first load, or on Back/Forward. That is a navigation the user has
   // already made, so it must not push a second history entry for it.
   const handleCollectionSelect = async (collection, { fromUrl = false } = {}) => {
-    const action = clickAction({ clicked: collection, open: selectedCollection, fromUrl });
+    // pending: the show a deep link is already fetching. Clicking that row
+    // is asking for the navigation already in progress, so it must not push
+    // over the URL that started it. hasImages/imagesLoading separate "this
+    // show is open and read" from "this show is open and the stream gave it
+    // nothing" — the second is a retry, and re-clicking the row is the only
+    // retry this page has ever had.
+    const action = clickAction({
+      clicked: collection,
+      open: selectedCollection,
+      pendingId: urlSync.current.pending,
+      hasImages: images.length > 0,
+      imagesLoading,
+      fromUrl,
+    });
 
-    // Already the show on screen. Not a navigation, so: no history entry —
-    // a push of /hf/x/1 while standing on /hf/x/1/7 left an entry Back could
-    // reach without changing anything visible, and Back needed pressing
-    // twice — and no reset of the viewer either. Clicking the row you are
-    // reading should not throw away look 7 and refetch the whole stream.
+    // Already the show on screen, or the show a link is still fetching.
+    // Not a navigation, so: no history entry — a push of /hf/x/1 while
+    // standing on /hf/x/1/7 left an entry Back could reach without changing
+    // anything visible, and Back needed pressing twice — and no reset of the
+    // viewer either. Clicking the row you are reading should not throw away
+    // look 7 and refetch the whole stream.
     if (action === 'ignore') return;
 
     setSelectedCollection(collection);
@@ -632,22 +650,26 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
     setCurrentImageIndex(0);
     setImagesLoading(true);
 
-    if (action === 'open') {
+    if (action === 'open' || action === 'reload') {
       // A show chosen by hand supersedes any look a link was still waiting
-      // to reach.
-      urlSync.current = manualLook(urlSync.current);
+      // to reach. A retry does not: it is the same entry being loaded again,
+      // so the look it asked for is still the look the reader wants.
+      if (action === 'open') urlSync.current = manualLook(urlSync.current);
       const id = showId(collection);
       // The one push in this page. Opening a show is a place you can come
       // back from; moving between looks is not, so every other write to the
       // address bar here replaces. That is what makes Back leave the show
-      // rather than walk backwards through forty photographs.
+      // rather than walk backwards through forty photographs. A reload
+      // replaces for the same reason: the reader is standing on this entry
+      // already, and a second copy of it in the history would be an entry
+      // Back could reach without changing the screen.
       if (id) {
         go({
           page: 'high-fashion',
           slug: showSlug(collection),
           collectionId: id,
           filters,
-        });
+        }, { replace: action === 'reload' });
       }
     }
 
@@ -710,6 +732,23 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
   // URL already shown, so a repeated write costs nothing and adds no history.
   // The bookkeeping the two of them share lives in showUrl.js, where the
   // sequences can be tested without a browser.
+
+  // The address bar has left the URL the page mounted on, so the first-write
+  // guard has done its job and is retired. Declared before both effects
+  // below so that it runs first: state → URL must not read a guard that this
+  // same commit should already have spent.
+  //
+  // The sequence this closes: arrive on /hf/x/1234/12, press Back to / before
+  // the row fetch returns. URL → state's cleanup clears `pending` and its
+  // re-run returns at !wanted; state → URL's deps never changed, so nothing
+  // ever spent the guard, and the user's next filter change was swallowed by
+  // it. `route` is a stable reference while the URL is unchanged — router.js
+  // caches it — so this runs once per real navigation.
+  useEffect(() => {
+    urlSync.current = routeChanged(urlSync.current, {
+      path: window.location.pathname + window.location.search,
+    });
+  }, [route]);
 
   // URL → state. First load, and Back/Forward.
   useEffect(() => {

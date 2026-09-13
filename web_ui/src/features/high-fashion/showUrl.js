@@ -51,16 +51,40 @@ export function sameShow(a, b) {
 //
 //   'adopt'  — the address bar already named this show, so open it but write
 //              nothing: the user has already made this navigation.
-//   'ignore' — it is the show on screen. Not a navigation, so no history
-//              entry, and no reason to throw away the look being read.
+//   'ignore' — it is the show on screen, or the show a deep link is already
+//              fetching. Not a navigation, so no history entry, and no
+//              reason to throw away the look being read.
+//   'reload' — it is the show on screen, and the stream gave it no images.
+//              Load it again, but replace: the user is retrying the entry
+//              they are standing on, not going anywhere new.
 //   'open'   — a show the user chose. Load it and push.
 //
 // 'ignore' is the whole of the Back fix. A push of /hf/x/1 while standing on
 // /hf/x/1/7 left an entry that differed from the URL shown, so Back could
-// land on it and change nothing visible.
-export function clickAction({ clicked, open, fromUrl = false }) {
+// land on it and change nothing visible. `pendingId` is the same fix one
+// beat earlier: while /hf/x/1/12 is still being resolved nothing is open
+// yet, so clicking that row read as a fresh navigation and pushed /hf/x/1
+// over the URL already shown — the same unreachable entry, from the other
+// direction.
+//
+// 'reload' is why 'ignore' is not the end of the story. When the stream
+// produces nothing the viewer says "No images found", and re-clicking the
+// highlighted row was the only retry the page ever had; a failure message
+// beside a dead click reads as broken. A show still loading is not retried —
+// the reader is waiting on it, not stuck.
+export function clickAction({
+  clicked,
+  open,
+  pendingId = null,
+  hasImages = true,
+  imagesLoading = false,
+  fromUrl = false,
+}) {
   if (fromUrl) return 'adopt';
-  if (sameShow(clicked, open)) return 'ignore';
+  if (pendingId !== null && showId(clicked) === pendingId) return 'ignore';
+  if (sameShow(clicked, open)) {
+    return (!hasImages && !imagesLoading) ? 'reload' : 'ignore';
+  }
   return 'open';
 }
 
@@ -69,13 +93,16 @@ export function clickAction({ clicked, open, fromUrl = false }) {
 // firstWrite: true until the page has had a reason to write a URL of its own.
 //   It exists to stop the first no-selection render from overwriting the URL
 //   the user arrived on.
+// arrivedAt: that URL, as path+search, or null when the caller did not say.
+//   Only ever compared for equality — see routeChanged.
 // pending: the collection id a deep link is fetching, or null. While it is
 //   set the URL is ahead of the state rather than behind it, and state → URL
 //   must keep its hands off.
 // look: the look number the URL asked for, held until it is reached, clamped,
 //   or superseded by hand.
-export const initialUrlSync = () => ({
+export const initialUrlSync = (arrivedAt = null) => ({
   firstWrite: true,
+  arrivedAt,
   pending: null,
   look: null,
 });
@@ -98,10 +125,33 @@ export function deepLinkSettled(state, { found }) {
   };
 }
 
-// The URL moved on before the fetch came back. Nothing was resolved, so
-// firstWrite is left alone — whichever deep link follows will retire it.
+// The URL moved on before the fetch came back. Nothing was resolved, so this
+// says nothing about firstWrite; routeChanged is what retires it, because
+// the URL moving on is the fact that matters and a deep link is only one of
+// the ways it can move.
 export function deepLinkAbandoned(state) {
   return { ...state, pending: null };
+}
+
+// The address bar is no longer showing the URL the page mounted on, so the
+// first-write guard has done its whole job: it exists to stop the first
+// no-selection render from overwriting the URL the user arrived on, and the
+// user has now navigated away from that URL themselves.
+//
+// This is separate from deepLinkAbandoned rather than folded into it because
+// abandonment is one route change among several — Back off a deep link
+// before its row lands is the sequence that bit, but nothing here depends on
+// a deep link having been in flight. deepLinkAbandoned used to assume
+// another deep link would follow and retire the guard; when the user went
+// Back to the archive instead, none did, and their next filter change wrote
+// nothing at all.
+//
+// Returns the same object when there is nothing to retire, so a caller can
+// assign it back on every route change without churning identity.
+export function routeChanged(state, { path }) {
+  if (!state.firstWrite) return state;
+  if (state.arrivedAt === null || path === state.arrivedAt) return state;
+  return { ...state, firstWrite: false };
 }
 
 // The reader chose a look themselves. Whatever the link was still waiting to

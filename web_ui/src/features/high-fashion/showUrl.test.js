@@ -2,7 +2,7 @@ import { FILTER_KEYS } from '../../app/routes';
 import {
   EMPTY_FILTERS, showId, showSlug, sameShow, clickAction,
   initialUrlSync, deepLinkStarted, deepLinkSettled, deepLinkAbandoned,
-  manualLook, urlWrite, lookToApply,
+  routeChanged, manualLook, urlWrite, lookToApply,
 } from './showUrl';
 
 // ── Which row a URL can name ──────────────────────────────────────────────
@@ -245,5 +245,112 @@ describe('the requested look', () => {
       .toBeNull();
     expect(urlWrite(s, { hasSelection: true, imagesLength: 5, currentIndex: 4 }))
       .toMatchObject({ imageNumber: 5 });
+  });
+});
+
+// ── Tail cases ────────────────────────────────────────────────────────────
+
+describe('clickAction while a deep link is fetching', () => {
+  const gucci = { collection_id: 1, url: 'https://x/gucci', designer: 'Gucci' };
+  const prada = { collection_id: 2, url: 'https://x/prada', designer: 'Prada' };
+
+  // Minor 2: standing on /hf/x/1/12 with the row fetch still in flight,
+  // nothing is open yet, so clicking that very row used to read as a fresh
+  // navigation and push /hf/x/1 over the /hf/x/1/12 already shown. The id
+  // did not change, so URL -> state never re-ran, and Back later reached
+  // that entry and changed nothing on screen.
+  test('clicking the show the link is already fetching is not a navigation', () => {
+    expect(clickAction({ clicked: gucci, open: null, pendingId: '1' }))
+      .toBe('ignore');
+  });
+
+  test('a different show is still a navigation the user made', () => {
+    expect(clickAction({ clicked: prada, open: null, pendingId: '1' }))
+      .toBe('open');
+  });
+
+  test('the row the link itself resolved is still adopted', () => {
+    expect(clickAction({ clicked: gucci, open: null, pendingId: '1', fromUrl: true }))
+      .toBe('adopt');
+  });
+
+  test('nothing pending leaves the old answers alone', () => {
+    expect(clickAction({ clicked: gucci, open: null, pendingId: null }))
+      .toBe('open');
+  });
+});
+
+describe('clickAction on a show whose images did not arrive', () => {
+  const gucci = { collection_id: 1, url: 'https://x/gucci', designer: 'Gucci' };
+
+  // Minor 3: "No images found" plus a click that does nothing reads as
+  // broken. Re-clicking the highlighted row was the de facto retry until
+  // re-click became a flat no-op.
+  test('re-clicking it reloads, and replaces rather than pushes', () => {
+    expect(clickAction({ clicked: gucci, open: gucci, hasImages: false }))
+      .toBe('reload');
+  });
+
+  test('a show that is still loading is not retried underneath the reader', () => {
+    expect(clickAction({
+      clicked: gucci, open: gucci, hasImages: false, imagesLoading: true,
+    })).toBe('ignore');
+  });
+
+  test('a show with looks on screen is still left alone', () => {
+    expect(clickAction({ clicked: gucci, open: gucci, hasImages: true }))
+      .toBe('ignore');
+    // The default: a caller that says nothing about images means the show
+    // is on screen, which is the reading every other call site has.
+    expect(clickAction({ clicked: gucci, open: gucci })).toBe('ignore');
+  });
+
+  test('a row the URL named is adopted, not reloaded', () => {
+    expect(clickAction({
+      clicked: gucci, open: gucci, hasImages: false, fromUrl: true,
+    })).toBe('adopt');
+  });
+});
+
+describe('the first-write guard once the user has navigated', () => {
+  // Minor 1: arrive on /hf/x/1234/12, press Back to / before the row fetch
+  // returns. Cleanup abandons the deep link, the effect returns at !wanted,
+  // and state -> URL's deps never change — so the guard was never spent and
+  // ate the user's next filter change, exactly the Important 1 symptom in a
+  // narrower sequence.
+  test('an abandoned deep link no longer eats the next write', () => {
+    let s = initialUrlSync('/hf/x/1234/12');
+    s = deepLinkStarted(s, { collectionId: '1234', imageNumber: 12 });
+    expect(urlWrite(s, { hasSelection: false }).target).toBe('none');
+    s = deepLinkAbandoned(s);
+    s = routeChanged(s, { path: '/' });
+    expect(urlWrite(s, { hasSelection: false }).target).toBe('archive');
+  });
+
+  test('the URL the page mounted on does not retire the guard', () => {
+    const s = initialUrlSync('/hf/x/1234/12');
+    const same = routeChanged(s, { path: '/hf/x/1234/12' });
+    expect(same).toBe(s);
+    expect(urlWrite(same, { hasSelection: false }).target).toBe('none');
+  });
+
+  test('a page that recorded no arrival URL keeps the old behaviour', () => {
+    const s = routeChanged(initialUrlSync(), { path: '/anything' });
+    expect(s.firstWrite).toBe(true);
+  });
+
+  test('it retires the guard and nothing else', () => {
+    let s = initialUrlSync('/hf/x/1234/12');
+    s = deepLinkStarted(s, { collectionId: '1234', imageNumber: 12 });
+    const moved = routeChanged(s, { path: '/hf/y/99' });
+    expect(moved.firstWrite).toBe(false);
+    expect(moved.pending).toBe('1234');
+    expect(moved.look).toBe(12);
+  });
+
+  test('a second route change is a no-op once the guard is spent', () => {
+    let s = routeChanged(initialUrlSync('/'), { path: '/hf/x/1' });
+    expect(s.firstWrite).toBe(false);
+    expect(routeChanged(s, { path: '/hf/x/2' })).toBe(s);
   });
 });
