@@ -23,6 +23,7 @@ const EMPTY = {
   category: null,
   albumId: null,
   token: null,
+  slug: null,
   filters: {},
 };
 
@@ -54,11 +55,32 @@ const readFilters = (search) => {
 // somebody's guess at a URL and is treated as "no show open" rather than
 // handed to the API.
 const asCollectionId = (raw) => (/^\d+$/.test(raw || '') ? raw : null);
-const asImageNumber = (raw) => (/^\d+$/.test(raw || '') ? parseInt(raw, 10) : null);
+
+// A stale bookmark or a bot probe can carry a stray "%" that isn't valid
+// percent-encoding (e.g. "50%"). decodeURIComponent throws on that, and an
+// unrecognised path is supposed to open the archive rather than crash the
+// app, so a segment that fails to decode is kept raw instead of throwing.
+const safeDecode = (segment) => {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+};
+
+// Image numbers are 1-based (the page builds them as currentImageIndex +
+// 1), so 0 never denotes a real image; a URL containing it is malformed
+// the same way a non-numeric value is, and is rejected here at the parse
+// end so buildRoute's truthiness check on imageNumber stays correct.
+const asImageNumber = (raw) => {
+  if (!/^\d+$/.test(raw || '')) return null;
+  const n = parseInt(raw, 10);
+  return n === 0 ? null : n;
+};
 
 export function parseRoute(pathname, search) {
   const filters = readFilters(search);
-  const segments = (pathname || '/').split('/').filter(Boolean).map(decodeURIComponent);
+  const segments = (pathname || '/').split('/').filter(Boolean).map(safeDecode);
 
   if (segments.length === 0) return { ...EMPTY, filters };
 
@@ -72,6 +94,7 @@ export function parseRoute(pathname, search) {
       filters,
       collectionId,
       imageNumber: collectionId ? asImageNumber(rest[2]) : null,
+      slug: rest[0] || null,
     };
   }
 

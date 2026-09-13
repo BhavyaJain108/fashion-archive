@@ -33,6 +33,7 @@ describe('parseRoute', () => {
       category: null,
       albumId: null,
       token: null,
+      slug: null,
       filters: {},
     });
   });
@@ -50,12 +51,35 @@ describe('parseRoute', () => {
     expect(r.imageNumber).toBe(12);
   });
 
-  // The slug is decoration. A stale or hand-edited one must still open the
-  // right show, which is the entire reason the id is a separate segment.
-  test('ignores the slug entirely', () => {
+  // Image numbers are 1-based (the page builds them as currentImageIndex +
+  // 1), so 0 never denotes a real image. A URL carrying /0 is malformed, not
+  // "image zero" — reject it the same way non-numeric input is rejected.
+  test('an image number of 0 is rejected', () => {
+    const r = parseRoute('/hf/gucci/1234/0', '');
+    expect(r.imageNumber).toBe(null);
+  });
+
+  test('an image number of 1 is accepted', () => {
+    const r = parseRoute('/hf/gucci/1234/1', '');
+    expect(r.imageNumber).toBe(1);
+  });
+
+  // The slug is decoration for identity purposes — it never changes what a
+  // URL means — but it is still carried through so a parse-modify-rebuild
+  // cycle doesn't silently drop it back to the placeholder.
+  test('ignores the slug for identity, but carries it through', () => {
     const a = parseRoute('/hf/gucci-fw-2024/1234/12', '');
     const b = parseRoute('/hf/total-nonsense/1234/12', '');
-    expect(a).toEqual(b);
+    const { slug: slugA, ...restA } = a;
+    const { slug: slugB, ...restB } = b;
+    expect(restA).toEqual(restB);
+    expect(slugA).toBe('gucci-fw-2024');
+    expect(slugB).toBe('total-nonsense');
+  });
+
+  test('the slug is null when there is no show open', () => {
+    expect(parseRoute('/', '').slug).toBe(null);
+    expect(parseRoute('/brands/acne', '').slug).toBe(null);
   });
 
   test('a non-numeric collection id is rejected, not passed through', () => {
@@ -99,6 +123,21 @@ describe('parseRoute', () => {
     expect(parseRoute('/nonsense/deep/path', '').page).toBe('high-fashion');
   });
 
+  // A stale bookmark or a bot probe with a stray "%" must not white-screen
+  // the app — decodeURIComponent throws on malformed percent-encoding, so
+  // each segment is decoded defensively and the raw segment is kept on
+  // failure rather than letting the exception propagate.
+  test('malformed percent-encoding does not throw', () => {
+    expect(() => parseRoute('/hf/50%/1234', '')).not.toThrow();
+    const r = parseRoute('/hf/50%/1234', '');
+    expect(r.collectionId).toBe('1234');
+  });
+
+  test('valid percent-encoding still decodes correctly', () => {
+    const r = parseRoute('/brands/100%25pure', '');
+    expect(r.brandId).toBe('100%pure');
+  });
+
   test('filters come out of the query string', () => {
     const r = parseRoute('/', '?year=2024&season=Fall+%2F+Winter&city=Paris');
     expect(r.filters).toEqual({
@@ -139,6 +178,17 @@ describe('buildRoute', () => {
       collectionId: '1234',
       imageNumber: 12,
     })).toBe('/hf/gucci-fw-2024/1234/12');
+  });
+
+  // 0 is not a valid image number anywhere in this app, so a route carrying
+  // it builds the same URL as no image number at all.
+  test('an image number of 0 builds no image segment', () => {
+    expect(buildRoute({
+      page: 'high-fashion',
+      slug: 'gucci-fw-2024',
+      collectionId: '1234',
+      imageNumber: 0,
+    })).toBe('/hf/gucci-fw-2024/1234');
   });
 
   test('a missing slug gets a placeholder rather than an empty segment', () => {
@@ -195,10 +245,10 @@ describe('round trip', () => {
   ])('%s survives parse then build', (url) => {
     const [pathname, search] = url.split('?');
     const route = parseRoute(pathname, search ? `?${search}` : '');
-    // The slug is not recoverable from a parse (it is decoration), so feed
-    // back the one the URL carried.
-    const slug = pathname.startsWith('/hf/') ? pathname.split('/')[2] : undefined;
-    expect(buildRoute({ ...route, slug })).toBe(url);
+    // parseRoute now carries the slug it saw, so the parsed route can be fed
+    // straight back into buildRoute without the caller re-extracting it from
+    // the raw pathname.
+    expect(buildRoute(route)).toBe(url);
   });
 });
 
