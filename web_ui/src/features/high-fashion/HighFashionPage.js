@@ -196,7 +196,6 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
   const activeThumbRef = useRef(null);
   const playerRef = useRef(null);
   const playerContainerRef = useRef(null);
-  const resizingRef = useRef(false);
   const timeUpdateRef = useRef(null);
 
   // Build hierarchy from seasons: year -> season -> gender -> season object.
@@ -248,7 +247,7 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
       // everything rather than on half of it.
       if (ready && !genderFromUrl) setFilters(prev => ({ ...prev, gender: '' }));
     });
-  }, []);
+  }, [genderFromUrl]);
 
   // The designer index, once. Failure is not fatal — the archive still
   // browses, the search box just says it cannot search.
@@ -616,7 +615,11 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
     if (!pendingShow) return;
     handleCollectionSelect(pendingShow);
     setPendingShow(null);
-  }, [pendingShow]);   // deliberately only pendingShow: this fires on the pick
+    // Deliberately only pendingShow: this fires on the pick, and
+    // handleCollectionSelect is a new function every render, so listing it
+    // would refire this effect forever.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingShow]);
 
   // `fromUrl` marks a show opened because the address bar already named it —
   // on first load, or on Back/Forward. That is a navigation the user has
@@ -803,6 +806,7 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
     // Deliberately only the id. selectedCollection is read above but is not
     // a dependency: this effect answers "the URL changed", and re-running it
     // when a show opens is exactly the re-entry the guard exists to avoid.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route.collectionId]);
 
   // state → URL. The address bar follows the viewer.
@@ -845,7 +849,7 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
     }, { replace: true });
     // images.length rather than images: the array identity changes on every
     // image that lands, and the URL only cares whether there is one.
-  }, [selectedCollection, currentImageIndex, images.length, filters]);
+  }, [selectedCollection, currentImageIndex, images.length, filters, go]);
 
   // The look a deep link named, applied once it has actually arrived.
   // Images stream in one at a time, so images.length grows: settling on the

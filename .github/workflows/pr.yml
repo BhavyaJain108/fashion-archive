@@ -51,3 +51,42 @@ jobs:
 
       - name: Pytest (unit only)
         run: pytest -m unit
+
+  web-ui:
+    name: Web UI build + tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    defaults:
+      run:
+        working-directory: web_ui
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web_ui/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      # `build` is also the lint gate: react-scripts runs eslint (react-app
+      # config) during the build and CI=true turns its warnings into a
+      # non-zero exit, so a stray unused import fails here.
+      - name: Build
+        run: npm run build
+        env:
+          CI: true
+
+      # After the build, not before — it reads build/static/css.
+      - name: CSS cascade order
+        run: npm run check:css
+
+      - name: Unit tests
+        run: npx react-scripts test --watchAll=false
+        env:
+          CI: true
