@@ -302,7 +302,7 @@
 }
 
 /* Hairline outlined chips — exactly the tile badge treatment from
-   MyBrandsPanel.css. None filled, none coloured. */
+   BrandsPage.css. None filled, none coloured. */
 .detail-tag {
   font-size: 9px;
   font-weight: 400;
@@ -387,7 +387,7 @@
 }
 
 /* Low stock was orange. It is weight now, not colour — same call as
-   .tile-size.low in MyBrandsPanel.css. */
+   .tile-size.low in BrandsPage.css. */
 .s-cell.low .s-meta { color: var(--ar-ink); font-weight: 700; }
 
 /* --- Material composition -------------------------------------------- */

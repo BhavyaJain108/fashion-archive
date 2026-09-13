@@ -45,7 +45,7 @@ function LibraryPage({ currentPage, onPageSwitch, currentUser, onLogout, onOpenR
       const favs = await FashionArchiveAPI.getFavourites();
       setFavourites(favs);
     } catch (error) {
-      console.error('FavouritesPanel: Error loading favourites:', error);
+      console.error('LibraryPage: Error loading favourites:', error);
     } finally {
       setLoading(false);
     }
