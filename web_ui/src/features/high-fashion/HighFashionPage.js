@@ -16,6 +16,16 @@ import StatusBar from './StatusBar';
 import { videoSeasonName } from './seasonName';
 import './HighFashionPage.css';
 
+// Which filters the "Clear N filters" badge counts. Derived from
+// EMPTY_FILTERS, which is derived from FILTER_KEYS in routes.js, so an
+// eighth filter counts the day it is added rather than the day somebody
+// notices this list is a stale copy.
+//
+// Gender is the exception: it is never empty in archive mode — it defaults
+// to Women — so counting it would put the badge at 1 on a view with nothing
+// chosen and make "Whole archive" unreachable.
+const COUNTED_FILTER_KEYS = Object.keys(EMPTY_FILTERS).filter(k => k !== 'gender');
+
 // Why a lookup failed, in the button and in its tooltip. These are
 // different problems and only one of them is about this show.
 function videoFailureLabel(result) {
@@ -1271,8 +1281,7 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
     return GARMENT_TYPES.map(t => t.value).filter(v => (totals[v] || 0) > 0);
   })();
 
-  const activeFilterCount = ['year', 'season', 'category', 'shootType', 'city', 'letter']
-    .filter(k => filters[k]).length;
+  const activeFilterCount = COUNTED_FILTER_KEYS.filter(k => filters[k]).length;
 
   // In designer mode every show is already here, so the filters are applied
   // in the browser: choosing 2003, or Men, is instant and costs no request.
