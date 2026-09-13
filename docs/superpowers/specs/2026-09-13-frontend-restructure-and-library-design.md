@@ -128,13 +128,20 @@ listener, and one route table.
 | URL | Meaning |
 |---|---|
 | `/` | High Fashion, nothing open |
-| `/hf/:designer/:season` | a show open |
-| `/hf/:designer/:season/:n` | a show open at image n |
+| `/hf/:slug/:collectionId` | a show open |
+| `/hf/:slug/:collectionId/:n` | a show open at image n |
 | `/brands` | My Brands |
 | `/brands/:brand/:category?` | a brand, optionally a category |
 | `/library` | everything saved |
 | `/library/albums/:id` | one album |
 | `/s/:token` | a shared target, public |
+
+`:slug` is decorative — built from designer, season, year and gender so the
+URL reads like `/hf/alexander-mcqueen-fw-2000-women/3/12`. It is ignored when
+parsing. `:collectionId` is the authoritative identity and is firstVIEW's own
+id, which is a bare integer and the same value the images endpoint already
+takes, so a deep link resolves with no lookup and no new endpoint. A designer
+who renames, or a slug someone edits by hand, still opens the right show.
 
 Filters ride in the query string (`?year=2024&season=fw&city=paris`). A filtered
 view is therefore a real URL, which is what makes saving a view possible at all.
