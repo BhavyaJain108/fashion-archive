@@ -1,5 +1,6 @@
 import React from 'react';
 import { FashionArchiveAPI } from '../../shared/api';
+import { lookLabel, lookAlt } from '../../shared/lib/lookLabel';
 import ThumbStrip from './ThumbStrip';
 import VideoPanel from './VideoPanel';
 
@@ -67,11 +68,11 @@ function Viewer({
                 <div className="hf2-image-frame">
                   <img
                     src={FashionArchiveAPI.getImageUrl(images[currentImageIndex])}
-                    alt={`Look ${currentLookNumber}`}
+                    alt={lookAlt(currentLookNumber)}
                   />
                 </div>
                 <div className="hf2-image-info">
-                  <span className="hf2-look-label">LOOK {String(currentLookNumber).padStart(2, '0')}</span>
+                  <span className="hf2-look-label">{lookLabel(currentLookNumber)}</span>
                   {/* Keeping a look was possible in the database and in the API
                       from the start, and nowhere on the screen. */}
                   <button
@@ -124,11 +125,11 @@ function Viewer({
                     <div className="hf2-grid-image-wrapper">
                       <img
                         src={FashionArchiveAPI.getImageUrl(imgPath)}
-                        alt={`Look ${lookNum}`}
+                        alt={lookAlt(lookNum)}
                         loading="lazy"
                       />
                     </div>
-                    <span className="look-num">{String(lookNum).padStart(2, '0')}</span>
+                    <span className="look-num">{lookLabel(lookNum)}</span>
                   </div>
                 );
               })}

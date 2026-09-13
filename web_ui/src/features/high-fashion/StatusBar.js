@@ -1,6 +1,7 @@
 import React from 'react';
 import { cleanDesignerName } from '../../shared/lib/designerName';
 import { videoSeasonName } from './seasonName';
+import { lookLabel } from '../../shared/lib/lookLabel';
 
 // The bottom readout. Presentational: every value is a prop, and it holds no
 // state of its own. The two label helpers are imported rather than passed in —
@@ -33,7 +34,7 @@ function StatusBar({
         </span>
         <span className="hf2-status-look">
           {imagesLength > 0 && (
-            <>LOOK <span className="active">{String(currentLookNumber).padStart(2, '0')}</span> / {imagesLength}</>
+            <><span className="active">{lookLabel(currentLookNumber)}</span> / {imagesLength}</>
           )}
         </span>
       </div>

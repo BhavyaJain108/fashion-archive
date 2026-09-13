@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import TopBar from '../../shared/ui/TopBar';
 import { FashionArchiveAPI } from '../../shared/api';
+import { lookLabel, lookAlt } from '../../shared/lib/lookLabel';
 import './LibraryPage.css';
 
 // The sidebar's first row: every favourite, rather than one collection.
@@ -348,11 +349,11 @@ function LibraryPage({ currentPage, onPageSwitch, currentUser, onLogout, onOpenR
                     <div className="fav-grid-image">
                       <img
                         src={FashionArchiveAPI.getImageUrl(fav.image_path)}
-                        alt={`Look ${fav.look.number}`}
+                        alt={lookAlt(fav.look.number)}
                         loading="lazy"
                       />
                     </div>
-                    <span className="look-num">{String(fav.look.number).padStart(2, '0')}</span>
+                    <span className="look-num">{lookLabel(fav.look.number)}</span>
                   </div>
                 ))}
               </div>
@@ -368,7 +369,7 @@ function LibraryPage({ currentPage, onPageSwitch, currentUser, onLogout, onOpenR
                   <div className="fav-image-frame">
                     <img
                       src={FashionArchiveAPI.getImageUrl(current.image_path)}
-                      alt={`Look ${current.look.number}`}
+                      alt={lookAlt(current.look.number)}
                       onError={(e) => {
                         e.target.alt = 'Image not found';
                         e.target.style.background = '#f5f5f5';
@@ -377,7 +378,7 @@ function LibraryPage({ currentPage, onPageSwitch, currentUser, onLogout, onOpenR
                   </div>
                   <div className="fav-image-info">
                     <span className="fav-look-label">
-                      LOOK {String(current.look.number).padStart(2, '0')}
+                      {lookLabel(current.look.number)}
                     </span>
                     <span className="fav-look-meta">
                       <span className="fav-added">
@@ -407,7 +408,7 @@ function LibraryPage({ currentPage, onPageSwitch, currentUser, onLogout, onOpenR
                     >
                       <img
                         src={FashionArchiveAPI.getImageUrl(fav.image_path)}
-                        alt={`Look ${fav.look.number}`}
+                        alt={lookAlt(fav.look.number)}
                         loading="lazy"
                       />
                     </div>
@@ -426,7 +427,7 @@ function LibraryPage({ currentPage, onPageSwitch, currentUser, onLogout, onOpenR
             <span>
               {current && (
                 <>
-                  LOOK <span className="active">{String(current.look.number).padStart(2, '0')}</span>
+                  <span className="active">{lookLabel(current.look.number)}</span>
                   {' · '}{selectedIndex + 1} of {visible.length}
                 </>
               )}

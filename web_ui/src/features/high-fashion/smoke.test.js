@@ -224,7 +224,7 @@ describe('Viewer', () => {
 
   it('renders the single view with its controls and thumb strip', () => {
     render(<Viewer {...props} />);
-    expect(screen.getByText('LOOK 01')).toBeInTheDocument();
+    expect(screen.getByText('01')).toBeInTheDocument();
     expect(screen.getByText('1 / 2')).toBeInTheDocument();
     expect(screen.getByText('SINGLE')).toBeInTheDocument();
     expect(screen.getByText('VIDEO')).toBeInTheDocument();

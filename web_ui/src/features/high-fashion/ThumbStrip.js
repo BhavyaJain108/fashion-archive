@@ -1,5 +1,6 @@
 import React from 'react';
 import { FashionArchiveAPI } from '../../shared/api';
+import { lookAlt } from '../../shared/lib/lookLabel';
 
 // The horizontal thumbnail strip in single view. Presentational: every value
 // is a prop, and it holds no state of its own. The centring effect (which
@@ -27,7 +28,7 @@ function ThumbStrip({
                 >
                   <img
                     src={FashionArchiveAPI.getImageUrl(imgPath)}
-                    alt={`Look ${extractLookNumber(imgPath, idx)}`}
+                    alt={lookAlt(extractLookNumber(imgPath, idx))}
                   />
                 </div>
               ))}
