@@ -1,7 +1,17 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import './styles/archive.css';
-import App from './App';
+
+// This import MUST stay above `import App`.
+//
+// App transitively imports every feature stylesheet. The .ar-* primitives in
+// archive.css and the feature classes collide at equal specificity, so
+// whichever is injected last wins every tie. With App first, .ar-select beat
+// .product-sort-select and the My Brands sort dropdown grew to the width of
+// the toolbar while the search field collapsed to about 26 pixels.
+//
+// `npm run check:css` asserts this against the built bundle.
+import './shared/styles/archive.css';
+import App from './app/App';
 
 // Suppress ResizeObserver errors (common with draggable components)
 const originalError = console.error;

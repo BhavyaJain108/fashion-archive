@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { FashionArchiveAPI } from '../shared/api';
+import { FashionArchiveAPI } from '../../shared/api';
 import { AuthShell, Button, Field, LinkButton, Notice } from './AuthShell';
 
 /**

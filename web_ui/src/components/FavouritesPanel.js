@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import TopBar from './TopBar';
+import TopBar from '../shared/ui/TopBar';
 import { FashionArchiveAPI } from '../shared/api';
 import './FavouritesPanel.css';
 

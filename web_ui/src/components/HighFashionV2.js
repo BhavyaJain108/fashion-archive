@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { FashionArchiveAPI } from '../shared/api';
-import { prepare as prepareDesigners, search as searchDesigners } from '../lib/designerSearch';
-import TopBar from './TopBar';
+import { prepare as prepareDesigners, search as searchDesigners } from '../shared/lib/designerSearch';
+import TopBar from '../shared/ui/TopBar';
 import './HighFashionV2.css';
 
 // Garment category — firstVIEW's `s_n` filter. Optional, like every filter
