@@ -23,6 +23,7 @@ function Viewer({
   imagesError,
   imagesCollection,
   expectedCount,
+  streamComplete,
   currentImageIndex,
   setCurrentImageIndex,
   currentLookNumber,
@@ -195,6 +196,7 @@ function Viewer({
             extractLookNumber={extractLookNumber}
             expectedCount={expectedCount}
             isStale={imagesStale}
+            streamComplete={streamComplete}
           />
         )}
       </div>

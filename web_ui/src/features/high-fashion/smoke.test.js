@@ -207,6 +207,47 @@ describe('StatusBar', () => {
     expect(screen.getByText('Yohji Yamamoto')).toBeInTheDocument();
     expect(document.querySelector('.hf2-status-look').textContent).toBe('loading');
   });
+
+  // The defect: a look's download can fail and the stream still finishes
+  // normally, having sent fewer images than it promised. Without a
+  // completion signal the bar said "12 / 38 arriving" forever, on a stream
+  // that ended minutes ago. Once `streamComplete` is true the denominator is
+  // the real, delivered count — not the promise the stream could not keep —
+  // and the word "arriving" is gone, because nothing is.
+  it('once the stream is complete, counts against what actually arrived', () => {
+    render(
+      <StatusBar
+        selectedCollection={COLLECTION}
+        imagesCollection={COLLECTION}
+        filters={FILTERS}
+        imagesLength={12}
+        expectedCount={38}
+        currentLookNumber={12}
+        streamComplete
+      />
+    );
+    expect(document.querySelector('.hf2-status-look').textContent).toBe('12 / 12');
+    expect(screen.queryByText('arriving')).not.toBeInTheDocument();
+  });
+
+  // The existing behaviour a stream mid-flight relies on, pinned explicitly
+  // against the new prop: with no completion signal yet, the total is still
+  // the promised one and the rest is still "arriving".
+  it('mid-flight, with no completion signal, still counts against the promised total', () => {
+    render(
+      <StatusBar
+        selectedCollection={COLLECTION}
+        imagesCollection={COLLECTION}
+        filters={FILTERS}
+        imagesLength={12}
+        expectedCount={38}
+        currentLookNumber={12}
+        streamComplete={false}
+      />
+    );
+    expect(document.querySelector('.hf2-status-look').textContent)
+      .toBe('12 / 38 arriving');
+  });
 });
 
 describe('ThumbStrip', () => {
@@ -323,6 +364,29 @@ describe('ThumbStrip', () => {
     render(<ThumbStrip {...stripProps} images={IMAGES_12} expectedCount={0} isStale />);
     expect(slots()).toHaveLength(12);
     expect(ghosts()).toHaveLength(0);
+  });
+
+  // The defect: a look that failed to download is never coming, but a
+  // ghost slot for it pulsed forever because nothing distinguished "still
+  // arriving" from "finished, and this is all there is". Once the stream
+  // has said it is complete, the strip shows exactly the images that
+  // arrived — no ghost stands in for a look that will not land.
+  it('draws no ghosts once the stream is complete, however many actually arrived', () => {
+    render(<ThumbStrip {...stripProps} images={IMAGES_12} expectedCount={38} streamComplete />);
+    expect(slots()).toHaveLength(12);
+    expect(ghosts()).toHaveLength(0);
+    expect(screen.getAllByRole('img')).toHaveLength(12);
+  });
+
+  // The existing behaviour a stream mid-flight relies on, pinned explicitly
+  // against the new prop: with no completion signal yet, the promised
+  // looks that have not arrived are still drawn as ghosts.
+  it('still draws ghosts mid-flight, with no completion signal', () => {
+    render(
+      <ThumbStrip {...stripProps} images={IMAGES_12} expectedCount={38} streamComplete={false} />
+    );
+    expect(slots()).toHaveLength(38);
+    expect(ghosts()).toHaveLength(26);
   });
 });
 

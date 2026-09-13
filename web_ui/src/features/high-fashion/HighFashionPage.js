@@ -169,6 +169,7 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
     images,
     expectedCount: expectedLookCount,
     loading: imagesLoading,
+    streamComplete: imagesStreamComplete,
     isStale: imagesStale,
     error: imagesError,
     imagesKey,
@@ -1398,6 +1399,7 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
         imagesError={imagesError}
         imagesCollection={imagesCollection}
         expectedCount={expectedLookCount}
+        streamComplete={imagesStreamComplete}
         currentImageIndex={imageIndex}
         setCurrentImageIndex={showLook}
         currentLookNumber={currentLookNumber}
@@ -1441,6 +1443,7 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
         expectedCount={expectedLookCount}
         currentLookNumber={currentLookNumber}
         isStale={imagesStale}
+        streamComplete={imagesStreamComplete}
       />
     </div>
   );

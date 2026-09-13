@@ -16,6 +16,12 @@ function ThumbStrip({
   extractLookNumber,
   expectedCount = 0,
   isStale = false,
+  // True once the stream has finished delivering for this collection,
+  // however many looks that turned out to be — a look that fails to
+  // download does not fail the stream, it is just never coming, and a
+  // ghost slot drawn for it would pulse forever. Defaults to false so a
+  // caller that has not wired the flag through yet keeps today's ghosts.
+  streamComplete = false,
 }) {
   // The looks the stream has promised and not yet delivered, drawn as empty
   // slots. The strip is then its final width from the first photograph, and
@@ -30,7 +36,13 @@ function ThumbStrip({
   // previous show's twelve thumbnails with the new show's thirty-eight
   // slots behind them, under the new show's name. Gating is the only version
   // where the strip and the status bar describe the same show.
-  const ghostCount = !isStale && expectedCount > images.length
+  //
+  // Also gated on !streamComplete: once the stream itself has said it is
+  // done, whatever arrived is final. `expectedCount` can still sit above
+  // `images.length` — a look that failed to download is not coming — and a
+  // ghost drawn for it would be a placeholder for a photograph that will
+  // never land.
+  const ghostCount = !isStale && !streamComplete && expectedCount > images.length
     ? expectedCount - images.length
     : 0;
 

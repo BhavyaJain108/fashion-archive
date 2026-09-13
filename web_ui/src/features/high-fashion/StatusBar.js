@@ -24,6 +24,13 @@ function StatusBar({
   expectedCount = 0,
   currentLookNumber,
   isStale = false,
+  // True once the stream has finished delivering for this collection,
+  // however many looks that turned out to be. A look that fails to
+  // download does not fail the stream — it is logged and skipped — so
+  // `expectedCount` can sit above `imagesLength` forever with nothing else
+  // ever coming. Defaults to false so a caller that has not wired the flag
+  // through yet keeps today's "arriving".
+  streamComplete = false,
 }) {
   // Which show the reader is actually looking at. Before the first show of a
   // session has landed anything there are no photographs to belong to
@@ -36,9 +43,18 @@ function StatusBar({
   // window it is already the new show's number while `currentLookNumber`
   // is still the old show's position — the two must never be printed
   // together, which is what !isStale buys. A count of 0 means meta has not
-  // arrived at all, and "07 / 0" is worse than no counter.
-  const counting = !isStale && expectedCount > 0;
-  const arriving = counting && imagesLength < expectedCount;
+  // arrived at all, and "07 / 0" is worse than no counter — except once the
+  // stream is complete, when there is nothing left to wait on and a total
+  // of 0 is simply true.
+  const counting = !isStale && (streamComplete || expectedCount > 0);
+
+  // The denominator once the stream is done is what actually arrived, not
+  // what it once promised: a look that failed to download is never coming,
+  // and "12 / 38 arriving" forever is a lie about a stream that ended
+  // minutes ago. Mid-flight, the promised total is still the honest one —
+  // it is what "arriving" counts down to.
+  const total = streamComplete ? imagesLength : expectedCount;
+  const arriving = !streamComplete && counting && imagesLength < expectedCount;
 
   return (
       <div className="hf2-status-bar">
@@ -67,7 +83,7 @@ function StatusBar({
             // character what lookCounter(currentLookNumber, expectedCount)
             // returns, and a test holds it to that.
             <>
-              <span className="active">{lookLabel(currentLookNumber)}</span> / {expectedCount}
+              <span className="active">{lookLabel(currentLookNumber)}</span> / {total}
               {arriving && <> <span className="hf2-status-arriving">arriving</span></>}
             </>
           )}

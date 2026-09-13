@@ -44,6 +44,12 @@ const image = (call, index, path) =>
   act(() => { call.handlers.onImage({ type: 'image', index, path }); });
 const done = (call) => act(async () => { call.resolve({ type: 'done' }); });
 const fail = (call, error) => act(async () => { call.reject(error); });
+// The 'done' SSE event, fired mid-stream — before the returned promise ever
+// settles. This is the signal the hook was discarding: a look that failed to
+// download does not reject the promise, it is just skipped, so the stream
+// can say "no more are coming" long before (or even without) `done()` below
+// ever resolving anything.
+const streamDone = (call) => act(() => { call.handlers.onDone({ type: 'done' }); });
 
 function mount(initial) {
   return renderHook(({ collection }) => useCollectionImages(collection), {
@@ -370,6 +376,92 @@ describe('useCollectionImages', () => {
       image(calls[0], 0, 'a/look-01.jpg');
       rerender({ collection: null });
       expect(result.current.imagesCollection).toBe(null);
+    });
+  });
+
+  // A collection's stream can skip a look — the API logs an `image_error`
+  // and moves on rather than failing the whole download — so `expectedCount`
+  // can stay permanently above `images.length` even though nothing else is
+  // ever coming. Nothing before this flag distinguished "still arriving"
+  // from "finished, and this is all there is"; `loading` cannot do it,
+  // because it clears on the FIRST image, not the last.
+  describe('streamComplete', () => {
+    test('starts false', () => {
+      const { result } = mount(A);
+      expect(result.current.streamComplete).toBe(false);
+    });
+
+    // The defect this flag exists to fix: 12 of 38 land, one look's
+    // download failed, and the stream still calls onDone — normally,
+    // because a skipped look never rejects the promise. That call alone,
+    // before the promise it returns has settled, is what must flip the
+    // flag; nothing here ever resolves or rejects calls[0].
+    test('onDone marks the stream complete, ahead of the promise settling', () => {
+      const { result } = mount(A);
+      meta(calls[0], 38);
+      for (let i = 0; i < 12; i++) image(calls[0], i, `a/look-${i}.jpg`);
+      expect(result.current.streamComplete).toBe(false);
+
+      streamDone(calls[0]);
+
+      expect(result.current.streamComplete).toBe(true);
+      expect(result.current.images).toHaveLength(12);
+      expect(result.current.expectedCount).toBe(38);
+    });
+
+    // The existing behaviour a stream mid-flight relies on: with no onDone
+    // yet, there is nothing to say the rest is not still coming.
+    test('stays false while the stream is still running', () => {
+      const { result } = mount(A);
+      meta(calls[0], 38);
+      image(calls[0], 0, 'a/look-01.jpg');
+      expect(result.current.streamComplete).toBe(false);
+    });
+
+    // A failed stream is also an answer — this is all there is going to
+    // be — not a permanent "arriving". Left unset, the defect this flag
+    // fixes would apply to every failed load as well as every skipped look.
+    test('a failed stream marks complete rather than leaving it arriving forever', async () => {
+      const { result } = mount(A);
+      image(calls[0], 0, 'a/look-01.jpg');
+      await fail(calls[0], new Error('the network blipped'));
+      expect(result.current.streamComplete).toBe(true);
+    });
+
+    // A new request is a new answer pending. Without the reset, a reload of
+    // a show whose previous stream had completed would start already
+    // "complete" and show its ghosts as gone before the new stream has said
+    // anything at all.
+    test('a new request resets the flag', () => {
+      const { result, rerender } = mount(A);
+      streamDone(calls[0]);
+      expect(result.current.streamComplete).toBe(true);
+
+      rerender({ collection: B });
+      expect(result.current.streamComplete).toBe(false);
+    });
+
+    // The guard this hook exists for, applied to the new signal: B is
+    // superseded by C, and B's stream answering late — however it answers —
+    // must never mark C's request complete. Aborting to pick another show is
+    // not "this show has finished loading".
+    test('an aborted request does not mark the superseding request complete', async () => {
+      const { result, rerender } = mount(B);
+      rerender({ collection: C });
+
+      // B, late: a done event fired after B lost the race.
+      streamDone(calls[0]);
+      expect(result.current.streamComplete).toBe(false);
+
+      // And B's promise itself, settling as an abort.
+      const aborted = new Error('aborted');
+      aborted.name = 'AbortError';
+      await fail(calls[0], aborted);
+      expect(result.current.streamComplete).toBe(false);
+
+      // C is still genuinely running.
+      image(calls[1], 0, 'c/look-01.jpg');
+      expect(result.current.streamComplete).toBe(false);
     });
   });
 });

@@ -5,7 +5,7 @@ import { FashionArchiveAPI } from '../api';
 // collection off the screen first.
 //
 //   useCollectionImages(collection)
-//     -> { images, expectedCount, loading, isStale, error,
+//     -> { images, expectedCount, loading, streamComplete, isStale, error,
 //          imagesKey, imagesCollection, reload }
 //
 // The rule this hook exists for: a request for a new collection never
@@ -30,6 +30,12 @@ const EMPTY = {
   expectedCount: 0,
   loading: false,
   error: null,
+  // Whether the stream has finished delivering for THIS collection, whatever
+  // it managed to deliver. A look that fails to download does not fail the
+  // stream — the API logs an `image_error` and moves on — so `expectedCount`
+  // can sit above `images.length` forever with nothing else ever coming.
+  // `loading` cannot say this: it clears on the FIRST image, not the last.
+  streamComplete: false,
 };
 
 // Collections are identified by url: it is what the stream is keyed on, and
@@ -83,7 +89,9 @@ export function useCollectionImages(collection) {
     // the feature. `expectedCount` does reset, because it describes the
     // collection being asked for and the old collection's count must not be
     // read as this one's.
-    setState(prev => ({ ...prev, loading: true, error: null, expectedCount: 0 }));
+    setState(prev => (
+      { ...prev, loading: true, error: null, expectedCount: 0, streamComplete: false }
+    ));
 
     // Images arrive in completion order and are held in look order, so the
     // sparse array is the accumulator and the dense copy is what renders.
@@ -111,6 +119,17 @@ export function useCollectionImages(collection) {
           loading: false,
         }));
       },
+      // Fires once, on the stream's own 'done' event — before the promise
+      // below has necessarily settled. That ordering is the point: a look
+      // that failed to download does not reject the promise, so onDone is
+      // the earliest, and sometimes the only, signal that no more images
+      // are coming for this collection. isCurrent() guards it exactly as
+      // onImage and onMeta are guarded, so a stream answering late after
+      // being superseded can never mark the new request complete.
+      onDone: () => {
+        if (!isCurrent()) return;
+        setState(prev => ({ ...prev, streamComplete: true }));
+      },
     }).then(() => {
       if (!isCurrent()) return;
       // A stream that finished having sent nothing is an answer — this show
@@ -134,8 +153,10 @@ export function useCollectionImages(collection) {
       console.error('Failed to load images:', error);
       // `images` survives deliberately. The previous collection is still
       // worth looking at, and `isStale` stays true to say it is not the one
-      // that was asked for.
-      setState(prev => ({ ...prev, loading: false, error }));
+      // that was asked for. `streamComplete` is set regardless: a failed
+      // load is also an answer, and the alternative is a ghost slot and an
+      // "arriving" that never goes away.
+      setState(prev => ({ ...prev, loading: false, error, streamComplete: true }));
     });
 
     return () => {
@@ -155,6 +176,10 @@ export function useCollectionImages(collection) {
     expectedCount: state.expectedCount,
     loading: state.loading,
     error: state.error,
+    // True once the stream has finished delivering for THIS collection —
+    // set from the stream's own 'done' event or from a failure, never from
+    // an abort. See the EMPTY constant above for why this exists.
+    streamComplete: state.streamComplete,
     // True from the render on which a different collection is asked for
     // until that collection's first image lands. With nothing selected
     // there is nothing to be stale against.
