@@ -320,6 +320,12 @@ class Catalog:
             self._write_search_index(domain)
             self._refresh_meta(domain)
         self._dirty.clear()
+        # Drop the cached copies. `_open` is a buffer for the run in flight, not a
+        # cache that outlives it: a handle that kept a brand's catalogue in memory
+        # would later write that stale copy over whatever another handle had written
+        # in the meantime. That is how the coverage stamps went missing — the run
+        # recorded its products, and a stale buffer put the unstamped version back.
+        self._open.clear()
         for (domain, run_id), rows in sorted(self._pending_observations.items()):
             key = f"history/{domain}/{run_id}.json"
             held = self._read(key, {"observations": []})
