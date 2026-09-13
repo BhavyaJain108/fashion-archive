@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { FashionArchiveAPI } from '../services/api';
+import { FashionArchiveAPI } from '../shared/api';
 import { prepare as prepareDesigners, search as searchDesigners } from '../lib/designerSearch';
 import TopBar from './TopBar';
 import './HighFashionV2.css';

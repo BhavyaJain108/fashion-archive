@@ -3,7 +3,7 @@ import FavouritesPanel from './components/FavouritesPanel';
 import MyBrandsPanel from './components/MyBrandsPanel';
 import AuthPanel from './auth/AuthPanel';
 import HighFashionV2 from './components/HighFashionV2';
-import { FashionArchiveAPI } from './services/api';
+import { FashionArchiveAPI } from './shared/api';
 
 // The shell: decide whether anyone is signed in, and which of the three pages
 // to show. Nothing else.

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import TopBar from './TopBar';
-import { FashionArchiveAPI } from '../services/api';
+import { FashionArchiveAPI } from '../shared/api';
 import './FavouritesPanel.css';
 
 // The sidebar's first row: every favourite, rather than one collection.

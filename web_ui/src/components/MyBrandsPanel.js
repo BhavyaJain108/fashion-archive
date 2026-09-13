@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import Fuse from 'fuse.js';
 import TopBar from './TopBar';
-import { ArchiveAPI } from '../services/api';
+import { ArchiveAPI } from '../shared/api';
 import ProductDetailPanel from './ProductDetailPanel';
 import './MyBrandsPanel.css';
 
