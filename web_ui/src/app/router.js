@@ -10,17 +10,20 @@ const subscribers = new Set();
 // getRoute() must return the SAME object reference across calls that see no
 // URL change: useRoute() hands getRoute straight to React's
 // useSyncExternalStore, which compares snapshots with Object.is and will
-// re-render forever if handed a fresh object every time. cachedHref records
-// the URL the cached route was parsed from, so a change made outside
-// navigate() (the browser's own back/forward, or code that calls
+// re-render forever if handed a fresh object every time. cachedPath records
+// the pathname+search the cached route was parsed from — not the full href,
+// since parseRoute never looks at the hash, and keying on href would churn
+// the cache (and the snapshot identity) on a hash-only change. A change made
+// outside navigate() (the browser's own back/forward, or code that calls
 // history.replaceState directly) is still caught — getRoute() checks the
-// live href on every call rather than trusting a stale cache.
-let cachedHref = null;
+// live pathname+search on every call rather than trusting a stale cache.
+let cachedPath = null;
 let cachedRoute = null;
 
 export function getRoute() {
-  if (cachedRoute === null || window.location.href !== cachedHref) {
-    cachedHref = window.location.href;
+  const path = window.location.pathname + window.location.search;
+  if (cachedRoute === null || path !== cachedPath) {
+    cachedPath = path;
     cachedRoute = parseRoute(window.location.pathname, window.location.search);
   }
   return cachedRoute;
@@ -45,20 +48,28 @@ const notify = () => {
 
 export function navigate(route, { replace = false } = {}) {
   const url = buildRoute(route);
-  // Compare canonical form to canonical form. buildRoute() always emits
-  // filter keys in sorted order, but the address bar can hold them in any
-  // order — a shared link, a hand-edited URL, or an earlier replaceState —
-  // so comparing against the raw pathname+search would treat a
-  // semantically identical route as a change and push a spurious history
-  // entry. Routing the current URL through parseRoute/buildRoute canonicalizes
-  // it the same way; this round-trip is exact because parseRoute keeps the
-  // slug it saw, so buildRoute(getRoute()) reproduces the current URL rather
-  // than replacing the readable segment with the placeholder.
-  const current = buildRoute(getRoute());
+  const shown = window.location.pathname + window.location.search;
 
-  // An effect that navigates on every render would otherwise push an entry
-  // per render and bury the user's actual history.
-  if (url === current) return;
+  // Already exactly there. Nothing to do.
+  if (url === shown) return;
+
+  // The same route, spelled differently — filter keys in another order, or a
+  // path like /nonsense that parses to the archive root. buildRoute() always
+  // emits filter keys in sorted order, but the address bar can hold them in
+  // any order — a shared link, a hand-edited URL, or an earlier
+  // replaceState — and an unrecognised path canonicalizes to a different
+  // spelling entirely. Routing the current URL through parseRoute/buildRoute
+  // canonicalizes it the same way; this round-trip is exact because
+  // parseRoute keeps the slug it saw, so buildRoute(getRoute()) reproduces
+  // the current URL rather than replacing the readable segment with the
+  // placeholder. The route has not changed, so this must not push an entry
+  // or notify anybody — an effect that navigates on every render would
+  // otherwise push an entry per render and bury the user's actual history —
+  // but the address bar should still be tidied to the canonical spelling.
+  if (url === buildRoute(getRoute())) {
+    window.history.replaceState({}, '', url);
+    return;
+  }
 
   if (replace) window.history.replaceState({}, '', url);
   else window.history.pushState({}, '', url);

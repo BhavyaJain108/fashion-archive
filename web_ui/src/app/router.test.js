@@ -110,10 +110,69 @@ describe('subscribe', () => {
   });
 });
 
+describe('navigate correcting a non-canonical address bar', () => {
+  test('at /nonsense, navigating to the route it already maps to corrects the address bar', () => {
+    at('/nonsense');
+    navigate({ page: 'high-fashion' });
+    expect(window.location.pathname).toBe('/');
+  });
+
+  test('that same correction does not push a history entry and does not notify', () => {
+    at('/nonsense');
+    const before = window.history.length;
+    const seen = [];
+    const off = subscribe((r) => seen.push(r));
+    navigate({ page: 'high-fashion' });
+    off();
+    expect(window.history.length).toBe(before);
+    expect(seen).toHaveLength(0);
+  });
+
+  test('reordered filter keys correct pathname+search to the canonical spelling, with no push and no notify', () => {
+    at('/?year=2024&city=Paris');
+    const before = window.history.length;
+    const seen = [];
+    const off = subscribe((r) => seen.push(r));
+    navigate({ page: 'high-fashion', filters: { city: 'Paris', year: '2024' } });
+    off();
+    expect(window.location.pathname + window.location.search).toBe('/?city=Paris&year=2024');
+    expect(window.history.length).toBe(before);
+    expect(seen).toHaveLength(0);
+  });
+
+  test('a genuine navigation away from a non-canonical URL still pushes and notifies', () => {
+    at('/nonsense');
+    const before = window.history.length;
+    const seen = [];
+    const off = subscribe((r) => seen.push(r));
+    navigate({ page: 'brands' });
+    off();
+    expect(window.location.pathname).toBe('/brands');
+    expect(window.history.length).toBeGreaterThan(before);
+    expect(seen).toHaveLength(1);
+    expect(seen[0].page).toBe('brands');
+  });
+
+  test('getRoute() reflects the canonical URL after the address-bar-only correction', () => {
+    at('/nonsense');
+    navigate({ page: 'high-fashion' });
+    expect(getRoute().page).toBe('high-fashion');
+    expect(window.location.pathname).toBe('/');
+  });
+});
+
 describe('getRoute caching', () => {
   test('two calls with no navigation in between return the identical object', () => {
     at('/brands/acne');
     const first = getRoute();
+    const second = getRoute();
+    expect(second).toBe(first);
+  });
+
+  test('a hash-only change does not bust the cache', () => {
+    at('/brands/acne');
+    const first = getRoute();
+    at('/brands/acne#section-2');
     const second = getRoute();
     expect(second).toBe(first);
   });
