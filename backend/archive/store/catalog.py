@@ -220,6 +220,19 @@ class Catalog:
         row["exit_status"] = exit_status
         row["coverage"] = json.loads(coverage.model_dump_json()) if coverage else None
         self._write(f"runs/{domain}/{run_id}.json", row)
+
+        # Membership is stamped here, not in record_product, and only by a run that
+        # earned coverage. psylos1 recorded 4,740 products and then died when the
+        # laptop slept: every one had already been moved onto the new run, the run
+        # never earned coverage, and the brand went from 300 visible products to 8.
+        # The records were all still there; they had just stopped being anybody's.
+        if coverage is not None and exit_status in (0, 1):
+            products = self._catalogue(domain)["products"]
+            for entry in products.values():
+                if entry.get("last_seen_run") == run_id:
+                    entry["last_covered_run"] = run_id
+            self._write(f"catalogue/{domain}.json", self._open[domain])
+
         # After the run row, not before. Both of these filter on the latest covered
         # run, and during the flush above this run had no coverage yet — so they would
         # have matched the previous run and left the index describing products that
@@ -275,6 +288,8 @@ class Catalog:
                 "change_hint": change_hint,
                 "first_seen_run": run_id,
                 "last_seen_run": run_id,
+                # Not covered until its run finishes and earns coverage.
+                "last_covered_run": None,
             }
         if changed:
             self._pending_observations.setdefault((domain, run_id), []).append(
@@ -319,7 +334,7 @@ class Catalog:
         slim = [
             {k: row["record"].get(k) for k in SEARCH_FIELDS}
             for row in products.values()
-            if live is None or row["last_seen_run"] == live
+            if live is None or row.get("last_covered_run") == live
         ]
         self._write(f"search/{domain}.json", {"products": slim})
 
@@ -332,7 +347,7 @@ class Catalog:
             "domain": domain,
             "products": len(products),
             "live_products": sum(
-                1 for r in products.values() if live and r["last_seen_run"] == live
+                1 for r in products.values() if live and r.get("last_covered_run") == live
             ),
             "images": self.stored_image_count(domain),
             "state": self.get_brand_state(domain),
@@ -396,7 +411,7 @@ class Catalog:
         live = self._latest_covered_run(domain)
         if live is None:
             return []
-        return [row["record"] for row in products.values() if row["last_seen_run"] == live]
+        return [row["record"] for row in products.values() if row.get("last_covered_run") == live]
 
     def rewrite_field(self, domain: str, field: str, value) -> int:
         """Set one field to one value across a brand's products.

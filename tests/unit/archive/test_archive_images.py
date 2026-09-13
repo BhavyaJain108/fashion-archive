@@ -131,3 +131,23 @@ def test_one_brand_failing_does_not_end_the_pass(db, sink, monkeypatch):
     results = archive_all(["broken.com", "fine.com"], db, sink, workers=2)
     assert {r.domain for r in results} == {"broken.com", "fine.com"}
     assert sum(r.fetched for r in results) == 1
+
+
+@pytest.mark.unit
+def test_a_brand_that_errors_does_not_report_zero_outstanding(db, sink, monkeypatch):
+    """The overnight run printed "855 stored, 0 still outstanding" while eighteen
+    brands had failed with connection errors. A failed brand kept Outcome's default
+    outstanding=0, and the total then claimed the work was finished."""
+    import backend.archive.runner.archive_images as module
+
+    def explode(domain, *a, **k):
+        raise OSError("Could not connect to the endpoint URL")
+
+    monkeypatch.setattr(module, "archive_brand", explode)
+    results = archive_all(["a.com", "b.com"], db, sink, workers=2)
+
+    assert all(r.failed == -1 for r in results)
+    assert all(r.outstanding is None for r in results), (
+        "a brand we could not reach has an unknown backlog, not an empty one"
+    )
+    assert module.summarise(results) == (0, None, 2)

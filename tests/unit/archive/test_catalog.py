@@ -331,3 +331,61 @@ def test_the_search_index_survives_a_second_run(cat):
     cat.record_product("kuurth.com", r2, rec("wool-cap", price=99.0), None)
     cat.finalize_run(r2, 0, COV)
     assert len(cat.search_products(["kuurth.com"], "wool")) == 1
+
+
+@pytest.mark.unit
+def test_a_run_that_fails_does_not_delist_what_the_last_good_run_saw(cat):
+    """psylos1 went from 300 products visible to 8.
+
+    A full re-scrape recorded 4,740 products — moving every one of them onto the new
+    run — and then died when the laptop slept. The run earned no coverage, so nothing
+    pointed at a covered run any more and the brand emptied. The records were all still
+    there; they had just stopped being anybody's.
+    """
+    good = cat.open_run("kuurth.com", "full")
+    for slug in ("a", "b", "c"):
+        cat.record_product("kuurth.com", good, rec(slug), None)
+    cat.finalize_run(good, 0, COV)
+    assert len(cat.current_products("kuurth.com")) == 3
+
+    doomed = cat.open_run("kuurth.com", "full")
+    for slug in ("a", "b", "c", "d"):
+        cat.record_product("kuurth.com", doomed, rec(slug), None)
+    cat.finalize_run(doomed, 2, None)  # crashed: no coverage
+
+    assert len(cat.current_products("kuurth.com")) == 3, "the last good run's view must stand"
+    assert len(cat.current_products("kuurth.com", live_only=False)) == 4, "and nothing is lost"
+
+
+@pytest.mark.unit
+def test_a_good_run_after_a_failed_one_takes_over(cat):
+    good = cat.open_run("kuurth.com", "full")
+    cat.record_product("kuurth.com", good, rec("a"), None)
+    cat.finalize_run(good, 0, COV)
+
+    doomed = cat.open_run("kuurth.com", "full")
+    cat.record_product("kuurth.com", doomed, rec("a"), None)
+    cat.record_product("kuurth.com", doomed, rec("b"), None)
+    cat.finalize_run(doomed, 2, None)
+    assert len(cat.current_products("kuurth.com")) == 1
+
+    better = cat.open_run("kuurth.com", "full")
+    for slug in ("a", "b", "c"):
+        cat.record_product("kuurth.com", better, rec(slug), None)
+    cat.finalize_run(better, 0, COV)
+    assert len(cat.current_products("kuurth.com")) == 3
+
+
+@pytest.mark.unit
+def test_a_good_run_that_stops_seeing_a_product_still_delists_it(cat):
+    """The other half: delisting has to keep working, or a shop taking something down
+    would never reach the page."""
+    first = cat.open_run("kuurth.com", "full")
+    cat.record_product("kuurth.com", first, rec("a"), None)
+    cat.record_product("kuurth.com", first, rec("b"), None)
+    cat.finalize_run(first, 0, COV)
+
+    second = cat.open_run("kuurth.com", "full")
+    cat.record_product("kuurth.com", second, rec("a"), None)  # b is gone from the shop
+    cat.finalize_run(second, 0, COV)
+    assert [p["product_title"] for p in cat.current_products("kuurth.com")] == ["A"]

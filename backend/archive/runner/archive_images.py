@@ -26,8 +26,12 @@ from backend.storage.images import ImageStore as Sink
 class Outcome:
     domain: str
     fetched: int = 0  # asked the shop for
-    outstanding: int = 0  # named by a product and still not stored
+    outstanding: int | None = 0  # named by a product and still not stored; None if unknown
     failed: int = 0
+
+    @property
+    def errored(self) -> bool:
+        return self.failed == -1
 
     @property
     def stored(self) -> int:
@@ -102,9 +106,25 @@ def archive_all(
             try:
                 outcome = future.result()
             except Exception as error:  # one brand's CDN must not end the pass
-                outcome = Outcome(domain, failed=-1)
+                # outstanding is unknown, not zero. Defaulting it to zero let an
+                # overnight run where eighteen brands lost the network print
+                # "855 stored, 0 still outstanding", which read as finished.
+                outcome = Outcome(domain, failed=-1, outstanding=None)
                 print(f"{domain}: {error}")
             results.append(outcome)
             if on_done:
                 on_done(outcome)
     return results
+
+
+def summarise(results: list[Outcome]) -> tuple[int, int | None, int]:
+    """(stored, outstanding, brands that errored).
+
+    Outstanding is None when any brand failed, because then the backlog is genuinely
+    unknown rather than empty — an overnight run that lost the network on eighteen
+    brands printed "855 stored, 0 still outstanding", which read as finished.
+    """
+    errored = sum(1 for r in results if r.errored)
+    stored = sum(r.fetched for r in results)
+    outstanding = None if errored else sum(r.outstanding or 0 for r in results)
+    return stored, outstanding, errored

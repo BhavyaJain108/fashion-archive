@@ -345,7 +345,11 @@ def main(argv: list[str] | None = None) -> int:
             # about a minute and its photographs take an hour, so fetching inline
             # would make every scrape wait on the slow half. Two phases, one command.
             if not args.no_images:
-                from backend.archive.runner.archive_images import archive_all, outstanding
+                from backend.archive.runner.archive_images import (
+                    archive_all,
+                    outstanding,
+                    summarise,
+                )
 
                 pending = sum(outstanding(catalog, b.domain) for b in targets)
                 if pending:
@@ -362,9 +366,11 @@ def main(argv: list[str] | None = None) -> int:
                             f"{o.failed} failed  {o.outstanding} left"
                         ),
                     )
-                    kept = sum(r.fetched for r in results)
-                    left = sum(r.outstanding for r in results)
-                    print(f"images: {kept} stored, {left} still outstanding")
+                    kept, left, errored = summarise(results)
+                    tail = "unknown — some brands could not be reached" if left is None else left
+                    print(f"images: {kept} stored, {tail} still outstanding")
+                    if errored:
+                        print(f"images: {errored} brand(s) errored")
                 else:
                     print("\nimages: nothing outstanding")
             return worst
@@ -413,9 +419,12 @@ def main(argv: list[str] | None = None) -> int:
                 width=args.width or None,
                 on_done=_report,
             )
-            kept = sum(r.stored for r in results)
-            left = sum(r.outstanding for r in results)
-            print(f"\n{kept} image(s) stored, {left} still outstanding")
+            kept, left, errored = summarise(results)
+            tail = "unknown — some brands could not be reached" if left is None else str(left)
+            print(f"\n{kept} image(s) stored, {tail} still outstanding")
+            if errored:
+                print(f"{errored} brand(s) errored; run it again once they are reachable")
+                return 1
             return 0
 
         if args.cmd == "capability":

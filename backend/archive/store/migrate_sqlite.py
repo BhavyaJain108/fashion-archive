@@ -99,6 +99,9 @@ def migrate(db_path: Path, store: ObjectStore) -> dict[str, int]:
             "change_hint": row["change_hint"],
             "first_seen_run": run_keys[row["first_seen_run"]],
             "last_seen_run": run_keys[row["last_seen_run"]],
+            # The old store had one column and treated it as both. Carrying it into
+            # both keeps every product's visibility exactly as it was.
+            "last_covered_run": run_keys[row["last_seen_run"]],
         }
         product_urls[row["id"]] = (domain, row["itemurl"])
     counts["products"] = len(product_urls)
