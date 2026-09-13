@@ -88,22 +88,28 @@ export class ArchiveEndpoints {
   static _indexReady = null;
 
   static async getIndexStatus() {
-    if (this._indexReady !== null) return this._indexReady;
+    // `ArchiveEndpoints` by name, not `this`: the facade in index.js copies
+    // this method onto FashionArchiveAPI as a data descriptor, so a call
+    // through the facade runs with `this` bound to the facade, not to this
+    // class. Reading/writing `this._indexReady` would then cache onto
+    // whichever object made the call, leaving this class's own field null
+    // forever for anyone importing ArchiveEndpoints directly.
+    if (ArchiveEndpoints._indexReady !== null) return ArchiveEndpoints._indexReady;
     try {
       const response = await fetch(`${ApiClient.BASE_URL}/api/index/status`, {
         credentials: 'include',
       });
       if (!response.ok) {
         ApiClient.checkAuth(response);
-        this._indexReady = { shows: 0 };
-        return this._indexReady;
+        ArchiveEndpoints._indexReady = { shows: 0 };
+        return ArchiveEndpoints._indexReady;
       }
-      this._indexReady = await response.json();
-      return this._indexReady;
+      ArchiveEndpoints._indexReady = await response.json();
+      return ArchiveEndpoints._indexReady;
     } catch (error) {
       console.error('Index status failed:', error);
-      this._indexReady = { shows: 0 };
-      return this._indexReady;
+      ArchiveEndpoints._indexReady = { shows: 0 };
+      return ArchiveEndpoints._indexReady;
     }
   }
 
@@ -136,7 +142,10 @@ export class ArchiveEndpoints {
   static _designerIndex = null;
 
   static async getDesigners() {
-    if (this._designerIndex) return this._designerIndex;
+    // Same reason as getIndexStatus above: cache on ArchiveEndpoints by name
+    // so it stays pinned to this class regardless of what `this` is when the
+    // facade calls in.
+    if (ArchiveEndpoints._designerIndex) return ArchiveEndpoints._designerIndex;
     try {
       const response = await fetch(`${ApiClient.BASE_URL}/api/designers`, {
         credentials: 'include',
@@ -156,8 +165,8 @@ export class ArchiveEndpoints {
         return null;
       }
       const data = await response.json();
-      this._designerIndex = data.designers || [];
-      return this._designerIndex;
+      ArchiveEndpoints._designerIndex = data.designers || [];
+      return ArchiveEndpoints._designerIndex;
     } catch (error) {
       console.error('Designer index failed to load:', error);
       return null;

@@ -36,7 +36,7 @@ There is no token in this codebase. The session lives in an HttpOnly cookie the
 browser attaches automatically and JavaScript cannot read, so an XSS bug cannot
 exfiltrate it.
 
-- Every request in `services/api.js` sends `credentials: 'include'`.
+- Every request in `src/shared/api/client.js` sends `credentials: 'include'`.
 - `App.js` calls `GET /api/auth/me` once on load; a 200 means the user is
   already signed in.
 - `FashionArchiveAPI.onUnauthorized` is the single place a 401 is handled.
