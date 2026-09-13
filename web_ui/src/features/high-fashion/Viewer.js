@@ -22,6 +22,7 @@ function Viewer({
   imagesStale,
   imagesError,
   imagesCollection,
+  expectedCount,
   currentImageIndex,
   setCurrentImageIndex,
   currentLookNumber,
@@ -192,6 +193,8 @@ function Viewer({
             stripRef={thumbStripRef}
             activeThumbRef={activeThumbRef}
             extractLookNumber={extractLookNumber}
+            expectedCount={expectedCount}
+            isStale={imagesStale}
           />
         )}
       </div>

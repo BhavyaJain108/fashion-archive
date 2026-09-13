@@ -7,21 +7,48 @@ import { lookLabel } from '../../shared/lib/lookLabel';
 // state of its own. The two label helpers are imported rather than passed in —
 // they are pure module functions, and they were only ever props because they
 // were not exported from anywhere.
+//
+// The one rule this component has: the name and the numbers describe the SAME
+// show. They come from different places — the name from whichever show is
+// selected, the numbers from whichever photographs are on screen — and for
+// the whole of the stale window those are two different shows. The bar used
+// to print the show you had asked for beside the count of the show you were
+// still looking at: "Prada ... 34 / 40", where 34 of 40 was Gucci's. So the
+// name follows the photographs (`imagesCollection`), and while a different
+// show is on its way the counter slot says so instead of counting.
 function StatusBar({
   selectedCollection,
+  imagesCollection,
   filters,
   imagesLength,
+  expectedCount = 0,
   currentLookNumber,
+  isStale = false,
 }) {
+  // Which show the reader is actually looking at. Before the first show of a
+  // session has landed anything there are no photographs to belong to
+  // anyone, and naming the one that was asked for is then the only answer
+  // there is — and an honest one, because there are no numbers beside it.
+  const shownCollection = imagesCollection || selectedCollection;
+
+  // `expectedCount` is the selected show's total, from its stream's meta
+  // event, which arrives BEFORE its first photograph. So during the stale
+  // window it is already the new show's number while `currentLookNumber`
+  // is still the old show's position — the two must never be printed
+  // together, which is what !isStale buys. A count of 0 means meta has not
+  // arrived at all, and "07 / 0" is worse than no counter.
+  const counting = !isStale && expectedCount > 0;
+  const arriving = counting && imagesLength < expectedCount;
+
   return (
       <div className="hf2-status-bar">
         <span className="hf2-status-path">
-          {selectedCollection ? (
+          {shownCollection ? (
             <>
-              {videoSeasonName(selectedCollection)}
-              {selectedCollection.gender && <> / {selectedCollection.gender}</>}
+              {videoSeasonName(shownCollection)}
+              {shownCollection.gender && <> / {shownCollection.gender}</>}
               {' / '}
-              <span className="active">{cleanDesignerName(selectedCollection.designer)}</span>
+              <span className="active">{cleanDesignerName(shownCollection.designer)}</span>
             </>
           ) : (
             <>
@@ -33,8 +60,19 @@ function StatusBar({
           )}
         </span>
         <span className="hf2-status-look">
-          {imagesLength > 0 && (
-            <><span className="active">{lookLabel(currentLookNumber)}</span> / {imagesLength}</>
+          {counting && (
+            // Two spans rather than lookCounter()'s single string, because
+            // .hf2-status-look .active is what blackens the look you are on
+            // against the grey of the total. The text is character for
+            // character what lookCounter(currentLookNumber, expectedCount)
+            // returns, and a test holds it to that.
+            <>
+              <span className="active">{lookLabel(currentLookNumber)}</span> / {expectedCount}
+              {arriving && <> <span className="hf2-status-arriving">arriving</span></>}
+            </>
+          )}
+          {isStale && shownCollection && (
+            <span className="hf2-status-arriving">loading</span>
           )}
         </span>
       </div>

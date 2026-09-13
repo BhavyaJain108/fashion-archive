@@ -435,6 +435,33 @@
   object-fit: cover;
 }
 
+/* A look the stream has said to expect and has not delivered yet.
+   .hf2-thumb-ghost carries .hf2-thumb as well, so the slot is the same
+   44x60 box the photograph will move into — the dimensions live in one
+   place, and nothing in the strip shifts sideways as looks land. It is
+   inert: nothing to click, so no pointer and no hover. */
+.hf2-thumb-ghost {
+  cursor: default;
+  pointer-events: none;
+  background: var(--ar-line-soft);
+  animation: hf2-arriving-pulse 1.6s ease-in-out infinite;
+}
+
+/* The one piece of movement on the page, and it is the point of the feature:
+   the empty slots breathe, so a half-loaded show reads as still arriving
+   rather than as a show with holes in it. */
+@keyframes hf2-arriving-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 0.75; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hf2-thumb-ghost {
+    animation: none;
+    opacity: 0.5;
+  }
+}
+
 /* Grid View */
 .hf2-grid-container {
   width: 100%;
@@ -843,6 +870,21 @@
 .hf2-status-look .active {
   color: #000000;
   font-weight: 600;
+}
+
+/* "arriving" beside the counter, and "loading" in its place while a
+   different show is on its way. Same grey as the bar, spaced out and
+   breathing on the same rhythm as the empty slots above it. */
+.hf2-status-arriving {
+  letter-spacing: 0.08em;
+  animation: hf2-arriving-pulse 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hf2-status-arriving {
+    animation: none;
+    opacity: 0.7;
+  }
 }
 
 /* Adjust content to account for status bar */

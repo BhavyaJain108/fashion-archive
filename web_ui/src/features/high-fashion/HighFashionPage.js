@@ -1397,6 +1397,7 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
         imagesStale={imagesStale}
         imagesError={imagesError}
         imagesCollection={imagesCollection}
+        expectedCount={expectedLookCount}
         currentImageIndex={imageIndex}
         setCurrentImageIndex={showLook}
         currentLookNumber={currentLookNumber}
@@ -1434,9 +1435,12 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
       {/* Status Bar */}
       <StatusBar
         selectedCollection={selectedCollection}
+        imagesCollection={imagesCollection}
         filters={filters}
         imagesLength={images.length}
+        expectedCount={expectedLookCount}
         currentLookNumber={currentLookNumber}
+        isStale={imagesStale}
       />
     </div>
   );

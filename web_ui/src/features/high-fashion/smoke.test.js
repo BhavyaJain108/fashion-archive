@@ -11,8 +11,12 @@
 // connecting, not to describe behaviour. None of the six needs a mock —
 // they are all presentational, and the one API call between them
 // (getImageUrl) is a pure string builder.
+import fs from 'fs';
+import path from 'path';
 import React, { createRef } from 'react';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
+
+import { lookCounter } from '../../shared/lib/lookLabel';
 
 import StatusBar from './StatusBar';
 import ThumbStrip from './ThumbStrip';
@@ -52,6 +56,13 @@ const FILTERS = {
 
 const IMAGES = ['shows/1234/look-01.jpg', 'shows/1234/look-02.jpg'];
 
+// A part-loaded show: twelve of the thirty-eight looks its stream said to
+// expect. These are the numbers the ghost-slot behaviour is specified in.
+const IMAGES_12 = Array.from(
+  { length: 12 },
+  (_, i) => `shows/1234/look-${String(i + 1).padStart(2, '0')}.jpg`
+);
+
 const extractLookNumber = (path, idx) => idx + 1;
 
 describe('StatusBar', () => {
@@ -61,6 +72,7 @@ describe('StatusBar', () => {
         selectedCollection={COLLECTION}
         filters={FILTERS}
         imagesLength={12}
+        expectedCount={12}
         currentLookNumber={3}
       />
     );
@@ -80,6 +92,121 @@ describe('StatusBar', () => {
     );
     expect(screen.getByText(/Women/)).toBeInTheDocument();
   });
+
+  // The counter is the readout of a show that is still growing, so it counts
+  // against the total the stream promised, not against the handful that have
+  // landed so far — a total that climbed 12, 13, 14 as photographs arrived
+  // would make a reader think the show was short.
+  it('counts against the promised total and says the rest is arriving', () => {
+    render(
+      <StatusBar
+        selectedCollection={COLLECTION}
+        imagesCollection={COLLECTION}
+        filters={FILTERS}
+        imagesLength={12}
+        expectedCount={38}
+        currentLookNumber={12}
+      />
+    );
+    expect(document.querySelector('.hf2-status-look').textContent)
+      .toBe('12 / 38 arriving');
+  });
+
+  // The left number is where the reader IS, not how many have landed. It is
+  // the one the .active rule blackens, and it only moves when they move.
+  it('keeps the left number on the look being read', () => {
+    render(
+      <StatusBar
+        selectedCollection={COLLECTION}
+        imagesCollection={COLLECTION}
+        filters={FILTERS}
+        imagesLength={12}
+        expectedCount={38}
+        currentLookNumber={1}
+      />
+    );
+    expect(document.querySelector('.hf2-status-look').textContent)
+      .toBe('01 / 38 arriving');
+    expect(document.querySelector('.hf2-status-look .active').textContent).toBe('01');
+  });
+
+  it('drops the word once every look has landed', () => {
+    render(
+      <StatusBar
+        selectedCollection={COLLECTION}
+        imagesCollection={COLLECTION}
+        filters={FILTERS}
+        imagesLength={38}
+        expectedCount={38}
+        currentLookNumber={3}
+      />
+    );
+    // Character for character the shared counter form.
+    expect(document.querySelector('.hf2-status-look').textContent)
+      .toBe(lookCounter(3, 38));
+    expect(screen.queryByText('arriving')).not.toBeInTheDocument();
+  });
+
+  // Meta has not arrived, so there is no total to count against. "07 / 0" is
+  // worse than nothing.
+  it('renders no counter before the stream has said how many', () => {
+    render(
+      <StatusBar
+        selectedCollection={COLLECTION}
+        imagesCollection={null}
+        filters={FILTERS}
+        imagesLength={0}
+        expectedCount={0}
+        currentLookNumber={0}
+      />
+    );
+    expect(document.querySelector('.hf2-status-look').textContent).toBe('');
+    expect(screen.queryByText(/\/ 0$/)).not.toBeInTheDocument();
+  });
+
+  // The bug this task owns. A new show has been asked for and the previous
+  // one is still on screen: the name came from the new show, the numbers from
+  // the old one, and the bar read "Yohji Yamamoto ... 12 / 38" where 12 was
+  // Helmut Lang's. expectedCount is already the NEW show's total here —
+  // meta arrives before the first photograph does — which is exactly why it
+  // cannot be printed beside the old show's position.
+  it('names the show whose looks are on screen, not the one being fetched', () => {
+    render(
+      <StatusBar
+        selectedCollection={COLLECTION}
+        imagesCollection={PREVIOUS}
+        filters={FILTERS}
+        imagesLength={12}
+        expectedCount={38}
+        currentLookNumber={12}
+        isStale
+      />
+    );
+    expect(screen.getByText('Helmut Lang')).toBeInTheDocument();
+    expect(screen.queryByText('Yohji Yamamoto')).not.toBeInTheDocument();
+    // And no number from either show beside it: the counter slot says what
+    // is happening instead.
+    expect(document.querySelector('.hf2-status-look').textContent).toBe('loading');
+    expect(screen.queryByText(/38/)).not.toBeInTheDocument();
+  });
+
+  // Nothing has ever been on screen, so there is no other show to name and
+  // naming the one being fetched is honest — there are no numbers beside it.
+  it('names the show being fetched when nothing is on screen yet', () => {
+    render(
+      <StatusBar
+        selectedCollection={COLLECTION}
+        imagesCollection={null}
+        filters={FILTERS}
+        imagesLength={0}
+        expectedCount={0}
+        currentLookNumber={0}
+        isStale
+      />
+    );
+    expect(screen.getByText('Yohji Yamamoto')).toBeInTheDocument();
+    expect(document.querySelector('.hf2-status-look').textContent).toBe('loading');
+  });
 });
 
 describe('ThumbStrip', () => {
@@ -97,6 +224,105 @@ describe('ThumbStrip', () => {
     );
     expect(screen.getAllByRole('img')).toHaveLength(IMAGES.length);
     expect(screen.getByAltText('Look 1')).toBeInTheDocument();
+  });
+
+  const stripProps = {
+    currentImageIndex: 0,
+    onSelect: noop,
+    isFavourite: () => false,
+    stripRef: createRef(),
+    activeThumbRef: createRef(),
+    extractLookNumber,
+  };
+  const slots = () => document.querySelectorAll('.hf2-thumb');
+  const ghosts = () => document.querySelectorAll('.hf2-thumb-ghost');
+
+  it('draws a slot for every look the stream promised', () => {
+    render(<ThumbStrip {...stripProps} images={IMAGES_12} expectedCount={38} />);
+    // Full width from the first photograph: 38 boxes, 12 of them filled.
+    expect(slots()).toHaveLength(38);
+    expect(ghosts()).toHaveLength(26);
+    expect(screen.getAllByRole('img')).toHaveLength(12);
+    // And the empty ones are at the end, where the looks that have not
+    // arrived belong.
+    expect(Array.from(slots()).slice(0, 12).filter(
+      (el) => el.classList.contains('hf2-thumb-ghost')
+    )).toHaveLength(0);
+  });
+
+  // Step 2: a ghost is the same box as a thumb, or every photograph that
+  // lands nudges the strip sideways and fights the centring effect. It is the
+  // same box because it wears the same class — there is no second copy of
+  // 44x60 to drift.
+  it('gives a ghost the thumb box by wearing the thumb class', () => {
+    render(<ThumbStrip {...stripProps} images={IMAGES_12} expectedCount={38} />);
+    ghosts().forEach((ghost) => {
+      expect(ghost.classList.contains('hf2-thumb')).toBe(true);
+      expect(ghost.getAttribute('style')).toBeNull();
+    });
+  });
+
+  // jsdom applies no stylesheet, so the sizing itself cannot be measured
+  // here. What can be pinned is the thing that would break it: a width or a
+  // height of its own in the ghost's rule, which is how the two boxes would
+  // drift apart.
+  it('sets no dimensions of its own in the stylesheet', () => {
+    const css = fs.readFileSync(path.join(__dirname, 'HighFashionPage.css'), 'utf8');
+    expect(css).toContain('.hf2-thumb-ghost {');
+    const rule = css.slice(css.indexOf('.hf2-thumb-ghost {'));
+    const body = rule.slice(0, rule.indexOf('}'));
+    expect(body).not.toMatch(/width|height|padding|margin|flex/);
+    // And the box it shares is declared once, on .hf2-thumb.
+    expect(css).toMatch(/\.hf2-thumb \{[^}]*width: 44px;[^}]*height: 60px;/);
+  });
+
+  it('leaves a ghost inert and out of the way', () => {
+    const onSelect = jest.fn();
+    render(
+      <ThumbStrip {...stripProps} onSelect={onSelect} images={IMAGES_12} expectedCount={38} />
+    );
+    ghosts().forEach((ghost) => {
+      expect(ghost.getAttribute('aria-hidden')).toBe('true');
+      // Not in the tab order, and nothing inside it to reach either.
+      expect(ghost.tabIndex).toBe(-1);
+      expect(ghost.hasAttribute('tabindex')).toBe(false);
+      expect(ghost.querySelector('img')).toBeNull();
+    });
+    fireEvent.click(ghosts()[0]);
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('draws no ghosts once every look has landed', () => {
+    render(<ThumbStrip {...stripProps} images={IMAGES_12} expectedCount={12} />);
+    expect(slots()).toHaveLength(12);
+    expect(ghosts()).toHaveLength(0);
+  });
+
+  it('draws no ghosts before the stream has said how many', () => {
+    render(<ThumbStrip {...stripProps} images={IMAGES_12} expectedCount={0} />);
+    expect(slots()).toHaveLength(12);
+    expect(ghosts()).toHaveLength(0);
+  });
+
+  // The trap. A new show has been asked for, so expectedCount is already its
+  // 38, while `images` is still the previous show's 12 photographs. The
+  // difference is not 26 missing looks of anything — it is two different
+  // shows subtracted from each other. Clamping the arithmetic would hide the
+  // negative and still stand 26 empty slots of the new show behind the old
+  // show's thumbnails; the answer is to draw none until the new show's own
+  // first photograph lands.
+  it('draws no ghosts while the previous show is still on screen', () => {
+    render(<ThumbStrip {...stripProps} images={IMAGES_12} expectedCount={38} isStale />);
+    expect(slots()).toHaveLength(12);
+    expect(ghosts()).toHaveLength(0);
+  });
+
+  // The other half of the stale window, before the new show's meta has
+  // landed: expectedCount is 0 and the subtraction is negative.
+  it('draws no ghosts when the promised total is behind the strip', () => {
+    render(<ThumbStrip {...stripProps} images={IMAGES_12} expectedCount={0} isStale />);
+    expect(slots()).toHaveLength(12);
+    expect(ghosts()).toHaveLength(0);
   });
 });
 
