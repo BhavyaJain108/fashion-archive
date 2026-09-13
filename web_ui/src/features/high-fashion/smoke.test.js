@@ -190,6 +190,8 @@ describe('Viewer', () => {
   const props = {
     images: IMAGES,
     imagesLoading: false,
+    imagesStale: false,
+    imagesError: null,
     currentImageIndex: 0,
     setCurrentImageIndex: noop,
     currentLookNumber: 1,
@@ -242,5 +244,29 @@ describe('Viewer', () => {
   it('renders the placeholder with no images', () => {
     render(<Viewer {...props} images={[]} />);
     expect(screen.getByText('No images found')).toBeInTheDocument();
+  });
+
+  // The prop contract useCollectionImages changed: a stream in flight no
+  // longer means an empty pane. `imagesLoading` only reaches the placeholder
+  // when there is nothing else to draw.
+  it('keeps the previous looks on screen while the next show loads', () => {
+    render(<Viewer {...props} imagesLoading imagesStale />);
+    expect(screen.queryByText('Loading images...')).not.toBeInTheDocument();
+    // Both the frame and the strip draw look 1, which is the point: the
+    // whole viewer is still there.
+    expect(screen.getAllByAltText('Look 1')).toHaveLength(2);
+    expect(screen.getByText('1 / 2')).toBeInTheDocument();
+    // Marked as not-what-you-asked-for-yet, not removed.
+    expect(document.querySelector('.hf2-main.stale')).not.toBeNull();
+  });
+
+  it('loads into an empty pane on the first show of a session', () => {
+    render(<Viewer {...props} images={[]} imagesLoading imagesStale />);
+    expect(screen.getByText('Loading images...')).toBeInTheDocument();
+  });
+
+  it('says so when the stream failed and left nothing', () => {
+    render(<Viewer {...props} images={[]} imagesError={new Error('nope')} />);
+    expect(screen.getByText('Could not load this show')).toBeInTheDocument();
   });
 });

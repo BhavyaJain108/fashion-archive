@@ -17,6 +17,8 @@ import VideoPanel from './VideoPanel';
 function Viewer({
   images,
   imagesLoading,
+  imagesStale,
+  imagesError,
   currentImageIndex,
   setCurrentImageIndex,
   currentLookNumber,
@@ -52,12 +54,22 @@ function Viewer({
   return (
     <>
       {/* Main Area */}
-      <div className="hf2-main">
-        {imagesLoading ? (
-          <div className="hf2-placeholder">Loading images...</div>
-        ) : images.length === 0 ? (
+      {/* Dimmed, not emptied. `imagesStale` means the looks below belong to
+          the show that was open a moment ago and the one being opened has
+          nothing to put there yet — so it is marked rather than taken away.
+          It is only worth marking when there is something on screen: the
+          first show of a session is stale too, and dimming its "Loading
+          images..." helps nobody. */}
+      <div className={`hf2-main ${imagesStale && images.length > 0 ? 'stale' : ''}`}>
+        {/* The placeholder is for an empty pane only. It used to be shown
+            whenever a stream was running, which is exactly what blanked the
+            show you were reading the moment you clicked another one. */}
+        {images.length === 0 ? (
           <div className="hf2-placeholder">
-            {selectedCollection ? 'No images found' : 'Select a collection to view looks'}
+            {imagesError ? 'Could not load this show'
+             : imagesLoading ? 'Loading images...'
+             : selectedCollection ? 'No images found'
+             : 'Select a collection to view looks'}
           </div>
         ) : viewMode === 'single' ? (
           <div className={`hf2-single-container ${showVideo && videoData ? 'with-video' : ''}`}>

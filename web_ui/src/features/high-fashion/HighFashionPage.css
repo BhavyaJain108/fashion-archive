@@ -288,6 +288,14 @@
   min-width: 0;
 }
 
+/* The show that was open, still on screen while the next one streams its
+   first image. Dimmed so it reads as "not what you asked for yet" rather
+   than as the show whose name the status bar is now showing. */
+.hf2-main.stale {
+  opacity: 0.45;
+  transition: opacity 120ms linear;
+}
+
 .hf2-placeholder {
   flex: 1;
   display: flex;

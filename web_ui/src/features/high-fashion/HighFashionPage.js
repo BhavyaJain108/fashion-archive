@@ -8,6 +8,7 @@ import {
 } from './showUrl';
 import { useRoute } from '../../shared/hooks/useRoute';
 import { usePersistentState } from '../../shared/hooks/usePersistentState';
+import { useCollectionImages } from '../../shared/hooks/useCollectionImages';
 import { prepare as prepareDesigners, search as searchDesigners } from '../../shared/lib/designerSearch';
 import { migrateLegacySidebarOpen } from './legacySidebar';
 import TopBar from '../../shared/ui/TopBar';
@@ -152,40 +153,64 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
   // session reads as an empty archive, which is the wrong thing to believe.
   const [listError, setListError] = useState(null);
 
-  // Images state
-  const [images, setImages] = useState([]);
-  const [currentImageIndex, setCurrentImageIndex] = useState(0);
-  const [imagesLoading, setImagesLoading] = useState(false);
-  // Total looks reported by the stream's meta event, before files land —
-  // lets the UI show "12 / 153" while the rest download.
-  const [expectedLookCount, setExpectedLookCount] = useState(0);
+  // Images state.
+  //
+  // The looks themselves, their stream and its bookkeeping live in
+  // useCollectionImages, keyed on the open show. Selecting a show is now
+  // setSelectedCollection and nothing else: the hook notices the change,
+  // aborts whatever was running, and — the point of the exercise — leaves
+  // the previous show's photographs on screen until the new one has a first
+  // image to put there. `imagesStale` says which of those two is on screen.
+  //
+  // `expectedLookCount` is the stream's meta count, 0 until it arrives, and
+  // is what lets a link to look 200 of a 40-look show stop at 40.
+  const {
+    images,
+    expectedCount: expectedLookCount,
+    loading: imagesLoading,
+    isStale: imagesStale,
+    error: imagesError,
+    imagesKey,
+    reload: reloadImages,
+  } = useCollectionImages(selectedCollection);
 
-  // In-flight streams. Clicking through years/seasons/shows faster than a
-  // stream completes used to leave the old one running, so a previous
-  // show's images kept landing in state after you'd selected another —
-  // which looked like two different shows sharing the same pictures.
+  // The look on screen stays here rather than in the hook: it is driven by
+  // the address bar, the keyboard, the thumbnail strip and the grid, and
+  // three of those four are this page's business — showLook below spends
+  // the look a deep link was waiting on, which is URL bookkeeping a shared
+  // hook has no business knowing about.
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
+
+  // Look 1 of a new show. Keyed on which show the images on screen belong
+  // to, not on which show is selected: resetting at click time would jump
+  // the show you are still reading back to its first look while the next
+  // one loads, and keying on the selection would lose your place on a
+  // reload of the show you are already on.
+  useEffect(() => { setCurrentImageIndex(0); }, [imagesKey]);
+
+  // `images` and the index change in separate commits — the first image of
+  // a new show lands one render before the effect above puts the index
+  // back — so a short show following a long one has one render where the
+  // index points past the end. Everything that renders a look reads this.
+  const imageIndex = images.length > 0
+    ? Math.min(currentImageIndex, images.length - 1)
+    : 0;
+
+  // In-flight collection list requests. Clicking through years/seasons
+  // faster than a request completes used to leave the old one running, so a
+  // previous query's rows kept landing in state after you'd asked for
+  // another.
   const collectionsAbort = useRef(null);
-  const imagesAbort = useRef(null);
 
   const abortCollections = useCallback(() => {
     if (collectionsAbort.current) collectionsAbort.current.abort();
     collectionsAbort.current = null;
   }, []);
 
-  const abortImages = useCallback(() => {
-    if (imagesAbort.current) imagesAbort.current.abort();
-    imagesAbort.current = null;
-    // Clear the flag here rather than in the aborted request's finally: that
-    // guards on isCurrent(), which is false exactly because we just aborted,
-    // so the flag stayed true forever and every later click was ignored.
-    setImagesLoading(false);
-    setExpectedLookCount(0);
-  }, []);
-
-  // Drop any in-flight work when the component goes away.
+  // Drop any in-flight work when the component goes away. The image stream
+  // has its own cleanup inside the hook.
   useEffect(() => () => {
     if (collectionsAbort.current) collectionsAbort.current.abort();
-    if (imagesAbort.current) imagesAbort.current.abort();
   }, []);
 
   // Anything a stored value could hold that isn't one of these two branches
@@ -654,7 +679,7 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
   // `fromUrl` marks a show opened because the address bar already named it —
   // on first load, or on Back/Forward. That is a navigation the user has
   // already made, so it must not push a second history entry for it.
-  const handleCollectionSelect = async (collection, { fromUrl = false } = {}) => {
+  const handleCollectionSelect = (collection, { fromUrl = false } = {}) => {
     // pending: the show a deep link is already fetching. Clicking that row
     // is asking for the navigation already in progress, so it must not push
     // over the URL that started it. hasImages/imagesLoading separate "this
@@ -665,7 +690,12 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
       clicked: collection,
       open: selectedCollection,
       pendingId: urlSync.current.pending,
-      hasImages: images.length > 0,
+      // `images` may still be the previous show's while a new one loads,
+      // so "has images" has to mean the OPEN show has them. Without the
+      // stale check a failed load would leave the previous show's
+      // photographs answering for this one, and re-clicking the row — the
+      // only retry this page has — would be read as a no-op.
+      hasImages: !imagesStale && images.length > 0,
       imagesLoading,
       fromUrl,
     });
@@ -678,10 +708,14 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
     // look 7 and refetch the whole stream.
     if (action === 'ignore') return;
 
+    // The whole of "load this show" now. useCollectionImages watches the
+    // selection: it aborts whatever was streaming and starts this show,
+    // while leaving the previous show's photographs on screen until this
+    // one has an image of its own. Nothing is blanked here, and the look is
+    // reset by the effect that watches which show the images belong to —
+    // not at click time, which would yank the show still being read back to
+    // its first look.
     setSelectedCollection(collection);
-    setImages([]);
-    setCurrentImageIndex(0);
-    setImagesLoading(true);
 
     if (action === 'open' || action === 'reload') {
       // A show chosen by hand supersedes any look a link was still waiting
@@ -712,33 +746,12 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
     setVideoError(null);
     setShowVideo(false);
 
+    // A retry of the show already open. The selection did not change, so
+    // the hook has no reason to notice on its own — it is asked directly.
+    //
     // NB: no cleanupDownloads() here — it rmtree'd the whole cache, so every
     // click re-downloaded shows that were already on disk.
-    abortImages();
-    const controller = new AbortController();
-    imagesAbort.current = controller;
-    const isCurrent = () => imagesAbort.current === controller;
-
-    try {
-      const paths = [];
-      await FashionArchiveAPI.streamCollectionImages(collection.url, {
-        signal: controller.signal,
-        onMeta: (meta) => { if (isCurrent()) setExpectedLookCount(meta.count); },
-        onImage: (img) => {
-          // Images arrive in completion order; keep them in look order.
-          if (!isCurrent()) return;
-          paths[img.index] = img.path;
-          setImages(paths.filter(Boolean));
-          setImagesLoading(false);   // first image ends the spinner
-        },
-      });
-    } catch (error) {
-      if (error.name === 'AbortError') return;   // superseded by a newer click
-      console.error('Failed to load images:', error);
-      if (isCurrent()) setImages([]);
-    } finally {
-      if (isCurrent()) setImagesLoading(false);
-    }
+    if (action === 'reload') reloadImages();
   };
 
   // ── The address bar ────────────────────────────────────────────────────
@@ -794,10 +807,10 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
       // addressable is closed this way: a row with no usable id was never
       // written to the URL, so its absence there is not the user going back.
       if (selectedCollection && showId(selectedCollection)) {
-        abortImages();
+        // Clearing the selection is enough: the hook aborts the stream and
+        // empties the viewer. This is the reader leaving the show rather
+        // than asking for another one, so there is nothing to keep warm.
         setSelectedCollection(null);
-        setImages([]);
-        setExpectedLookCount(0);
       }
       return;
     }
@@ -848,8 +861,12 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
     // not dip through /hf/x/1 and lose the shared look if the stream fails.
     const decided = urlWrite(urlSync.current, {
       hasSelection: Boolean(selectedCollection),
-      imagesLength: images.length,
-      currentIndex: currentImageIndex,
+      // Zero while the images on screen belong to the previous show. The
+      // look being read is that show's, and writing it into this show's URL
+      // would name a look nobody asked for — /hf/newshow/1234/34 because
+      // the old show happened to be open at look 34.
+      imagesLength: imagesStale ? 0 : images.length,
+      currentIndex: imageIndex,
     });
     urlSync.current = decided.state;
 
@@ -879,7 +896,7 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
     }, { replace: true });
     // images.length rather than images: the array identity changes on every
     // image that lands, and the URL only cares whether there is one.
-  }, [selectedCollection, currentImageIndex, images.length, filters, go]);
+  }, [selectedCollection, imageIndex, images.length, imagesStale, filters, go]);
 
   // The look a deep link named, applied once it has actually arrived.
   // Images stream in one at a time, so images.length grows: settling on the
@@ -888,14 +905,18 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
   // 40-look show knows to stop at 40 rather than wait forever.
   useEffect(() => {
     const { state, index } = lookToApply(urlSync.current, {
-      imagesLength: images.length,
+      // Only the requested show's own images can settle its link. While the
+      // previous show is still on screen these are somebody else's forty
+      // photographs, and counting them would settle a link to look 12
+      // against them and then lose it when the real images arrived.
+      imagesLength: imagesStale ? 0 : images.length,
       expectedLookCount,
     });
     urlSync.current = state;
     // setCurrentImageIndex directly, not showLook: this is the link's own
     // look arriving, not a look chosen by hand.
     if (index !== null) setCurrentImageIndex(index);
-  }, [images.length, expectedLookCount]);
+  }, [images.length, imagesStale, expectedLookCount]);
 
   // Search for video
   const handleVideoSearch = async () => {
@@ -956,6 +977,11 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
 
   const toggleFavourite = useCallback(async (lookNumber, imagePath) => {
     if (!selectedCollection || favouriteBusy) return;
+    // The photograph on screen belongs to the show that was open a moment
+    // ago, and the key below would file it under the show that is opening.
+    // Keeping look 34 of the wrong show is a wrong row in the database, not
+    // a wrong pixel, so this waits rather than guesses.
+    if (imagesStale) return;
     const key = favouriteKey(selectedCollection.url, lookNumber);
     const had = favouriteKeys.has(key);
 
@@ -997,7 +1023,7 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
     } finally {
       setFavouriteBusy(false);
     }
-  }, [selectedCollection, favouriteKeys, favouriteBusy, images.length]);
+  }, [selectedCollection, favouriteKeys, favouriteBusy, imagesStale, images.length]);
 
   // Every look the reader chooses themselves goes through here — the arrows,
   // the thumbnail strip, the grid. It cancels any look a deep link was still
@@ -1039,8 +1065,8 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
         // declared long before currentLookNumber is, and naming it in the
         // dependency array below would read it during render, before it
         // exists.
-        const path = images[currentImageIndex];
-        if (path) toggleFavourite(extractLookNumber(path, currentImageIndex), path);
+        const path = images[imageIndex];
+        if (path) toggleFavourite(extractLookNumber(path, imageIndex), path);
         return;
       }
       if (e.key === 'ArrowLeft') prevImage();
@@ -1049,7 +1075,7 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [images, currentImageIndex, prevImage, nextImage, toggleSidebar, toggleFavourite, setViewMode]);
+  }, [images, imageIndex, prevImage, nextImage, toggleSidebar, toggleFavourite, setViewMode]);
 
   // Center active thumbnail in strip
   useEffect(() => {
@@ -1354,7 +1380,7 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
   const listLoading = designerMode ? designerLoading : collectionsLoading;
 
   const currentLookNumber = images.length > 0
-    ? extractLookNumber(images[currentImageIndex], currentImageIndex)
+    ? extractLookNumber(images[imageIndex], imageIndex)
     : 0;
 
   return (
@@ -1432,7 +1458,9 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
       <Viewer
         images={images}
         imagesLoading={imagesLoading}
-        currentImageIndex={currentImageIndex}
+        imagesStale={imagesStale}
+        imagesError={imagesError}
+        currentImageIndex={imageIndex}
         setCurrentImageIndex={showLook}
         currentLookNumber={currentLookNumber}
         extractLookNumber={extractLookNumber}
