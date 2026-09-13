@@ -79,6 +79,20 @@ describe('subscribe', () => {
     expect(seen[0].brandId).toBe('acne');
   });
 
+  test('a no-op navigation compares canonical URLs, ignoring filter key order', () => {
+    at('/?year=2024&city=Paris');
+    const before = window.history.length;
+    const seen = [];
+    const off = subscribe((r) => seen.push(r));
+    // Same filters, different key order than the address bar currently holds
+    // (buildRoute sorts keys, so this reproduces city-before-year, the
+    // opposite of the address bar's current year-before-city order).
+    navigate({ page: 'high-fashion', filters: { city: 'Paris', year: '2024' } });
+    off();
+    expect(window.history.length).toBe(before);
+    expect(seen).toHaveLength(0);
+  });
+
   test('unsubscribe stops delivery', () => {
     const seen = [];
     subscribe((r) => seen.push(r))();
@@ -93,5 +107,35 @@ describe('subscribe', () => {
     navigate({ page: 'library' });
     offA(); offB();
     expect(seen).toHaveLength(1);
+  });
+});
+
+describe('getRoute caching', () => {
+  test('two calls with no navigation in between return the identical object', () => {
+    at('/brands/acne');
+    const first = getRoute();
+    const second = getRoute();
+    expect(second).toBe(first);
+  });
+
+  test('after navigate, getRoute() returns a different object', () => {
+    at('/brands/acne');
+    const first = getRoute();
+    navigate({ page: 'library' });
+    const second = getRoute();
+    expect(second).not.toBe(first);
+    expect(second.page).toBe('library');
+  });
+
+  test('a replaceState done outside navigate is picked up after a popstate', () => {
+    at('/brands/acne');
+    const first = getRoute();
+    // Bypasses navigate() entirely, the way the browser's own back/forward
+    // or a hand-edited address bar would.
+    at('/library');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    const second = getRoute();
+    expect(second).not.toBe(first);
+    expect(second.page).toBe('library');
   });
 });
