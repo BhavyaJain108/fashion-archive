@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import Fuse from 'fuse.js';
-import TopBar from '../shared/ui/TopBar';
-import { ArchiveAPI } from '../shared/api';
+import TopBar from '../../shared/ui/TopBar';
+import { ArchiveAPI } from '../../shared/api';
 import ProductDetailPanel from './ProductDetailPanel';
-import './MyBrandsPanel.css';
+import './BrandsPage.css';
 
 // ---------------------------------------------------------------------------
-// MyBrandsPanel — the archive, browsed.
+// BrandsPage — the archive, browsed.
 //
 // The brand list is backend/archive/brands.yml and nothing here can change it: a brand
 // joins the archive by being written into that file, which is the one place the
@@ -15,7 +15,7 @@ import './MyBrandsPanel.css';
 // wrote and shows what is in it, gaps included.
 // ---------------------------------------------------------------------------
 
-function MyBrandsPanel({ currentPage, onPageSwitch, currentUser, onLogout }) {
+function BrandsPage({ currentPage, onPageSwitch, currentUser, onLogout }) {
   const [brands, setBrands] = useState([]);
   const [loading, setLoading] = useState(true);
   const [health, setHealth] = useState(null);
@@ -749,4 +749,4 @@ function buildTileSizes(product) {
   }).slice(0, 6);
 }
 
-export default MyBrandsPanel;
+export default BrandsPage;

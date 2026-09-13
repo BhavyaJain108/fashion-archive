@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import FavouritesPanel from '../components/FavouritesPanel';
-import MyBrandsPanel from '../components/MyBrandsPanel';
+import BrandsPage from '../features/brands/BrandsPage';
 import AuthPanel from '../features/auth/AuthPanel';
 import HighFashionPage from '../features/high-fashion/HighFashionPage';
 import { FashionArchiveAPI } from '../shared/api';
@@ -129,7 +129,7 @@ function App() {
       {currentPage === 'high-fashion' ? (
         <HighFashionPage {...pageProps} />
       ) : currentPage === 'my-brands' ? (
-        <MyBrandsPanel {...pageProps} />
+        <BrandsPage {...pageProps} />
       ) : (
         <FavouritesPanel {...pageProps} />
       )}
