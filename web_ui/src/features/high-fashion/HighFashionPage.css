@@ -12,6 +12,10 @@
 }
 
 /* Content wrapper for sidebar + main */
+/* Do not add transform, filter, backdrop-filter, perspective, will-change or
+   contain to this rule. .hf2-controls is position: fixed and lives inside this
+   element; any of those properties would make this box its containing block and
+   the controls bar would jump out of the viewport corner it is pinned to. */
 .hf2-content {
   display: flex;
   flex: 1;
