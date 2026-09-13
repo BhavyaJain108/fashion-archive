@@ -2,8 +2,32 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import Fuse from 'fuse.js';
 import TopBar from '../../shared/ui/TopBar';
 import { ArchiveAPI } from '../../shared/api';
+import { usePersistentState } from '../../shared/hooks/usePersistentState';
 import ProductDetailPanel from './ProductDetailPanel';
 import './BrandsPage.css';
+
+// The values the sort <select> below actually offers. Anything else
+// restored from storage (an old build's option, a hand-edited devtools
+// value) falls back to '' — "Sort by..." / archive order — rather than
+// silently sorting by nothing recognisable.
+const SORT_OPTIONS = ['name-asc', 'name-desc', 'price-asc', 'price-desc'];
+
+export function normalizeSortBy(value) {
+  return SORT_OPTIONS.includes(value) ? value : '';
+}
+
+// Same bounds the drag handle enforces (see handleResizeMouseDown below) —
+// kept here so a restored width is clamped to the exact range a user could
+// have reached by dragging, not some other range invented for storage.
+export const DETAIL_PANEL_MIN_WIDTH = 300;
+
+export function detailPanelMaxWidth() {
+  return window.innerWidth * 0.5;
+}
+
+export function clampDetailPanelWidth(value) {
+  return Math.min(detailPanelMaxWidth(), Math.max(DETAIL_PANEL_MIN_WIDTH, value));
+}
 
 // ---------------------------------------------------------------------------
 // BrandsPage — the archive, browsed.
@@ -29,7 +53,9 @@ function BrandsPage({ currentPage, onPageSwitch, currentUser, onLogout }) {
 
   // Search + sort state
   const [searchQuery, setSearchQuery] = useState('');
-  const [sortBy, setSortBy] = useState('');
+  const [sortBy, setSortBy] = usePersistentState('brands-sort-by', '', {
+    deserialize: (raw) => normalizeSortBy(JSON.parse(raw)),
+  });
   const [searchResults, setSearchResults] = useState(null);
   const [searchLoading, setSearchLoading] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
@@ -38,7 +64,13 @@ function BrandsPage({ currentPage, onPageSwitch, currentUser, onLogout }) {
   const searchInputRef = useRef(null);
 
   // Resizable detail panel
-  const [detailPanelWidth, setDetailPanelWidth] = useState(400);
+  const [detailPanelWidth, setDetailPanelWidth] = usePersistentState('brands-detail-panel-width', 400, {
+    deserialize: (raw) => {
+      const value = JSON.parse(raw);
+      if (typeof value !== 'number' || !Number.isFinite(value)) return 400;
+      return clampDetailPanelWidth(value);
+    },
+  });
   const isResizing = useRef(false);
 
   useEffect(() => {
@@ -411,7 +443,7 @@ function BrandsPage({ currentPage, onPageSwitch, currentUser, onLogout }) {
     const onMouseMove = (ev) => {
       if (!isResizing.current) return;
       const delta = startX - ev.clientX; // dragging left = wider
-      setDetailPanelWidth(Math.min(window.innerWidth * 0.5, Math.max(300, startWidth + delta)));
+      setDetailPanelWidth(clampDetailPanelWidth(startWidth + delta));
     };
     const onMouseUp = () => {
       isResizing.current = false;
@@ -424,7 +456,7 @@ function BrandsPage({ currentPage, onPageSwitch, currentUser, onLogout }) {
     document.body.style.userSelect = 'none';
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
-  }, [detailPanelWidth]);
+  }, [detailPanelWidth, setDetailPanelWidth]);
 
   if (loading) {
     return (

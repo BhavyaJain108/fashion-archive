@@ -7,7 +7,9 @@ import {
   routeChanged, manualLook, urlWrite, lookToApply,
 } from './showUrl';
 import { useRoute } from '../../shared/hooks/useRoute';
+import { usePersistentState } from '../../shared/hooks/usePersistentState';
 import { prepare as prepareDesigners, search as searchDesigners } from '../../shared/lib/designerSearch';
+import { migrateLegacySidebarOpen } from './legacySidebar';
 import TopBar from '../../shared/ui/TopBar';
 import Filters, { GARMENT_TYPES } from './Filters';
 import ShowList from './ShowList';
@@ -25,6 +27,14 @@ import './HighFashionPage.css';
 // to Women — so counting it would put the badge at 1 on a view with nothing
 // chosen and make "Whole archive" unreachable.
 const COUNTED_FILTER_KEYS = Object.keys(EMPTY_FILTERS).filter(k => k !== 'gender');
+
+// The only two values Viewer branches on. A restored value that is anything
+// else — an old build's spelling, a hand-edited devtools value — must not
+// render a blank pane, so it falls back to the same default a first-time
+// visitor gets.
+export function normalizeViewMode(value) {
+  return value === 'grid' ? 'grid' : 'single';
+}
 
 // Why a lookup failed, in the button and in its tooltip. These are
 // different problems and only one of them is about this show.
@@ -118,23 +128,15 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
 
   // The sidebar folds away, because sometimes the point is the photograph and
   // not the list. Remembered per browser: it is a working preference, not
-  // something worth a round trip.
-  const [sidebarOpen, setSidebarOpen] = useState(() => {
-    try {
-      return window.localStorage.getItem('hf2-sidebar') !== 'closed';
-    } catch (e) {
-      return true;     // private windows and blocked storage both throw
-    }
-  });
+  // something worth a round trip. `migrateLegacySidebarOpen` reads this
+  // app's pre-Task-3 storage format (a bare 'open'/'closed' string at a
+  // bare, non-namespaced key) so a value saved before this change still
+  // opens to the sidebar state the user left it in.
+  const [sidebarOpen, setSidebarOpen] = usePersistentState('sidebarOpen', migrateLegacySidebarOpen);
 
   const toggleSidebar = useCallback(() => {
-    setSidebarOpen(open => {
-      try {
-        window.localStorage.setItem('hf2-sidebar', open ? 'closed' : 'open');
-      } catch (e) { /* nothing to do; the preference just will not persist */ }
-      return !open;
-    });
-  }, []);
+    setSidebarOpen(open => !open);
+  }, [setSidebarOpen]);
   const [serverFacets, setServerFacets] = useState(null);
   // A committed search, as opposed to what is being typed. Pressing Enter on
   // no suggestion searches the shows themselves.
@@ -186,7 +188,12 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
     if (imagesAbort.current) imagesAbort.current.abort();
   }, []);
 
-  const [viewMode, setViewMode] = useState('single'); // 'single' or 'grid'
+  // Anything a stored value could hold that isn't one of these two branches
+  // Viewer actually renders would produce a blank pane, so restored values
+  // are validated against the set the component handles rather than trusted.
+  const [viewMode, setViewMode] = usePersistentState('hf-view-mode', 'single', {
+    deserialize: (raw) => normalizeViewMode(JSON.parse(raw)),
+  }); // 'single' or 'grid'
 
   // Video state
   const [videoData, setVideoData] = useState(null);
@@ -1029,7 +1036,7 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [images, currentImageIndex, prevImage, nextImage, toggleSidebar, toggleFavourite]);
+  }, [images, currentImageIndex, prevImage, nextImage, toggleSidebar, toggleFavourite, setViewMode]);
 
   // Center active thumbnail in strip
   useEffect(() => {

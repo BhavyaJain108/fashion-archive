@@ -1,11 +1,24 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import TopBar from '../../shared/ui/TopBar';
 import { FashionArchiveAPI } from '../../shared/api';
+import { usePersistentState } from '../../shared/hooks/usePersistentState';
 import { lookLabel, lookAlt } from '../../shared/lib/lookLabel';
 import './LibraryPage.css';
 
 // The sidebar's first row: every favourite, rather than one collection.
 const ALL = '__all__';
+
+// The only two groupings the sidebar renders. A restored value that is
+// anything else falls back to the default rather than leaving the sidebar
+// in a state none of the chips reflect.
+export function normalizeGroupMode(value) {
+  return value === 'by-collection' ? 'by-collection' : 'view-all';
+}
+
+// The only two panes the gallery below renders.
+export function normalizeViewMode(value) {
+  return value === 'grid' ? 'grid' : 'single';
+}
 
 function collectionKey(fav) {
   return `${fav.collection.designer}::${fav.season.name}`;
@@ -21,9 +34,13 @@ function LibraryPage({ currentPage, onPageSwitch, currentUser, onLogout, onOpenR
 
   // Was App-level state written by the old MenuBar's View menu. It orders
   // the sidebar: RECENT by when a look was saved, BY COLLECTION by designer.
-  const [groupMode, setGroupMode] = useState('view-all');
+  const [groupMode, setGroupMode] = usePersistentState('library-group-mode', 'view-all', {
+    deserialize: (raw) => normalizeGroupMode(JSON.parse(raw)),
+  });
   const [selectedKey, setSelectedKey] = useState(ALL);
-  const [viewMode, setViewMode] = useState('single');
+  const [viewMode, setViewMode] = usePersistentState('library-view-mode', 'single', {
+    deserialize: (raw) => normalizeViewMode(JSON.parse(raw)),
+  });
   const [selectedIndex, setSelectedIndex] = useState(0);
 
   const thumbStripRef = useRef(null);
