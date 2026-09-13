@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import TopBar from '../shared/ui/TopBar';
-import { FashionArchiveAPI } from '../shared/api';
-import './FavouritesPanel.css';
+import TopBar from '../../shared/ui/TopBar';
+import { FashionArchiveAPI } from '../../shared/api';
+import './LibraryPage.css';
 
 // The sidebar's first row: every favourite, rather than one collection.
 const ALL = '__all__';
@@ -10,7 +10,7 @@ function collectionKey(fav) {
   return `${fav.collection.designer}::${fav.season.name}`;
 }
 
-function FavouritesPanel({ currentPage, onPageSwitch, currentUser, onLogout, onOpenRecent }) {
+function LibraryPage({ currentPage, onPageSwitch, currentUser, onLogout, onOpenRecent }) {
   const [favourites, setFavourites] = useState([]);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({});
@@ -438,4 +438,4 @@ function FavouritesPanel({ currentPage, onPageSwitch, currentUser, onLogout, onO
   );
 }
 
-export default FavouritesPanel;
+export default LibraryPage;

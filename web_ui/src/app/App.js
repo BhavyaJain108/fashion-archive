@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import FavouritesPanel from '../components/FavouritesPanel';
+import LibraryPage from '../features/library/LibraryPage';
 import BrandsPage from '../features/brands/BrandsPage';
 import AuthPanel from '../features/auth/AuthPanel';
 import HighFashionPage from '../features/high-fashion/HighFashionPage';
@@ -131,7 +131,7 @@ function App() {
       ) : currentPage === 'my-brands' ? (
         <BrandsPage {...pageProps} />
       ) : (
-        <FavouritesPanel {...pageProps} />
+        <LibraryPage {...pageProps} />
       )}
 
       {!isAuthenticated && (
