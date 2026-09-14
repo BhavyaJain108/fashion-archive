@@ -5,7 +5,9 @@ import AuthPanel from '../features/auth/AuthPanel';
 import HighFashionPage from '../features/high-fashion/HighFashionPage';
 import { FashionArchiveAPI } from '../shared/api';
 import { useRoute } from '../shared/hooks/useRoute';
-import { rememberSession, restoreSession, shouldRestore } from './session';
+import {
+  clearSession, rememberSession, restoreSession, shouldRestore,
+} from './session';
 
 // Which page a parsed route opens. Exported because it is the one rule in
 // this file worth testing on its own, and a test that restated it could not
@@ -159,6 +161,11 @@ function App() {
     } catch (error) {
       console.error('Logout error:', error);
     } finally {
+      // Where they were is browsing history, and it does not belong to the
+      // next person at this keyboard. Cleared here rather than left to
+      // expire, because localStorage does not expire: without this, opening
+      // "/" on a shared browser reopened the previous user's last show.
+      clearSession();
       setCurrentUser(null);
       setIsAuthenticated(false);
       setAuthMode('login');

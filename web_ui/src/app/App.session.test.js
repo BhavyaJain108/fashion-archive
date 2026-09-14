@@ -13,14 +13,20 @@
 // a stream and a designer index to answer a question none of them is part
 // of.
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 
 // Written out four times rather than through a helper: jest.mock's factory
 // has to be an inline function literal, which babel-plugin-jest-hoist
 // enforces at compile time.
+// The archive stub carries a log-out button, because onLogout is a prop
+// App hands the pages and there is no other way in to it.
 jest.mock('../features/high-fashion/HighFashionPage', () => ({
   __esModule: true,
-  default: () => require('react').createElement('div', null, 'archive page'),
+  default: (props) => {
+    const R = require('react');
+    return R.createElement('div', null, 'archive page',
+      R.createElement('button', { onClick: props.onLogout }, 'log out'));
+  },
 }));
 jest.mock('../features/library/LibraryPage', () => ({
   __esModule: true,
@@ -110,4 +116,20 @@ test('where the reader is gets stored as they go', async () => {
   await screen.findByText('archive page');
 
   await waitFor(() => expect(stored()).toBe(JSON.stringify(SHOW)));
+});
+
+test('logging out forgets where the reader was', async () => {
+  // The privacy defect: the last show's slug and filters are browsing
+  // history, localStorage has no expiry, and nothing cleared it. On a shared
+  // browser the next person to open "/" was put back into this reader's
+  // last show.
+  arriveOn(SHOW);
+
+  render(<App />);
+  await screen.findByText('archive page');
+  await waitFor(() => expect(stored()).toBe(JSON.stringify(SHOW)));
+
+  fireEvent.click(screen.getByText('log out'));
+
+  await waitFor(() => expect(stored()).toBeNull());
 });

@@ -1,6 +1,6 @@
 import { parseRoute, buildRoute } from './routes';
 import {
-  SESSION_KEY, shouldRestore, rememberSession, restoreSession,
+  SESSION_KEY, shouldRestore, rememberSession, restoreSession, clearSession,
 } from './session';
 import {
   initialUrlSync, deepLinkStarted, deepLinkSettled, urlWrite,
@@ -125,6 +125,48 @@ describe('rememberSession and restoreSession', () => {
 // value was written by some earlier release of this app and is read by this
 // one. None of these may throw — a white screen is a worse answer than the
 // archive.
+
+// ── Ending a session ──────────────────────────────────────────────────────
+//
+// This value is browsing history — the last show's slug and the filters
+// that found it — and localStorage has no expiry, so without a clear it
+// outlives the session that wrote it. On a shared browser that means the
+// next person to open "/" lands in the previous user's last show.
+
+describe('clearSession', () => {
+  test('a stored route does not survive it', () => {
+    rememberSession(parseRoute('/hf/yohji-yamamoto/1234/7', ''));
+    expect(restoreSession()).not.toBeNull();
+
+    clearSession();
+
+    expect(window.localStorage.getItem(SESSION_KEY)).toBeNull();
+    expect(restoreSession()).toBeNull();
+  });
+
+  test('clearing nothing is not an error', () => {
+    expect(() => clearSession()).not.toThrow();
+    expect(restoreSession()).toBeNull();
+  });
+
+  test('it touches nothing else under the fa: prefix', () => {
+    // Everything this origin stores shares one prefix. Ending a session
+    // forgets where the reader was, not which view mode they like.
+    window.localStorage.setItem('fa:high-fashion-view-mode', '"grid"');
+    rememberSession(parseRoute('/hf/yohji-yamamoto/1234/7', ''));
+
+    clearSession();
+
+    expect(window.localStorage.getItem('fa:high-fashion-view-mode')).toBe('"grid"');
+  });
+
+  test('a localStorage that throws is survivable', () => {
+    jest.spyOn(window.localStorage.__proto__, 'removeItem').mockImplementation(() => {
+      throw new DOMException('denied', 'SecurityError');
+    });
+    expect(() => clearSession()).not.toThrow();
+  });
+});
 
 describe('a stored value this release cannot read', () => {
   test.each([

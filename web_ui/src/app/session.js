@@ -57,6 +57,28 @@ export function rememberSession(route) {
   }
 }
 
+// Forget it. Called on logout, and nowhere else.
+//
+// This value is browsing history: the slug of the last show, and the
+// filters that found it. It is written for whoever is at the keyboard,
+// including a signed-out visitor, and without this it outlived the session
+// that made it — on a shared browser the next person to open "/" was put
+// back into the previous user's last show. localStorage has no expiry, so
+// "outlived" meant until someone cleared the site data.
+//
+// It lives here rather than in App.js for the same reason the writer does:
+// App.js does not know the key, and a component reaching into storage for a
+// value another module owns is how two spellings of a key end up in one
+// codebase.
+export function clearSession() {
+  try {
+    window.localStorage.removeItem(SESSION_KEY);
+  } catch (e) {
+    // Storage is unavailable or blocked — in which case there was nothing
+    // stored to clear, and the next visit opens on the archive either way.
+  }
+}
+
 // The stored route, or null when there is nothing usable.
 //
 // "Usable" is deliberately narrow, because this value was written by some
