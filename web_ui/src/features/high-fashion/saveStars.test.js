@@ -88,7 +88,13 @@ const filterProps = (over = {}) => ({
   chooseSuggestion: jest.fn(),
   indexReady: true,
   designerMode: null,
-  filters: { gender: 'Women', year: '', season: '', category: '',
+  // The archive at rest, as the page actually holds it with the index ready:
+  // gender is empty, because "All" is the default once All is on offer. It
+  // used to say 'Women' here alongside indexReady: true, which is a pair of
+  // values the page only ever holds for the beat before getIndexStatus
+  // answers — and the star's rule now reads gender, so the fixture has to be
+  // a state the page is really in.
+  filters: { gender: '', year: '', season: '', category: '',
              shootType: '', city: '', letter: '' },
   setFilter: jest.fn(),
   years: [],
@@ -226,6 +232,37 @@ describe('the filter bar', () => {
     expect(props.clearFilters).not.toHaveBeenCalled();
     expect(document.querySelector('.hf2-filter-actions .hf2-filter-clear')).not.toBeNull();
     expect(document.querySelector('.hf2-filter-actions .ar-star')).not.toBeNull();
+  });
+
+  // Gender is the filter the "Clear N filters" badge does not count, and the
+  // star has to disagree with the badge about it — see `viewSavable` in
+  // Filters.js. These two are that disagreement, in both directions.
+  test('a gender chosen from All is a view, though the badge does not count it', () => {
+    const props = filterProps({
+      activeFilterCount: 0,
+      indexReady: true,
+      filters: { gender: 'Men', year: '', season: '', category: '',
+                 shootType: '', city: '', letter: '' },
+    });
+    render(<Filters {...props} />);
+    const star = screen.getByRole('button', { name: 'Save this view' });
+    expect(star).not.toBeDisabled();
+    fireEvent.click(star);
+    expect(props.toggleViewSave).toHaveBeenCalledTimes(1);
+  });
+
+  test('a gender the crawl requires is not a view', () => {
+    // No local index: the segmented control offers Women and Men and no All,
+    // so a gender is not something the reader chose and the screen is still
+    // the whole of what this page can show.
+    const props = filterProps({
+      activeFilterCount: 0,
+      indexReady: false,
+      filters: { gender: 'Women', year: '', season: '', category: '',
+                 shootType: '', city: '', letter: '' },
+    });
+    render(<Filters {...props} />);
+    expect(screen.getByRole('button', { name: 'Save this view' })).toBeDisabled();
   });
 
   test('it says whether this view is already kept', () => {

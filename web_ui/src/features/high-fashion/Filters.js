@@ -78,6 +78,25 @@ function Filters({
   viewSaved = false,
   toggleViewSave = () => {},
 }) {
+  // Whether the filters as they stand are a view worth keeping. A different
+  // question from the "Clear N filters" badge, and it differs on exactly one
+  // filter: gender.
+  //
+  // The badge does not count gender because in the crawling fallback gender
+  // can never be empty — firstVIEW has no "both", and a query without one
+  // returns a bucket of ungendered shows rather than everything — so counting
+  // it would read "Clear 1 filter" on a screen where the reader has chosen
+  // nothing. That reasoning is about a constraint the backend imposes, and it
+  // stops applying the moment "All" appears in the segmented control above:
+  // with the archive held locally (or in designer mode) All is offered and
+  // All is where the reader starts, so picking Women or Men is a narrowing to
+  // half the archive that they did on purpose and may want to come back to.
+  //
+  // So gender counts here, and only here, and only where it is a choice.
+  const genderIsAChoice = Boolean(designerMode || indexReady);
+  const viewSavable = activeFilterCount > 0
+    || (genderIsAChoice && Boolean(filters.gender));
+
   return (
     <>
         {/* Search. One box: type a designer, press Enter, get everything they
@@ -290,8 +309,10 @@ function Filters({
             {/* The same star as the looks and the shows get, saving the one
                 thing this column is: the current set of filters.
 
-                Off with nothing set. A view is a narrowing — a designer, a
-                city, a year — and "the whole archive" is not one: it is
+                Off with nothing set — including a gender, where a gender
+                is a choice rather than a requirement; see `viewSavable`
+                above. A view is a narrowing — a designer, a city, a year —
+                and "the whole archive" is not one: it is
                 where every reader already starts, it is what the button
                 beside this one returns you to, and a saved copy of it would
                 be a row in the library that does nothing when opened. So the
@@ -301,10 +322,10 @@ function Filters({
               className="hf2-view-star"
               size="sm"
               saved={viewSaved}
-              disabled={activeFilterCount === 0}
+              disabled={!viewSavable}
               onToggle={toggleViewSave}
               label="Save this view"
-              title={activeFilterCount === 0
+              title={!viewSavable
                 ? 'Set a filter to keep a view'
                 : viewSaved ? 'Remove this view from saves' : 'Keep this view'}
             />
