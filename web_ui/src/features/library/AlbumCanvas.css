@@ -1,0 +1,12 @@
+.alb-canvas-wrap { position: relative; flex: 1; min-height: 0; overflow: auto; background: var(--ar-bg-sub); }
+.alb-canvas { position: relative; min-width: 100%; touch-action: none; user-select: none; }
+.alb-cv-tile { position: absolute; display: flex; flex-direction: column; background: var(--ar-bg); border: 1px solid var(--ar-line); cursor: grab; }
+.alb-cv-tile:active { cursor: grabbing; }
+.alb-cv-tile img, .alb-cv-blank { width: 100%; aspect-ratio: 3 / 4; object-fit: cover; display: block; pointer-events: none; }
+.alb-cv-blank { display: flex; align-items: center; justify-content: center; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ar-ink-3); background: var(--ar-bg-sub); }
+.alb-cv-cap { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ar-ink-2); padding: 4px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.alb-cv-handle { position: absolute; right: -1px; bottom: -1px; width: 14px; height: 14px; cursor: nwse-resize; background: linear-gradient(135deg, transparent 50%, var(--ar-ink-4) 50%); }
+.alb-cv-tile:hover .alb-cv-handle { background: linear-gradient(135deg, transparent 50%, var(--ar-ink) 50%); }
+.alb-cv-status { position: absolute; right: 12px; bottom: 44px; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ar-ink-3); }
+.alb-layout-toggle { display: flex; gap: 0; padding: 6px 12px 10px; }
+.alb-layout-toggle .ar-btn.on { background: var(--ar-ink); color: var(--ar-bg); }

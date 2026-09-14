@@ -96,6 +96,13 @@ export class AlbumsEndpoints {
 
   // Only what is passed is sent, and only what is sent is written: changing the
   // sort must not reset the layout to its default on the way past.
+  // The canvas arrangement, whole. Sent after a debounce, not per pointer move.
+  static setAlbumLayout(albumId, items) {
+    return AlbumsEndpoints.albumRequest(`/api/albums/${albumId}/layout`, {
+      method: 'PUT', body: { items },
+    });
+  }
+
   static setAlbumOptions(albumId, { layoutMode, sortBy } = {}) {
     const body = {};
     if (layoutMode !== undefined) body.layout_mode = layoutMode;

@@ -1,3 +1,4 @@
+import AlbumCanvas from './AlbumCanvas';
 import ShareButton from '../../shared/ui/ShareButton';
 import ShareEndpoints from '../../shared/api/share';
 import React, { useMemo, useState } from 'react';
@@ -335,6 +336,19 @@ function AlbumGrid({
           </div>
 
           <div className="alb-title">{album.name}</div>
+          <div className="alb-layout-toggle" role="group" aria-label="Layout">
+            {['grid', 'canvas'].map(mode => (
+              <button
+                key={mode}
+                type="button"
+                className={`ar-btn ${(album.layout_mode || 'grid') === mode ? 'on' : ''}`}
+                aria-pressed={(album.layout_mode || 'grid') === mode}
+                onClick={() => setAlbumOptions(album.id, { layoutMode: mode })}
+              >
+                {mode === 'grid' ? 'GRID' : 'FREEFORM'}
+              </button>
+            ))}
+          </div>
           <div className="alb-share">
             <ShareButton onMint={() => ShareEndpoints.mintShare('album', { album_id: album.id })} />
           </div>
@@ -404,6 +418,9 @@ function AlbumGrid({
               </span>
             </div>
           ) : (
+            (album.layout_mode === 'canvas') ? (
+              <AlbumCanvas albumId={album.id} items={ordered} onOpen={open} />
+            ) : (
             <div className="alb-grid-container ar-scroll">
               <div className="alb-grid">
                 {ordered.map(item => (
@@ -417,6 +434,7 @@ function AlbumGrid({
                 ))}
               </div>
             </div>
+            )
           )}
 
           <div className="ar-status-bar">

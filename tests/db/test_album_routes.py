@@ -780,3 +780,43 @@ class TestTwoUsersSideBySide:
         assert favourite_count(conn, user) == 1
         assert favourite_count(conn, other_user) == 1
         assert member_ids(conn, mine) != member_ids(conn, theirs)
+
+
+def test_layout_is_written_whole_and_scoped_to_the_owner(client, acting, user, other_user):
+    """PUT /layout writes every placement in one request; a stranger gets 404."""
+    album = client.post("/api/albums", json={"name": "Board"}).get_json()["album"]
+    client.post(
+        f"/api/albums/{album['id']}/items",
+        json={
+            "target": {
+                "kind": "look",
+                "season": {"name": "F24", "url": "https://x/s", "link_text": "F24"},
+                "collection": {
+                    "designer": "Gucci",
+                    "url": "https://www.firstview.com/collection_images.php?id=7&list=all",
+                },
+                "look": {"number": 3, "total": 40},
+                "image_path": "https://img/3.jpg",
+            }
+        },
+    )
+    fid = client.get(f"/api/albums/{album['id']}").get_json()["items"][0]["id"]
+
+    r = client.put(
+        f"/api/albums/{album['id']}/layout",
+        json={"items": [{"favourite_id": fid, "x": 12, "y": 34, "w": 220, "z": 5}]},
+    )
+    assert r.status_code == 200 and r.get_json()["moved"] == 1
+    placed = client.get(f"/api/albums/{album['id']}").get_json()["items"][0]["placement"]
+    assert placed == {"x": 12, "y": 34, "w": 220, "z": 5}
+
+    as_user(acting, other_user)
+    assert client.put(f"/api/albums/{album['id']}/layout", json={"items": []}).status_code == 404
+    as_user(acting, user)
+    assert (
+        client.put(
+            f"/api/albums/{album['id']}/layout",
+            json={"items": [{"favourite_id": fid, "x": 0, "y": 0, "w": 10, "z": 1}]},
+        ).status_code
+        == 400
+    )

@@ -514,3 +514,31 @@ def set_order(conn, *, user_id: UUID, album_id: int, favourite_ids: list[int]) -
         (SORT_GAP, list(favourite_ids), album_id, user_id),
     )
     return cur.rowcount
+
+
+def set_layout(conn, *, user_id: UUID, album_id: int, placements: list[dict[str, Any]]) -> int:
+    """Write the canvas placement of many items at once. Returns rows moved.
+
+    Placement lives on the membership row because a layout is per album — the
+    same favourite can sit in two albums at two positions. Absent items keep
+    what they had; the client sends the whole arrangement after a debounce.
+    """
+    ids = [int(p["favourite_id"]) for p in placements]
+    xs = [int(p["x"]) for p in placements]
+    ys = [int(p["y"]) for p in placements]
+    ws = [int(p["w"]) for p in placements]
+    zs = [int(p["z"]) for p in placements]
+    cur = conn.execute(
+        """
+        UPDATE album_items i
+           SET x = o.x, y = o.y, w = o.w, z = o.z
+          FROM unnest(%s::bigint[], %s::int[], %s::int[], %s::int[], %s::int[])
+               AS o(favourite_id, x, y, w, z)
+         WHERE i.album_id = %s
+           AND i.favourite_id = o.favourite_id
+           AND EXISTS (SELECT 1 FROM albums a
+                        WHERE a.id = i.album_id AND a.user_id = %s)
+        """,
+        (ids, xs, ys, ws, zs, album_id, user_id),
+    )
+    return cur.rowcount

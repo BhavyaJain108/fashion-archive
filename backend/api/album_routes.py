@@ -306,6 +306,31 @@ def reorder_album(album_id: int):
     return jsonify({"success": True, "reordered": moved})
 
 
+def set_album_layout(album_id: int):
+    """PUT /api/albums/<id>/layout — the canvas arrangement, whole.
+
+    {"items": [{"favourite_id": 1, "x": 10, "y": 20, "w": 180, "z": 3}, ...]}
+    """
+    body = _body()
+    items = body.get("items")
+    if not isinstance(items, list):
+        return _bad_request("items must be a list")
+    try:
+        cleaned = [{k: int(it[k]) for k in ("favourite_id", "x", "y", "w", "z")} for it in items]
+    except (KeyError, TypeError, ValueError):
+        return _bad_request("each item needs favourite_id, x, y, w, z as integers")
+    if any(c["w"] < 40 or c["w"] > 4000 for c in cleaned):
+        return _bad_request("w out of range")
+
+    with db.transaction() as conn:
+        if _mine(conn, album_id) is None:
+            return _no_such_album()
+        moved = albums.set_layout(
+            conn, user_id=current_user().id, album_id=album_id, placements=cleaned
+        )
+    return jsonify({"success": True, "moved": moved})
+
+
 def register_album_routes(app):
     """Register the album endpoints.
 
@@ -338,4 +363,10 @@ def register_album_routes(app):
         methods=["PUT"],
     )
 
-    print("✅ Albums API routes registered (8 endpoints, all require auth)")
+    app.add_url_rule(
+        "/api/albums/<int:album_id>/layout",
+        "album_set_layout",
+        set_album_layout,
+        methods=["PUT"],
+    )
+    print("✅ Albums API routes registered (9 endpoints, all require auth)")
