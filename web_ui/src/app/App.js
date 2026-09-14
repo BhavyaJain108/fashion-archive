@@ -18,7 +18,7 @@ import {
 // should land rather than on a blank screen.
 export function pageKeyForRoute(route) {
   if (route.page === 'brands') return 'my-brands';
-  if (route.page === 'library' || route.page === 'album') return 'favourites';
+  if (route.page === 'library' || route.page === 'album') return 'library';
   return 'high-fashion';
 }
 
@@ -179,7 +179,7 @@ function App() {
   const handlePageSwitch = (page) => {
     go({
       page: page === 'my-brands' ? 'brands'
-        : page === 'favourites' ? 'library'
+        : page === 'library' ? 'library'
         : 'high-fashion',
     });
   };

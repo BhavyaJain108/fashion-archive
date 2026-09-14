@@ -30,6 +30,14 @@ export function normalizeGroupMode(value) {
   return value === 'by-collection' ? 'by-collection' : 'view-all';
 }
 
+// The library's three kinds of saved thing. The page renders one pane per
+// kind and there is no fourth pane, so a stored kind from another build — or
+// a `kind` this release does not have — falls back to looks, which is the
+// kind every user has had for longest.
+export function normalizeKind(value) {
+  return value === 'show' || value === 'view' ? value : 'look';
+}
+
 // The values the My Brands sort <select> offers. '' is the default —
 // "Sort by...", archive order — and is itself one of the options, so an
 // unrecognised value falls back to sorting by nothing rather than to

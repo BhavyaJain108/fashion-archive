@@ -15,10 +15,10 @@ function TopBar({ currentPage, onPageSwitch, currentUser, onLogout }) {
           Collections
         </button>
         <button
-          className={`topbar-link ${currentPage === 'favourites' ? 'active' : ''}`}
-          onClick={() => onPageSwitch?.('favourites')}
+          className={`topbar-link ${currentPage === 'library' ? 'active' : ''}`}
+          onClick={() => onPageSwitch?.('library')}
         >
-          Favourites
+          Library
         </button>
         <button
           className={`topbar-link ${currentPage === 'my-brands' ? 'active' : ''}`}

@@ -1,4 +1,4 @@
-/* Favourites — the archive language. Tokens live in styles/archive.css.
+/* The library — the archive language. Tokens live in styles/archive.css.
    The anatomy deliberately mirrors HighFashionPage: same sidebar width, same
    thumb dimensions, same toggle, so moving between the two pages does not
    feel like moving between two apps.
@@ -7,6 +7,38 @@
    two classes My Brands uses. */
 
 /* --- Sidebar ------------------------------------------------------- */
+
+/* The three kinds. A fixed block at the top of the sidebar, above whatever
+   the pane below it needs: it is how the reader moves between the three
+   things this page holds, so it must not scroll away with a long list of
+   collections. */
+.lib-kinds {
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--ar-line);
+}
+
+.lib-kind .body {
+  flex: 1;
+  min-width: 0;
+}
+
+.lib-kind .name {
+  display: block;
+  line-height: 16px;
+  letter-spacing: 0.05em;
+}
+
+.lib-kind .count {
+  font-size: 10px;
+  color: var(--ar-ink-4);
+  letter-spacing: 0.05em;
+}
+
+.lib-kind:hover .count,
+.lib-kind.selected .count {
+  color: var(--ar-ink-3);
+}
+
 
 .fav-mode-row {
   display: flex;
@@ -317,4 +349,179 @@
 .fav-grid-item.selected .look-num {
   color: var(--ar-ink);
   font-weight: 600;
+}
+
+/* --- Empty states -------------------------------------------------- */
+
+/* A kind the reader has none of says what that kind is. The pane is not
+   blank, because "no saved views" on its own tells somebody who has never
+   made one nothing at all. */
+.lib-empty-hint {
+  display: block;
+  max-width: 44ch;
+  margin-top: 8px;
+  line-height: 18px;
+  text-align: center;
+  color: var(--ar-ink-3);
+}
+
+/* --- Saved shows --------------------------------------------------- */
+
+/* A show is a designer and a season, not a look with its number missing.
+   Same card geometry as the look grid so the two panes are recognisably
+   the same page. */
+.lib-cards-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+  min-height: 0;
+}
+
+.lib-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 16px;
+  align-content: start;
+}
+
+.lib-show-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  min-width: 0;
+}
+
+.lib-show-open {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0;
+  background: none;
+  border: none;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--ar-ink-2);
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.lib-show-open:disabled {
+  cursor: default;
+  color: var(--ar-ink-4);
+}
+
+.lib-show-image {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 3 / 4;
+  overflow: hidden;
+  background: var(--ar-bg-sub);
+  border: 1px solid var(--ar-line);
+}
+
+.lib-show-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: opacity 0.15s ease;
+}
+
+.lib-show-open:hover:not(:disabled) .lib-show-image img {
+  opacity: 0.9;
+}
+
+.lib-show-open:hover:not(:disabled) .lib-show-name {
+  color: var(--ar-ink);
+}
+
+.lib-show-name {
+  display: block;
+  line-height: 16px;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lib-show-season {
+  display: block;
+  font-size: 10px;
+  line-height: 13px;
+  color: var(--ar-ink-4);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* --- Saved views --------------------------------------------------- */
+
+/* A view has no photograph — it is a set of filters — so it is a row of
+   text rather than a card. */
+.lib-views-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 24px 24px;
+  min-height: 0;
+}
+
+.lib-view-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--ar-line-soft);
+}
+
+.lib-view-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0;
+  background: none;
+  border: none;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--ar-ink-2);
+  text-align: left;
+  cursor: pointer;
+}
+
+.lib-view-open:hover .lib-view-name {
+  color: var(--ar-ink);
+}
+
+.lib-view-name {
+  display: block;
+  line-height: 16px;
+  letter-spacing: 0.05em;
+}
+
+.lib-view-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+
+.lib-filter {
+  display: inline-flex;
+  gap: 5px;
+  padding: 2px 6px;
+  font-size: 10px;
+  line-height: 14px;
+  background: var(--ar-wash);
+  border: 1px solid var(--ar-line);
+}
+
+.lib-filter .k {
+  color: var(--ar-ink-4);
+  letter-spacing: 0.05em;
+}
+
+.lib-filter .v {
+  color: var(--ar-ink-2);
 }

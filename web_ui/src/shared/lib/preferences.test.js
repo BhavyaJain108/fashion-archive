@@ -1,5 +1,6 @@
 import {
-  normalizeViewMode, normalizeGroupMode, normalizeSortBy,
+  normalizeViewMode, normalizeGroupMode, normalizeKind,
+  normalizeSortBy,
 } from './preferences';
 
 // One rule, three vocabularies: a value restored from storage is checked
@@ -54,11 +55,27 @@ describe('normalizeSortBy', () => {
   });
 });
 
-// The three defaults, together: what a first visit and an unreadable stored
+describe('normalizeKind', () => {
+  test('passes through each kind the library has a pane for', () => {
+    expect(normalizeKind('look')).toBe('look');
+    expect(normalizeKind('show')).toBe('show');
+    expect(normalizeKind('view')).toBe('view');
+  });
+
+  test('a kind with no pane falls back to looks', () => {
+    expect(normalizeKind('album')).toBe('look');
+    expect(normalizeKind('')).toBe('look');
+    expect(normalizeKind(null)).toBe('look');
+    expect(normalizeKind(3)).toBe('look');
+  });
+});
+
+// Every default, together: what a first visit and an unreadable stored
 // value both produce. They were spread across three files and nothing
 // stated them in one place.
 test('every default is what a first-time visitor gets', () => {
   expect(normalizeViewMode(undefined)).toBe('single');
   expect(normalizeGroupMode(undefined)).toBe('view-all');
   expect(normalizeSortBy(undefined)).toBe('');
+  expect(normalizeKind(undefined)).toBe('look');
 });

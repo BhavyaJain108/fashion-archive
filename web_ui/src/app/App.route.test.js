@@ -15,8 +15,8 @@ test.each([
   ['/hf/gucci/1234/12', 'high-fashion'],
   ['/brands', 'my-brands'],
   ['/brands/acne/knitwear', 'my-brands'],
-  ['/library', 'favourites'],
-  ['/library/albums/7', 'favourites'],
+  ['/library', 'library'],
+  ['/library/albums/7', 'library'],
   ['/nonsense', 'high-fashion'],
 ])('%s renders the %s page', (path, expected) => {
   expect(pageKeyFor(parseRoute(path, ''))).toBe(expected);
@@ -31,6 +31,6 @@ test('an unfinished share route still renders a page', () => {
 // The filters ride in the query string and the page still has to be decided
 // from the path — a filtered library link is the library, not the archive.
 test('a query string does not change which page is decided', () => {
-  expect(pageKeyFor(parseRoute('/library', '?year=2020'))).toBe('favourites');
+  expect(pageKeyFor(parseRoute('/library', '?year=2020'))).toBe('library');
   expect(pageKeyFor(parseRoute('/', '?year=2020&city=Paris'))).toBe('high-fashion');
 });
