@@ -313,6 +313,39 @@ class TestAllThreeKinds:
         assert favourites.list_all(conn, user_id=user.id, limit=0) == []
         assert favourites.list_all(conn, user_id=user.id, limit=-4) == []
 
+    def test_a_page_of_nothing_does_not_promise_a_next_one(self, conn, user):
+        """`?limit=` comes off a query string, so it is somebody's input.
+
+        `limit=0` used to answer `hasMore: True` with `nextCursor: None` — the
+        query asks for one row more than it wants, saw that one arrive, and
+        reported another page while handing back no bookmark to reach it with.
+        A load-more control reading that has a button it can press for ever
+        and a list that never grows. A page is at least one row.
+        """
+        for number in range(1, 4):
+            add_look(conn, user, look_number=number)
+
+        for asked in (0, -4):
+            page = favourites.list_page(conn, user_id=user.id, limit=asked)
+            assert len(page["rows"]) == 1
+            assert page["total"] == 3
+            assert page["hasMore"] is True
+            assert page["nextCursor"]
+
+            # And the bookmark it gave really is the way on, rather than the
+            # same page again.
+            second = favourites.list_page(
+                conn, user_id=user.id, limit=asked, cursor=page["nextCursor"]
+            )
+            assert [r["id"] for r in second["rows"]] != [r["id"] for r in page["rows"]]
+
+    def test_a_page_of_nothing_over_an_empty_list_is_the_end_of_it(self, conn, user):
+        page = favourites.list_page(conn, user_id=user.id, limit=0)
+        assert page["rows"] == []
+        assert page["total"] == 0
+        assert page["hasMore"] is False
+        assert page["nextCursor"] is None
+
     def test_stats_counts_each_kind_and_ignores_a_views_empty_season(self, conn, user):
         """A view has no season; the empty strings standing in for NOT NULL
         must not be counted as one."""

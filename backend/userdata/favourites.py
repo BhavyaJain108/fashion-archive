@@ -608,7 +608,13 @@ def list_page(
     page size, and the reader would meet an empty "load more" at the end of
     every exact multiple.
     """
-    limit = max(0, min(int(limit), MAX_LIST_LIMIT))
+    # At least one row. `limit` comes off a query string, and zero used to make
+    # this answer `hasMore: True` with `nextCursor: None`: the query asks for
+    # one row more than it wants, that one arrived, and `rows` was then sliced
+    # to nothing — so there was another page and no bookmark to reach it with.
+    # A load-more control reading that has a button it can press for ever over
+    # a list that never grows. A page of nothing is not a page.
+    limit = max(1, min(int(limit), MAX_LIST_LIMIT))
     after = decode_cursor(cursor)
 
     where = "user_id = %s"
