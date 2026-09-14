@@ -338,6 +338,22 @@ export function useAlbums(albumId = null, options = {}) {
   const inFlight = useRef(new Set());
   const queued = useRef(new Map());
 
+  // EVERY `run` below applies its own optimistic change, and applies it when
+  // it runs rather than when it was made. That is not a detail of where the
+  // lines sit.
+  //
+  // A press held behind one that fails is dropped: it was queued against a
+  // state the server never reached. If it had already applied its change,
+  // that change would be left standing with its undo thrown away — and the
+  // failed press's rollback does not cover it, because these inverses are
+  // RELATIVE. `recount(+1)` is undone by `settle(-1)`; two +1s against one -1
+  // is one too many, and the shelf reads one higher than the album holds for
+  // the rest of the session. Applied inside the run, a dropped press never
+  // applied anything and there is nothing of it to undo.
+  //
+  // The first press of a burst is unaffected: `run()` is called synchronously
+  // here, before this function's first await, so the reader still sees the
+  // change in the same tick they pressed in.
   const serialise = useCallback(async (key, run) => {
     if (inFlight.current.has(key)) {
       queued.current.set(key, run);
@@ -351,10 +367,10 @@ export function useAlbums(albumId = null, options = {}) {
         // eslint-disable-next-line no-await-in-loop
         ok = await next();
         if (!ok) {
-          // The burst failed here. Whatever was held behind it was queued
-          // against a state the server never reached, so it is dropped — its
-          // own optimistic change is undone by this one's rollback, which
-          // restores the list to what the server still holds.
+          // The burst failed here. Whatever was held behind it is dropped
+          // unrun, which is exactly what makes this safe: it has changed
+          // nothing, and this press's own rollback restores the list to what
+          // the server still holds.
           queued.current.delete(key);
           break;
         }
@@ -426,12 +442,10 @@ export function useAlbums(albumId = null, options = {}) {
     }
   }, [applyAlbums]);
 
-  const renameAlbum = useCallback((id, name) => {
+  const renameAlbum = useCallback((id, name) => serialise(`album:${id}`, async () => {
     const undo = patchAlbum(id, { name });
-    return serialise(`album:${id}`, async () => Boolean(
-      await writeThrough(id, () => AlbumsAPI.renameAlbum(id, name), undo),
-    ));
-  }, [patchAlbum, serialise, writeThrough]);
+    return Boolean(await writeThrough(id, () => AlbumsAPI.renameAlbum(id, name), undo));
+  }), [patchAlbum, serialise, writeThrough]);
 
   // Only what is passed is sent, and only what is passed is changed here:
   // changing the sort must not reset the layout on the way past, at either end.
@@ -440,12 +454,14 @@ export function useAlbums(albumId = null, options = {}) {
     if (opts.layoutMode !== undefined) change.layout_mode = opts.layoutMode;
     if (opts.sortBy !== undefined) change.sort_by = opts.sortBy;
     if (!Object.keys(change).length) return Promise.resolve(true);
-    const sortChanged = change.sort_by !== undefined
-      && albumRef.current && sameAlbum(albumRef.current.id, id)
-      && albumRef.current.sort_by !== change.sort_by;
 
-    const undo = patchAlbum(id, change);
     return serialise(`album:${id}`, async () => {
+      // Read when this runs, not when it was asked for: a held press reads
+      // the sort the write in front of it actually left behind.
+      const sortChanged = change.sort_by !== undefined
+        && albumRef.current && sameAlbum(albumRef.current.id, id)
+        && albumRef.current.sort_by !== change.sort_by;
+      const undo = patchAlbum(id, change);
       const answer = await writeThrough(id, () => AlbumsAPI.setAlbumOptions(id, opts), undo);
       if (!answer) return false;
       // The order itself is the server's: 'designer' and 'season' are an ORDER
@@ -465,10 +481,10 @@ export function useAlbums(albumId = null, options = {}) {
   // deleted it is navigating away, and blanking it first is a flash of an
   // empty album on the way out. The shelf row goes at once, because that is
   // what the reader is looking at.
-  const deleteAlbum = useCallback((id) => {
+  const deleteAlbum = useCallback((id) => serialise(`album:${id}`, async () => {
     const before = albumsRef.current;
     const at = before.findIndex(row => sameAlbum(row.id, id));
-    if (at < 0) return Promise.resolve(false);
+    if (at < 0) return false;
     applyAlbums(before.filter(row => !sameAlbum(row.id, id)));
     const undo = () => {
       const rows = albumsRef.current;
@@ -477,10 +493,8 @@ export function useAlbums(albumId = null, options = {}) {
       back.splice(Math.min(at, back.length), 0, before[at]);
       applyAlbums(back);
     };
-    return serialise(`album:${id}`, async () => Boolean(
-      await writeThrough(id, () => AlbumsAPI.deleteAlbum(id), undo),
-    ));
-  }, [applyAlbums, serialise, writeThrough]);
+    return Boolean(await writeThrough(id, () => AlbumsAPI.deleteAlbum(id), undo));
+  }), [applyAlbums, serialise, writeThrough]);
 
   // -------------------------------------------------- what is in one ---
 
@@ -501,32 +515,6 @@ export function useAlbums(albumId = null, options = {}) {
     const key = itemKeyOf(row);
     if (!key) return Promise.resolve(false);      // it names nothing
 
-    // ---- the optimistic half, and it is two halves ----
-    //
-    // A tile that has no favourite id yet is marked, and the mark is what both
-    // the reconcile and the rollback find it by. Not its content key: the same
-    // look may already be in this album, and a rollback that removed it by
-    // content would take the tile the reader put there last week.
-    const mark = `pending:${key}:${Date.now()}:${Math.random()}`;
-    const duplicate = opened(id)
-      && itemsRef.current.some(r => r.id !== null && r.id !== undefined && r.id === row.id);
-
-    let dropTile = () => {};
-    if (opened(id) && !duplicate) {
-      applyItems([...itemsRef.current, { ...row, pending: mark }]);
-      dropTile = () => applyItems(itemsRef.current.filter(r => r.pending !== mark));
-    }
-    const undoCount = duplicate ? () => {} : recount(id, +1, row.image_path);
-
-    // The save half. Only moved if it is ours to move: a star already lit was
-    // lit by somebody else, and putting it out on our failure would leave a
-    // dark star over a saved row.
-    const lighting = Boolean(target) && !saves.current.isSaved(target);
-    if (lighting) saves.current.setSaved(target, true);
-    const undoStar = lighting ? () => saves.current.setSaved(target, false) : () => {};
-
-    const undo = () => { dropTile(); undoCount(); undoStar(); };
-
     const send = () => {
       if (alreadySaved) return AlbumsAPI.addSavedToAlbum(id, thing.id);
       const t = target;
@@ -544,6 +532,38 @@ export function useAlbums(albumId = null, options = {}) {
     };
 
     return serialise(`item:${id}:${key}`, async () => {
+      // ---- the optimistic half, and it is two halves ----
+      //
+      // Inside the run, so that a press dropped behind a failure applied
+      // nothing. See `serialise`: `recount`'s inverse is relative, so a change
+      // applied by a run that never executes is a count that is permanently
+      // one out.
+      //
+      // A tile that has no favourite id yet is marked, and the mark is what
+      // both the reconcile and the rollback find it by. Not its content key:
+      // the same look may already be in this album, and a rollback that
+      // removed it by content would take the tile the reader put there last
+      // week.
+      const mark = `pending:${key}:${Date.now()}:${Math.random()}`;
+      const duplicate = opened(id)
+        && itemsRef.current.some(r => r.id !== null && r.id !== undefined && r.id === row.id);
+
+      let dropTile = () => {};
+      if (opened(id) && !duplicate) {
+        applyItems([...itemsRef.current, { ...row, pending: mark }]);
+        dropTile = () => applyItems(itemsRef.current.filter(r => r.pending !== mark));
+      }
+      const undoCount = duplicate ? () => {} : recount(id, +1, row.image_path);
+
+      // The save half. Only moved if it is ours to move: a star already lit
+      // was lit by somebody else, and putting it out on our failure would
+      // leave a dark star over a saved row.
+      const lighting = Boolean(target) && !saves.current.isSaved(target);
+      if (lighting) saves.current.setSaved(target, true);
+      const undoStar = lighting ? () => saves.current.setSaved(target, false) : () => {};
+
+      const undo = () => { dropTile(); undoCount(); undoStar(); };
+
       // `forgetOn404` is off here and only here: this endpoint answers 404 for
       // an album that is not yours AND for a favourite id that is not yours,
       // and dropping the album off the shelf for the second would be a wrong
@@ -575,30 +595,39 @@ export function useAlbums(albumId = null, options = {}) {
 
   // Takes it out of the album. It stays saved.
   const removeFromAlbum = useCallback((id, favouriteId) => {
-    const before = itemsRef.current;
-    const at = before.findIndex(row => row.id === favouriteId);
-    const key = at >= 0 ? itemKeyOf(before[at]) : `#${favouriteId}`;
+    // The queue key is the only thing read before the run: it names which
+    // write this queues behind, and it must be the same for two presses on
+    // one tile whether or not the first has already taken the tile off screen.
+    const held = itemsRef.current.find(row => row.id === favouriteId);
+    const key = held ? itemKeyOf(held) : `#${favouriteId}`;
 
-    let putBack = () => {};
-    if (at >= 0) {
-      applyItems(before.filter(row => row.id !== favouriteId));
-      putBack = () => {
-        const rows = itemsRef.current;
-        if (rows.some(row => row.id === favouriteId)) return;    // something put it back
-        const back = [...rows];
-        back.splice(Math.min(at, back.length), 0, before[at]);
-        applyItems(back);
-      };
-    }
-    const undoCount = recount(id, -1);
-    const undo = () => { putBack(); undoCount(); };
+    return serialise(`item:${id}:${key}`, async () => {
+      // Applied here and not above: a press dropped behind a failure must
+      // have changed nothing. See `serialise`.
+      const before = itemsRef.current;
+      const at = before.findIndex(row => row.id === favouriteId);
 
-    return serialise(`item:${id}:${key}`, async () => Boolean(
+      let putBack = () => {};
+      if (at >= 0) {
+        applyItems(before.filter(row => row.id !== favouriteId));
+        putBack = () => {
+          const rows = itemsRef.current;
+          if (rows.some(row => row.id === favouriteId)) return;  // something put it back
+          const back = [...rows];
+          back.splice(Math.min(at, back.length), 0, before[at]);
+          applyItems(back);
+        };
+      }
+      const undoCount = recount(id, -1);
+      const undo = () => { putBack(); undoCount(); };
+
       // See `wrote`: a 200 saying "Not in that album" is the state that was
       // asked for, reached before it was asked. The tile stays gone.
-      await writeThrough(id, () => AlbumsAPI.removeFromAlbum(id, favouriteId), undo,
-        { refusalMeansDone: true }),
-    ));
+      return Boolean(
+        await writeThrough(id, () => AlbumsAPI.removeFromAlbum(id, favouriteId), undo,
+          { refusalMeansDone: true }),
+      );
+    });
   }, [applyItems, recount, serialise, writeThrough]);
 
   // The whole arrangement in one request, first to last — N requests for one
@@ -620,6 +649,20 @@ export function useAlbums(albumId = null, options = {}) {
         await writeThrough(id, () => AlbumsAPI.reorderAlbum(id, ids), () => {}),
       ));
     }
+    // THE ONE optimistic change that is applied outside the run, and the
+    // reason is that its inverse is absolute where `recount`'s is relative.
+    //
+    // `applyOrder` states a whole order over the list as it stands; undoing a
+    // reorder is stating the previous whole order, so the first drag's
+    // rollback puts back the order the server still holds WHATEVER a dropped
+    // drag behind it did to the tiles meanwhile. A count moved by +1 is not
+    // like that: two +1s against one -1 is one too many, which is why every
+    // other operation here applies inside the run.
+    //
+    // And a drag is direct manipulation. The tiles have to move under the
+    // reader's hand, including the second drag of a burst — waiting a round
+    // trip to show it is the one place where "applied when it runs" would be
+    // felt as the control not working.
     const was = itemsRef.current.map(row => row.id);
     applyItems(applyOrder(itemsRef.current, ids));
     const undo = () => applyItems(applyOrder(itemsRef.current, was));

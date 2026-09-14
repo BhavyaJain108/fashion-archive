@@ -810,3 +810,93 @@ describe('when something is unsaved somewhere else', () => {
     expect(saves.listeners.size).toBe(0);
   });
 });
+
+// ── a burst whose first write fails ───────────────────────────────────────
+//
+// Two presses on one thing in one tick: the second is held behind the first,
+// one deep, and run when it lands. If the first FAILS the held one is dropped
+// — it was queued against a state the server never reached — and for a while
+// the comment beside that said the first's rollback covered its optimistic
+// change too. It does not. `recount`'s inverse is relative: +1 is undone by
+// -1, and two +1s with one -1 is one too many. The dropped press's change was
+// applied the moment it was made and its undo was thrown away with it.
+//
+// ADD TO ALBUM → Resort, twice, quickly, with the first failing: the shelf
+// said one more than the album held, for the rest of the session.
+//
+// The fix is that a press applies nothing until its turn comes. A dropped run
+// never ran, so there is nothing of it to undo.
+
+describe('a press held behind one that fails', () => {
+  test('leaves the count where the server has it', async () => {
+    api.addLookToAlbum.mockResolvedValue(BOOM);
+    const { result } = await mount();
+    expect(shelfRow(result, 1).item_count).toBe(3);
+
+    await act(async () => {
+      await Promise.all([
+        result.current.addToAlbum(1, look(GUCCI, 3)),
+        result.current.addToAlbum(1, look(GUCCI, 3)),
+      ]);
+    });
+
+    // One write went out — the second was dropped — and the count is the
+    // server's, not one higher.
+    expect(api.addLookToAlbum).toHaveBeenCalledTimes(1);
+    expect(shelfRow(result, 1).item_count).toBe(3);
+  });
+
+  test('and leaves no tile behind in the open album', async () => {
+    api.addLookToAlbum.mockResolvedValue(BOOM);
+    const { result } = await mount(1);
+    expect(result.current.items).toHaveLength(3);
+
+    await act(async () => {
+      await Promise.all([
+        result.current.addToAlbum(1, look(GUCCI, 30)),
+        result.current.addToAlbum(1, look(GUCCI, 30)),
+      ]);
+    });
+
+    expect(result.current.items).toHaveLength(3);
+    expect(shelfRow(result, 1).item_count).toBe(3);
+  });
+
+  test('and does not leave a star lit over a row that was never saved', async () => {
+    api.addLookToAlbum.mockResolvedValue(BOOM);
+    const { result } = await mount();
+
+    await act(async () => {
+      await Promise.all([
+        result.current.addToAlbum(1, look(PRADA, 5)),
+        result.current.addToAlbum(1, look(PRADA, 5)),
+      ]);
+    });
+
+    expect(saves.lit.has(keyOf(look(PRADA, 5)))).toBe(false);
+  });
+
+  // A reorder is the exception, and it is the one pinned above under
+  // `reordering`: `applyOrder` states a whole order rather than a step, so
+  // the first drag's rollback restores what the server holds whatever a
+  // dropped drag did meanwhile — and a drag has to move the tiles under the
+  // reader's hand, held or not. See the note on `reorderAlbum`.
+  //
+  // The other half of the same rule: when the first write SUCCEEDS the held
+  // one runs, and its optimistic change has to happen then rather than not at
+  // all. Applying it late must not mean skipping it.
+  test('a held press that does run still moves the count', async () => {
+    const { result } = await mount();
+
+    await act(async () => {
+      await Promise.all([
+        result.current.addToAlbum(1, look(GUCCI, 3)),
+        result.current.addToAlbum(1, look(GUCCI, 3)),
+      ]);
+    });
+
+    expect(api.addLookToAlbum).toHaveBeenCalledTimes(2);
+    // The server answered `added: true` to both, so both counted.
+    expect(shelfRow(result, 1).item_count).toBe(5);
+  });
+});
