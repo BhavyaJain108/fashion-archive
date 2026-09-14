@@ -265,6 +265,70 @@ describe('the filter bar', () => {
     expect(screen.getByRole('button', { name: 'Save this view' })).toBeDisabled();
   });
 
+  // ── designer mode and search: list state a view cannot hold ───────────
+  //
+  // `openDesigner` clears gender and letter and leaves year, season,
+  // category, shootType and city set, so the star was enabled in designer
+  // mode with nothing further pressed. Saving there stored the FILTER_KEYS
+  // filters alone and lost the designer, so reopening the view gave every
+  // show of that year rather than that designer's.
+  //
+  // Worse was `isViewSaved(filters)`, which is designer-blind in the same
+  // way: with {year:'1997'} already saved the star rendered FILLED in
+  // designer mode, and pressing it deleted that unrelated saved view — a row
+  // the reader cannot even see from here.
+  //
+  // `designer` is not in FILTER_KEYS, `buildRoute` never writes it and
+  // designer mode has no URL, so making it savable is a route-schema change.
+  // Until then the star is off in both states, and says so.
+
+  const withFilter = (over = {}) => filterProps({
+    activeFilterCount: 2,
+    filters: { gender: '', year: '1997', season: '', category: 'Ready-to-Wear',
+               shootType: '', city: '', letter: '' },
+    ...over,
+  });
+
+  test('in designer mode the star is off, though the filters survived', () => {
+    const props = withFilter({ designerMode: { id: '77', name: 'Helmut Lang' } });
+    render(<Filters {...props} />);
+    const star = screen.getByRole('button', { name: 'Save this view' });
+    expect(star).toBeDisabled();
+    fireEvent.click(star);
+    expect(props.toggleViewSave).not.toHaveBeenCalled();
+  });
+
+  test('during a search the star is off for the same reason', () => {
+    const props = withFilter({ searchText: 'yohji' });
+    render(<Filters {...props} />);
+    const star = screen.getByRole('button', { name: 'Save this view' });
+    expect(star).toBeDisabled();
+    fireEvent.click(star);
+    expect(props.toggleViewSave).not.toHaveBeenCalled();
+  });
+
+  test('it says why, rather than greying with no reason', () => {
+    render(<Filters {...withFilter({ designerMode: { id: '77', name: 'Helmut Lang' } })} />);
+    expect(screen.getByRole('button', { name: 'Save this view' }))
+      .toHaveAttribute('title', expect.stringContaining('designer'));
+  });
+
+  // The delete this prevents. A saved {year:'1997'} lights the star on the
+  // archive list; in designer mode the same filters are still set, so
+  // `isViewSaved` says saved there too. Unlit and unpressable is what stops
+  // a press from deleting it.
+  test.each([
+    ['designer mode', { designerMode: { id: '77', name: 'Helmut Lang' } }],
+    ['a search', { searchText: 'yohji' }],
+  ])('a view saved elsewhere cannot be deleted from %s', (_name, over) => {
+    const props = withFilter({ viewSaved: true, ...over });
+    render(<Filters {...props} />);
+    const star = screen.getByRole('button', { name: 'Save this view' });
+    expect(star).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(star);
+    expect(props.toggleViewSave).not.toHaveBeenCalled();
+  });
+
   test('it says whether this view is already kept', () => {
     render(<Filters {...filterProps({ activeFilterCount: 1, viewSaved: true })} />);
     expect(screen.getByRole('button', { name: 'Save this view' }))

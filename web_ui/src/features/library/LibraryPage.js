@@ -41,7 +41,11 @@ const KINDS = [
     kind: 'view',
     label: 'Views',
     empty: 'No saved views',
-    hint: 'A view is a set of filters — a designer, a year, a city. Narrow '
+    // A designer is deliberately not in this list. A saved view is its
+    // filters, `designer` is not one of them, and the star in the filter bar
+    // is disabled in designer mode for that reason — so naming a designer
+    // here taught the one move that does not work.
+    hint: 'A view is a set of filters — a year, a season, a city. Narrow '
         + 'the archive down to what you want to come back to and press '
         + 'Save this view.',
   },

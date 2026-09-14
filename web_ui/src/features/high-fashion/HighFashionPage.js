@@ -1448,6 +1448,7 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
           chooseSuggestion={chooseSuggestion}
           indexReady={indexReady}
           designerMode={designerMode}
+          searchText={searchText}
           filters={filters}
           setFilter={setFilter}
           years={years}

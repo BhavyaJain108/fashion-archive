@@ -352,8 +352,21 @@ test('a reader with looks but no views is told what a view is', async () => {
   openKind('Views');
 
   await screen.findByText('No saved views');
-  expect(screen.getByText(/a designer, a year, a city/i)).toBeInTheDocument();
+  expect(screen.getByText(/a year, a season, a city/i)).toBeInTheDocument();
   expect(screen.getByText(/Save this view/i)).toBeInTheDocument();
+});
+
+// The hint named a designer first, and a designer is the one thing a saved
+// view cannot hold: it is not in FILTER_KEYS, and the star is disabled in
+// designer mode for exactly that reason. An empty state that teaches the one
+// move that does not work is worse than no empty state.
+test('the hint does not offer a designer, which a view cannot hold', async () => {
+  API.getFavourites.mockResolvedValue([LOOK]);
+  await renderPage();
+  openKind('Views');
+
+  await screen.findByText('No saved views');
+  expect(screen.queryByText(/a designer, a year, a city/i)).not.toBeInTheDocument();
 });
 
 test('a reader with looks but no shows is told what a show is', async () => {

@@ -60,6 +60,7 @@ function Filters({
   // Facets
   indexReady,
   designerMode,
+  searchText = '',
   filters,
   setFilter,
   years,
@@ -94,8 +95,31 @@ function Filters({
   //
   // So gender counts here, and only here, and only where it is a choice.
   const genderIsAChoice = Boolean(designerMode || indexReady);
-  const viewSavable = activeFilterCount > 0
-    || (genderIsAChoice && Boolean(filters.gender));
+
+  // Two states a saved view cannot describe, and in which the star was live.
+  //
+  // `openDesigner` clears gender and letter only, so year, season, category,
+  // shootType and city survive into designer mode — the star was enabled
+  // there with nothing further pressed. A search is the same shape of thing:
+  // the list is narrowed by something that is not a filter.
+  //
+  // Saving in either state stored the FILTER_KEYS filters and nothing else,
+  // so reopening gave every 1997 show rather than Helmut Lang's. And
+  // `isViewSaved(filters)` is blind the same way: with {year:'1997'} already
+  // saved the star rendered filled here, and pressing it DELETED that
+  // unrelated saved view — a row the reader cannot see from this screen.
+  //
+  // `designer` cannot simply be added to the filter set: it is not in
+  // FILTER_KEYS, `buildRoute` never writes it, and designer mode has no URL
+  // of its own. Making it savable is a route-schema change. Until then the
+  // star is off in both states, unlit as well as unpressable, and says why —
+  // the same greying as "the whole archive is not a view", for a reason the
+  // reader can act on.
+  const listIsNarrowedBySomethingUnsavable =
+    Boolean(designerMode) || Boolean((searchText || '').trim());
+
+  const viewSavable = !listIsNarrowedBySomethingUnsavable
+    && (activeFilterCount > 0 || (genderIsAChoice && Boolean(filters.gender)));
 
   return (
     <>
@@ -319,15 +343,22 @@ function Filters({
                 star is disabled rather than hidden, because a control that
                 comes and goes is harder to find than one that greys. */}
             <SaveStar
-              className="hf2-view-star"
               size="sm"
-              saved={viewSaved}
+              // Never lit in a state it cannot save. `viewSaved` answers for
+              // the filters alone, and here the filters are not the whole of
+              // what is on screen — a lit star would be offering to delete a
+              // view saved somewhere else.
+              saved={viewSavable && viewSaved}
               disabled={!viewSavable}
               onToggle={toggleViewSave}
               label="Save this view"
-              title={!viewSavable
-                ? 'Set a filter to keep a view'
-                : viewSaved ? 'Remove this view from saves' : 'Keep this view'}
+              title={listIsNarrowedBySomethingUnsavable
+                ? (designerMode
+                    ? 'A designer is not part of a saved view yet'
+                    : 'A search is not part of a saved view yet')
+                : !viewSavable
+                  ? 'Set a filter to keep a view'
+                  : viewSaved ? 'Remove this view from saves' : 'Keep this view'}
             />
           </div>
         </div>
