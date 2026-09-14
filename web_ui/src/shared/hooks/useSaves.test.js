@@ -1,7 +1,8 @@
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { FashionArchiveAPI } from '../api';
 import {
-  useSaves, lookKey, showKey, viewKey, canonicalFilters, keyOf, targetOfRow, rowOfTarget,
+  useSaves, PAGE_SIZE,
+  lookKey, showKey, viewKey, canonicalFilters, keyOf, targetOfRow, rowOfTarget,
 } from './useSaves';
 
 // Two shows, each fully described, because the mistake this hook has to keep
@@ -30,9 +31,23 @@ const row = (target) => rowOfTarget(target);
 let api;
 let errorLog;
 
+// The hook reads the table twice: the keys, whole, and the rows, a page at a
+// time. `seed` sets both from one list of rows, because in the real server they
+// ARE one list — a key is a row with the display fields left off. The tests
+// that care about the split say so by seeding the two differently themselves.
+const seed = (rows) => {
+  api.getFavouriteKeys.mockResolvedValue(rows);
+  api.getFavouritesPage.mockResolvedValue({
+    favourites: rows, total: rows.length, hasMore: false, nextCursor: null,
+  });
+};
+
 beforeEach(() => {
   api = {
-    getFavourites: jest.spyOn(FashionArchiveAPI, 'getFavourites').mockResolvedValue([]),
+    getFavouriteKeys:
+      jest.spyOn(FashionArchiveAPI, 'getFavouriteKeys').mockResolvedValue([]),
+    getFavouritesPage: jest.spyOn(FashionArchiveAPI, 'getFavouritesPage')
+      .mockResolvedValue({ favourites: [], total: 0, hasMore: false, nextCursor: null }),
     addFavourite: jest.spyOn(FashionArchiveAPI, 'addFavourite').mockResolvedValue({}),
     removeFavourite: jest.spyOn(FashionArchiveAPI, 'removeFavourite').mockResolvedValue({}),
     addShowFavourite: jest.spyOn(FashionArchiveAPI, 'addShowFavourite').mockResolvedValue({}),
@@ -49,7 +64,7 @@ afterEach(() => jest.restoreAllMocks());
 
 const mount = async () => {
   const hook = renderHook(() => useSaves());
-  await waitFor(() => expect(api.getFavourites).toHaveBeenCalled());
+  await waitFor(() => expect(api.getFavouriteKeys).toHaveBeenCalled());
   await waitFor(() => expect(hook.result.current.loading).toBe(false));
   return hook;
 };
@@ -228,7 +243,7 @@ describe("the show's id on a saved row", () => {
   });
 
   test('an optimistic row and the server row for one look key alike, id or not', async () => {
-    api.getFavourites.mockResolvedValue([row(look(WITH_ID, 3))]);
+    seed([row(look(WITH_ID, 3))]);
     const { result } = await mount();
     expect(result.current.isSaved(look(GUCCI, 3))).toBe(true);
   });
@@ -238,7 +253,7 @@ describe("the show's id on a saved row", () => {
 
 describe('what is already saved', () => {
   test('marks each kind from the rows the server sent', async () => {
-    api.getFavourites.mockResolvedValue([
+    seed([
       row(look(GUCCI, 3)), row(show(PRADA)), row(view({ city: 'Paris' })),
     ]);
     const { result } = await mount();
@@ -253,7 +268,7 @@ describe('what is already saved', () => {
   });
 
   test('a saved view is recognised however its filters are spelled', async () => {
-    api.getFavourites.mockResolvedValue([row(view({ city: 'Paris', year: '1997' }))]);
+    seed([row(view({ city: 'Paris', year: '1997' }))]);
     const { result } = await mount();
     expect(result.current.isSaved(view({ year: 1997, city: ' Paris ', page: 4 }))).toBe(true);
   });
@@ -281,7 +296,7 @@ describe('a show and its looks are independent', () => {
   });
 
   test('unsaving a look leaves the show saved', async () => {
-    api.getFavourites.mockResolvedValue([row(show(GUCCI)), row(look(GUCCI, 3))]);
+    seed([row(show(GUCCI)), row(look(GUCCI, 3))]);
     const { result } = await mount();
     expect(result.current.isSaved(show(GUCCI))).toBe(true);
 
@@ -294,7 +309,7 @@ describe('a show and its looks are independent', () => {
   });
 
   test('unsaving the show leaves its saved look alone', async () => {
-    api.getFavourites.mockResolvedValue([row(show(GUCCI)), row(look(GUCCI, 3))]);
+    seed([row(show(GUCCI)), row(look(GUCCI, 3))]);
     const { result } = await mount();
 
     await act(async () => { await result.current.toggle(show(GUCCI)); });
@@ -320,7 +335,7 @@ describe('what each kind puts on the wire', () => {
   // removeFavourite(seasonUrl, collectionUrl, lookNumber) is positional and
   // two of the three are urls. All three come off the one target.
   test('a look is deleted with all three arguments off one show', async () => {
-    api.getFavourites.mockResolvedValue([row(look(GUCCI, 3)), row(look(PRADA, 3))]);
+    seed([row(look(GUCCI, 3)), row(look(PRADA, 3))]);
     const { result } = await mount();
 
     await act(async () => { await result.current.toggle(look(PRADA, 3)); });
@@ -344,7 +359,7 @@ describe('what each kind puts on the wire', () => {
     expect(api.addShowFavourite)
       .toHaveBeenCalledWith(PRADA.season, PRADA.collection, 'x/look-1.jpg');
 
-    api.getFavourites.mockResolvedValue([row(show(PRADA))]);
+    seed([row(show(PRADA))]);
     const second = await mount();
     await act(async () => { await second.result.current.toggle(show(PRADA)); });
     expect(api.removeShowFavourite)
@@ -361,7 +376,7 @@ describe('what each kind puts on the wire', () => {
     expect(api.addViewFavourite)
       .toHaveBeenCalledWith({ city: 'Paris', year: '1997' }, 'Paris 1997');
 
-    api.getFavourites.mockResolvedValue([row(view({ city: 'Paris', year: '1997' }))]);
+    seed([row(view({ city: 'Paris', year: '1997' }))]);
     const second = await mount();
     await act(async () => {
       await second.result.current.toggle(view({ year: 1997, city: ' Paris ' }));
@@ -390,7 +405,7 @@ describe('a write that fails puts back exactly what was there', () => {
     // Something of every kind is already saved, so a rollback that rebuilt
     // the list rather than restoring it would show up here.
     const before = [row(look(PRADA, 9)), row(show(PRADA)), row(view({ city: 'Milan' }))];
-    api.getFavourites.mockResolvedValue(before);
+    seed(before);
     const { result } = await mount();
 
     await act(async () => { await result.current.toggle(target()); });
@@ -407,7 +422,7 @@ describe('a write that fails puts back exactly what was there', () => {
   test.each(cases)('%s that will not delete is starred again', async (_name, target, _a, del) => {
     api[del].mockRejectedValue(new Error('nope'));
     const before = [row(target()), row(look(PRADA, 9)), row(show(PRADA))];
-    api.getFavourites.mockResolvedValue(before);
+    seed(before);
     const { result } = await mount();
     expect(result.current.isSaved(target())).toBe(true);
 
@@ -439,7 +454,7 @@ describe('a write that fails puts back exactly what was there', () => {
     async (_name, target, del) => {
       api[del].mockResolvedValue({ success: false, message: 'Not found in favourites' });
       const before = [row(target()), row(look(PRADA, 9)), row(show(PRADA))];
-      api.getFavourites.mockResolvedValue(before);
+      seed(before);
       const { result } = await mount();
       expect(result.current.isSaved(target())).toBe(true);
 
@@ -455,7 +470,7 @@ describe('a write that fails puts back exactly what was there', () => {
     api.removeFavourite.mockResolvedValue({
       success: false, message: 'Not found in favourites',
     });
-    api.getFavourites.mockResolvedValue([row(look(GUCCI, 3))]);
+    seed([row(look(GUCCI, 3))]);
     const { result } = await mount();
 
     await act(async () => { await result.current.toggle(look(GUCCI, 3)); });
@@ -559,7 +574,7 @@ test('a held press is the last one, not every one', async () => {
 });
 
 test('a list that will not load leaves an error and an empty set', async () => {
-  api.getFavourites.mockRejectedValue(new Error('down'));
+  api.getFavouriteKeys.mockRejectedValue(new Error('down'));
   const { result } = await mount();
   expect(result.current.saves).toEqual([]);
   expect(result.current.error).toBeTruthy();
@@ -598,7 +613,7 @@ describe('setSaved', () => {
   });
 
   test('asked for the state the list is already in, it does nothing', async () => {
-    api.getFavourites.mockResolvedValue([row(look(GUCCI, 3))]);
+    seed([row(look(GUCCI, 3))]);
     const { result } = await mount();
     const before = result.current.saves;
 
@@ -627,5 +642,182 @@ describe('setSaved', () => {
     expect(result.current.isSaved(view({ year: '2020' }))).toBe(true);
     // A saved show is not a saved look of it.
     expect(result.current.isSaved(look(GUCCI, 1))).toBe(false);
+  });
+});
+
+// ── The trap: a star over a row on a page nobody fetched ──────────────────
+//
+// This is the whole reason the keys and the rows are two readings. Before the
+// split, `isSaved` answered off the fetched list — so capping or paging that
+// list meant a look the reader had saved read as UNSAVED the moment its row
+// fell past the first page. The star drew dark over something they kept, and
+// pressing it sent an ADD the server answers "Already in favourites" for.
+//
+// The fixtures below make the two readings disagree deliberately: the page
+// holds one row, the keys hold three. Nothing but the split can pass these.
+
+describe('a save whose row is on a page that has not been fetched', () => {
+  const PAGE_ONE = [row(look(GUCCI, 3))];
+  const EVERYTHING = [row(look(GUCCI, 3)), row(look(PRADA, 9)), row(show(PRADA))];
+
+  const mountPaged = async () => {
+    api.getFavouriteKeys.mockResolvedValue(EVERYTHING);
+    api.getFavouritesPage.mockResolvedValue({
+      favourites: PAGE_ONE, total: 3, hasMore: true, nextCursor: 'c1',
+    });
+    return mount();
+  };
+
+  test('reads as saved anyway', async () => {
+    const { result } = await mountPaged();
+
+    // On the page, and lit.
+    expect(result.current.isSaved(look(GUCCI, 3))).toBe(true);
+    // NOT on the page, and lit — which is the bug this task closes.
+    expect(result.current.isSaved(look(PRADA, 9))).toBe(true);
+    expect(result.current.isSaved(show(PRADA))).toBe(true);
+    // And the rows really are only the first page, so the test is not passing
+    // because everything happened to be fetched after all.
+    expect(result.current.saves).toHaveLength(1);
+    expect(result.current.total).toBe(3);
+    expect(result.current.hasMore).toBe(true);
+  });
+
+  test('something genuinely unsaved still reads dark', async () => {
+    const { result } = await mountPaged();
+
+    // The keys are the answer, so they have to be able to say no. A hook that
+    // answered "saved" to everything would pass the test above.
+    expect(result.current.isSaved(look(GUCCI, 4))).toBe(false);
+    expect(result.current.isSaved(show(GUCCI))).toBe(false);
+    expect(result.current.isSaved(view({ city: 'Paris' }))).toBe(false);
+  });
+
+  test('pressing its star UNSAVES it rather than saving it a second time',
+    async () => {
+      const { result } = await mountPaged();
+
+      await act(async () => { await result.current.toggle(look(PRADA, 9)); });
+
+      // The direction is read off the keys, not off the page. Off the page it
+      // would have looked unsaved and this would have been an add.
+      expect(api.removeFavourite).toHaveBeenCalledWith(
+        PRADA.season.url, PRADA.collection.url, 9);
+      expect(api.addFavourite).not.toHaveBeenCalled();
+      expect(result.current.isSaved(look(PRADA, 9))).toBe(false);
+    });
+
+  test('the keys are asked for whole — no limit, no cursor', async () => {
+    await mountPaged();
+
+    // There is no page of keys to ask for, and a `limit` creeping in here is
+    // the bug coming back by another door.
+    expect(api.getFavouriteKeys).toHaveBeenCalledWith();
+    expect(api.getFavouriteKeys).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ── Paging the rows ───────────────────────────────────────────────────────
+
+describe('the rows come a page at a time', () => {
+  const PAGE_ONE = [row(look(GUCCI, 3)), row(look(GUCCI, 4))];
+  const PAGE_TWO = [row(look(PRADA, 9)), row(show(PRADA))];
+
+  const pages = () => {
+    api.getFavouriteKeys.mockResolvedValue([...PAGE_ONE, ...PAGE_TWO]);
+    api.getFavouritesPage.mockImplementation(async ({ cursor } = {}) => (
+      cursor === 'c1'
+        ? { favourites: PAGE_TWO, total: 4, hasMore: false, nextCursor: null }
+        : { favourites: PAGE_ONE, total: 4, hasMore: true, nextCursor: 'c1' }
+    ));
+  };
+
+  test('the first page is asked for with a limit and no cursor', async () => {
+    pages();
+    await mount();
+
+    expect(api.getFavouritesPage).toHaveBeenCalledWith({ limit: PAGE_SIZE });
+  });
+
+  test('loadMore appends the next page and stops at the end', async () => {
+    pages();
+    const { result } = await mount();
+    expect(result.current.saves).toHaveLength(2);
+    expect(result.current.hasMore).toBe(true);
+
+    await act(async () => { await result.current.loadMore(); });
+
+    // Appended, in order, and the cursor the SERVER gave was handed back
+    // untouched rather than a page number built here.
+    expect(api.getFavouritesPage).toHaveBeenLastCalledWith(
+      { limit: PAGE_SIZE, cursor: 'c1' });
+    expect(result.current.saves).toHaveLength(4);
+    expect(result.current.saves.slice(0, 2)).toEqual(PAGE_ONE);
+    expect(result.current.saves.slice(2)).toEqual(PAGE_TWO);
+    expect(result.current.hasMore).toBe(false);
+  });
+
+  test('loadMore at the end of the list asks for nothing', async () => {
+    pages();
+    const { result } = await mount();
+    await act(async () => { await result.current.loadMore(); });
+    const calls = api.getFavouritesPage.mock.calls.length;
+
+    await act(async () => { await result.current.loadMore(); });
+
+    expect(api.getFavouritesPage).toHaveBeenCalledTimes(calls);
+  });
+
+  test('two presses in the same tick fetch one page, not the same page twice',
+    async () => {
+      pages();
+      const { result } = await mount();
+
+      await act(async () => {
+        await Promise.all([result.current.loadMore(), result.current.loadMore()]);
+      });
+
+      // `hasMore` is state and lags a render; the cursor is a ref and is taken
+      // the moment a page is asked for. Without that guard both presses see
+      // `hasMore === true` and page two lands twice.
+      expect(result.current.saves).toHaveLength(4);
+      expect(api.getFavouritesPage).toHaveBeenCalledTimes(2);   // page one, page two
+    });
+
+  test('a page that fails leaves the control pressable rather than ending the list',
+    async () => {
+      pages();
+      const { result } = await mount();
+      api.getFavouritesPage.mockRejectedValueOnce(new Error('down'));
+
+      await act(async () => { await result.current.loadMore(); });
+      expect(result.current.error).toBeTruthy();
+      expect(result.current.saves).toHaveLength(2);
+      expect(result.current.hasMore).toBe(true);
+
+      // And pressing again works: the cursor went back where it was.
+      await act(async () => { await result.current.loadMore(); });
+      expect(result.current.saves).toHaveLength(4);
+    });
+
+  test('a star pressed while a page is in flight is not dropped by it', async () => {
+    pages();
+    let releasePage;
+    const { result } = await mount();
+    api.getFavouritesPage.mockImplementationOnce(() => new Promise((resolve) => {
+      releasePage = () => resolve(
+        { favourites: PAGE_TWO, total: 4, hasMore: false, nextCursor: null });
+    }));
+
+    let pending;
+    act(() => { pending = result.current.loadMore(); });
+    await act(async () => { await result.current.toggle(look(PRADA, 40)); });
+    await act(async () => { releasePage(); await pending; });
+
+    // Five rows: two from page one, the one just starred, and two from page
+    // two. Appending to a snapshot taken before the request went out would
+    // have thrown the new one away.
+    expect(result.current.saves).toHaveLength(5);
+    expect(result.current.isSaved(look(PRADA, 40))).toBe(true);
   });
 });

@@ -95,10 +95,26 @@ def favourite_target(body: dict) -> dict:
 
 
 def get_favourites():
-    """GET /api/favourites — everything the current user has saved.
+    """GET /api/favourites — what the current user has saved.
 
     All three kinds interleaved by date, because the library lists them that
     way. `?kind=show` narrows it to one.
+
+        ?limit=<n>&cursor=<c>   one page, newest first
+        (neither)               the whole list, as this endpoint always answered
+
+    The answer is the same object either way —
+
+        {"favourites": [...], "total": n, "hasMore": bool, "nextCursor": str|None}
+
+    — so a caller that sends no paging parameters gets the list it has always
+    got under the key it has always read, with three keys beside it that it can
+    ignore. `browse_catalog` answers `total`/`hasMore` for shows in the same
+    shape; this is that shape for saves.
+
+    Paging is by cursor rather than offset. See `favourites.list_page`: this is
+    the list the reader unsaves FROM while they page THROUGH it, and an OFFSET
+    slides by one for every row taken out above it.
     """
     wanted = request.args.get("kind")
     if wanted is not None:
@@ -107,24 +123,70 @@ def get_favourites():
         except favourites.UnknownKind as exc:
             return _refuse(exc)
 
-    # `?limit=` for a caller that wants the newest N rather than all of them.
-    # Absent means all — see `list_all` for why there is no default cap. A
-    # value that is not a number is no value; the query is too cheap to be
-    # worth a 400 over.
+    # A `limit` that is not a number is no limit; the query is too cheap to be
+    # worth a 400 over, and the worst case is the answer this endpoint gave
+    # before paging existed. A `cursor` that is not a cursor is the opposite —
+    # ignoring it hands back the page the caller already has, which a
+    # load-more control would take for a list that never ends. So that one is
+    # refused, loudly, below.
     limit = request.args.get("limit")
     try:
         limit = int(limit) if limit is not None else None
     except ValueError:
         limit = None
 
+    cursor = request.args.get("cursor")
+
     with db.transaction() as conn:
+        user_id = current_user().id
+
+        if limit is None and cursor is None:
+            rows = favourites.list_all(conn, user_id=user_id, kind=wanted)
+            return jsonify(
+                {
+                    "favourites": rows,
+                    "total": len(rows),
+                    "hasMore": False,
+                    "nextCursor": None,
+                }
+            )
+
+        try:
+            page = favourites.list_page(
+                conn,
+                user_id=user_id,
+                kind=wanted,
+                limit=favourites.DEFAULT_PAGE_LIMIT if limit is None else limit,
+                cursor=cursor,
+            )
+        except favourites.BadCursor as exc:
+            return jsonify({"error": str(exc)}), 400
+
         return jsonify(
             {
-                "favourites": favourites.list_all(
-                    conn, user_id=current_user().id, kind=wanted, limit=limit
-                )
+                "favourites": page["rows"],
+                "total": page["total"],
+                "hasMore": page["hasMore"],
+                "nextCursor": page["nextCursor"],
             }
         )
+
+
+def get_favourite_keys():
+    """GET /api/favourites/keys — the identity of every save, and nothing else.
+
+    The list above can be paged because this one cannot be. A star is lit by
+    asking whether the thing on screen is saved, of every thumbnail in a strip,
+    so the answer must be local AND complete — a saved look on a page the
+    client has not fetched would read as unsaved, and pressing its star would
+    write a second save of a row the server already holds.
+
+    A key is the columns the three unique indexes are built from: no designer,
+    no season name, no image path, no notes. That is the cheap half of a
+    favourite, which is what makes "all of them" affordable here and not there.
+    """
+    with db.transaction() as conn:
+        return jsonify({"keys": favourites.list_keys(conn, user_id=current_user().id)})
 
 
 def add_favourite():
@@ -248,6 +310,12 @@ def register_favorites_routes(app):
     they reference the central one — so there is nothing left to orphan.
     """
     app.add_url_rule("/api/favourites", "get_favourites", get_favourites, methods=["GET"])
+    app.add_url_rule(
+        "/api/favourites/keys",
+        "get_favourite_keys",
+        get_favourite_keys,
+        methods=["GET"],
+    )
     app.add_url_rule("/api/favourites", "add_favourite", add_favourite, methods=["POST"])
     app.add_url_rule(
         "/api/favourites", "remove_favourite", remove_favourite, methods=["DELETE"]
@@ -262,4 +330,4 @@ def register_favorites_routes(app):
         methods=["GET"],
     )
 
-    print("✅ Favourites API routes registered (5 endpoints, all require auth)")
+    print("✅ Favourites API routes registered (6 endpoints, all require auth)")

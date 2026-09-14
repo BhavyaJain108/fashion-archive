@@ -28,7 +28,10 @@ Like the auth repository, these functions take a connection and never commit.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -450,6 +453,16 @@ def shape(row: dict[str, Any]) -> dict[str, Any]:
 # request for a billion rows must cost what a request for this many costs.
 MAX_LIST_LIMIT = 1000
 
+# What one page holds when the caller does not say. Deliberately generous: the
+# library draws a Finder grid and a page that does not fill the window is a
+# scroll that loads twice before the reader has seen anything.
+DEFAULT_PAGE_LIMIT = 200
+
+# The order every listing here reads in, stated once. `list_all`, `list_page`
+# and the cursor comparison must agree about it or a cursor names a place in
+# one order and is applied in another.
+_PAGE_ORDER = "ORDER BY created_at DESC, id DESC"
+
 
 def list_all(
     conn, *, user_id: UUID, kind: str | None = None, limit: int | None = None
@@ -459,16 +472,17 @@ def list_all(
     All three kinds interleaved, because the library lists them that way. Pass
     `kind` for one of them, and `limit` for the newest N.
 
-    `limit` is deliberately not defaulted to a number. The whole list is
-    fetched on every archive-page mount, which is what makes a cap tempting —
-    but the client keys its stars off exactly these rows, and a row that did
-    not arrive is a dark star over a look the reader saved and a save that
-    writes a second copy of it. That is the bug this phase exists to close,
-    and a default cap would reintroduce it at whatever number we picked. So
-    the parameter is here for a caller that genuinely wants a page, the
-    ceiling below bounds the worst case, and the library goes on asking for
-    all of it. Paging the archive page's copy needs the client to stop keying
-    off the list first, which is a bigger change than a LIMIT.
+    `limit` is still not defaulted to a number, and still should not be. A cap
+    is not a page: a reader over it loses the tail with no way to ask for the
+    rest, silently. `list_page` below is the paged reading, and it is what the
+    library and the archive page now use; this stays for the caller that
+    genuinely wants the lot, and the ceiling bounds the worst case.
+
+    What made a cap actively dangerous here was that the client keyed its stars
+    off exactly these rows, so a row that did not arrive was a dark star over a
+    look the reader had saved — and pressing it wrote a second copy. That is no
+    longer true: `list_keys` answers the star, in full, and the rows are the
+    display half only. See `list_keys`.
     """
     where = "user_id = %s"
     params: tuple = (user_id,)
@@ -490,7 +504,7 @@ def list_all(
                    view_filters, view_name, notes, created_at
             FROM favourites
             WHERE {where}
-            ORDER BY created_at DESC, id DESC
+            {_PAGE_ORDER}
             {bound}
             """,
             params,
@@ -498,6 +512,193 @@ def list_all(
         rows = cur.fetchall()
 
     return [shape(row) for row in rows]
+
+
+# ---------------------------------------------------------------- paging ---
+#
+# A page is taken by CURSOR, not by OFFSET, and the reason is this page's own
+# behaviour rather than a general preference.
+#
+# `browse_catalog` pages the show index with LIMIT/OFFSET, and that is right
+# there: the catalogue is 55,700 read-only rows nobody deletes while they are
+# reading them. The library is the opposite. It is the list of the reader's own
+# saves, it is the page that unsaves things, and it is the page that pages. Take
+# a row out above the cursor and every later OFFSET slides by one: the next page
+# starts one row late, and the row that fell through the gap is never drawn
+# again until a reload. Unsave three things while scrolling and three saves
+# silently vanish from a list whose entire job is to hold them.
+#
+# A key cursor cannot slide. It names the last row actually delivered — its
+# (created_at, id) — and the next page is everything strictly after it in the
+# same order. Rows removed above it were already drawn; rows added above it
+# belong to the top of the list, where a reload puts them, and not to the
+# middle of a scroll.
+#
+# The pair, not created_at alone: `created_at` is a timestamp and two saves in
+# the same millisecond are one value. `id` breaks the tie, and it is in the
+# ORDER BY for exactly that reason, so the row comparison below is total.
+
+class BadCursor(ValueError):
+    """A cursor this server did not mint. A 400, not a silent first page.
+
+    Silently restarting on a cursor we cannot read is the worse failure: a
+    load-more control would hand back the page it already has, forever, and
+    look like a list that will not end.
+    """
+
+
+def encode_cursor(row: dict[str, Any]) -> str:
+    """The place a page stopped, as one opaque string.
+
+    base64url over `<timestamp>|<uuid>` rather than the pair in the clear: this
+    travels in a query string, `created_at.isoformat()` ends in `+00:00`, and a
+    `+` in a query string is a space by the time Flask has parsed it. Encoding
+    it removes the question rather than relying on every caller to escape.
+    """
+    raw = f"{row['created_at'].isoformat()}|{row['id']}"
+    return base64.urlsafe_b64encode(raw.encode("utf-8")).decode("ascii").rstrip("=")
+
+
+def decode_cursor(cursor: str | None) -> tuple[str, int] | None:
+    """A cursor as the (created_at, id) pair it names, or None for the first page.
+
+    The timestamp goes back to Postgres as text and is cast in the statement, so
+    nothing here has to know how psycopg would adapt a datetime. The id is
+    `favourites.id`, a bigserial, and is parsed to an int here — a cursor whose
+    second half is not a number names no row, and is refused rather than left to
+    a cast to refuse with a database error.
+    """
+    if cursor is None or cursor == "":
+        return None
+    try:
+        padding = "=" * (-len(cursor) % 4)
+        raw = base64.urlsafe_b64decode(cursor + padding).decode("utf-8")
+        at, sep, ident = raw.partition("|")
+        if not at or not sep or not ident:
+            raise ValueError("cursor is not a pair")
+        # Both halves are checked here rather than left to the casts in the
+        # statement. A cast that refuses raises a database error mid-transaction
+        # — a 500 over somebody's query string — where this is a 400 that says
+        # which parameter was wrong.
+        datetime.fromisoformat(at)
+        return at, int(ident)
+    except (ValueError, TypeError, binascii.Error, UnicodeDecodeError) as exc:
+        raise BadCursor(f"unreadable cursor {cursor!r}") from exc
+
+
+def list_page(
+    conn,
+    *,
+    user_id: UUID,
+    kind: str | None = None,
+    limit: int = DEFAULT_PAGE_LIMIT,
+    cursor: str | None = None,
+) -> dict[str, Any]:
+    """One page of a user's saves, newest first, plus what is left.
+
+        {"rows": [...], "total": int, "hasMore": bool, "nextCursor": str|None}
+
+    `total` is the count of the WHOLE list under the same `kind`, not of the
+    page — it is what the sidebar counts with, and a count of the page would
+    make the library claim the reader has as many saves as happen to be drawn.
+
+    `hasMore` is measured rather than inferred: the query asks for one row more
+    than the caller wanted and reports whether it arrived. `len(rows) == limit`
+    would claim another page exists every time the list divides evenly by the
+    page size, and the reader would meet an empty "load more" at the end of
+    every exact multiple.
+    """
+    limit = max(0, min(int(limit), MAX_LIST_LIMIT))
+    after = decode_cursor(cursor)
+
+    where = "user_id = %s"
+    params: tuple = (user_id,)
+    if kind is not None:
+        where += " AND kind = %s"
+        params += (check_kind(kind),)
+
+    with _dict_cursor(conn) as cur:
+        cur.execute(f"SELECT count(*) AS n FROM favourites WHERE {where}", params)
+        total = cur.fetchone()["n"]
+
+        page_where = where
+        page_params = params
+        if after is not None:
+            # A row comparison, which is the whole of the cursor: it is the
+            # exact inverse of `ORDER BY created_at DESC, id DESC`, so "after
+            # the last row of the previous page" is one expression rather than
+            # the three-way OR that spelling it per column would need.
+            page_where += " AND (created_at, id) < (%s::timestamptz, %s::bigint)"
+            page_params = page_params + after
+
+        cur.execute(
+            f"""
+            SELECT id, kind, season_name, season_url, season_link_text,
+                   collection_designer, collection_url, collection_id,
+                   look_number, look_total, image_path,
+                   view_filters, view_name, notes, created_at
+            FROM favourites
+            WHERE {page_where}
+            {_PAGE_ORDER}
+            LIMIT %s
+            """,
+            page_params + (limit + 1,),
+        )
+        fetched = cur.fetchall()
+
+    has_more = len(fetched) > limit
+    rows = fetched[:limit]
+    return {
+        "rows": [shape(row) for row in rows],
+        "total": total,
+        "hasMore": has_more,
+        # Only when there is a next page to ask for. A cursor handed out at the
+        # end of the list is an invitation to fetch nothing.
+        "nextCursor": encode_cursor(rows[-1]) if has_more and rows else None,
+    }
+
+
+def list_keys(conn, *, user_id: UUID) -> list[dict[str, Any]]:
+    """Every save this user has, as its identity and nothing else.
+
+    This is what makes paging the rows safe. The client lights a star by asking
+    whether the thing on screen is in the set of saved things, and that question
+    is asked of every thumbnail in a strip — so the answer has to be local and
+    it has to be COMPLETE. Page the list the star reads and a look saved on page
+    two reads as unsaved on the archive page, and pressing the star then writes
+    a second save of a row the server already holds.
+
+    So the rows are paged and the keys are not. A key is the five columns the
+    three unique indexes are built from and nothing else: no designer, no season
+    name, no image path, no notes, no timestamp. That is what makes "all of
+    them" affordable where "all of the rows" was not — the heavy half of a
+    favourite is the display half, and the star never looks at it.
+
+    The shape is `shape`'s nesting minus the display fields, deliberately, so
+    the client's one key function reads a key row and a full row identically.
+    """
+    with _dict_cursor(conn) as cur:
+        cur.execute(
+            f"""
+            SELECT kind, season_url, collection_url, look_number, view_filters
+            FROM favourites
+            WHERE user_id = %s
+            {_PAGE_ORDER}
+            """,
+            (user_id,),
+        )
+        rows = cur.fetchall()
+
+    return [
+        {
+            "kind": row["kind"],
+            "season": {"url": row["season_url"]},
+            "collection": {"url": row["collection_url"]},
+            "look": {"number": row["look_number"]},
+            "view": {"filters": row["view_filters"]},
+        }
+        for row in rows
+    ]
 
 
 def stats(conn, *, user_id: UUID) -> dict[str, int]:

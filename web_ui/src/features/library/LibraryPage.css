@@ -619,6 +619,28 @@
   align-self: flex-start;
 }
 
+/* The rest of this pane, at the foot of it, above the selection bar and the
+   status bar. Drawn only while there is more to load, so a reader whose whole
+   library fits on one page never meets it.
+
+   No colour of its own: it borrows `--ar-bg-sub` and `--ar-line` from the
+   same token block the selection bar below takes them from, because it sits
+   in the same strip and a second ground there would read as a second kind of
+   thing. `flex-shrink: 0` for the same reason that bar has it — the pane's
+   list is what gives when the window is short, not the controls under it. */
+.lib-more {
+  flex-shrink: 0;
+  padding: 8px 24px;
+  border-top: 1px solid var(--ar-line);
+  background: var(--ar-bg-sub);
+}
+
+.lib-more-btn {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 /* The bar, at the foot of the pane above the status bar. It is only drawn
    when something is ticked, so it takes no room the rest of the time. */
 .lib-select-bar {

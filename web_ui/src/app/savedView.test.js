@@ -31,6 +31,8 @@ jest.mock('../shared/api', () => ({
     getDesigners: jest.fn(),
     getRecents: jest.fn(),
     getFavourites: jest.fn(),
+    getFavouriteKeys: jest.fn(),
+    getFavouritesPage: jest.fn(),
     getFavouriteStats: jest.fn(),
     searchShows: jest.fn(),
     browseCatalog: jest.fn(),
@@ -145,7 +147,19 @@ beforeEach(() => {
     return {};
   });
 
+  // The fake server, read three ways, all off the one table — which is what
+  // the real server does too. The keys are every row's identity, whole; a page
+  // is the rows themselves, narrowed by kind. A fake that answered these from
+  // two different tables could not fail when the client keyed one off the
+  // other.
   API.getFavourites.mockImplementation(async () => table.map(r => ({ ...r })));
+  API.getFavouriteKeys.mockImplementation(async () => table.map(r => ({ ...r })));
+  API.getFavouritesPage.mockImplementation(async ({ kind = null } = {}) => {
+    const rows = table
+      .filter(r => kind === null || (r.kind || 'look') === kind)
+      .map(r => ({ ...r }));
+    return { favourites: rows, total: rows.length, hasMore: false, nextCursor: null };
+  });
 
   // ON CONFLICT DO NOTHING on (user_id, md5(view_filters::text)) WHERE
   // kind = 'view'. A second save of the same view is reported, not stored.

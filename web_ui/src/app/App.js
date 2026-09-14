@@ -202,11 +202,18 @@ function App() {
     );
   }
 
+  // `navigate` is handed down rather than imported by the pages that use it.
+  // It is `go` — useRoute's navigate — and it is here for the same reason
+  // `onPageSwitch` is: a page that reaches into app/router for it is a page
+  // that cannot be rendered anywhere this app is not, and cannot be tested
+  // without stubbing a module. Every navigation in this app now comes in
+  // through a prop or out of this file.
   const pageProps = {
     currentPage,
     onPageSwitch: handlePageSwitch,
     currentUser,
     onLogout: handleLogout,
+    navigate: go,
   };
 
   return (

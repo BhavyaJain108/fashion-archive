@@ -18,8 +18,9 @@ import { render, screen, waitFor, fireEvent, within } from '@testing-library/rea
 
 jest.mock('../../shared/api', () => ({
   FashionArchiveAPI: {
-    getFavourites: jest.fn(),
-    getFavouriteStats: jest.fn(),
+    // The page reads its rows a page at a time, per kind, and counts with the
+    // `total` that comes back beside them.
+    getFavouritesPage: jest.fn(),
     removeFavourite: jest.fn(),
     removeShowFavourite: jest.fn(),
     removeViewFavourite: jest.fn(),
@@ -42,6 +43,13 @@ jest.mock('../../shared/api', () => ({
 
 // eslint-disable-next-line import/first
 import LibraryPage from './LibraryPage';
+// The page is handed `navigate`, so what a navigation test can check is the
+// ROUTE it was asked for. `buildRoute` is the same function the real navigate
+// puts through to window.history, so the URLs asserted below are the URLs the
+// address bar would have held — the assertions did not get weaker when the
+// module stub went away, they got one step earlier.
+// eslint-disable-next-line import/first
+import { buildRoute } from '../../app/routes';
 
 // eslint-disable-next-line import/first
 const { FashionArchiveAPI: API, AlbumsAPI } = require('../../shared/api');
@@ -115,14 +123,38 @@ const OTHER_VIEW = {
 
 const ALL = [LOOK, SHOW, OTHER_SHOW, VIEW, OTHER_VIEW];
 
-const path = () => window.location.pathname + window.location.search;
+// The fake server. One table, answered per kind with its own count — which is
+// what GET /api/favourites?kind=…&limit=… does. Narrowing here rather than in
+// the page is the point: the page must ask for the kind it is showing, and a
+// fake that returned everything to every request could not fail when it didn't.
+const serve = (table, { pageSize = Infinity } = {}) => {
+  API.getFavouritesPage.mockImplementation(async ({ kind = null, cursor = null } = {}) => {
+    const all = table.filter(r => kind === null || (r.kind || 'look') === kind);
+    const from = cursor ? all.findIndex(r => r.id === cursor) + 1 : 0;
+    const rows = all.slice(from, from + pageSize);
+    const end = from + rows.length;
+    return {
+      favourites: rows,
+      total: all.length,
+      hasMore: end < all.length,
+      nextCursor: end < all.length ? rows[rows.length - 1].id : null,
+    };
+  });
+};
+
+// Where the page asked to go, as a URL. Not "navigate was called" — that
+// passes for a route built out of the wrong row, which is the mistake these
+// tests exist to catch. The whole route object is asserted in two places
+// below; everywhere else this is it, spelled as the address.
+let navigate;
+const wentTo = () => buildRoute(navigate.mock.calls[navigate.mock.calls.length - 1][0]);
 
 beforeEach(() => {
   window.localStorage.clear();
   window.history.replaceState({}, '', '/library');
   jest.clearAllMocks();
-  API.getFavourites.mockResolvedValue(ALL);
-  API.getFavouriteStats.mockResolvedValue({});
+  navigate = jest.fn();
+  serve(ALL);
   API.removeFavourite.mockResolvedValue({ success: true });
   API.removeShowFavourite.mockResolvedValue({ success: true });
   API.removeViewFavourite.mockResolvedValue({ success: true });
@@ -158,11 +190,17 @@ const showCards = () => Array.from(document.querySelectorAll('.lib-show-card'));
 const viewRows = () => Array.from(document.querySelectorAll('.lib-view-row'));
 
 const renderPage = async () => {
-  render(<LibraryPage currentPage="library" currentUser={{ username: 'test' }} />);
+  render(
+    <LibraryPage
+      currentPage="library"
+      currentUser={{ username: 'test' }}
+      navigate={navigate}
+    />,
+  );
   // The looks pane is the default, and the look's number is the first thing
   // on it that only appears once the response has landed.
   await screen.findByText('Looks');
-  await waitFor(() => expect(API.getFavourites).toHaveBeenCalled());
+  await waitFor(() => expect(API.getFavouritesPage).toHaveBeenCalled());
 };
 
 // ── The albums shelf, which is the way in to one ───────────────────
@@ -182,7 +220,7 @@ test('the sidebar lists the albums, and clicking one opens it', async () => {
 
   // An address, built by buildRoute, so Back walks out of it.
   fireEvent.click(tailoring);
-  expect(path()).toBe('/library/albums/9');
+  expect(wentTo()).toBe('/library/albums/9');
 });
 
 test('a reader with no albums is told so rather than shown nothing', async () => {
@@ -265,7 +303,7 @@ test('clicking a saved show opens it on the archive page', async () => {
   fireEvent.click(within(showCards()[0]).getByText('Yohji Yamamoto'));
 
   // The collection id out of the show's own url, and the readable slug.
-  expect(path()).toBe('/hf/yohji-yamamoto-fall-1999/1234');
+  expect(wentTo()).toBe('/hf/yohji-yamamoto-fall-1999/1234');
 });
 
 test('the second saved show opens its own show, not the first row show', async () => {
@@ -275,8 +313,17 @@ test('the second saved show opens its own show, not the first row show', async (
 
   fireEvent.click(within(showCards()[1]).getByText('Raf Simons'));
 
-  // Raf's collection id, off Raf's own row.
-  expect(path()).toBe('/hf/raf-simons-fall-2001/5678');
+  // The whole route object, not just the URL it spells: `collectionId` is the
+  // one authoritative segment and the slug is decoration, so a route carrying
+  // Raf's slug and Yohji's id would open Yohji's show and read correctly in
+  // the address bar while doing it.
+  expect(navigate).toHaveBeenCalledTimes(1);
+  expect(navigate).toHaveBeenCalledWith({
+    page: 'high-fashion',
+    collectionId: '5678',
+    slug: 'raf-simons-fall-2001',
+  });
+  expect(wentTo()).toBe('/hf/raf-simons-fall-2001/5678');
 });
 
 test('clicking a saved view opens the archive with those filters applied', async () => {
@@ -288,7 +335,7 @@ test('clicking a saved view opens the archive with those filters applied', async
 
   // A URL — buildRoute's sorted query string — and not some second
   // mechanism for handing filters across.
-  expect(path()).toBe('/?city=Paris&year=2020');
+  expect(wentTo()).toBe('/?city=Paris&year=2020');
 });
 
 test('the second saved view opens its own filters, not the first row filters', async () => {
@@ -298,7 +345,14 @@ test('the second saved view opens its own filters, not the first row filters', a
 
   fireEvent.click(within(viewRows()[1]).getByText('Milan couture'));
 
-  expect(path()).toBe('/?category=Haute+Couture&city=Milan');
+  // Milan's filters, off Milan's own row, and no collection dragged along
+  // from whatever was open before.
+  expect(navigate).toHaveBeenCalledTimes(1);
+  expect(navigate).toHaveBeenCalledWith({
+    page: 'high-fashion',
+    filters: { city: 'Milan', category: 'Haute Couture' },
+  });
+  expect(wentTo()).toBe('/?category=Haute+Couture&city=Milan');
 });
 
 // ── Removal: the right row goes, and only it ──────────────────────────────
@@ -410,7 +464,7 @@ test('a removal the server refuses leaves the row on screen', async () => {
 // ── Empty states, per kind ────────────────────────────────────────────────
 
 test('a reader with looks but no views is told what a view is', async () => {
-  API.getFavourites.mockResolvedValue([LOOK]);
+  serve([LOOK]);
   await renderPage();
   openKind('Views');
 
@@ -424,7 +478,7 @@ test('a reader with looks but no views is told what a view is', async () => {
 // designer mode for exactly that reason. An empty state that teaches the one
 // move that does not work is worse than no empty state.
 test('the hint does not offer a designer, which a view cannot hold', async () => {
-  API.getFavourites.mockResolvedValue([LOOK]);
+  serve([LOOK]);
   await renderPage();
   openKind('Views');
 
@@ -433,7 +487,7 @@ test('the hint does not offer a designer, which a view cannot hold', async () =>
 });
 
 test('a reader with looks but no shows is told what a show is', async () => {
-  API.getFavourites.mockResolvedValue([LOOK]);
+  serve([LOOK]);
   await renderPage();
   openKind('Shows');
 
@@ -442,7 +496,7 @@ test('a reader with looks but no shows is told what a show is', async () => {
 });
 
 test('a reader with nothing saved still sees all three kinds', async () => {
-  API.getFavourites.mockResolvedValue([]);
+  serve([]);
   await renderPage();
 
   await screen.findByText('No saved looks');
@@ -573,4 +627,124 @@ test('a ticked thing that is unsaved stops being ticked', async () => {
   // One left, and it is the one still on screen — a selection holding an id
   // the library no longer has would file a row that does not exist.
   await waitFor(() => expect(screen.getByText('1 selected')).toBeInTheDocument());
+});
+
+// ── Paging ────────────────────────────────────────────────────────────────
+//
+// The library used to fetch every favourite on every mount. It now fetches one
+// page per kind and asks for the rest on a control. What is pinned here is the
+// part that is easy to get wrong and impossible to see: the counts must be the
+// SERVER's, not the loaded rows'; the panes must page independently, because
+// the kinds are interleaved by date and one shared page would leave the Views
+// pane empty behind four hundred looks; and a page that fails must not look
+// like the end of the library.
+
+const manyLooks = (count) => Array.from({ length: count }, (_, i) => ({
+  ...LOOK,
+  id: `fav-look-${i}`,
+  look: { number: i + 1, total: 40 },
+  image_path: `shows/1234/look-${i + 1}.jpg`,
+}));
+
+const moreButton = () => document.querySelector('.lib-more-btn');
+
+test('each pane asks for its own kind, not for the whole library', async () => {
+  await renderPage();
+
+  // Three requests, one per kind, each naming it. A single unkinded fetch is
+  // the thing this replaced: interleaved by date, it would fill the first page
+  // with whatever was saved most recently and leave the other panes empty.
+  const kinds = API.getFavouritesPage.mock.calls.map(([args]) => args.kind);
+  expect(kinds.sort()).toEqual(['look', 'show', 'view']);
+  for (const [args] of API.getFavouritesPage.mock.calls) {
+    expect(args.limit).toBeGreaterThan(0);
+    expect(args.cursor).toBeUndefined();
+  }
+});
+
+test('the counts are the server’s, not the number of rows loaded', async () => {
+  serve(manyLooks(412), { pageSize: 200 });
+  await renderPage();
+
+  // 412, with 200 drawn. Counting the loaded rows would tell a reader with
+  // four hundred saved looks that they have two hundred — and the number they
+  // are being told is the one thing on this page they cannot check by eye.
+  await waitFor(() => expect(within(kindRow('Looks')).getByText('412')).toBeInTheDocument());
+  expect(document.querySelectorAll('.fav-thumb')).toHaveLength(200);
+  expect(screen.getByText('All looks').closest('.fav-collection'))
+    .toHaveTextContent('412 looks');
+});
+
+test('the control loads the next page and appends it', async () => {
+  serve(manyLooks(412), { pageSize: 200 });
+  await renderPage();
+
+  await waitFor(() => expect(moreButton()).not.toBeNull());
+  // It says how much is left rather than just "more": a control with no end in
+  // sight over a library of four hundred is a control nobody presses twice.
+  expect(moreButton()).toHaveTextContent('200 of 412 shown');
+
+  fireEvent.click(moreButton());
+
+  await waitFor(() => expect(document.querySelectorAll('.fav-thumb')).toHaveLength(400));
+  // The cursor came from the server's answer and went back untouched.
+  const [last] = API.getFavouritesPage.mock.calls[API.getFavouritesPage.mock.calls.length - 1];
+  expect(last).toEqual({ kind: 'look', limit: 200, cursor: 'fav-look-199' });
+
+  fireEvent.click(moreButton());
+  await waitFor(() => expect(document.querySelectorAll('.fav-thumb')).toHaveLength(412));
+  // And at the end of the list the control is gone, rather than sitting there
+  // fetching nothing.
+  await waitFor(() => expect(moreButton()).toBeNull());
+});
+
+test('the panes page independently of each other', async () => {
+  // Three views, saved before four hundred looks. One shared page over the
+  // interleaved list would put all four hundred looks in front of them.
+  serve([...manyLooks(400), VIEW, OTHER_VIEW], { pageSize: 2 });
+  await renderPage();
+
+  openKind('Views');
+
+  // Both views, on the first page of their own pane, with no looks loaded
+  // beyond that pane's own first two.
+  await waitFor(() => expect(viewRows()).toHaveLength(2));
+  expect(within(kindRow('Views')).getByText('2')).toBeInTheDocument();
+  expect(within(kindRow('Looks')).getByText('400')).toBeInTheDocument();
+  // Nothing left to load in this pane, so no control over it.
+  expect(moreButton()).toBeNull();
+});
+
+test('a page that fails leaves the control pressable rather than ending the list',
+  async () => {
+    serve(manyLooks(412), { pageSize: 200 });
+    await renderPage();
+    await waitFor(() => expect(moreButton()).not.toBeNull());
+
+    const working = API.getFavouritesPage.getMockImplementation();
+    API.getFavouritesPage.mockRejectedValueOnce(new Error('down'));
+    fireEvent.click(moreButton());
+
+    // Still 200 drawn, and the control is still there — a reader whose
+    // network blipped must not be told their library ends at two hundred.
+    await waitFor(() => expect(moreButton()).toBeEnabled());
+    expect(document.querySelectorAll('.fav-thumb')).toHaveLength(200);
+
+    API.getFavouritesPage.mockImplementation(working);
+    fireEvent.click(moreButton());
+    await waitFor(() => expect(document.querySelectorAll('.fav-thumb')).toHaveLength(400));
+  });
+
+test('unsaving a row brings the count down with it', async () => {
+  serve(manyLooks(412), { pageSize: 200 });
+  await renderPage();
+  await waitFor(() => expect(within(kindRow('Looks')).getByText('412')).toBeInTheDocument());
+
+  fireEvent.click(document.querySelector('.fav-remove'));
+
+  await waitFor(() => expect(API.removeFavourite).toHaveBeenCalled());
+  // 411, from 412 — not recounted off the loaded rows, which would drop it to
+  // 199, and not left at 412, which would be a count the reader can see is
+  // wrong the moment the list is short enough to count.
+  await waitFor(() => expect(within(kindRow('Looks')).getByText('411')).toBeInTheDocument());
 });

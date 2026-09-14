@@ -56,6 +56,8 @@ jest.mock('../../shared/api', () => ({
     getDesigners: jest.fn(),
     getRecents: jest.fn(),
     getFavourites: jest.fn(),
+    getFavouriteKeys: jest.fn(),
+    getFavouritesPage: jest.fn(),
     searchShows: jest.fn(),
     browseCatalog: jest.fn(),
     streamCollectionImages: jest.fn(),
@@ -132,6 +134,12 @@ beforeEach(() => {
   API.getDesigners.mockResolvedValue([]);
   API.getRecents.mockResolvedValue([]);
   API.getFavourites.mockResolvedValue([]);
+  // The star reads the KEYS, whole; the rows come a page at a time and the
+  // archive page draws none of them. Both are seeded so a suite that sees a
+  // dark star is seeing the page's own bug and not a missing mock.
+  API.getFavouriteKeys.mockResolvedValue([]);
+  API.getFavouritesPage.mockResolvedValue(
+    { favourites: [], total: 0, hasMore: false, nextCursor: null });
   API.searchShows.mockResolvedValue({ success: true, shows: [], total: 0 });
   API.downloadVideo.mockResolvedValue(null);
   API.addFavourite.mockResolvedValue({});
@@ -224,10 +232,11 @@ test('a look put in an album is starred at once, and is not saved twice', async 
   expect(look.number).toBe(1);
 
   // THE ASSERTION. The star is lit now — not after a reload, not after the
-  // favourites list is fetched again. `getFavourites` has been called exactly
-  // once, on mount, so nothing has re-read the list since the add.
+  // list the star reads is fetched again. `getFavouriteKeys` is that list, and
+  // it has been called exactly once, on mount, so nothing has re-read it since
+  // the add.
   await waitFor(() => expect(lookStar(1)).toHaveAttribute('aria-pressed', 'true'));
-  expect(API.getFavourites).toHaveBeenCalledTimes(1);
+  expect(API.getFavouriteKeys).toHaveBeenCalledTimes(1);
 
   // And the save was the album endpoint's, inside its own transaction. A
   // separate addFavourite here would be a second copy of the same look — the

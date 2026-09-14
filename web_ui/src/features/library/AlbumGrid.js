@@ -1,7 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import TopBar from '../../shared/ui/TopBar';
 import { FashionArchiveAPI } from '../../shared/api';
-import { navigate } from '../../app/router';
 import { slugify } from '../../app/routes';
 import { cleanDesignerName } from '../../shared/lib/designerName';
 import { lookLabel, lookAlt } from '../../shared/lib/lookLabel';
@@ -20,8 +19,8 @@ import './AlbumGrid.css';
 // grouping, a single/grid toggle and a cursor into the looks; an album holds
 // what somebody put in it, in an order they chose, and reads it through
 // `useAlbums` rather than `getFavourites`. Rendering it as a mode would mount
-// all of that to ignore all of it — and would fetch the whole library to show
-// twelve tiles, which is the fetch task 7 is already carrying as a cost.
+// all of that to ignore all of it — and would fetch three pages of the library
+// to show twelve tiles it does not hold.
 
 // The three orders the table stores, and what to call them. The values are
 // `SORT_ORDERS` in backend/userdata/albums.py verbatim: a fourth spelling
@@ -212,7 +211,12 @@ function Tile({ item, selected, onSelect, onOpen }) {
 
 // ── The page ─────────────────────────────────────────────────────────────
 
-function AlbumGrid({ currentPage, onPageSwitch, currentUser, onLogout, albumId }) {
+// `navigate` is a prop here for the same reason it is one on LibraryPage: both
+// directions out of this page are addresses, and a page that imports the thing
+// that writes them cannot be rendered without it.
+function AlbumGrid({
+  currentPage, onPageSwitch, currentUser, onLogout, albumId, navigate,
+}) {
   const {
     album, items, itemsLoading, setAlbumOptions, removeFromAlbum,
   } = useAlbums(albumId);

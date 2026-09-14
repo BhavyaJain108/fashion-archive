@@ -54,6 +54,11 @@ jest.mock('../auth/AuthPanel', () => ({
 import AlbumGrid, { orderItems, seasonKey } from './AlbumGrid';
 // eslint-disable-next-line import/first
 import App from '../../app/App';
+// The page is handed `navigate`, so a navigation test checks the ROUTE it was
+// asked for. `buildRoute` is what the real navigate puts through to history,
+// so the URLs below are the URLs the address bar would have held.
+// eslint-disable-next-line import/first
+import { buildRoute } from '../../app/routes';
 
 // eslint-disable-next-line import/first
 const { AlbumsAPI, FashionArchiveAPI: API } = require('../../shared/api');
@@ -169,9 +174,18 @@ beforeEach(() => {
   });
   AlbumsAPI.removeFromAlbum.mockResolvedValue({ ok: true, status: 200, success: true });
   AlbumsAPI.deleteAlbum.mockResolvedValue({ ok: true, status: 200, success: true });
+  navigate = jest.fn();
 });
 
+// The real address bar. Used by the route test at the foot of this file, which
+// renders App and so exercises the wiring — App passing `navigate` down — that
+// the spy below deliberately stands in for everywhere else.
 const path = () => window.location.pathname + window.location.search;
+
+// Where the page asked to go, as a URL. Not "navigate was called": a route
+// assembled out of two different rows names a show that exists and opens it.
+let navigate;
+const wentTo = () => buildRoute(navigate.mock.calls[navigate.mock.calls.length - 1][0]);
 
 const tiles = () => Array.from(document.querySelectorAll('.alb-tile'));
 const names = () => Array.from(document.querySelectorAll('.alb-tile-name'))
@@ -180,7 +194,14 @@ const subs = () => Array.from(document.querySelectorAll('.alb-tile-sub'))
   .map(n => n.textContent);
 
 const openAlbum = async () => {
-  render(<AlbumGrid currentPage="library" currentUser={{ username: 'reader' }} albumId="7" />);
+  render(
+    <AlbumGrid
+      currentPage="library"
+      currentUser={{ username: 'reader' }}
+      albumId="7"
+      navigate={navigate}
+    />,
+  );
   await waitFor(() => expect(tiles().length).toBe(rows.length));
 };
 
@@ -361,32 +382,60 @@ test('clicking a tile selects it, and only it', async () => {
 test('opening a look opens its show at that look', async () => {
   await openAlbum();
   fireEvent.doubleClick(tiles()[0]);
-  expect(path()).toBe('/hf/yohji-yamamoto-fall-winter-1999/1234/7');
+  // The whole route, not only the URL: `imageNumber` is what makes this the
+  // look and not the show, and `slug` is decoration parseRoute never reads
+  // back — a route carrying one row's slug and another's id opens the wrong
+  // show and looks right in the address bar doing it.
+  expect(navigate).toHaveBeenCalledWith({
+    page: 'high-fashion',
+    collectionId: '1234',
+    imageNumber: 7,
+    slug: 'yohji-yamamoto-fall-winter-1999',
+  });
+  expect(wentTo()).toBe('/hf/yohji-yamamoto-fall-winter-1999/1234/7');
 });
 
 test('opening a show opens the show, with no look number on it', async () => {
   await openAlbum();
   fireEvent.doubleClick(tiles()[1]);
-  expect(path()).toBe('/hf/raf-simons-spring-summer-2020/5678');
+  // No look number at all — a saved show opens at the top of the run.
+  expect(navigate).toHaveBeenCalledWith({
+    page: 'high-fashion',
+    collectionId: '5678',
+    imageNumber: null,
+    slug: 'raf-simons-spring-summer-2020',
+  });
+  expect(wentTo()).toBe('/hf/raf-simons-spring-summer-2020/5678');
 });
 
 test('opening a view opens the archive with those filters applied', async () => {
   await openAlbum();
   fireEvent.doubleClick(tiles()[2]);
-  expect(path()).toBe('/?city=Paris&year=2020');
+  expect(navigate).toHaveBeenCalledWith({
+    page: 'high-fashion',
+    filters: { year: '2020', city: 'Paris' },
+  });
+  expect(wentTo()).toBe('/?city=Paris&year=2020');
 });
 
 test('the second look opens its own show, not the first row show', async () => {
   await openAlbum();
   fireEvent.doubleClick(tiles()[3]);
-  expect(path()).toBe('/hf/comme-des-garcons-cruise-2018/9012/3');
+  expect(wentTo()).toBe('/hf/comme-des-garcons-cruise-2018/9012/3');
 });
 
 // ── Empty, and gone ──────────────────────────────────────────────────────
 
 test('an empty album says it is empty, and says what goes in one', async () => {
   rows = [];
-  render(<AlbumGrid currentPage="library" currentUser={{ username: 'reader' }} albumId="7" />);
+  render(
+    <AlbumGrid
+      currentPage="library"
+      currentUser={{ username: 'reader' }}
+      albumId="7"
+      navigate={navigate}
+    />,
+  );
 
   await screen.findByText('This album is empty');
   expect(screen.getByText(/add a\s+saved look, a show or a view/)).toBeInTheDocument();
@@ -398,11 +447,19 @@ test('an empty album says it is empty, and says what goes in one', async () => {
 
 test("an album that is not yours is not an album, and offers the way out", async () => {
   AlbumsAPI.getAlbum.mockResolvedValue(null);   // 404: gone, or never yours
-  render(<AlbumGrid currentPage="library" currentUser={{ username: 'reader' }} albumId="7" />);
+  render(
+    <AlbumGrid
+      currentPage="library"
+      currentUser={{ username: 'reader' }}
+      albumId="7"
+      navigate={navigate}
+    />,
+  );
 
   await screen.findByText('No such album');
   fireEvent.click(screen.getByRole('button', { name: 'Back to library' }));
-  expect(path()).toBe('/library');
+  expect(navigate).toHaveBeenCalledWith({ page: 'library' });
+  expect(wentTo()).toBe('/library');
 });
 
 // ── The route ────────────────────────────────────────────────────────────

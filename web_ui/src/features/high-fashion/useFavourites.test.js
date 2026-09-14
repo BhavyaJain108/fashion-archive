@@ -39,13 +39,21 @@ const kept = (collection, number) => ({
   look: { number },
 });
 
-let getFavourites;
+// The list the star reads is the KEYS now — every save, as its identity and
+// nothing else — and the rows are a separate, paged reading this page never
+// draws. The fixtures below seed the keys, which is what these tests were
+// always about.
+let getFavouriteKeys;
+let getFavouritesPage;
 let addFavourite;
 let removeFavourite;
 let errorLog;
 
 beforeEach(() => {
-  getFavourites = jest.spyOn(FashionArchiveAPI, 'getFavourites').mockResolvedValue([]);
+  getFavouriteKeys =
+    jest.spyOn(FashionArchiveAPI, 'getFavouriteKeys').mockResolvedValue([]);
+  getFavouritesPage = jest.spyOn(FashionArchiveAPI, 'getFavouritesPage')
+    .mockResolvedValue({ favourites: [], total: 0, hasMore: false, nextCursor: null });
   addFavourite = jest.spyOn(FashionArchiveAPI, 'addFavourite').mockResolvedValue({});
   removeFavourite = jest.spyOn(FashionArchiveAPI, 'removeFavourite').mockResolvedValue({});
   errorLog = jest.spyOn(console, 'error').mockImplementation(() => {});
@@ -66,13 +74,13 @@ function mount(collection, lookTotal = 40) {
 }
 
 const settled = async (result) => {
-  await waitFor(() => expect(getFavourites).toHaveBeenCalled());
+  await waitFor(() => expect(getFavouriteKeys).toHaveBeenCalled());
   return result;
 };
 
 describe('useFavourites', () => {
   test('marks the looks this user has already kept', async () => {
-    getFavourites.mockResolvedValue([kept(GUCCI, 3), kept(PRADA, 12)]);
+    getFavouriteKeys.mockResolvedValue([kept(GUCCI, 3), kept(PRADA, 12)]);
     const { result } = mount(GUCCI);
     await settled(result);
 
@@ -84,7 +92,7 @@ describe('useFavourites', () => {
   // if the key's other half came from anywhere else, every star, title,
   // aria-pressed and kept class would be answering for a different show.
   test('answers for the show on screen, not for any other', async () => {
-    getFavourites.mockResolvedValue([kept(GUCCI, 3)]);
+    getFavouriteKeys.mockResolvedValue([kept(GUCCI, 3)]);
     const { result, rerender } = mount(PRADA);
     await settled(result);
 
@@ -99,7 +107,7 @@ describe('useFavourites', () => {
   // of the positional delete. A row filed under another season is another
   // row, and the star must not claim it.
   test('a look kept under another season is not this look', async () => {
-    getFavourites.mockResolvedValue([
+    getFavouriteKeys.mockResolvedValue([
       { ...kept(PRADA, 7), season: { url: GUCCI.season_url } },
     ]);
     const { result } = mount(PRADA, 27);
@@ -108,7 +116,7 @@ describe('useFavourites', () => {
   });
 
   test('nothing is kept when there is nothing on screen', async () => {
-    getFavourites.mockResolvedValue([kept(GUCCI, 3)]);
+    getFavouriteKeys.mockResolvedValue([kept(GUCCI, 3)]);
     const { result } = mount(null);
     await settled(result);
     expect(result.current.isFavourite(3)).toBe(false);
@@ -141,7 +149,7 @@ describe('useFavourites', () => {
   // two of the three are urls. This pins that all three come off the same
   // object — the show on screen — and never a mix.
   test('dropping a look sends all three arguments off the same show', async () => {
-    getFavourites.mockResolvedValue([kept(PRADA, 7)]);
+    getFavouriteKeys.mockResolvedValue([kept(PRADA, 7)]);
     const { result } = mount(PRADA, 27);
     await settled(result);
     await waitFor(() => expect(result.current.isFavourite(7)).toBe(true));

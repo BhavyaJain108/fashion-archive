@@ -5,7 +5,26 @@ import { FILTER_KEYS } from '../../app/routes';
 // What this user has kept, of any of the three kinds, and the one way to
 // change it.
 //
-//   useSaves() -> { isSaved(target), toggle(target), saves, loading, error }
+//   useSaves() -> { isSaved(target), setSaved, toggle(target),
+//                   saves, total, hasMore, loadMore, loadingMore,
+//                   loading, error, reload }
+//
+// TWO readings of the same table, because the two questions have different
+// shapes and only one of them can be paged:
+//
+//   the keys   every save this user has, as its identity and nothing else.
+//              Complete, always, and the only thing `isSaved` reads.
+//   the rows   the display half — designer, season, image path, date — and
+//              the half there can be thousands of. Paged.
+//
+// Splitting them is the whole of the paging change. The list used to be one
+// unbounded fetch of full rows on every archive-page mount, and the stars were
+// keyed off exactly those rows — so capping it would have been a dark star over
+// a look the reader had saved, and pressing that star writes a SECOND save of a
+// row the server already holds. Paging it would have been the same bug with a
+// scrollbar. The fix is not to page the thing the star reads: a key is five
+// columns, the rows are twenty, and the star never draws any of the other
+// fifteen. So the keys come whole and cheap, and the rows come a page at a time.
 //
 // A target names one saved thing and nothing else:
 //
@@ -140,6 +159,13 @@ export function rowOfTarget(target) {
 // One row of GET /api/favourites as a target. The list nests these —
 // collection.url, look.number, view.filters — and a row saved before kinds
 // existed carries no `kind` at all, which the server also reads as a look.
+//
+// A KEY row from GET /api/favourites/keys reads through here unchanged: it is
+// this same nesting with the display fields left out, and nothing below
+// touches a display field. That is deliberate and it is the reason the key
+// endpoint answers in this shape rather than a flat one — one key function for
+// what the server sent, whichever of the two it sent, because two key
+// functions is how a star ends up lit for a row nobody saved.
 export function targetOfRow(row) {
   if (!row) return null;
   const kind = row.kind || 'look';
@@ -196,22 +222,54 @@ export function wrote(answer, added) {
 
 // ---------------------------------------------------------------- hook ---
 
-// Loaded once and held as a set of keys, because the question is asked of
-// every thumbnail on screen — a request per look would be hundreds of requests
-// to draw a strip. Saves are per user by construction: the endpoint reads the
-// session, so there is no user id to pass and no way to see anyone else's.
+// How many rows one page of the library is. Not how many keys — there is no
+// such number, the keys come whole.
+export const PAGE_SIZE = 200;
+
+// The keys are loaded once, whole, and held as a Set, because the question is
+// asked of every thumbnail on screen — a request per look would be hundreds of
+// requests to draw a strip. The rows are loaded a page at a time, because there
+// is no ceiling on how many a reader has and the archive page used to fetch all
+// of them to draw none of them.
+//
+// Saves are per user by construction: both endpoints read the session, so there
+// is no user id to pass and no way to see anyone else's.
 export function useSaves() {
+  // ── What is saved ──────────────────────────────────────────────────────
+  //
+  // The identity of every save, complete. This is the list `isSaved` reads and
+  // the list every optimistic flip moves. It is NOT the paged one, and that
+  // separation is the whole point: a star must be right about a save whose row
+  // has not been fetched.
+  const [keys, setKeys] = useState([]);
+
+  // ── What is on the shelf ───────────────────────────────────────────────
+  //
+  // The rows, a page at a time, newest first. `cursor` is the server's opaque
+  // bookmark for the last row delivered — passed back untouched, never parsed
+  // and never built here.
   const [saves, setSaves] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const cursor = useRef(null);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const alive = useRef(true);
 
-  // The rows, readable synchronously. A write reads what is saved, flips it,
-  // and a write that runs later in the same tick must read that flip —
-  // `saves` does not land until the next render, so on its own it would hand
-  // the second write the state the first one started from. Everything that
-  // changes the list goes through `applySaves`, so the ref and the state are
-  // set in the same statement and there is no path that moves one only.
+  // Both lists, readable synchronously. A write reads what is saved, flips it,
+  // and a write that runs later in the same tick must read that flip — state
+  // does not land until the next render, so on its own it would hand the second
+  // write the state the first one started from. Everything that changes either
+  // list goes through these, so the ref and the state are set in the same
+  // statement and there is no path that moves one only.
+  const keysRef = useRef(keys);
+  const applyKeys = useCallback((rows) => {
+    keysRef.current = rows;
+    setKeys(rows);
+  }, []);
+
   const savesRef = useRef(saves);
   const applySaves = useCallback((rows) => {
     savesRef.current = rows;
@@ -238,27 +296,95 @@ export function useSaves() {
     return () => { alive.current = false; };
   }, []);
 
+  // The two loads, in one call, because a star lit off the keys over a shelf
+  // drawn off the rows must not be able to show a half-loaded library.
+  //
+  // The keys request is the one that matters. If it fails there is no key set,
+  // every star reads dark, and pressing one writes a second save of a row the
+  // server already holds — so it is reported as an error rather than swallowed
+  // into an empty list, and `saves` is left alone.
   const load = useCallback(async () => {
     try {
-      const rows = await FashionArchiveAPI.getFavourites();
+      const [allKeys, page] = await Promise.all([
+        FashionArchiveAPI.getFavouriteKeys(),
+        FashionArchiveAPI.getFavouritesPage({ limit: PAGE_SIZE }),
+      ]);
       if (!alive.current) return;
-      applySaves(rows || []);
+      applyKeys(allKeys || []);
+      applySaves(page.favourites || []);
+      setTotal(page.total || 0);
+      setHasMore(Boolean(page.hasMore));
+      cursor.current = page.nextCursor || null;
+      setError(null);
     } catch (err) {
       console.error('Could not load saves:', err);
       if (alive.current) setError(err);
     } finally {
       if (alive.current) setLoading(false);
     }
-  }, [applySaves]);
+  }, [applyKeys, applySaves]);
 
   useEffect(() => { load(); }, [load]);
 
-  const savedKeys = useMemo(() => keySetOf(saves), [saves]);
+  // The next page of ROWS. Never of keys — there is no next page of those, and
+  // a caller cannot ask for one.
+  //
+  // Guarded on `cursor.current` rather than only on `hasMore`: `hasMore` is
+  // state and lags a render behind, so two quick presses (or a scroll handler
+  // firing twice) would both see it true. The cursor is a ref and is cleared
+  // the moment a page is asked for.
+  const loadMore = useCallback(async () => {
+    const from = cursor.current;
+    if (!from) return;
+    cursor.current = null;
+    setLoadingMore(true);
+    try {
+      const page = await FashionArchiveAPI.getFavouritesPage(
+        { limit: PAGE_SIZE, cursor: from });
+      if (!alive.current) return;
+      // Appended to what is there NOW, not to a copy taken before the request
+      // went out: a star pressed while this page was in flight has already put
+      // its row on the front, and rebuilding from a snapshot would drop it.
+      applySaves([...savesRef.current, ...(page.favourites || [])]);
+      setTotal(page.total || 0);
+      setHasMore(Boolean(page.hasMore));
+      cursor.current = page.nextCursor || null;
+      setError(null);
+    } catch (err) {
+      console.error('Could not load more saves:', err);
+      if (alive.current) {
+        setError(err);
+        // Put the cursor back, so the control the reader pressed can be
+        // pressed again rather than becoming the end of their library.
+        cursor.current = from;
+      }
+    } finally {
+      if (alive.current) setLoadingMore(false);
+    }
+  }, [applySaves]);
+
+  const savedKeys = useMemo(() => keySetOf(keys), [keys]);
 
   const isSaved = useCallback((target) => {
     const key = keyOf(target);
     return !!key && savedKeys.has(key);
   }, [savedKeys]);
+
+  // One flip, applied to both lists at once.
+  //
+  // The keys decide the star; the rows are the shelf. They move together or a
+  // press lights a star over a shelf that does not show the thing — and the
+  // rows move to the FRONT on an add, because the list is newest first and a
+  // save made a moment ago is the newest thing in it.
+  const flip = useCallback((target, key, added) => {
+    const drop = (rows) => rows.filter(row => keyOf(targetOfRow(row)) !== key);
+    applyKeys(added
+      ? [...keysRef.current, rowOfTarget(target)]
+      : drop(keysRef.current));
+    applySaves(added
+      ? [rowOfTarget(target), ...savesRef.current]
+      : drop(savesRef.current));
+  }, [applyKeys, applySaves]);
 
   // The marker moved, and NOTHING sent. The only write-less way into this
   // list, and it exists for exactly one caller.
@@ -280,12 +406,9 @@ export function useSaves() {
   const setSaved = useCallback((target, saved) => {
     const key = keyOf(target);
     if (!key) return;
-    const rows = savesRef.current;
-    if (keySetOf(rows).has(key) === Boolean(saved)) return;
-    applySaves(saved
-      ? [...rows, rowOfTarget(target)]
-      : rows.filter(row => keyOf(targetOfRow(row)) !== key));
-  }, [applySaves]);
+    if (savedKeys.has(key) === Boolean(saved)) return;
+    flip(target, key, Boolean(saved));
+  }, [flip, savedKeys]);
 
   // One flip undone, on the list as it stands NOW rather than by putting a
   // remembered copy back. Writes for different stars run at the same time, so
@@ -293,6 +416,10 @@ export function useSaves() {
   // write that has since landed — restoring it would quietly un-save that one.
   // The row goes back where it was, not on the end, so a rollback leaves the
   // list in the order the server sent it.
+  //
+  // Generic over both lists: a key row and a full row are both keyed by
+  // `keyOf(targetOfRow(...))`, which is the whole reason the key endpoint
+  // answers in the row's own nesting.
   const undoFlip = useCallback((rows, key, added, previous) => {
     if (added) return rows.filter(row => keyOf(targetOfRow(row)) !== key);
     if (keySetOf(rows).has(key)) return rows;          // something put it back
@@ -371,21 +498,27 @@ export function useSaves() {
     const key = keyOf(target);
     if (!key) return;
 
-    const previous = savesRef.current;
-    const added = !keySetOf(previous).has(key);
+    // Read off the KEYS, not off the page of rows. This is the trap the whole
+    // split exists for: a look saved long enough ago that its row is on a page
+    // nobody has fetched is still saved, and asking the visible rows would say
+    // it was not — so the press would send an ADD, the server would answer
+    // "Already in favourites", and the star would sit lit over a row that was
+    // already there while the reader thinks they just saved it.
+    const previousKeys = keysRef.current;
+    const previousRows = savesRef.current;
+    const added = !keySetOf(previousKeys).has(key);
 
-    // Move the marker first. `previous` is the exact list it moved from, and
-    // the rollback below undoes this one flip against it.
-    applySaves(added
-      ? [...previous, rowOfTarget(target)]
-      : previous.filter(row => keyOf(targetOfRow(row)) !== key));
+    // Move the marker first, in both lists. The two `previous` above are the
+    // exact lists it moved from, and the rollback below undoes this one flip
+    // against them.
+    flip(target, key, added);
 
     // A press on a star whose write is still out is neither sent alongside it
     // nor dropped: it is held, one deep, and run when that write lands. One
     // deep because three presses are two states and the middle one is not a
     // state the reader ever asked to end up in — what is held is always the
     // last thing they clicked.
-    const job = { target, added, previous };
+    const job = { target, added, previousKeys, previousRows };
     if (inFlight.current.has(key)) {
       queued.current.set(key, job);
       return;
@@ -402,9 +535,8 @@ export function useSaves() {
           // anything held behind it — it was queued against a state the
           // server never reached.
           queued.current.delete(key);
-          const back = undoFlip(savesRef.current, key, next.added, next.previous);
-          savesRef.current = back;
-          if (alive.current) setSaves(back);
+          applyKeys(undoFlip(keysRef.current, key, next.added, next.previousKeys));
+          applySaves(undoFlip(savesRef.current, key, next.added, next.previousRows));
           break;
         }
         next = queued.current.get(key) || null;
@@ -413,9 +545,13 @@ export function useSaves() {
     } finally {
       inFlight.current.delete(key);
     }
-  }, [applySaves, write, undoFlip]);
+  }, [applyKeys, applySaves, flip, write, undoFlip]);
 
-  return { isSaved, setSaved, toggle, saves, loading, error, reload: load };
+  return {
+    isSaved, setSaved, toggle,
+    saves, total, hasMore, loadMore, loadingMore,
+    loading, error, reload: load,
+  };
 }
 
 export default useSaves;

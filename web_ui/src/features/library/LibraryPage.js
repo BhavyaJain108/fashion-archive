@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import TopBar from '../../shared/ui/TopBar';
 import { FashionArchiveAPI } from '../../shared/api';
-import { navigate } from '../../app/router';
 import { slugify } from '../../app/routes';
 import { cleanDesignerName } from '../../shared/lib/designerName';
 import { usePersistentState } from '../../shared/hooks/usePersistentState';
@@ -16,6 +15,18 @@ import './LibraryPage.css';
 
 // The sidebar's first row: every favourite, rather than one collection.
 const ALL = '__all__';
+
+// How many rows one page of a pane is. The same number `useSaves` uses, and
+// for the same reason: a page that does not fill the window is a scroll that
+// loads twice before the reader has seen anything.
+const PAGE_SIZE = 200;
+
+// A pane before its first page has landed. `total` is zero rather than
+// unknown, so the sidebar counts read zero while loading rather than NaN.
+const EMPTY_PANE = {
+  rows: [], total: 0, hasMore: false, cursor: null, loadingMore: false,
+};
+const EMPTY_PANES = { look: EMPTY_PANE, show: EMPTY_PANE, view: EMPTY_PANE };
 
 // The three kinds, in the order the sidebar lists them, with what to call
 // them and what to say when a reader has none of that kind. The empty text
@@ -54,10 +65,32 @@ function collectionKey(fav) {
   return `${fav.collection.designer}::${fav.season.name}`;
 }
 
-function LibraryPage({ currentPage, onPageSwitch, currentUser, onLogout }) {
-  const [favourites, setFavourites] = useState([]);
+// `navigate` arrives as a prop — App's own `go` — and is never imported from
+// app/router. Everything this page does that is not a fetch is a navigation,
+// so importing it would make the page untestable without stubbing a module and
+// unmountable anywhere App is not.
+function LibraryPage({
+  currentPage, onPageSwitch, currentUser, onLogout, navigate,
+}) {
+  // ── The shelf, a page at a time, per kind ────────────────────────────
+  //
+  // Three pages rather than one, and that is not an accident of the panes.
+  // The three kinds are interleaved by date on the server, so ONE paged fetch
+  // would fill the first page with whatever the reader saved most recently —
+  // a reader with four hundred looks and three views would see an empty Views
+  // pane until they had paged through every look, for three rows. Each pane
+  // asks for its own kind, which the endpoint has always taken, so each pane's
+  // first page is that pane's first page.
+  //
+  // `total` is the server's count of the whole kind, not of what is loaded:
+  // the sidebar counts with it, and counting the loaded rows would have the
+  // library claim the reader has as many saves as are currently drawn.
+  //
+  // `cursor` is the server's opaque bookmark, passed back untouched. Paging is
+  // by cursor and not by offset because this is the page that unsaves rows out
+  // of the very list it is paging through — see `favourites.list_page`.
+  const [panes, setPanes] = useState(EMPTY_PANES);
   const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState({});
 
   // Which of the three kinds is on screen. The page holds looks, shows and
   // views now, and they are three different things to look at rather than
@@ -103,15 +136,30 @@ function LibraryPage({ currentPage, onPageSwitch, currentUser, onLogout }) {
   const activeThumbRef = useRef(null);
 
   useEffect(() => {
-    loadFavourites();
-    loadStats();
+    loadPanes();
+    // Mount only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const loadFavourites = async () => {
+  // One pane's first page, replacing whatever it held. Used on mount and
+  // nowhere else — a reload of one kind is `loadPanes`.
+  const loadPane = async (which) => {
+    const page = await FashionArchiveAPI.getFavouritesPage(
+      { kind: which, limit: PAGE_SIZE });
+    return {
+      rows: page.favourites,
+      total: page.total,
+      hasMore: page.hasMore,
+      cursor: page.nextCursor,
+      loadingMore: false,
+    };
+  };
+
+  const loadPanes = async () => {
     try {
       setLoading(true);
-      const favs = await FashionArchiveAPI.getFavourites();
-      setFavourites(favs);
+      const [look, show, view] = await Promise.all(KINDS.map(k => loadPane(k.kind)));
+      setPanes({ look, show, view });
     } catch (error) {
       console.error('LibraryPage: Error loading favourites:', error);
     } finally {
@@ -119,28 +167,62 @@ function LibraryPage({ currentPage, onPageSwitch, currentUser, onLogout }) {
     }
   };
 
-  const loadStats = async () => {
+  // The next page of one pane, appended.
+  //
+  // The guard is on the pane's CURSOR rather than on `hasMore`, and the cursor
+  // is cleared before the request goes out: `hasMore` is state and lags a
+  // render, so two quick presses would both see it true and the same page
+  // would land twice. A failure puts the cursor back, so the control the
+  // reader pressed stays pressable rather than becoming the end of their
+  // library.
+  const loadMoreOf = async (which) => {
+    const from = (panes[which] || {}).cursor;
+    if (!from) return;
+    setPanes(prev => ({
+      ...prev, [which]: { ...prev[which], cursor: null, loadingMore: true },
+    }));
     try {
-      setStats(await FashionArchiveAPI.getFavouriteStats());
+      const page = await FashionArchiveAPI.getFavouritesPage(
+        { kind: which, limit: PAGE_SIZE, cursor: from });
+      setPanes(prev => ({
+        ...prev,
+        [which]: {
+          // Appended to what is there NOW: a row unsaved while this page was
+          // in flight has already gone, and rebuilding from a snapshot taken
+          // before the request would put it back.
+          rows: [...prev[which].rows, ...page.favourites],
+          total: page.total,
+          hasMore: page.hasMore,
+          cursor: page.nextCursor,
+          loadingMore: false,
+        },
+      }));
     } catch (error) {
-      console.error('Error loading stats:', error);
+      console.error('LibraryPage: Error loading more favourites:', error);
+      setPanes(prev => ({
+        ...prev, [which]: { ...prev[which], cursor: from, loadingMore: false },
+      }));
     }
   };
 
-  // One list per kind, off the one response. `counts` is read by the sidebar
-  // rows, which must show a count for a kind that is not on screen.
-  const byKind = useMemo(() => {
-    const out = { look: [], show: [], view: [] };
-    favourites.forEach(fav => {
-      const k = kindOf(fav);
-      if (out[k]) out[k].push(fav);
-    });
-    return out;
-  }, [favourites]);
+  // GET /api/favourites/stats is no longer read here, and the counts did not
+  // get worse for it. Every count this page shows is now `panes[kind].total`,
+  // which is the same COUNT(*) narrowed the same way and arrives with the page
+  // it describes — where the stats call was a second request whose answer
+  // could be a moment older than the rows beside it. The endpoint is still
+  // there; nothing in this build asks it.
 
-  const looks = byKind.look;
-  const shows = byKind.show;
-  const views = byKind.view;
+  const looks = panes.look.rows;
+  const shows = panes.show.rows;
+  const views = panes.view.rows;
+
+  // Every loaded row, of every kind. Read by the selection and by nothing
+  // else: a ticked row has to be findable by id whichever pane it was ticked
+  // in, and only rows that are loaded can have been ticked.
+  const favourites = useMemo(
+    () => [...panes.look.rows, ...panes.show.rows, ...panes.view.rows],
+    [panes],
+  );
 
   const collections = useMemo(() => {
     const byKey = new Map();
@@ -401,13 +483,23 @@ function LibraryPage({ currentPage, onPageSwitch, currentUser, onLogout }) {
         // render later — that one-render gap is exactly what let `current`
         // go null and unmount/remount the single-view subtree when the last
         // item was removed. React 18's automatic batching folds this
-        // setSelectedIndex and the setFavourites below into one render.
+        // setSelectedIndex and the setPanes below into one render.
         const newLength = visible.length - 1;
         setSelectedIndex(i => (newLength <= 0 ? 0 : Math.min(i, newLength - 1)));
       }
-      // By id, so the row that goes is the row that was deleted and not
-      // another row of the same designer, the same season, or the same kind.
-      setFavourites(prev => prev.filter(f => f.id !== r.id));
+      // By id, and out of that kind's pane only, so the row that goes is the
+      // row that was deleted and not another row of the same designer, the
+      // same season, or the same kind. `total` comes down with it: the
+      // sidebar counts with the server's number, and the server has one fewer
+      // now than when it last said.
+      setPanes(prev => ({
+        ...prev,
+        [k]: {
+          ...prev[k],
+          rows: prev[k].rows.filter(f => f.id !== r.id),
+          total: Math.max(0, prev[k].total - 1),
+        },
+      }));
       // A row that has just been unsaved cannot be ticked for an album.
       setPicked(prev => {
         if (!prev.has(r.id)) return prev;
@@ -415,7 +507,6 @@ function LibraryPage({ currentPage, onPageSwitch, currentUser, onLogout }) {
         next.delete(r.id);
         return next;
       });
-      loadStats();
       // The cascade, from this side of it.
       //
       // `album_items` is ON DELETE CASCADE on the favourite, so unsaving
@@ -492,7 +583,15 @@ function LibraryPage({ currentPage, onPageSwitch, currentUser, onLogout }) {
   }
 
   const spec = KINDS.find(k => k.kind === kind) || KINDS[0];
-  const counts = { look: looks.length, show: shows.length, view: views.length };
+  // The server's counts, not the loaded ones. A pane shows a page of its rows
+  // and its whole count, which is the only pair that is true of both: counting
+  // the drawn rows would tell a reader with four hundred looks that they have
+  // two hundred.
+  const counts = {
+    look: panes.look.total, show: panes.show.total, view: panes.view.total,
+  };
+  const savedTotal = counts.look + counts.show + counts.view;
+  const pane = panes[kind] || EMPTY_PANE;
 
   // There is no page-wide "you have nothing" state any more. A reader with
   // looks and no views is not empty, and a reader with nothing at all is
@@ -515,7 +614,7 @@ function LibraryPage({ currentPage, onPageSwitch, currentUser, onLogout }) {
         <div className="ar-sidebar">
           <div className="ar-section-header">
             <span>Library</span>
-            <span className="count">{favourites.length}</span>
+            <span className="count">{savedTotal}</span>
           </div>
 
           {/* The grouping by kind. Always all three rows, with their counts,
@@ -565,7 +664,7 @@ function LibraryPage({ currentPage, onPageSwitch, currentUser, onLogout }) {
                   <span className="num">—</span>
                   <span className="body">
                     <span className="name">All looks</span>
-                    <span className="sub">{looks.length} looks</span>
+                    <span className="sub">{counts.look} looks</span>
                   </span>
                 </div>
 
@@ -807,6 +906,35 @@ function LibraryPage({ currentPage, onPageSwitch, currentUser, onLogout }) {
             )
           )}
 
+          {/* The rest of this pane.
+
+              A control rather than a scroll listener, and deliberately. The
+              looks pane is a single-image view with a thumb strip most of the
+              time — there is no page scroll to hang a sentinel on — so a
+              scroll trigger would have to be three different triggers for
+              three different panes, two of which would fire on a strip the
+              reader is arrowing through rather than on a list they are
+              reading to the end of. One button, in one place, saying how many
+              are left, works the same in all three.
+
+              It says the number because "Load more" over a library of four
+              hundred is a control with no end in sight; "Load 200 more of
+              412" is a fact about how much is left. */}
+          {pane.hasMore && (
+            <div className="lib-more">
+              <button
+                type="button"
+                className="ar-btn ar-btn-block lib-more-btn"
+                onClick={() => loadMoreOf(kind)}
+                disabled={pane.loadingMore}
+              >
+                {pane.loadingMore
+                  ? 'Loading…'
+                  : `Load more — ${pane.rows.length} of ${pane.total} shown`}
+              </button>
+            </div>
+          )}
+
           {/* What is ticked, and the one thing to do with it. It appears only
               when something is ticked, directly above the status bar — the
               foot of the pane is where this page already puts what it is
@@ -834,13 +962,17 @@ function LibraryPage({ currentPage, onPageSwitch, currentUser, onLogout }) {
 
           <div className="ar-status-bar">
             <span>
+              {/* The server's count for the kind, which is now the pane's own
+                  `total` rather than a second reading out of `stats`. Two
+                  numbers for one fact is two numbers that can disagree, and
+                  the pane's is the one the paging keeps current. */}
               {kind === 'look'
                 ? (current
                   ? <>{current.collection.designer} / <span className="active">{current.season.name}</span></>
-                  : `${stats.looks !== undefined ? stats.looks : looks.length} looks`)
+                  : `${counts.look} looks`)
                 : kind === 'show'
-                  ? `${stats.shows !== undefined ? stats.shows : shows.length} shows`
-                  : `${stats.views !== undefined ? stats.views : views.length} views`}
+                  ? `${counts.show} shows`
+                  : `${counts.view} views`}
             </span>
             <span>
               {kind === 'look' && current && (

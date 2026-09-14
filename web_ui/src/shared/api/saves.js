@@ -62,6 +62,94 @@ export class SavesEndpoints {
     }
   }
 
+  // ---------------------------------------------------------- a page ---
+  //
+  // The same endpoint, asked for a slice rather than the lot. `getFavourites`
+  // above is the unpaged reading and stays exactly as it was for the caller
+  // that wants everything; this one returns the envelope beside the rows —
+  // `{ favourites, total, hasMore, nextCursor }` — which is the shape
+  // `browse_catalog` already answers for shows.
+  //
+  // Paging is by CURSOR, not by page number or offset, and the server's
+  // `list_page` says why: the library unsaves rows out of the very list it is
+  // paging through, and an offset slides by one for every row taken out above
+  // it. A cursor names the last row actually delivered, so it cannot slide.
+  //
+  // `nextCursor` is opaque and is passed back untouched. Reading it, or
+  // building one, is how the two ends stop agreeing about what it means.
+  static async getFavouritesPage({ kind = null, limit = null, cursor = null } = {}) {
+    const query = new URLSearchParams();
+    if (kind) query.set('kind', kind);
+    if (limit !== null && limit !== undefined) query.set('limit', String(limit));
+    if (cursor) query.set('cursor', cursor);
+
+    try {
+      const response = await fetch(
+        `${ApiClient.BASE_URL}/api/favourites?${query.toString()}`,
+        { credentials: 'include', method: 'GET' },
+      );
+
+      // A dead session is not an empty library — same reasoning as
+      // `getFavourites` above, and the same answer.
+      if (!response.ok) {
+        ApiClient.checkAuth(response);
+        throw new Error(`API call failed: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return {
+        favourites: data.favourites || [],
+        total: data.total || 0,
+        hasMore: Boolean(data.hasMore),
+        nextCursor: data.nextCursor || null,
+      };
+    } catch (error) {
+      // Rethrown, not swallowed into an empty page. A caller that pages has a
+      // "load more" control to leave alone and an error to show; handing it
+      // `{hasMore: false}` for a network blip would tell the reader their
+      // library ends here.
+      console.error('Get favourites page API Error:', error);
+      throw error;
+    }
+  }
+
+  // ---------------------------------------------------------- the keys ---
+  //
+  // The identity of every save and nothing else — no designer, no image path,
+  // no timestamp. This is what lets the rows above be paged: a star is lit by
+  // asking whether the thing on screen is saved, of every thumbnail in a
+  // strip, so that answer has to be local AND complete. A saved look on a page
+  // the client has not fetched would read as unsaved, and pressing its star
+  // would write a second save of a row the server already holds.
+  //
+  // The rows come back in `shape`'s nesting minus the display fields, so
+  // `targetOfRow` in useSaves reads a key and a full favourite identically and
+  // there is only ever one key function.
+  static async getFavouriteKeys() {
+    try {
+      const response = await fetch(`${ApiClient.BASE_URL}/api/favourites/keys`, {
+        credentials: 'include',
+        method: 'GET',
+      });
+
+      if (!response.ok) {
+        ApiClient.checkAuth(response);
+        throw new Error(`API call failed: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return data.keys || [];
+    } catch (error) {
+      // Rethrown, and this is the one where it matters most. An empty key set
+      // is indistinguishable from a reader who has saved nothing: every star
+      // goes dark, and the next press writes a second save of a row the server
+      // already holds. So a failure here is an error the hook reports, never a
+      // quiet [].
+      console.error('Get favourite keys API Error:', error);
+      throw error;
+    }
+  }
+
   static async addFavourite(seasonData, collectionData, lookData, imagePath, notes = '') {
     const response = await ApiClient.callPython('/api/favourites', {
       season: seasonData,

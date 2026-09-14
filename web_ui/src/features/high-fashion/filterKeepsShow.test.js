@@ -58,6 +58,8 @@ jest.mock('../../shared/api', () => ({
     getDesigners: jest.fn(),
     getRecents: jest.fn(),
     getFavourites: jest.fn(),
+    getFavouriteKeys: jest.fn(),
+    getFavouritesPage: jest.fn(),
     searchShows: jest.fn(),
     browseCatalog: jest.fn(),
     streamCollectionImages: jest.fn(),
@@ -92,6 +94,12 @@ beforeEach(() => {
   API.getDesigners.mockResolvedValue([{ id: 42, name: 'Raf Simons', entries: 31 }]);
   API.getRecents.mockResolvedValue([]);
   API.getFavourites.mockResolvedValue([]);
+  // The star reads the KEYS, whole; the rows come a page at a time and the
+  // archive page draws none of them. Both are seeded so a suite that sees a
+  // dark star is seeing the page's own bug and not a missing mock.
+  API.getFavouriteKeys.mockResolvedValue([]);
+  API.getFavouritesPage.mockResolvedValue(
+    { favourites: [], total: 0, hasMore: false, nextCursor: null });
   API.searchShows.mockResolvedValue({ success: true, shows: [], total: 0 });
   API.downloadVideo.mockResolvedValue(null);
   API.addFavourite.mockResolvedValue({});

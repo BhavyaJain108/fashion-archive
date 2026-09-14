@@ -474,3 +474,261 @@ class TestListingIsBounded:
         body = client.get("/api/favourites?limit=all").get_json()
 
         assert len(body["favourites"]) == 4
+
+
+class TestPagingTheList:
+    """`?limit=` and `?cursor=`, against the real ordering.
+
+    The interesting failures here are all about the boundary between two pages,
+    and none of them raise. A cursor applied in a different order than the one
+    it was minted in returns plausible rows in the wrong place. A `hasMore`
+    inferred from `len(rows) == limit` is wrong exactly when the list divides
+    evenly. And an OFFSET — which is what this deliberately is not — returns a
+    page that has quietly skipped a row, which is a favourite the reader never
+    sees again. So these run against Postgres, through the handler, and check
+    the rows themselves rather than the counts.
+    """
+
+    def _save(self, client, number):
+        return client.post(
+            "/api/favourites",
+            json={
+                "season": SEASON,
+                "collection": COLLECTION,
+                "look": {"number": number, "total": 48},
+                "image_path": f"/api/images/b/{number}.jpg",
+            },
+        )
+
+    def _numbers(self, body):
+        return [row["look"]["number"] for row in body["favourites"]]
+
+    def _save_many(self, client, count):
+        for number in range(1, count + 1):
+            self._save(client, number)
+        # Newest first, so the last one saved is the first one listed.
+        return list(range(count, 0, -1))
+
+    def test_the_unpaged_answer_still_has_the_key_it_always_had(self, client):
+        self._save_many(client, 3)
+
+        body = client.get("/api/favourites").get_json()
+
+        # Backward compatibility, literally: a caller that sends no paging
+        # parameters reads `favourites` and gets everything, as before.
+        assert self._numbers(body) == [3, 2, 1]
+        assert body["total"] == 3
+        assert body["hasMore"] is False
+        assert body["nextCursor"] is None
+
+    def test_a_page_reports_the_whole_total_not_the_page(self, client):
+        self._save_many(client, 5)
+
+        body = client.get("/api/favourites?limit=2").get_json()
+
+        assert self._numbers(body) == [5, 4]
+        # Five, not two. The sidebar counts with this, and a count of the page
+        # would have the library claim the reader has as many saves as are
+        # currently drawn.
+        assert body["total"] == 5
+        assert body["hasMore"] is True
+        assert body["nextCursor"]
+
+    def test_the_cursor_walks_the_whole_list_exactly_once(self, client):
+        expected = self._save_many(client, 7)
+
+        seen = []
+        cursor = None
+        for _ in range(10):                      # a bound, so a bug cannot hang
+            url = "/api/favourites?limit=3"
+            if cursor:
+                url += f"&cursor={cursor}"
+            body = client.get(url).get_json()
+            seen.extend(self._numbers(body))
+            cursor = body["nextCursor"]
+            if not body["hasMore"]:
+                break
+
+        # Every row, in order, with nothing repeated at a boundary and nothing
+        # dropped over one.
+        assert seen == expected
+        assert len(seen) == len(set(seen))
+
+    def test_has_more_is_false_on_a_list_that_divides_evenly(self, client):
+        self._save_many(client, 4)
+
+        first = client.get("/api/favourites?limit=2").get_json()
+        second = client.get(
+            f"/api/favourites?limit=2&cursor={first['nextCursor']}"
+        ).get_json()
+
+        assert self._numbers(second) == [2, 1]
+        # Four rows, two pages of two. `len(rows) == limit` would claim a third
+        # page here and the reader would meet an empty "load more".
+        assert second["hasMore"] is False
+        assert second["nextCursor"] is None
+
+    def test_unsaving_above_the_cursor_does_not_skip_a_row(self, client, conn):
+        """The whole reason this is a cursor and not an offset.
+
+        Page one, then unsave two things that were ON page one, then page two.
+        With OFFSET the second request would start two rows late and two
+        favourites would fall through the gap unseen.
+        """
+        self._save_many(client, 6)
+
+        first = client.get("/api/favourites?limit=3").get_json()
+        assert self._numbers(first) == [6, 5, 4]
+
+        for number in (6, 5):
+            client.delete(
+                "/api/favourites",
+                json={
+                    "season_url": SEASON["url"],
+                    "collection_url": COLLECTION["url"],
+                    "look_number": number,
+                },
+            )
+        assert rows(conn) == 4
+
+        second = client.get(
+            f"/api/favourites?limit=3&cursor={first['nextCursor']}"
+        ).get_json()
+
+        # The rest of the list, all of it. Not [2, 1] with 3 skipped.
+        assert self._numbers(second) == [3, 2, 1]
+        assert second["total"] == 4
+
+    def test_a_kind_narrows_the_page_and_the_total(self, client):
+        self._save_many(client, 3)
+        save_show(client)
+        save_view(client, {"year": "2024"})
+
+        body = client.get("/api/favourites?kind=look&limit=2").get_json()
+
+        assert self._numbers(body) == [3, 2]
+        assert {row["kind"] for row in body["favourites"]} == {"look"}
+        # Three looks, not five favourites: the count is under the same filter
+        # as the page, which is what each of the library's panes counts with.
+        assert body["total"] == 3
+        assert body["hasMore"] is True
+
+    def test_a_cursor_from_one_kind_is_not_read_against_another(self, client):
+        """A cursor names a place, not a row of a particular kind."""
+        self._save_many(client, 3)
+        save_show(client)
+
+        looks = client.get("/api/favourites?kind=look&limit=1").get_json()
+        rest = client.get(
+            f"/api/favourites?kind=look&limit=5&cursor={looks['nextCursor']}"
+        ).get_json()
+
+        assert self._numbers(rest) == [2, 1]
+        assert all(row["kind"] == "look" for row in rest["favourites"])
+
+    def test_a_cursor_we_did_not_mint_is_refused(self, client):
+        self._save_many(client, 3)
+
+        response = client.get("/api/favourites?limit=2&cursor=not-a-cursor")
+
+        # 400, not a silent first page: a load-more control handed the page it
+        # already has would loop, and look like a list with no end.
+        assert response.status_code == 400
+        assert "cursor" in response.get_json()["error"]
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            b"yesterday|12",              # the timestamp is not one
+            b"2026-09-14T00:00:00+00:00|twelve",   # the id is not one
+            b"2026-09-14T00:00:00+00:00",          # no pair at all
+        ],
+    )
+    def test_a_cursor_whose_halves_are_junk_is_refused(self, client, payload):
+        """Refused as a 400, not raised as a database error.
+
+        Both halves are checked before they reach a cast: a cast that refuses
+        raises mid-transaction, which is a 500 over somebody's query string.
+        """
+        import base64
+
+        forged = base64.urlsafe_b64encode(payload).decode().rstrip("=")
+
+        response = client.get(f"/api/favourites?limit=2&cursor={forged}")
+
+        assert response.status_code == 400
+
+    def test_a_cursor_alone_means_the_default_page_size(self, client):
+        self._save_many(client, 3)
+
+        first = client.get("/api/favourites?limit=1").get_json()
+        rest = client.get(f"/api/favourites?cursor={first['nextCursor']}").get_json()
+
+        assert self._numbers(rest) == [2, 1]
+
+
+class TestTheKeys:
+    """GET /api/favourites/keys — complete, cheap, and shaped like a row.
+
+    This endpoint is what makes paging the rows safe, so what is pinned here is
+    that it is not itself paged and that what it returns is enough to key on and
+    no more.
+    """
+
+    def _save(self, client, number):
+        return client.post(
+            "/api/favourites",
+            json={
+                "season": SEASON,
+                "collection": COLLECTION,
+                "look": {"number": number, "total": 48},
+                "image_path": f"/api/images/b/{number}.jpg",
+            },
+        )
+
+    def test_every_save_is_there_however_many_there_are(self, client):
+        for number in range(1, 13):
+            self._save(client, number)
+        save_show(client)
+        save_view(client, {"year": "2024"})
+
+        keys = client.get("/api/favourites/keys").get_json()["keys"]
+
+        # Fourteen, with no limit accepted and none applied. A page of these
+        # would be a dark star over something the reader saved.
+        assert len(keys) == 14
+        assert {k["kind"] for k in keys} == {"look", "show", "view"}
+
+    def test_a_key_carries_the_identity_and_not_the_display(self, client):
+        self._save(client, 7)
+
+        key = client.get("/api/favourites/keys").get_json()["keys"][0]
+
+        assert key == {
+            "kind": "look",
+            "season": {"url": SEASON["url"]},
+            "collection": {"url": COLLECTION["url"]},
+            "look": {"number": 7},
+            "view": {"filters": None},
+        }
+        # The heavy half is absent, which is the point: this is the half the
+        # star reads and the star never draws a designer or an image.
+        assert "image_path" not in key
+        assert "designer" not in key["collection"]
+
+    def test_a_view_key_carries_its_filters_because_that_is_its_identity(self, client):
+        save_view(client, {"year": "2024", "city": "Paris"})
+
+        key = client.get("/api/favourites/keys").get_json()["keys"][0]
+
+        assert key["kind"] == "view"
+        assert key["view"]["filters"] == {"year": "2024", "city": "Paris"}
+
+    def test_another_users_saves_are_not_in_it(self, client, conn, monkeypatch):
+        self._save(client, 7)
+        stranger = repo.create_user(
+            conn, email="two@example.com", password_hash="h", display_name="Two"
+        )
+        monkeypatch.setattr(routes, "current_user", lambda: stranger)
+
+        assert client.get("/api/favourites/keys").get_json()["keys"] == []
