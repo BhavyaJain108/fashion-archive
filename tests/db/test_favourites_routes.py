@@ -320,6 +320,58 @@ class TestAView:
         assert rows(conn, "look") == 1
 
 
+class TestTheShowsId:
+    """`collection.id` on the way out, and nothing on the way in.
+
+    A client that could send an id could send one its url disagrees with, and
+    two identities for one show is the bug the column was added to end. So the
+    server derives it and the API only reports it.
+    """
+
+    SHOW = {
+        "designer": "Balenciaga",
+        "url": "https://www.firstview.com/collection_images.php?id=12345&list=all",
+    }
+
+    def save(self, client, collection, number=12):
+        return client.post(
+            "/api/favourites",
+            json={
+                "season": SEASON,
+                "collection": collection,
+                "look": {"number": number, "total": 48},
+                "image_path": "/api/images/x.jpg",
+            },
+        )
+
+    def listed(self, client):
+        return client.get("/api/favourites").get_json()["favourites"]
+
+    def test_a_listed_favourite_carries_it(self, client):
+        self.save(client, self.SHOW)
+        assert self.listed(client)[0]["collection"]["id"] == "12345"
+
+    def test_a_url_that_names_no_show_lists_a_null_id(self, client):
+        save_look(client)
+        assert self.listed(client)[0]["collection"]["id"] is None
+
+    def test_a_view_lists_a_null_id(self, client):
+        save_view(client, {"city": "Paris"})
+        assert self.listed(client)[0]["collection"]["id"] is None
+
+    def test_an_id_in_the_body_is_ignored_not_stored(self, client, conn):
+        """The one that matters: a client insisting on a different show does
+        not get one. The url is the only thing consulted."""
+        self.save(client, {**self.SHOW, "id": "999999"})
+        assert conn.execute("SELECT collection_id FROM favourites").fetchone()[0] == "12345"
+
+    def test_an_id_in_the_body_cannot_make_a_second_row(self, client, conn):
+        """It is not part of the key, so it cannot be part of a duplicate."""
+        self.save(client, self.SHOW)
+        self.save(client, {**self.SHOW, "id": "999999"})
+        assert rows(conn, "look") == 1
+
+
 class TestAnUnknownKind:
     """No index covers it, so no delete finds it and nothing cleans it up. It
     must be refused at the door rather than stored."""

@@ -207,15 +207,24 @@ def add(
     # kind does not have is the empty string rather than a null.
     look_number = look.get("number", look.get("lookNumber", 0)) if kind == "look" else None
 
+    # Read once and sent twice: once as the column, once to the function that
+    # derives collection_id from it. The caller never supplies the id — a
+    # caller that could would be a caller that could disagree with the URL, and
+    # a CHECK constraint in schema.sql would reject the row anyway. A saved view
+    # has no show, so its empty collection_url derives a null id, which is what
+    # a view should carry.
+    collection_url = collection.get("url", "")
+
     cur = conn.execute(
         f"""
         INSERT INTO favourites (
             user_id, kind, season_name, season_url, season_link_text,
-            collection_designer, collection_url,
+            collection_designer, collection_url, collection_id,
             look_number, look_total, image_path, notes,
             view_filters, view_name
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, favourites_collection_id(%s),
+                %s, %s, %s, %s, %s::jsonb, %s)
         ON CONFLICT {conflict_target(kind)} DO NOTHING
         RETURNING id
         """,
@@ -226,7 +235,8 @@ def add(
             season.get("url", ""),
             season.get("link_text"),
             collection.get("designer", ""),
-            collection.get("url", ""),
+            collection_url,
+            collection_url,
             look_number,
             look.get("total", look.get("lookTotal")),
             image_path or "",
@@ -305,9 +315,13 @@ def shape(row: dict[str, Any]) -> dict[str, Any]:
             "url": row["season_url"],
             "link_text": row["season_link_text"],
         },
+        # `id` is firstVIEW's own id for the show, derived from the url by the
+        # database. It rides along so the client has the better identity to
+        # hand; nothing keys on it yet, here or there.
         "collection": {
             "designer": row["collection_designer"],
             "url": row["collection_url"],
+            "id": row["collection_id"],
         },
         "look": {"number": row["look_number"], "total": row["look_total"]},
         "view": {"name": row["view_name"], "filters": row["view_filters"]},
@@ -357,7 +371,7 @@ def list_all(
         cur.execute(
             f"""
             SELECT id, kind, season_name, season_url, season_link_text,
-                   collection_designer, collection_url,
+                   collection_designer, collection_url, collection_id,
                    look_number, look_total, image_path,
                    view_filters, view_name, notes, created_at
             FROM favourites

@@ -26,6 +26,14 @@ CREATE TABLE IF NOT EXISTS favourites (
     collection_designer text NOT NULL,
     collection_url      text NOT NULL,
 
+    -- firstVIEW's own id for the show, which is what the rest of the page
+    -- identifies a show by (showId, sameShow, browseCatalog). It is not part
+    -- of any uniqueness index yet — switching the key is a separate, deliberate
+    -- change — but it is written and kept correct from now on, so that switch
+    -- has something to switch to. Null where there is no show (a saved view)
+    -- or where collection_url is not a firstVIEW collection page.
+    collection_id       text,
+
     -- Null for a saved show: the show is the whole run, not a position in it.
     look_number         integer,
     look_total          integer,
@@ -56,6 +64,76 @@ ALTER TABLE favourites ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'look
 ALTER TABLE favourites ALTER COLUMN look_number DROP NOT NULL;
 ALTER TABLE favourites ADD COLUMN IF NOT EXISTS view_filters jsonb;
 ALTER TABLE favourites ADD COLUMN IF NOT EXISTS view_name text;
+ALTER TABLE favourites ADD COLUMN IF NOT EXISTS collection_id text;
+
+-- The one rule for turning a collection page URL into firstVIEW's id for that
+-- show. It lives in the database rather than only in Python because three
+-- things need it and they must not be able to disagree: the backfill below,
+-- every INSERT (favourites.add calls it by name), and the CHECK constraint
+-- that follows. Two spellings of this rule is precisely the class of bug
+-- collection_id exists to end.
+--
+-- `id` wins over `collection` when a URL somehow carries both, which is what
+-- firstview.collection_id_from_url does (`qs.get("id") or qs.get("collection")`).
+-- A value has to be all digits and has to end where a query parameter ends —
+-- `&`, `#`, or the end of the string — so `?id=123abc` is not a show id and
+-- `?id=123#top` is. Anything else is null: a URL that is not a collection page,
+-- an empty string, or the empty collection_url a saved view carries.
+CREATE OR REPLACE FUNCTION favourites_collection_id(collection_url text)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+RETURNS NULL ON NULL INPUT
+AS $$
+    SELECT coalesce(
+        substring(collection_url from '[?&]id=([0-9]+)(?:[&#]|$)'),
+        substring(collection_url from '[?&]collection=([0-9]+)(?:[&#]|$)')
+    )
+$$;
+
+-- Filling the column in, on rows that already exist and on any row a future
+-- change to the rule above would leave stale.
+--
+-- Re-runs on every boot like everything else here, and the WHERE clause stops
+-- matching once it has done its work, so the second run and every run after it
+-- updates nothing. Only collection_id is ever written: a row whose
+-- collection_url this rule does not recognise keeps its URL exactly as it was
+-- and gets a null id, because a null id is the honest statement that we cannot
+-- name this show, and a guess would be worse than nothing.
+--
+-- This is why collection_id is a plain column and not GENERATED ALWAYS AS.
+-- A generated column would compute itself, but replacing the function's body
+-- later would leave every stored value stale with nothing to repair it; the
+-- statement below reapplies the rule to the whole table on the next boot, which
+-- is how the rest of this file already repairs rows written by an older writer.
+UPDATE favourites
+   SET collection_id = favourites_collection_id(collection_url)
+ WHERE collection_id IS DISTINCT FROM favourites_collection_id(collection_url);
+
+-- The two must agree, forever, enforced where no caller can route around it.
+--
+-- The alternative was an assertion in favourites.py, which would only cover
+-- writes that go through favourites.py — not psql, not the album migration
+-- coming next, not a second service. Here the write and the check share one
+-- expression, so the pair cannot become inconsistent by a path we forgot about,
+-- and an UPDATE that moves collection_url without moving the id raises instead
+-- of quietly producing a second identity for one show.
+--
+-- Added by name rather than by ADD CONSTRAINT IF NOT EXISTS, which Postgres
+-- does not have for CHECK. The UPDATE above ran first, so every existing row
+-- already satisfies it and the validation scan cannot fail a boot.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conrelid = 'favourites'::regclass
+          AND conname = 'favourites_collection_id_matches_url'
+    ) THEN
+        ALTER TABLE favourites ADD CONSTRAINT favourites_collection_id_matches_url
+            CHECK (collection_id IS NOT DISTINCT FROM favourites_collection_id(collection_url));
+    END IF;
+END
+$$;
 
 -- Identity, one partial index per kind. These are created BEFORE the old
 -- constraint is dropped, so there is no instant in which a look has no

@@ -30,6 +30,9 @@ SCHEMA = (Path(__file__).resolve().parents[2] / "backend" / "userdata" / "schema
 
 USER = UUID("11111111-1111-1111-1111-111111111111")
 
+# One real collection page URL, in the spelling the archive list uses.
+SHOW_URL = "https://www.firstview.com/collection_images.php?id=12345&list=all"
+
 
 class FakeCursor:
     def __init__(self, row, rowcount):
@@ -307,7 +310,7 @@ class TestAdd:
             is True
         )
         assert conn.params[:2] == (USER, "look")
-        assert conn.params[7] == 12
+        assert conn.params[8] == 12
         assert "WHERE kind = 'look'" in conn.sql
 
     def test_the_camel_case_look_keys_still_work(self):
@@ -320,8 +323,8 @@ class TestAdd:
             look={"lookNumber": 7, "lookTotal": 30},
             image_path="/img/7.jpg",
         )
-        assert conn.params[7] == 7
-        assert conn.params[8] == 30
+        assert conn.params[8] == 7
+        assert conn.params[9] == 30
 
     def test_a_conflict_reports_false_rather_than_raising(self):
         conn = FakeConn(row=None)
@@ -340,7 +343,7 @@ class TestAdd:
             image_path="/img/1.jpg",
         )
         assert conn.params[1] == "show"
-        assert conn.params[7] is None
+        assert conn.params[8] is None
         assert "WHERE kind = 'show'" in conn.sql
 
     def test_a_view_stores_canonical_filters(self):
@@ -352,20 +355,59 @@ class TestAdd:
             view_filters={"year": 1997, "city": "Paris"},
             view_name="Paris 1997",
         )
-        assert conn.params[11] == '{"city":"Paris","year":1997}'
-        assert conn.params[12] == "Paris 1997"
+        assert conn.params[12] == '{"city":"Paris","year":1997}'
+        assert conn.params[13] == "Paris 1997"
         assert "%s::jsonb" in conn.sql
 
     def test_the_other_kinds_store_no_filters(self):
         conn = FakeConn(row=(1,))
         favourites.add(conn, user_id=USER, look={"number": 1})
-        assert conn.params[11] is None
+        assert conn.params[12] is None
 
     def test_a_missing_image_is_the_empty_string_not_null(self):
         """image_path is NOT NULL, and a saved view has no image."""
         conn = FakeConn(row=(1,))
         favourites.add(conn, user_id=USER, kind="view", view_filters={"city": "Paris"})
-        assert conn.params[9] == ""
+        assert conn.params[10] == ""
+
+    def test_the_collection_url_is_sent_twice_once_to_derive_the_id(self):
+        """collection_id is not a parameter — it is the collection_url put
+        through the database's own derivation, in the same statement that
+        stores the url. That is what makes the pair impossible to write
+        inconsistently, and it is why the url appears twice in the params."""
+        conn = FakeConn(row=(1,))
+        favourites.add(
+            conn,
+            user_id=USER,
+            collection={"designer": "Balenciaga", "url": SHOW_URL},
+            look={"number": 12},
+        )
+        assert conn.params[6] == SHOW_URL
+        assert conn.params[7] == SHOW_URL
+        assert "collection_url, collection_id" in conn.sql
+        assert "favourites_collection_id(%s)" in conn.sql
+
+    def test_a_caller_cannot_supply_a_collection_id(self):
+        """A collection dict carrying an id is not asked for it. A caller that
+        could supply one could supply one the url disagrees with, which is two
+        identities for one show — the thing the column exists to prevent."""
+        conn = FakeConn(row=(1,))
+        favourites.add(
+            conn,
+            user_id=USER,
+            collection={"designer": "Balenciaga", "url": SHOW_URL, "id": "999999"},
+            look={"number": 12},
+        )
+        assert "999999" not in conn.params
+
+    def test_a_view_derives_its_id_from_the_nothing_it_has(self):
+        """A saved view has no show at all. Its collection_url is the empty
+        string the NOT NULL column needs, and the empty string derives no id —
+        so a view stores null, which is the honest answer."""
+        conn = FakeConn(row=(1,))
+        favourites.add(conn, user_id=USER, kind="view", view_filters={"city": "Paris"})
+        assert conn.params[6] == ""
+        assert conn.params[7] == ""
 
     def test_an_unknown_kind_never_reaches_the_database(self):
         conn = FakeConn(row=(1,))
@@ -416,7 +458,7 @@ class TestRemoveAndExists:
         favourites.remove(
             removing, user_id=USER, kind="view", view_filters={"city": "P", "year": 1997}
         )
-        assert saved.params[11] == removing.params[1]
+        assert saved.params[12] == removing.params[1]
 
     @pytest.mark.parametrize("kind", ["look", "show", "view"])
     def test_exists_asks_exactly_what_remove_deletes(self, kind):
@@ -450,7 +492,8 @@ class TestShape:
             "season_url": "s",
             "season_link_text": "F24",
             "collection_designer": "Balenciaga",
-            "collection_url": "c",
+            "collection_url": SHOW_URL,
+            "collection_id": "12345",
             "look_number": 12,
             "look_total": 48,
             "image_path": "/img/12.jpg",
@@ -474,8 +517,23 @@ class TestShape:
             "notes",
         } <= set(item)
         assert set(item["season"]) == {"name", "url", "link_text"}
-        assert set(item["collection"]) == {"designer", "url"}
+        assert set(item["collection"]) == {"designer", "url", "id"}
         assert set(item["look"]) == {"number", "total"}
+
+    def test_the_collection_carries_the_id_the_database_derived(self):
+        """The better identity reaches the client. Nothing keys on it there
+        yet — useSaves still restates the url indexes — but a client that
+        cannot see it can never start."""
+        item = favourites.shape(self.row())
+        assert item["collection"]["id"] == "12345"
+        assert item["collection"]["url"] == SHOW_URL
+
+    def test_a_row_with_no_derivable_id_reads_as_none(self):
+        """A saved view, or a look whose url is not a collection page. Null
+        rather than an empty string: there is no show here, and '' would read
+        as a show whose id happens to be blank."""
+        item = favourites.shape(self.row(collection_url="", collection_id=None))
+        assert item["collection"]["id"] is None
 
     def test_every_kind_carries_every_key(self):
         """The UI reads `kind` and then the part it wants, rather than probing
@@ -521,7 +579,10 @@ class TestSchemaFile:
         assert "favourites_user_id_season_url_collection_url_look_number_key" not in SCHEMA
 
     def test_the_drop_is_guarded_so_a_second_boot_does_nothing(self):
-        block = SCHEMA[SCHEMA.index("DO $$") : SCHEMA.index("DROP CONSTRAINT")]
+        # From the DO block the drop lives in, not from the first DO block in
+        # the file — the collection_id constraint added one above it.
+        drop = SCHEMA.index("DROP CONSTRAINT")
+        block = SCHEMA[SCHEMA.rindex("DO $$", 0, drop) : drop]
         assert "FOR" in block and "pg_constraint" in block
 
     def test_every_added_column_tolerates_already_being_there(self):
@@ -536,6 +597,74 @@ class TestSchemaFile:
 
     def test_look_number_is_made_nullable(self):
         assert "ALTER COLUMN look_number DROP NOT NULL" in SCHEMA
+
+    def test_the_unique_indexes_are_untouched_by_collection_id(self):
+        """The scope line of this change, pinned.
+
+        collection_id is made available, not made the key. Re-keying the table
+        is not reversible and needs a merge strategy for the duplicate rows
+        already in production, so the three identities stay exactly as they
+        were until that is a deliberate change of its own.
+        """
+        assert "(user_id, season_url, collection_url, look_number) WHERE kind = 'look'" in SCHEMA
+        assert "(user_id, season_url, collection_url) WHERE kind = 'show'" in SCHEMA
+        assert "(user_id, md5(view_filters::text)) WHERE kind = 'view'" in SCHEMA
+        for line in SCHEMA.splitlines():
+            if "UNIQUE INDEX" in line or "favourites_look_key" in line:
+                assert "collection_id" not in line, line
+
+    def test_the_derivation_is_one_expression_not_two(self):
+        """The backfill, the INSERT and the CHECK all call the same function.
+
+        A second spelling of "which show is this url" is exactly the bug
+        collection_id was added to end, so there is only ever one.
+        """
+        insert = (
+            Path(__file__).resolve().parents[2] / "backend" / "userdata" / "favourites.py"
+        ).read_text()
+        assert "CREATE OR REPLACE FUNCTION favourites_collection_id" in SCHEMA
+        assert "SET collection_id = favourites_collection_id(collection_url)" in SCHEMA
+        assert "favourites_collection_id(collection_url)" in SCHEMA.split("CHECK", 1)[1]
+        assert "favourites_collection_id(%s)" in insert
+
+    def test_the_derivation_function_is_immutable(self):
+        """A CHECK constraint may only call an immutable function, and a rule
+        that could return two answers for one url is not a rule."""
+        body = SCHEMA[SCHEMA.index("CREATE OR REPLACE FUNCTION favourites_collection_id") :]
+        assert "IMMUTABLE" in body.split("$$", 1)[0]
+
+    def test_the_backfill_stops_matching_once_it_has_run(self):
+        """Re-run on every boot. Its WHERE clause is what makes the second run
+        and every run after it update nothing — and what repairs a row if the
+        rule above it ever changes."""
+        assert (
+            "WHERE collection_id IS DISTINCT FROM favourites_collection_id(collection_url)"
+            in SCHEMA
+        )
+
+    def test_the_backfill_writes_nothing_but_the_id(self):
+        """A row whose url this rule does not recognise keeps its url exactly
+        as it was and gets a null id. The backfill must never repair a URL."""
+        update = SCHEMA[SCHEMA.index("UPDATE favourites") :]
+        update = update[: update.index(";")]
+        assert update.count("SET") == 1
+        assert "collection_url =" not in update
+
+    def test_the_check_constraint_is_added_only_once(self):
+        """Postgres has no ADD CONSTRAINT IF NOT EXISTS for a CHECK, so the
+        guard is a pg_constraint lookup by the name we chose."""
+        add = SCHEMA.index("ADD CONSTRAINT favourites_collection_id_matches_url")
+        block = SCHEMA[SCHEMA.rindex("DO $$", 0, add) : add]
+        assert "IF NOT EXISTS (" in block
+        assert "pg_constraint" in block
+        assert "conname = 'favourites_collection_id_matches_url'" in block
+
+    def test_the_backfill_runs_before_the_constraint_is_added(self):
+        """Otherwise the validating scan meets rows with a null id and a real
+        url, and the whole boot fails on a table it was about to repair."""
+        assert SCHEMA.index("UPDATE favourites\n   SET collection_id") < SCHEMA.index(
+            "ADD CONSTRAINT favourites_collection_id_matches_url"
+        )
 
     def test_the_file_holds_no_percent_sign(self):
         """It is handed to psycopg as one string; a percent sign is the one

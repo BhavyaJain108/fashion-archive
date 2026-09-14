@@ -111,6 +111,12 @@ def add_favourite():
     Saving something already saved is reported, not an error: the insert is
     ON CONFLICT DO NOTHING, so a double-click answers `success: false` rather
     than aborting on a constraint.
+
+    A `collection_id` in the body is ignored, and there is nowhere to put one:
+    the column is derived from `collection.url` inside the INSERT and a CHECK
+    constraint holds the two equal. A client that could send an id is a client
+    that could send one the url disagrees with, which is the two-keys-for-one-show
+    bug this column was added to end. It comes back on every row from GET.
     """
     body = _body()
     try:

@@ -33,6 +33,18 @@ import { FILTER_KEYS } from '../../app/routes';
 // contain the separator, and ['show', 'a|b', 'c'] and ['show', 'a', 'b|c'] are
 // two different saved shows that a joined key cannot tell apart.
 
+// A row from GET /api/favourites now also carries `collection.id` — firstVIEW's
+// own id for the show, derived server-side from collection_url and kept equal to
+// it by a CHECK constraint. It is the identity the rest of this app already uses
+// (showId, sameShow, browseCatalog) and the one the two phase-3 bugs would not
+// have had: both were two spellings of one URL.
+//
+// It is deliberately NOT in any key below. Keys here must be the server's unique
+// indexes restated, and those are still the URL ones; keying the client on the id
+// while the server keys on the URL would light stars for rows the delete cannot
+// find. The id rides through `targetOfRow` and `rowOfTarget` untouched so it is
+// there when the key does move, which is its own change with its own migration.
+
 const text = (value) => (value === null || value === undefined ? '' : String(value));
 
 // A look is season + collection + number — the server's
@@ -116,6 +128,8 @@ export function rowOfTarget(target) {
   return {
     kind,
     season: target.season || {},
+    // Whole, so a `collection.id` the caller had is on the optimistic row too
+    // and the row does not change shape when the server's copy replaces it.
     collection: target.collection || {},
     look: target.look || {},
     view: { name: target.name || '', filters: canonicalFilters(target.filters) },

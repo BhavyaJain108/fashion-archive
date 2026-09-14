@@ -24,6 +24,12 @@ export class SavesEndpoints {
 
 
   // Favourites API methods
+  //
+  // Rows come back with `collection.id` alongside `collection.url` — firstVIEW's
+  // id for the show. Nothing is sent for it on the way in and nothing should be:
+  // the server derives it from the collection_url in the same statement that
+  // stores the url, so a client that supplied one could only ever supply one that
+  // disagreed. Two spellings of one show is the bug the column exists to end.
   static async getFavourites() {
     console.log('API: Fetching favourites from', `${ApiClient.BASE_URL}/api/favourites`);
     try {

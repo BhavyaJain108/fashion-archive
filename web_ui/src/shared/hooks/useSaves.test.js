@@ -187,6 +187,53 @@ describe('a key names one kind and never another', () => {
   });
 });
 
+// ── the show's own id, riding along ───────────────────────────────────────
+//
+// Rows now carry `collection.id` — firstVIEW's id for the show, derived by the
+// server from collection_url. It is the identity the two phase-3 bugs would not
+// have had, and the one the archive page already uses everywhere else. The keys
+// here must stay the server's unique indexes restated, and those are still the
+// URL ones, so the id is carried and not keyed on.
+
+describe("the show's id on a saved row", () => {
+  const WITH_ID = {
+    season: GUCCI.season,
+    collection: { ...GUCCI.collection, id: '12345' },
+  };
+
+  test('is not part of any key', () => {
+    expect(lookKey(look(WITH_ID, 3))).toBe(lookKey(look(GUCCI, 3)));
+    expect(showKey(show(WITH_ID))).toBe(showKey(show(GUCCI)));
+  });
+
+  // The bug this guards against is the tempting one: swapping the client key
+  // to the id while the server still keys on the url. The star would light off
+  // the id and the delete would go out with a url the server matches
+  // differently, which is the phase-3 failure with the two halves swapped.
+  test('two spellings of one show are still two rows here, as on the server', () => {
+    const listUrl = 'https://www.firstview.com/collection_images.php?id=12345&list=all';
+    const drawerUrl = 'https://www.firstview.com/collection_images.php?id=12345';
+    const fromList = { season: GUCCI.season, collection: { designer: 'G', url: listUrl, id: '12345' } };
+    const fromDrawer = { season: GUCCI.season, collection: { designer: 'G', url: drawerUrl, id: '12345' } };
+    expect(lookKey(look(fromList, 3))).not.toBe(lookKey(look(fromDrawer, 3)));
+  });
+
+  test('survives the row and target round trip, so it is there when the key moves', () => {
+    const back = targetOfRow(rowOfTarget(look(WITH_ID, 3)));
+    expect(back.collection.id).toBe('12345');
+  });
+
+  test('a row the server sent without one still keys', () => {
+    expect(keyOf(targetOfRow(row(look(GUCCI, 3))))).toBe(keyOf(look(GUCCI, 3)));
+  });
+
+  test('an optimistic row and the server row for one look key alike, id or not', async () => {
+    api.getFavourites.mockResolvedValue([row(look(WITH_ID, 3))]);
+    const { result } = await mount();
+    expect(result.current.isSaved(look(GUCCI, 3))).toBe(true);
+  });
+});
+
 // ── the hook ──────────────────────────────────────────────────────────────
 
 describe('what is already saved', () => {
