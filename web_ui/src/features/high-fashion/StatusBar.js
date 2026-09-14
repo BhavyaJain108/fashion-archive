@@ -2,6 +2,7 @@ import React from 'react';
 import { cleanDesignerName } from '../../shared/lib/designerName';
 import { videoSeasonName } from './seasonName';
 import { lookLabel } from '../../shared/lib/lookLabel';
+import { pendingLooks } from './pendingLooks';
 
 // The bottom readout. Presentational: every value is a prop, and it holds no
 // state of its own. The two label helpers are imported rather than passed in —
@@ -54,7 +55,13 @@ function StatusBar({
   // minutes ago. Mid-flight, the promised total is still the honest one —
   // it is what "arriving" counts down to.
   const total = streamComplete ? imagesLength : expectedCount;
-  const arriving = !streamComplete && counting && imagesLength < expectedCount;
+
+  // The same count the thumbnail strip draws as empty slots. This was an
+  // independent formula that happened to agree with that one; it is now the
+  // same call, so the word and the slots can only appear together.
+  const arriving = pendingLooks({
+    imagesLength, expectedCount, isStale, streamComplete,
+  }) > 0;
 
   return (
       <div className="hf2-status-bar">

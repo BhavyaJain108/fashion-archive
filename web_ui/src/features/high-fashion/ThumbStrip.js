@@ -1,6 +1,7 @@
 import React from 'react';
 import { FashionArchiveAPI } from '../../shared/api';
 import { lookAlt } from '../../shared/lib/lookLabel';
+import { pendingLooks } from './pendingLooks';
 
 // The horizontal thumbnail strip in single view. Presentational: every value
 // is a prop, and it holds no state of its own. The centring effect (which
@@ -23,28 +24,17 @@ function ThumbStrip({
   // caller that has not wired the flag through yet keeps today's ghosts.
   streamComplete = false,
 }) {
-  // The looks the stream has promised and not yet delivered, drawn as empty
-  // slots. The strip is then its final width from the first photograph, and
-  // the show visibly fills in rather than appearing all at once.
+  // One empty slot per look the stream has promised and not yet delivered,
+  // so the strip is its final width from the first photograph and the show
+  // visibly fills in rather than appearing all at once.
   //
-  // Gated on !isStale, not clamped at zero. During the stale window
-  // `expectedCount` has already been reset to the count of the show that was
-  // ASKED for while `images` still holds the previous show's photographs, so
-  // the subtraction is meaningless in both directions: negative before the
-  // new meta arrives, and a different show's total after it. Clamping hides
-  // the negative and leaves the other half of the lie standing — the
-  // previous show's twelve thumbnails with the new show's thirty-eight
-  // slots behind them, under the new show's name. Gating is the only version
-  // where the strip and the status bar describe the same show.
-  //
-  // Also gated on !streamComplete: once the stream itself has said it is
-  // done, whatever arrived is final. `expectedCount` can still sit above
-  // `images.length` — a look that failed to download is not coming — and a
-  // ghost drawn for it would be a placeholder for a photograph that will
-  // never land.
-  const ghostCount = !isStale && !streamComplete && expectedCount > images.length
-    ? expectedCount - images.length
-    : 0;
+  // The count comes from pendingLooks, which is also what the status bar
+  // turns into the word "arriving" — the two are the same sentence, and
+  // were the same arithmetic written out twice with nothing keeping them
+  // that way. Every reason the answer is zero is stated there.
+  const ghostCount = pendingLooks({
+    imagesLength: images.length, expectedCount, isStale, streamComplete,
+  });
 
   return (
           <div className="hf2-thumb-strip-container">
