@@ -276,3 +276,86 @@ BEGIN
     END IF;
 END
 $$;
+
+-- Albums: named groups of things a user has already saved.
+--
+-- An album holds favourites, not looks. That is the whole design decision, and
+-- everything below follows from it: a tile in an album is a row in favourites,
+-- so an album cannot show a picture of something the user has un-saved, and
+-- there is no second copy of a look's identity to keep in step with the first.
+-- Phase 3 found two separate bugs that were one thing carrying two keys; a
+-- membership row that named a look by (season_url, collection_url, number)
+-- would have been a third place for that to happen.
+CREATE TABLE IF NOT EXISTS albums (
+    id          bigserial PRIMARY KEY,
+    user_id     uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name        text NOT NULL CHECK (length(btrim(name)) > 0),
+
+    -- 'grid' now, 'canvas' in phase 6. A CHECK rather than a comment because
+    -- layout_mode and sort_by are read straight into a rendering decision and
+    -- an ORDER BY respectively; a value neither side knows is a blank page.
+    layout_mode text NOT NULL DEFAULT 'grid'  CHECK (layout_mode IN ('grid', 'canvas')),
+    sort_by     text NOT NULL DEFAULT 'added' CHECK (sort_by IN ('added', 'designer', 'season')),
+
+    created_at  timestamptz NOT NULL DEFAULT now()
+);
+
+-- One name per user, case-insensitively.
+--
+-- The name is the only handle the user has on an album: the picker that phase 6
+-- adds things through lists names, so two albums called "Resort" are two
+-- identical rows in that list and a coin flip about which one the thing landed
+-- in. Case-insensitive for the same reason `users.email` is citext — "resort"
+-- and "Resort" typed a week apart are one album the user meant to reuse, not
+-- two they meant to keep apart. Scoped to user_id, so two people naming an
+-- album the same thing is fine.
+--
+-- lower(name) rather than a citext column because this is an ordering and
+-- display string everywhere else, and citext would quietly make every
+-- comparison in every future query case-insensitive, including ones where that
+-- is wrong.
+CREATE UNIQUE INDEX IF NOT EXISTS albums_user_name_key ON albums (user_id, lower(name));
+
+-- Which favourites are in which album.
+--
+-- ON DELETE CASCADE on favourite_id is the point of this table. Un-saving
+-- something has to remove it from every album that holds it, in the same
+-- statement, without any application code being involved — otherwise a
+-- membership row outlives the row it names and the album renders a tile for a
+-- favourite that is gone.
+--
+-- ON DELETE CASCADE on album_id is the cheaper half: deleting an album drops
+-- its membership rows and nothing else. The favourites stay saved. An album is
+-- an arrangement of things the user kept, not the keeping of them, and the
+-- opposite behaviour would turn "delete this album" into silent, unrecoverable
+-- deletion of everything in it.
+CREATE TABLE IF NOT EXISTS album_items (
+    album_id     bigint NOT NULL REFERENCES albums(id) ON DELETE CASCADE,
+    favourite_id bigint NOT NULL REFERENCES favourites(id) ON DELETE CASCADE,
+
+    -- Sparse, not dense. Items are appended at max + ALBUM_SORT_GAP and a drag
+    -- writes the midpoint of its two new neighbours, so reordering N items
+    -- costs one UPDATE of one row rather than N. albums.renumber respaces an
+    -- album when a gap finally closes, which takes about ten midpoint drops
+    -- into the same slot. See backend/userdata/albums.py.
+    sort_index   integer NOT NULL DEFAULT 0,
+
+    -- Canvas placement, phase 6. Null in grid mode; a canvas layout is per
+    -- album, so these live on the membership row rather than the favourite.
+    -- There is no h: a look's height follows from its width and the image's
+    -- aspect ratio. z is stacking order.
+    x integer, y integer, w integer, z integer,
+
+    -- An album holds a given favourite once. Adding the same thing twice is a
+    -- no-op, not a second tile.
+    PRIMARY KEY (album_id, favourite_id)
+);
+
+-- Reading an album in order.
+CREATE INDEX IF NOT EXISTS idx_album_items_order ON album_items (album_id, sort_index);
+
+-- Un-saving a favourite. Postgres indexes the referenced side of a foreign key
+-- and not the referencing side, so without this every DELETE from favourites
+-- would seq-scan album_items to find the rows to cascade — on the one table
+-- that grows with every album every user makes.
+CREATE INDEX IF NOT EXISTS idx_album_items_favourite ON album_items (favourite_id);
