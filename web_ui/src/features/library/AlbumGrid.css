@@ -1,0 +1,251 @@
+/* One album, in the archive language. Tokens live in styles/archive.css;
+   nothing here names a colour.
+
+   The grid metrics are the look grid's and the archive's grid view's, to the
+   pixel — repeat(auto-fill, minmax(180px, 1fr)), 16px gutters, a 3:4 box —
+   because an album of looks and a show of looks should not look like two
+   different applications. */
+
+/* --- Sidebar ------------------------------------------------------- */
+
+.alb-title {
+  padding: 0 12px 12px;
+  font-size: 13px;
+  line-height: 18px;
+  letter-spacing: 0.05em;
+  color: var(--ar-ink);
+  border-bottom: 1px solid var(--ar-line);
+  flex-shrink: 0;
+  word-break: break-word;
+}
+
+.alb-sort {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 12px;
+  flex-shrink: 0;
+}
+
+.alb-sort-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: var(--ar-ink-3);
+}
+
+/* Its own rule so the select can be told apart from the primitive in the
+   bundle; the primitive already carries everything it needs. */
+.alb-sort-select {
+  font-size: 11px;
+}
+
+/* Pushed to the foot of the sidebar: the way out is not the first thing to
+   read, and a fixed place for it beats a place that moves with the album's
+   name. */
+.alb-back-row {
+  margin-top: auto;
+  padding: 12px;
+  flex-shrink: 0;
+  border-top: 1px solid var(--ar-line);
+}
+
+/* --- Main ---------------------------------------------------------- */
+
+.alb-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--ar-bg);
+  overflow: hidden;
+}
+
+.alb-grid-container {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 24px;
+}
+
+.alb-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 16px;
+  align-content: start;
+}
+
+/* --- One tile ------------------------------------------------------ */
+
+/* A button rather than a div: it is the thing you select and open, so it
+   should be reachable from the keyboard and announce itself as pressed. */
+.alb-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 8px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 0;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--ar-ink-2);
+  text-align: center;
+  cursor: pointer;
+}
+
+.alb-tile:hover .alb-tile-name {
+  color: var(--ar-ink);
+}
+
+.alb-tile.selected {
+  border-color: var(--ar-line);
+  background: var(--ar-wash-strong);
+}
+
+.alb-tile.selected .alb-tile-name {
+  color: var(--ar-ink);
+  font-weight: 700;
+}
+
+/* THE RESERVED BOX.
+
+   Its height comes from its width and the aspect ratio, and from nothing
+   else: everything drawn inside it is absolutely positioned, so an image
+   that has not loaded yet, an image that failed, and a kind that has no
+   image at all leave exactly the same rectangle. Nothing in the grid moves
+   as thumbnails arrive.
+
+   Measured in headless Chrome against the built bundle, not assumed — see
+   the task report for the numbers. */
+.alb-tile-box {
+  position: relative;
+  display: block;
+  flex: 0 0 auto;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  overflow: hidden;
+  background: var(--ar-bg-sub);
+  border: 1px solid var(--ar-line);
+}
+
+.alb-tile-photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: opacity 0.15s ease;
+}
+
+.alb-tile:hover .alb-tile-photo {
+  opacity: 0.9;
+}
+
+/* Outline, not border: an outline is painted outside the box model and
+   cannot change the box it marks. */
+.alb-tile.selected .alb-tile-box {
+  outline: 2px solid var(--ar-ink);
+  outline-offset: -2px;
+}
+
+/* What a show and a view are, said in the corner of the box. A look carries
+   no tag: it is the unmarked case, and tagging every tile would leave the
+   word doing no work. */
+.alb-tile-tag {
+  position: absolute;
+  top: 0;
+  left: 0;
+  padding: 2px 6px;
+  font-size: 9px;
+  line-height: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ar-bg);
+  background: var(--ar-ink);
+}
+
+/* A view has no photograph — it is a set of filters — so the filters go in
+   the box the other kinds' photographs occupy. Absolutely positioned like
+   the photograph, and clipped, so however many filters a view carries the
+   tile is the same size as every other tile. */
+.alb-tile-filters {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 20px 8px 8px;
+  overflow: hidden;
+}
+
+/* Deliberately not LibraryPage.css's .lib-filter, which this matches value
+   for value: this page renders without that stylesheet in the bundle, and a
+   chip that borrowed its look from another page's sheet would lose it the
+   day that page is split out. */
+.alb-filter {
+  display: inline-flex;
+  gap: 5px;
+  max-width: 100%;
+  padding: 2px 6px;
+  font-size: 10px;
+  line-height: 14px;
+  background: var(--ar-bg);
+  border: 1px solid var(--ar-line);
+}
+
+.alb-filter .k {
+  color: var(--ar-ink-4);
+  letter-spacing: 0.05em;
+}
+
+.alb-filter .v {
+  color: var(--ar-ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- The caption --------------------------------------------------- */
+
+/* Both lines are one line each, forever. A caption that wrapped would make
+   its own tile taller than the rest of its row, which is the same defect as
+   a box that resizes when an image lands. */
+.alb-tile-name,
+.alb-tile-sub {
+  display: block;
+  width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.alb-tile-name {
+  line-height: 16px;
+  letter-spacing: 0.05em;
+}
+
+.alb-tile-sub {
+  font-size: 10px;
+  line-height: 13px;
+  color: var(--ar-ink-4);
+}
+
+.alb-tile:hover .alb-tile-sub,
+.alb-tile.selected .alb-tile-sub {
+  color: var(--ar-ink-3);
+}
+
+/* --- Empty and missing --------------------------------------------- */
+
+.alb-empty-hint {
+  display: block;
+  max-width: 44ch;
+  margin-top: 8px;
+  line-height: 18px;
+  text-align: center;
+  color: var(--ar-ink-3);
+}

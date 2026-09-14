@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import LibraryPage from '../features/library/LibraryPage';
+import AlbumGrid from '../features/library/AlbumGrid';
 import BrandsPage from '../features/brands/BrandsPage';
 import AuthPanel from '../features/auth/AuthPanel';
 import HighFashionPage from '../features/high-fashion/HighFashionPage';
@@ -13,9 +14,14 @@ import {
 // this file worth testing on its own, and a test that restated it could not
 // fail when this changed.
 //
-// 'album' and 'shared' are routes that later phases fill in; until then they
-// render the library and the archive, which is where an unfinished link
-// should land rather than on a blank screen.
+// This is the page key TopBar highlights, which is NOT always the component
+// that draws: an album is inside the library, so /library/albums/7 keeps the
+// key 'library' and the nav goes on saying Library, while the render below
+// picks AlbumGrid off route.page. They differ here and nowhere else.
+//
+// 'shared' is a route a later phase fills in; until then it renders the
+// archive, which is where an unfinished link should land rather than on a
+// blank screen.
 export function pageKeyForRoute(route) {
   if (route.page === 'brands') return 'my-brands';
   if (route.page === 'library' || route.page === 'album') return 'library';
@@ -209,6 +215,8 @@ function App() {
         <HighFashionPage {...pageProps} />
       ) : currentPage === 'my-brands' ? (
         <BrandsPage {...pageProps} />
+      ) : route.page === 'album' ? (
+        <AlbumGrid {...pageProps} albumId={route.albumId} />
       ) : (
         <LibraryPage {...pageProps} />
       )}

@@ -46,6 +46,11 @@ jest.mock('../shared/api', () => ({
     removeViewFavourite: jest.fn(),
     getImageUrl: (p) => `/images/${p}`,
   },
+  // The library sidebar's albums shelf. Not what this test is about; it is
+  // here so the shelf has an answer rather than a TypeError.
+  AlbumsAPI: {
+    getAlbums: jest.fn(() => Promise.resolve([])),
+  },
 }));
 
 // eslint-disable-next-line import/first

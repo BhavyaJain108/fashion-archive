@@ -5,7 +5,9 @@ import { navigate } from '../../app/router';
 import { slugify } from '../../app/routes';
 import { cleanDesignerName } from '../../shared/lib/designerName';
 import { usePersistentState } from '../../shared/hooks/usePersistentState';
+import { useAlbums } from '../../shared/hooks/useAlbums';
 import { lookLabel, lookAlt } from '../../shared/lib/lookLabel';
+import { collectionIdOf, filterPairs, kindOf } from '../../shared/lib/savedRow';
 import {
   normalizeGroupMode, normalizeKind, normalizeViewMode,
 } from '../../shared/lib/preferences';
@@ -13,10 +15,6 @@ import './LibraryPage.css';
 
 // The sidebar's first row: every favourite, rather than one collection.
 const ALL = '__all__';
-
-// What a row is, when the row is old enough not to say. Rows saved before
-// kinds existed carry no `kind` at all, and the server reads those as looks.
-export const kindOf = (row) => (row && row.kind) || 'look';
 
 // The three kinds, in the order the sidebar lists them, with what to call
 // them and what to say when a reader has none of that kind. The empty text
@@ -51,44 +49,8 @@ const KINDS = [
   },
 ];
 
-// What each filter is called on screen. The keys are FILTER_KEYS from
-// routes.js; the words are the ones the archive's own facets use, so a saved
-// view reads the same here as it did where it was made.
-const FILTER_LABELS = {
-  letter: 'Brand',
-  gender: 'Gender',
-  year: 'Year',
-  season: 'Season',
-  category: 'Type',
-  shootType: 'Shoot',
-  city: 'City',
-};
-
-// firstVIEW's own collection id, pulled out of the collection url it is a
-// query parameter of (`…/collection_images.php?id=1234&list=all`).
-//
-// It is the only part of a saved show a route can be built from — see
-// routes.js, where a show URL is /hf/<slug>/<collectionId> and the id is the
-// only authoritative segment. A crawled row whose url carries no id is not
-// openable, and this answers null rather than building /hf/<slug>/undefined.
-export function collectionIdOf(collection) {
-  const match = /[?&](?:id|collection)=(\d+)(?:&|$)/
-    .exec(String((collection || {}).url || ''));
-  return match ? match[1] : null;
-}
-
 function collectionKey(fav) {
   return `${fav.collection.designer}::${fav.season.name}`;
-}
-
-// A saved view's filters as [label, value] pairs, in the order FILTER_LABELS
-// names them rather than whatever order the object arrived in — two readers
-// who saved the same view must see the same line.
-function filterPairs(filters) {
-  const f = filters || {};
-  return Object.keys(FILTER_LABELS)
-    .filter(key => f[key])
-    .map(key => [FILTER_LABELS[key], String(f[key])]);
 }
 
 function LibraryPage({ currentPage, onPageSwitch, currentUser, onLogout }) {
@@ -114,6 +76,11 @@ function LibraryPage({ currentPage, onPageSwitch, currentUser, onLogout }) {
     deserialize: (raw) => normalizeViewMode(JSON.parse(raw)),
   });
   const [selectedIndex, setSelectedIndex] = useState(0);
+
+  // The shelf, and only the shelf — no album id, so the hook holds the rows
+  // and nothing's contents. It is the way IN to an album; the way out is the
+  // album page's own Back, and both are navigate + buildRoute.
+  const { albums } = useAlbums();
 
   const thumbStripRef = useRef(null);
   const activeThumbRef = useRef(null);
@@ -355,6 +322,13 @@ function LibraryPage({ currentPage, onPageSwitch, currentUser, onLogout }) {
     navigate({ page: 'high-fashion', filters: (r.view || {}).filters || {} });
   };
 
+  // An album is an address like everything else on this page. buildRoute
+  // spells it /library/albums/<id>, App draws AlbumGrid for it, and Back
+  // there comes straight back here.
+  const openAlbum = (albumRow) => {
+    navigate({ page: 'album', albumId: albumRow.id });
+  };
+
   // What every one of this page's states puts at the top. It was the top bar
   // plus a strip of recently viewed shows; the recents now live in a drawer
   // at the foot of the High Fashion sidebar, next to the list they are a way
@@ -473,6 +447,33 @@ function LibraryPage({ currentPage, onPageSwitch, currentUser, onLogout }) {
               </div>
             </>
           )}
+
+          {/* The albums, at the foot of the sidebar — the same place the
+              archive page puts its recents drawer, and for the same reason:
+              it is a way somewhere else rather than a control over what is
+              on screen, so it must not push the pane's own list around. */}
+          <div className="lib-albums">
+            <div className="ar-section-header">
+              <span>Albums</span>
+              <span className="count">{albums.length}</span>
+            </div>
+            <div className="lib-albums-scroll ar-scroll">
+              {albums.length === 0 ? (
+                <div className="lib-albums-empty">No albums yet</div>
+              ) : albums.map(albumRow => (
+                <div
+                  key={albumRow.id}
+                  className="ar-list-item lib-album"
+                  onClick={() => openAlbum(albumRow)}
+                >
+                  <span className="body">
+                    <span className="name">{albumRow.name}</span>
+                  </span>
+                  <span className="count">{albumRow.item_count}</span>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
 
         <div className="fav-main">

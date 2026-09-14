@@ -525,3 +525,55 @@
 .lib-filter .v {
   color: var(--ar-ink-2);
 }
+
+/* --- Albums shelf -------------------------------------------------- */
+
+/* The way in to an album. At the foot of the sidebar, pushed there by
+   margin-top:auto so it sits in the same place whichever kind is on screen
+   and whether or not the collections list is showing — and capped, so a
+   reader with forty albums still has a sidebar with a pane above it. */
+.lib-albums {
+  margin-top: auto;
+  flex-shrink: 0;
+  max-height: 40%;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--ar-line);
+}
+
+.lib-albums-scroll {
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 8px;
+}
+
+.lib-albums-empty {
+  padding: 0 12px 10px;
+  font-size: 11px;
+  color: var(--ar-ink-4);
+}
+
+.lib-album .body {
+  flex: 1;
+  min-width: 0;
+}
+
+.lib-album .name {
+  display: block;
+  line-height: 16px;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lib-album .count {
+  font-size: 10px;
+  color: var(--ar-ink-4);
+  letter-spacing: 0.05em;
+}
+
+.lib-album:hover .count,
+.lib-album.selected .count {
+  color: var(--ar-ink-3);
+}

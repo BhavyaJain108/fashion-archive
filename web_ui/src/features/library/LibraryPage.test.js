@@ -25,13 +25,19 @@ jest.mock('../../shared/api', () => ({
     removeViewFavourite: jest.fn(),
     getImageUrl: (p) => `/images/${p}`,
   },
+  // The sidebar's albums shelf reads this. It is the way in to an album and
+  // nothing else on this page touches it, so the shelf is empty in every
+  // test but the one below that gives it a row.
+  AlbumsAPI: {
+    getAlbums: jest.fn(),
+  },
 }));
 
 // eslint-disable-next-line import/first
 import LibraryPage from './LibraryPage';
 
 // eslint-disable-next-line import/first
-const { FashionArchiveAPI: API } = require('../../shared/api');
+const { FashionArchiveAPI: API, AlbumsAPI } = require('../../shared/api');
 
 // jsdom implements Element.scrollTo on window but not on elements, and the
 // page centres the active thumbnail by calling it on the strip.
@@ -113,6 +119,7 @@ beforeEach(() => {
   API.removeFavourite.mockResolvedValue({ success: true });
   API.removeShowFavourite.mockResolvedValue({ success: true });
   API.removeViewFavourite.mockResolvedValue({ success: true });
+  AlbumsAPI.getAlbums.mockResolvedValue([]);
 });
 
 const kindRow = (label) => screen.getByText(label).closest('.lib-kind');
@@ -128,6 +135,33 @@ const renderPage = async () => {
   await screen.findByText('Looks');
   await waitFor(() => expect(API.getFavourites).toHaveBeenCalled());
 };
+
+// ── The albums shelf, which is the way in to one ───────────────────
+
+test('the sidebar lists the albums, and clicking one opens it', async () => {
+  AlbumsAPI.getAlbums.mockResolvedValue([
+    { id: 7, name: 'Resort', item_count: 4, cover_image_path: null, sort_by: 'added' },
+    { id: 9, name: 'Tailoring', item_count: 0, cover_image_path: null, sort_by: 'added' },
+  ]);
+  await renderPage();
+
+  await waitFor(() => expect(document.querySelectorAll('.lib-album')).toHaveLength(2));
+  const [resort, tailoring] = Array.from(document.querySelectorAll('.lib-album'));
+  expect(within(resort).getByText('Resort')).toBeInTheDocument();
+  expect(within(resort).getByText('4')).toBeInTheDocument();
+  expect(within(tailoring).getByText('Tailoring')).toBeInTheDocument();
+
+  // An address, built by buildRoute, so Back walks out of it.
+  fireEvent.click(tailoring);
+  expect(path()).toBe('/library/albums/9');
+});
+
+test('a reader with no albums is told so rather than shown nothing', async () => {
+  await renderPage();
+
+  await screen.findByText('No albums yet');
+  expect(document.querySelectorAll('.lib-album')).toHaveLength(0);
+});
 
 // ── The sidebar groups by kind ────────────────────────────────────────────
 
