@@ -20,6 +20,7 @@ import ShowList from './ShowList';
 import RecentsDrawer from './RecentsDrawer';
 import Viewer from './Viewer';
 import AlbumPicker from '../../shared/ui/AlbumPicker';
+import ShareEndpoints from '../../shared/api/share';
 import StatusBar from './StatusBar';
 import { videoSeasonName } from './seasonName';
 import { useFavourites } from './useFavourites';
@@ -1628,6 +1629,18 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
         isFavourite={isFavourite}
         toggleFavourite={toggleFavourite}
         onAddToAlbum={() => setAlbumPickerOpen(true)}
+        onShare={() => {
+          // Shares the look on screen, keyed off the same collection as the
+          // star, so a stale window never shares the wrong show's picture.
+          const col = imagesCollection || selectedCollection || {};
+          return ShareEndpoints.mintShare('look', {
+            image_path: images[imageIndex],
+            look_number: currentLookNumber,
+            designer: col.designer,
+            season_name: col.subtitle,
+            collection_id: col.collection_id,
+          });
+        }}
         thumbStripRef={thumbStripRef}
         activeThumbRef={activeThumbRef}
         showVideo={showVideo}

@@ -5,7 +5,7 @@ import { canonicalFilters, keyOf, rowOfTarget, targetOfRow } from './useSaves';
 // Albums: the shelf, one album's contents in order, and the seven writes that
 // change them.
 //
-//   useAlbums(albumId, { saves })
+//   useAlbums(albumId, { saves, shelf })
 //     -> { albums, loading,                          the shelf
 //          album, items, itemsLoading,               the one that is open
 //          createAlbum, renameAlbum,                 the album itself
@@ -24,6 +24,13 @@ import { canonicalFilters, keyOf, rowOfTarget, targetOfRow } from './useSaves';
 // shows the shelf. Pass it and `album`/`items` are that album; leave it off
 // and they are null and []. The writes all take an album id anyway, so a page
 // showing the shelf can add to any album on it without opening one.
+//
+// `shelf` is whether to fetch the shelf at all, and it defaults to true
+// because two of the three callers draw one. The album page does not — the
+// shelf is the library's sidebar — so it opened an album with two requests
+// and threw the answer to one of them away. With no shelf the counts below
+// have no row to move and quietly do nothing, which is right: there is
+// nothing on screen showing them.
 //
 // The function names are the API client's names, deliberately. `deleteAlbum`
 // and `removeFromAlbum` are the two destructive acts this feature has, they
@@ -236,7 +243,15 @@ export function useAlbums(albumId = null, options = {}) {
 
   // ------------------------------------------------------------ loading ---
 
+  const wantShelf = options.shelf !== false;
+
   const load = useCallback(async () => {
+    if (!wantShelf) {
+      // Nothing to wait for, so `loading` must not sit true over a page that
+      // is already drawn.
+      if (alive.current) setLoading(false);
+      return;
+    }
     try {
       const rows = await AlbumsAPI.getAlbums();
       if (!alive.current) return;
@@ -247,7 +262,7 @@ export function useAlbums(albumId = null, options = {}) {
     } finally {
       if (alive.current) setLoading(false);
     }
-  }, [applyAlbums]);
+  }, [applyAlbums, wantShelf]);
 
   // "An album id that is not yours is a 404, not a 403" — so gone and never
   // yours arrive here as one answer, and there is nothing to tell apart. Both

@@ -3,6 +3,7 @@ import { FashionArchiveAPI } from '../../shared/api';
 import { cleanDesignerName } from '../../shared/lib/designerName';
 import { lookLabel, lookCounter, lookAlt } from '../../shared/lib/lookLabel';
 import SaveStar from '../../shared/ui/SaveStar';
+import ShareButton from '../../shared/ui/ShareButton';
 import { videoSeasonName } from './seasonName';
 import ThumbStrip from './ThumbStrip';
 import VideoPanel from './VideoPanel';
@@ -38,6 +39,7 @@ function Viewer({
   isFavourite,
   toggleFavourite,
   onAddToAlbum,
+  onShare,
   thumbStripRef,
   activeThumbRef,
   // Video
@@ -170,6 +172,7 @@ function Viewer({
                         title="Put this look, or this whole show, in an album"
                       >Add to album</button>
                     )}
+                    {onShare && <ShareButton onMint={onShare} />}
                   </span>
                   {/* lookCounter, so this and the status bar are one
                       spelling of "n of m" rather than two that drift. */}

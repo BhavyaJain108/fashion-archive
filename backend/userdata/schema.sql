@@ -359,3 +359,34 @@ CREATE INDEX IF NOT EXISTS idx_album_items_order ON album_items (album_id, sort_
 -- would seq-scan album_items to find the rows to cascade — on the one table
 -- that grows with every album every user makes.
 CREATE INDEX IF NOT EXISTS idx_album_items_favourite ON album_items (favourite_id);
+
+-- Share links. A token is 22 characters from a CSPRNG and derived from nothing,
+-- so a stranger cannot guess one or walk from one to the next. What it points
+-- at is a small JSON document: for a look, enough to render it without a
+-- session; for a show, the show's id; for an album, the album's id. Resolving
+-- a token is read-only and answers only for that one target.
+--
+-- Revoking sets revoked_at; a revoked token answers 404, not 403, so a revoked
+-- link is indistinguishable from one that never existed.
+CREATE TABLE IF NOT EXISTS share_tokens (
+    token       text PRIMARY KEY,
+    user_id     uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    kind        text NOT NULL,           -- 'look' | 'show' | 'album'
+    target      jsonb NOT NULL,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    revoked_at  timestamptz
+);
+
+CREATE INDEX IF NOT EXISTS idx_share_tokens_user
+    ON share_tokens (user_id, created_at DESC);
+
+-- Fixed-window rate limiting, in the database because there is no Redis and
+-- the process may be more than one worker. One row per (key, window); the
+-- count is bumped atomically by an upsert. Old windows are deleted
+-- opportunistically by the same code path.
+CREATE TABLE IF NOT EXISTS rate_limits (
+    key          text NOT NULL,
+    window_start timestamptz NOT NULL,
+    count        integer NOT NULL DEFAULT 1,
+    PRIMARY KEY (key, window_start)
+);

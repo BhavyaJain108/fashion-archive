@@ -106,6 +106,8 @@ try:
     print("🔧 Registering Albums API...")
     from backend.api.album_routes import register_album_routes
     register_album_routes(app)
+    from backend.api.share_routes import register_share_routes
+    register_share_routes(app)
 except Exception as e:
     print(f"❌ Error registering Albums API: {e}")
     import traceback
@@ -194,7 +196,12 @@ if config.R2_ACCOUNT_ID:
 else:
     print(f"⚠️  R2 not configured — images go to {config.IMAGE_CACHE_DIR} (lost on redeploy)")
 
-install_auth(app, public_endpoints={'health_check'} | PUBLIC_AUTH_ENDPOINTS)
+from backend.api.share_routes import PUBLIC_SHARE_ENDPOINTS  # noqa: E402
+
+# serve_stored_image is public so a shared page can show its pictures without
+# a session. Keys are opaque and the handler is read-only; it is rate-limited.
+install_auth(app, public_endpoints={'health_check', 'serve_stored_image'}
+             | PUBLIC_AUTH_ENDPOINTS | PUBLIC_SHARE_ENDPOINTS)
 print(f"🔒 Auth installed: {len(PUBLIC_AUTH_ENDPOINTS) + 1} public endpoints, "
       f"all others require a session")
 

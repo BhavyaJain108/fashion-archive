@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import LibraryPage from '../features/library/LibraryPage';
 import AlbumGrid from '../features/library/AlbumGrid';
+import SharedView from '../features/library/SharedView';
 import BrandsPage from '../features/brands/BrandsPage';
 import AuthPanel from '../features/auth/AuthPanel';
 import HighFashionPage from '../features/high-fashion/HighFashionPage';
@@ -192,6 +193,12 @@ function App() {
 
   // Held back until the cookie check finishes, so a returning user never sees
   // a flash of the sign-in form.
+  // A share link is the one page that needs no session, and it must not wait
+  // for the cookie check or sit behind the sign-in overlay.
+  if (route.page === 'shared') {
+    return <SharedView token={route.token} />;
+  }
+
   if (!authChecked) {
     return (
       <div className="ar-page">

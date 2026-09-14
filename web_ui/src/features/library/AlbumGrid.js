@@ -1,3 +1,5 @@
+import ShareButton from '../../shared/ui/ShareButton';
+import ShareEndpoints from '../../shared/api/share';
 import React, { useMemo, useState } from 'react';
 import TopBar from '../../shared/ui/TopBar';
 import { FashionArchiveAPI } from '../../shared/api';
@@ -217,9 +219,12 @@ function Tile({ item, selected, onSelect, onOpen }) {
 function AlbumGrid({
   currentPage, onPageSwitch, currentUser, onLogout, albumId, navigate,
 }) {
+  // `shelf: false` — this page draws one album and no shelf, and the shelf is
+  // the library sidebar's. Without it, opening an album made two requests and
+  // discarded the answer to one of them.
   const {
     album, items, itemsLoading, setAlbumOptions, removeFromAlbum,
-  } = useAlbums(albumId);
+  } = useAlbums(albumId, { shelf: false });
 
   // Which tile is selected, by favourite id. Not by index: the list is
   // re-ordered by the sort control and re-read from the server after it, and
@@ -330,6 +335,9 @@ function AlbumGrid({
           </div>
 
           <div className="alb-title">{album.name}</div>
+          <div className="alb-share">
+            <ShareButton onMint={() => ShareEndpoints.mintShare('album', { album_id: album.id })} />
+          </div>
 
           <div className="alb-sort">
             <label className="alb-sort-label" htmlFor="alb-sort-by">Sort by</label>

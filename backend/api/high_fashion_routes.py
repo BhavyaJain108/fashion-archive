@@ -31,6 +31,7 @@ from pathlib import Path
 from backend.storage import images
 from backend.auth import db
 from backend.auth.middleware import current_user
+from backend.auth.ratelimit import limited
 from backend.high_fashion import collection_cache
 from backend.userdata import recents
 
@@ -397,6 +398,7 @@ def _cache_store(collection_id, quality, uploaded, meta, store):
         print(f"cache store failed for {collection_id}: {exc}")
 
 
+@limited(limit=600, window_seconds=60)
 def serve_stored_image(key):
     """GET /api/images/<key> - serve an image from the local store.
 

@@ -539,3 +539,37 @@ test('the control does not dress itself as the one that cannot be undone', async
   // And it says which of the two it is, in the words the act uses.
   expect(screen.getByText(/It stays in your library/)).toBeInTheDocument();
 });
+
+// ── what opening one album costs ──────────────────────────────────────────
+//
+// This page draws one album. It has no shelf on it — the shelf is the
+// library's sidebar — and `useAlbums` was fetching one anyway, so opening an
+// album made two requests and threw the answer to one of them away.
+
+test('opening an album asks for that album and not for the shelf', async () => {
+  await openAlbum();
+
+  expect(AlbumsAPI.getAlbum).toHaveBeenCalledTimes(1);
+  expect(AlbumsAPI.getAlbums).not.toHaveBeenCalled();
+});
+
+test('and the sort control still works without one', async () => {
+  await openAlbum();
+
+  fireEvent.change(screen.getByLabelText('Sort by'), { target: { value: 'designer' } });
+
+  await waitFor(() => expect(AlbumsAPI.setAlbumOptions).toHaveBeenCalledWith(
+    7, { sortBy: 'designer' }));
+  expect(AlbumsAPI.getAlbums).not.toHaveBeenCalled();
+});
+
+test('and taking a tile out still works without one', async () => {
+  await openAlbum();
+
+  fireEvent.click(tiles()[0]);
+  fireEvent.click(screen.getByRole('button', { name: /Remove from album/ }));
+
+  await waitFor(() => expect(AlbumsAPI.removeFromAlbum).toHaveBeenCalled());
+  await waitFor(() => expect(tiles()).toHaveLength(ALL.length - 1));
+  expect(AlbumsAPI.getAlbums).not.toHaveBeenCalled();
+});

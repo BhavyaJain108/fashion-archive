@@ -1,0 +1,4 @@
+.share { display: inline-flex; align-items: center; gap: 8px; }
+.share-result { display: inline-flex; align-items: center; gap: 6px; }
+.share-url { width: 260px; max-width: 40vw; font-size: 11px; }
+.share-note { font-size: 10px; letter-spacing: 0.06em; color: var(--ar-ink-3); text-transform: uppercase; }
