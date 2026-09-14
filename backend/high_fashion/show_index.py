@@ -153,6 +153,27 @@ def upsert(conn, shows) -> int:
     return written
 
 
+def get(conn, collection_id: str) -> Optional[dict[str, Any]]:
+    """One indexed show by its id, or None when the index does not hold it.
+
+    The catalogue's own answer for what a show is — designer, season, year,
+    gender — keyed by the only thing a request for a show ever carries. The
+    archive list builds a row's `season_url` out of exactly these columns, so
+    anything else that has to agree with the list about which season a show
+    sits in reads them from here rather than deriving them a second way.
+    """
+    row = conn.execute(
+        """
+        SELECT collection_id, designer, season, year, gender, category,
+               shoot_type, city
+          FROM show_index
+         WHERE collection_id = %s
+        """,
+        (collection_id,),
+    ).fetchone()
+    return _row(row) if row else None
+
+
 def known_ids(conn) -> set:
     return {row[0] for row in conn.execute("SELECT collection_id FROM show_index").fetchall()}
 

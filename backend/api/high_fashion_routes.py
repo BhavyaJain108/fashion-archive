@@ -266,11 +266,48 @@ def _upload_one(store, designer_name, entry):
     }
 
 
+def _show_collection_url(collection_id, fallback=''):
+    """The one URL a show has, whichever way it was reached.
+
+    A favourite is keyed on (season_url, collection_url, look_number), so the
+    collection_url a row carries is half its identity. The archive list and a
+    deep link both use `fv.collection_url`, which appends `list=all`; a recent
+    was stored as a bare `?id=NNN` — a different string, therefore a different
+    favourite, so one look kept from the drawer and the same look kept from the
+    list landed as two rows.
+
+    Normalised here, on the way in, because this is where the value is made and
+    a URL that is wrong in the table is wrong for everything that later reads
+    it. `get_recents` normalises again on the way out, so a row written by an
+    earlier deploy is keyed correctly before the backfill in schema.sql has
+    caught up with it, and the backfill repairs the stored rows themselves.
+
+    An id that is not one of firstVIEW's numeric ones is left alone: it is not
+    a `collection_images.php?id=` URL and inventing one would be worse than the
+    fallback.
+    """
+    from backend.high_fashion import firstview as fv
+
+    cid = str(collection_id or '')
+    return fv.collection_url(cid) if cid.isdigit() else (fallback or cid)
+
+
 def _record_recent(collection_id, payload, images_list=None):
     """Note that the signed-in user opened this show.
 
     Best effort: a history entry is never worth failing a download over, and
     an unauthenticated or partially-loaded request simply records nothing.
+
+    The show's season, year and gender come from the local index rather than
+    from `payload`, which is the download's own "done" event and carries only
+    designer and season — no year at all, and no gender outside a cache hit.
+    Without a year `_season_url` returns '' for every row the drawer holds, so
+    a look kept from the drawer keyed on an empty season_url while the same
+    look kept from the list keyed on a real one. Reading all three from the
+    index also means the two paths cannot disagree about which season a show is
+    in: `_index_row_to_dict` builds the list's season_url from these same
+    columns. The payload is the fallback for a show the index has never heard
+    of.
     """
     try:
         user = current_user()
@@ -280,16 +317,24 @@ def _record_recent(collection_id, payload, images_list=None):
         if images_list:
             first = min(images_list, key=lambda i: i.get('index', 0))
             thumb = first.get('path')
+        from backend.high_fashion import show_index
         with db.transaction() as conn:
+            try:
+                indexed = show_index.get(conn, str(collection_id)) or {}
+            except Exception as exc:  # noqa: BLE001 — no index is not no history
+                print(f"recents: no index row for {collection_id}: {exc}")
+                indexed = {}
             recents.record(
                 conn,
                 user_id=user.id,
                 collection_id=collection_id,
-                designer=payload.get('designer') or 'Unknown',
-                collection_url=payload.get('source_url')
-                    or f"https://www.firstview.com/collection_images.php?id={collection_id}",
-                season=payload.get('season'),
-                gender=payload.get('gender'),
+                designer=(indexed.get('designer') or payload.get('designer')
+                          or 'Unknown'),
+                collection_url=_show_collection_url(
+                    collection_id, payload.get('source_url') or ''),
+                season=indexed.get('season') or payload.get('season'),
+                year=indexed.get('year'),
+                gender=indexed.get('gender') or payload.get('gender'),
                 thumbnail_url=thumb,
                 look_count=payload.get('count') or payload.get('look_count'),
             )
@@ -1075,6 +1120,16 @@ def get_recents():
         for row in rows:
             row['season_url'] = _season_url(
                 row.get('gender'), row.get('year'), row.get('season')
+            )
+            # And the same for the collection url. It IS stored, and is now
+            # stored normalised — but a row written before that was, and
+            # before schema.sql's backfill has run against this database,
+            # holds a bare `?id=NNN` where the list holds `?id=NNN&list=all`.
+            # Two strings, two favourites, one show. Derived from the id the
+            # row already carries, so this costs nothing and cannot be out of
+            # step with what `fv.collection_url` produces for the list.
+            row['url'] = _show_collection_url(
+                row.get('collection_id'), row.get('url') or ''
             )
 
         return jsonify({'recents': rows, 'success': True})

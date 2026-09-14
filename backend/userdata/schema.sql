@@ -144,3 +144,57 @@ CREATE TABLE IF NOT EXISTS recent_collections (
 
 CREATE INDEX IF NOT EXISTS idx_recent_collections_user
     ON recent_collections (user_id, viewed_at DESC);
+
+-- Repairing the recents rows already stored.
+--
+-- A recent is what the favourites drawer keys a save on: a look kept from the
+-- drawer is (season_url, collection_url, look_number), and both of the first
+-- two come off the row below. Until now this table was written with a bare
+-- `?id=NNN` collection_url and with no year at all, while the archive list
+-- used `?id=NNN&list=all` and derived a real season_url — so one look kept the
+-- two ways landed as two favourites, and removing one left the other.
+--
+-- The writer is fixed, but every row written before it was is still wrong, and
+-- a row is only rewritten when its show is opened again. So both are repaired
+-- here. As with everything else in this file this re-runs on every boot: each
+-- statement's WHERE clause stops matching once it has done its work, so the
+-- second run and every run after it updates nothing.
+
+-- The collection url. This is `firstview.collection_url(collection_id)`,
+-- spelled out — the `list=all` is not cosmetic (without it the page returns
+-- only the first 20 looks), which is why the list has always used it. Only
+-- rows whose id is one of firstVIEW's numeric ones are touched; anything else
+-- is not a collection_images.php URL and is left exactly as it was.
+UPDATE recent_collections
+   SET collection_url = 'https://www.firstview.com/collection_images.php?id='
+                        || collection_id || '&list=all'
+ WHERE collection_id ~ '^[0-9]+$'
+   AND collection_url IS DISTINCT FROM
+       'https://www.firstview.com/collection_images.php?id='
+       || collection_id || '&list=all';
+
+-- The season a show sits in: gender, year and season, which season_url is a
+-- pure function of. The catalogue already knows all three for every show it
+-- lists, and `show_index` is the same table the archive list reads them from,
+-- so this makes the drawer agree with the list rather than guessing.
+--
+-- Guarded on the table existing because schema.sql files are applied in order
+-- and high_fashion/schema.sql — which creates show_index — is applied after
+-- this one. On a first boot the index is not there yet (and, once created, is
+-- seeded later still), the guard skips, and the next boot does the work. There
+-- are no recents to repair on a first boot anyway.
+DO $$
+BEGIN
+    IF to_regclass('public.show_index') IS NOT NULL THEN
+        UPDATE recent_collections r
+           SET year   = COALESCE(r.year, s.year),
+               gender = COALESCE(r.gender, s.gender),
+               season = COALESCE(r.season, s.season)
+          FROM show_index s
+         WHERE s.collection_id = r.collection_id
+           AND ((r.year IS NULL AND s.year IS NOT NULL)
+                OR (r.gender IS NULL AND s.gender IS NOT NULL)
+                OR (r.season IS NULL AND s.season IS NOT NULL));
+    END IF;
+END
+$$;
