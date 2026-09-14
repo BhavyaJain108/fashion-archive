@@ -13,6 +13,22 @@ from backend.archive.domain.brand import TransportLevel
 
 _JSON_OR_XML = re.compile(r"\.(json|xml)(\?|$)|/wp-json/", re.I)
 
+DRIVERS = ("playwright", "patchright")
+
+
+def stealth_scripts(driver: str) -> list[str]:
+    """What to inject before every page load, for this driver.
+
+    Plain Playwright needs STEALTH_JS: it announces itself, and the patches cover the
+    properties Cloudflare & friends read.
+
+    Patchright must be given nothing. It removes the automation traces down at the CDP
+    layer, and a JS patch on top puts back the very thing it stripped — a property whose
+    getter does not read as native is itself the signal detectors look for now, so
+    "extra stealth" here makes the browser more detectable, not less.
+    """
+    return [STEALTH_JS] if driver == "playwright" else []
+
 
 class BrowserResponse:
     """Duck-types the slice of httpx.Response that connectors use."""
@@ -36,9 +52,17 @@ class BrowserResponse:
 class PlaywrightTransport:
     level = TransportLevel.T2
 
-    def __init__(self, context=None, headless: bool = True):
+    def __init__(self, context=None, headless: bool = True, driver: str = "playwright"):
         """context: an injected Playwright BrowserContext (tests pass a fake). If None, a real
-        stealthed Chromium is launched lazily on first use."""
+        stealthed Chromium is launched lazily on first use.
+
+        driver: which library drives it. Patchright is API-compatible with Playwright but
+        patches the automation traces at the CDP layer instead of in page JS, so the two
+        are genuinely different lanes and worth measuring against each other.
+        """
+        if driver not in DRIVERS:
+            raise ValueError(f"unknown driver {driver!r}; expected one of {', '.join(DRIVERS)}")
+        self.driver = driver
         self._context = context
         self._headless = headless
         self._pw = None
@@ -48,13 +72,21 @@ class PlaywrightTransport:
     def _ensure_context(self):
         if self._context is not None:
             return self._context
-        from playwright.sync_api import sync_playwright
+        if self.driver == "patchright":
+            from patchright.sync_api import sync_playwright
+        else:
+            from playwright.sync_api import sync_playwright
 
         self._pw = sync_playwright().start()
         self._browser = self._pw.chromium.launch(headless=self._headless, args=stealth_args())
         self._context = self._browser.new_context(user_agent=STEALTH_USER_AGENT)
-        self._context.add_init_script(STEALTH_JS)
+        for script in stealth_scripts(self.driver):
+            self._context.add_init_script(script)
         return self._context
+
+    def statuses(self) -> list[int]:
+        """Every status this transport saw, in order. What the classifier reads."""
+        return [row["status"] for row in self.ledger]
 
     def get(self, url: str) -> BrowserResponse:
         ctx = self._ensure_context()

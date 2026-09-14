@@ -7,8 +7,14 @@
 # Deliberately absent: flask and psycopg (the scraper is not the API), and playwright
 # (27 of the 32 brands need only plain HTTP; the 4 that want a browser are the 4 that
 # produce nothing today). Adding the browser lane back means a second, larger image.
+#
+# curl_cffi is here for the opposite reason. It is browser-grade *access* — libcurl over
+# BoringSSL with real Chrome cipher ordering — without a browser: a ~5 MB wheel and no
+# Chromium, so the small image keeps its shape while the brands that refuse our Python
+# TLS fingerprint become reachable.
 
 httpx>=0.27
+curl_cffi>=0.7
 pydantic>=2.5
 PyYAML>=6.0
 beautifulsoup4>=4.12.0

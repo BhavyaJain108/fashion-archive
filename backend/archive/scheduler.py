@@ -130,6 +130,23 @@ class Scheduler:
 
     # --- claiming -------------------------------------------------------------------
 
+    def held_domains(self, now: datetime | None = None) -> set[str]:
+        """Brands a worker is scraping right now.
+
+        The access sweep asks, because our own traffic is the one thing that can
+        manufacture the answer it is trying to measure: a 429 or a 403 taken while our
+        worker held that brand may be us rather than the site. A stale claim is a dead
+        worker's leftover, not live traffic, so it does not count.
+        """
+        now = now or _now()
+        stale = _iso(now - timedelta(seconds=self.stale_claim_seconds))
+        held = set()
+        for key in self._store.list(_SCHEDULE):
+            row, _ = self._read(key)
+            if row.get("claimed_by") is not None and (row.get("claimed_at") or "") >= stale:
+                held.add(row["domain"])
+        return held
+
     def claim_next(self, now: datetime | None = None) -> Due | None:
         """Take the next due brand, or return None if nothing is ready.
 

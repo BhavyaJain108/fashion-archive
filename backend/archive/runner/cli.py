@@ -63,6 +63,87 @@ def _seed(catalog: Catalog, brands_path: Path) -> list[Brand]:
     return brands
 
 
+def _held(store: ObjectStore) -> set[str] | None:
+    """Brands our own worker is scraping right now, or None when we cannot tell."""
+    from backend.archive.scheduler import Scheduler
+
+    try:
+        return Scheduler(store).held_domains()
+    except Exception:  # noqa: BLE001 — not knowing is a valid answer, failing here is not
+        return None
+
+
+def _access(args, store: ObjectStore, brands: list[Brand]) -> int:
+    """Measure what it costs to get into each brand, and write the answer down."""
+    from datetime import datetime, timezone
+
+    from backend.archive.access import store as access_store
+    from backend.archive.access.bench import sweep
+    from backend.archive.access.report import format_matrix, format_plan
+    from backend.archive.access.strategy import all_strategies, select
+    from backend.archive.access.targets import failing_domains
+    from backend.archive.roster import load_roster
+
+    if args.domain:
+        domains = [args.domain]
+    elif args.only_failing:
+        domains = failing_domains(load_roster(args.brands))
+    elif args.all:
+        domains = [b.domain for b in brands]
+    else:
+        print("say which brands: a domain, or --only-failing, or --all", file=sys.stderr)
+        return 2
+    if not domains:
+        print("no brands matched")
+        return 0
+
+    strategies = select(args.strategies) if args.strategies else all_strategies()
+    missing = [s.name for s in strategies if not s.available]
+    strategies = [s for s in strategies if s.available]
+    if missing:
+        print(f"skipping (library not installed): {', '.join(missing)}\n")
+    if not strategies:
+        print("no strategies available to try", file=sys.stderr)
+        return 2
+
+    if args.dry_run:
+        print(format_plan(domains, strategies))
+        return 0
+
+    # Our own worker hits these hosts continuously, and a 429 or 403 is the one answer
+    # our traffic can manufacture. Snapshot the claims either side of the sweep: a brand
+    # held at either end was plausibly being scraped while we measured it. Two list calls
+    # rather than one per cell, which on R2 is the difference that matters.
+    held_before = _held(store)
+
+    budget = HostBudget(gap=args.gap)
+
+    def line(r) -> None:
+        print(
+            f"  {r.domain:<28} {r.strategy:<16} {r.outcome.value:<12} {r.seconds:5.2f}s",
+            flush=True,
+        )
+
+    results = sweep(domains, strategies, on_result=line, budget=budget)
+
+    held_after = _held(store)
+    if held_before is None or held_after is None:
+        contended = None  # could not tell, which is not the same as "no"
+    else:
+        contended = held_before | held_after
+    for r in results:
+        r.daemon_active = None if contended is None else r.domain in contended
+
+    print()
+    print(format_matrix(results))
+
+    if not args.no_save:
+        at = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+        access_store.save_sweep(store, results, at=at)
+        print(f"\nrecorded as access/sweeps/{at}.json")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="archive")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -76,6 +157,7 @@ def main(argv: list[str] | None = None) -> int:
         "hosts",
         "show",
         "images",
+        "access",
     ):
         sp = sub.add_parser(name)
         sp.add_argument(
@@ -133,6 +215,28 @@ def main(argv: list[str] | None = None) -> int:
             )
             sp.add_argument("domain", nargs="?")
             sp.add_argument("--every", type=int, default=86400, help="cadence in seconds")
+        if name == "access":
+            sp.add_argument("domain", nargs="?")
+            sp.add_argument("--all", action="store_true", help="every brand in brands.yml")
+            sp.add_argument(
+                "--only-failing",
+                action="store_true",
+                help="only the brands whose notes record a refusal — usually what you want",
+            )
+            sp.add_argument(
+                "--strategies",
+                default="",
+                help="comma-separated names to try (default: the whole shelf, cheapest first)",
+            )
+            sp.add_argument(
+                "--dry-run",
+                action="store_true",
+                help="say which hosts would be asked and how often, then send nothing",
+            )
+            sp.add_argument("--gap", type=float, default=1.0, help="seconds between hits on a host")
+            sp.add_argument(
+                "--no-save", action="store_true", help="print the matrix without recording a sweep"
+            )
         if name == "plan":
             sp.add_argument("domain")
         if name == "capability":
@@ -462,6 +566,9 @@ def main(argv: list[str] | None = None) -> int:
             print()
             print(format_matrix(reports, show_gated=args.show_gated))
             return 0
+
+        if args.cmd == "access":
+            return _access(args, store, brands)
 
         if args.cmd == "show":
             rows = catalog.current_products(args.domain)

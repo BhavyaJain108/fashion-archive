@@ -87,3 +87,27 @@ def test_stopping_is_a_flag(cat):
     assert s.should_stop() is True
     s.request_stop(False)
     assert s.should_stop() is False
+
+
+@pytest.mark.unit
+def test_held_domains_names_the_brands_a_worker_is_scraping_right_now(cat):
+    """The access sweep needs this: a 429 measured while our own worker holds the brand
+    may be our traffic rather than the site's verdict."""
+    s = Scheduler(cat, worker_id="w1")
+    s.add("kuurth.com", now=T0)
+    assert s.claim_next(T0).domain == "kuurth.com"
+    assert s.held_domains(now=T0) == {"kuurth.com"}
+
+
+@pytest.mark.unit
+def test_nothing_is_held_before_a_worker_claims_anything(cat):
+    assert Scheduler(cat).held_domains(now=T0) == set()
+
+
+@pytest.mark.unit
+def test_a_stale_claim_is_not_counted_as_held(cat):
+    """A worker that died mid-brand left its name behind; that is not live traffic."""
+    s = Scheduler(cat, worker_id="w1", stale_claim_seconds=60)
+    s.add("kuurth.com", now=T0)
+    s.claim_next(T0)
+    assert s.held_domains(now=T0 + timedelta(seconds=3600)) == set()

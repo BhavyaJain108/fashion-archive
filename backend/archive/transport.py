@@ -55,20 +55,17 @@ class Transport(Protocol):
     def get(self, url: str) -> Response: ...
 
 
-class HttpxTransport:
-    """T0/T1 plain-HTTP transport with a browser-grade header profile."""
+class LedgeredTransport:
+    """The bookkeeping every HTTP transport owes, with the fetching left abstract.
 
-    def __init__(
-        self,
-        level: TransportLevel = TransportLevel.T0,
-        client: httpx.Client | None = None,
-        sink=None,
-        budget=None,
-    ):
+    Pacing a host, noticing what it answered and writing that down are the same job
+    whichever library carries the request, so a second transport should inherit them
+    rather than copy them — a copy is how one lane quietly stops honouring Retry-After.
+    Subclasses implement `_fetch`; everything around it is here.
+    """
+
+    def __init__(self, level: TransportLevel = TransportLevel.T0, sink=None, budget=None):
         self.level = level
-        self._client = client or httpx.Client(
-            headers=BROWSER_HEADERS, follow_redirects=True, timeout=15.0
-        )
         # Request ledger: every request this transport ever made, for auditability.
         self.ledger: list[dict] = []
         # Where the ledger goes to be kept. Scraping constantly is only worth doing if
@@ -81,13 +78,16 @@ class HttpxTransport:
         # go straight back to making the request that caused it.
         self._budget = budget
 
-    def get(self, url: str) -> httpx.Response:
+    def _fetch(self, url: str):
+        raise NotImplementedError
+
+    def get(self, url: str):
         host = urlparse(url).netloc
         if self._budget is not None:
             self._budget.acquire(host)
         started = time.monotonic()
         try:
-            resp = self._client.get(url)
+            resp = self._fetch(url)
         except Exception:
             self._record(url, None, started, None)
             raise
@@ -98,11 +98,39 @@ class HttpxTransport:
         self.ledger.append({"url": url, "status": resp.status_code, "bytes": len(resp.content)})
         return resp
 
+    def statuses(self) -> list[int]:
+        """Every status this transport saw, in order. What the classifier reads."""
+        return [row["status"] for row in self.ledger]
+
     def _record(self, url: str, status: int | None, started: float, retry_after: int | None):
         if self._sink is None:
             return
         host = urlparse(url).netloc
         self._sink(host, status, int((time.monotonic() - started) * 1000), retry_after)
+
+
+class HttpxTransport(LedgeredTransport):
+    """T0/T1 plain-HTTP transport with a browser-grade header profile.
+
+    The headers say Chrome; Python's TLS stack says otherwise, and a WAF hashes the
+    handshake before it reads a header. That mismatch is why several brands refuse this
+    lane — see access/cffi.py for the one that does not have it.
+    """
+
+    def __init__(
+        self,
+        level: TransportLevel = TransportLevel.T0,
+        client: httpx.Client | None = None,
+        sink=None,
+        budget=None,
+    ):
+        super().__init__(level=level, sink=sink, budget=budget)
+        self._client = client or httpx.Client(
+            headers=BROWSER_HEADERS, follow_redirects=True, timeout=15.0
+        )
+
+    def _fetch(self, url: str) -> httpx.Response:
+        return self._client.get(url)
 
 
 def _retry_after(resp) -> int | None:

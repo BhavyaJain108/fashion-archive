@@ -11,6 +11,12 @@
 playwright>=1.40.0
 pydantic>=2.0.0
 
+# Access-harness lanes. patchright is dev-only: it pulls a Chromium, and the scraper
+# image deliberately has no browser. Its strategy reports unavailable in production,
+# which is the intended behaviour, not a failure.
+curl_cffi>=0.7
+patchright>=1.40
+
 # Test runner
 pytest>=7.4.0
 pytest-cov>=4.1.0
