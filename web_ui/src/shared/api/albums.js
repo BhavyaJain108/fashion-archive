@@ -37,12 +37,20 @@ export class AlbumsEndpoints {
   // that name cannot decide this for us.
   static async albumRequest(path, { method = 'GET', body } = {}) {
     const hasBody = body !== undefined;
-    const response = await fetch(`${ApiClient.BASE_URL}${path}`, {
-      method,
-      credentials: 'include',
-      headers: hasBody ? { 'Content-Type': 'application/json' } : {},
-      body: hasBody ? JSON.stringify(body) : undefined,
-    });
+    let response;
+    try {
+      response = await fetch(`${ApiClient.BASE_URL}${path}`, {
+        method,
+        credentials: 'include',
+        headers: hasBody ? { 'Content-Type': 'application/json' } : {},
+        body: hasBody ? JSON.stringify(body) : undefined,
+      });
+    } catch (error) {
+      // No response at all — offline, a refused connection, a preflight the
+      // browser rejected. The hook rolls its optimistic change back on
+      // ok:false; a throw here escaped straight out of the click handler.
+      return { ok: false, status: 0, error: error.message || 'Network error', bodyRead: false };
+    }
     ApiClient.checkAuth(response);
     const data = await response.json().catch(() => null);
     const read = Boolean(data) && typeof data === 'object' && !Array.isArray(data);

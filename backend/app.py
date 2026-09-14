@@ -34,7 +34,9 @@ app = Flask(__name__)
 # could call this API with the user's cookies attached.
 CORS(app,
      resources={r"/api/*": {"origins": [config.APP_BASE_URL]}},
-     methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+     # PATCH: album rename, sort and layout. It was missing, and the browser
+     # blocked every one of those at the preflight without the server seeing it.
+     methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
      allow_headers=['Content-Type'],
      supports_credentials=True)
 
