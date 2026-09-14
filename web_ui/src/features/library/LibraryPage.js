@@ -92,6 +92,14 @@ function LibraryPage({
   const [panes, setPanes] = useState(EMPTY_PANES);
   const [loading, setLoading] = useState(true);
 
+  // Why there is nothing to show, when the reason is not "you have kept
+  // nothing". `loadPanes` used to catch, log and leave `EMPTY_PANES`, so a
+  // dead session or a 500 rendered as "No saved looks" over the hint about
+  // pressing the star — the worst available answer, because it tells a reader
+  // with four hundred saves that they have none, on the page whose only job
+  // is to hold them, and then instructs them to start again.
+  const [panesError, setPanesError] = useState(null);
+
   // Which of the three kinds is on screen. The page holds looks, shows and
   // views now, and they are three different things to look at rather than
   // three sections of one list — a saved view has no photograph and a saved
@@ -160,8 +168,12 @@ function LibraryPage({
       setLoading(true);
       const [look, show, view] = await Promise.all(KINDS.map(k => loadPane(k.kind)));
       setPanes({ look, show, view });
+      setPanesError(null);
     } catch (error) {
       console.error('LibraryPage: Error loading favourites:', error);
+      // The panes are left as they were rather than emptied: on a reload that
+      // failed, what is on screen is still the truth as of the last one.
+      setPanesError(error);
     } finally {
       setLoading(false);
     }
@@ -583,6 +595,32 @@ function LibraryPage({
         {chrome}
         <div className="ar-loading">
           <span className="headline">Loading library</span>
+        </div>
+      </div>
+    );
+  }
+
+  // Said as a failure, with the way out of it. The empty states below mean
+  // the reader has kept nothing of that kind; this one means we never found
+  // out, and the two must not be spelled the same way.
+  if (panesError) {
+    return (
+      <div className="ar-page">
+        {chrome}
+        <div className="ar-empty lib-error">
+          <span className="headline">Your library could not be read</span>
+          <span className="lib-empty-hint">
+            Nothing has been lost — this is the page failing to fetch it, not
+            the library failing to hold it.
+          </span>
+          <span className="lib-error-detail">
+            {String(panesError.message || panesError)}
+          </span>
+          <button
+            type="button"
+            className="ar-btn lib-retry"
+            onClick={() => loadPanes()}
+          >Try again</button>
         </div>
       </div>
     );

@@ -834,3 +834,57 @@ test('unsaving a row brings the count down with it', async () => {
   // wrong the moment the list is short enough to count.
   await waitFor(() => expect(within(kindRow('Looks')).getByText('411')).toBeInTheDocument());
 });
+
+// ── a library that could not be read ──────────────────────────────────────
+//
+// `loadPanes` caught, logged, and left `EMPTY_PANES`, so a dead session or a
+// 500 rendered as "No saved looks" over the hint about pressing the star.
+// That is the worst available answer: it tells a reader with four hundred
+// saves that they have none, in the page whose whole job is to hold them, and
+// offers them the instruction for starting over.
+
+describe('when the library could not be read', () => {
+  const dead = () => {
+    API.getFavouritesPage.mockRejectedValue(new Error('session gone'));
+  };
+
+  const renderDead = async () => {
+    render(
+      <LibraryPage
+        currentPage="library"
+        currentUser={{ username: 'test' }}
+        navigate={navigate}
+      />,
+    );
+    await waitFor(() => expect(API.getFavouritesPage).toHaveBeenCalled());
+  };
+
+  test('says so, rather than saying the reader has nothing', async () => {
+    dead();
+    await renderDead();
+
+    await screen.findByText(/could not be read/i);
+    expect(screen.queryByText('No saved looks')).toBeNull();
+    expect(screen.queryByText(/press the star on a photograph/i)).toBeNull();
+  });
+
+  test('and the reader can ask again', async () => {
+    dead();
+    await renderDead();
+    await screen.findByText(/could not be read/i);
+
+    serve(ALL);
+    fireEvent.click(screen.getByRole('button', { name: /try again/i }));
+
+    await waitFor(() => expect(document.querySelector('.fav-look-label')).not.toBeNull());
+    expect(screen.queryByText(/could not be read/i)).toBeNull();
+  });
+
+  test('a library that really is empty still says it is empty', async () => {
+    serve([]);
+    await renderPage();
+
+    await screen.findByText('No saved looks');
+    expect(screen.queryByText(/could not be read/i)).toBeNull();
+  });
+});

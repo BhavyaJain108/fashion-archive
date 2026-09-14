@@ -665,3 +665,21 @@
   display: flex;
   gap: 8px;
 }
+
+/* A failure, said as a failure. The empty states mean the reader has kept
+   nothing of that kind; this one means the page never found out, and the two
+   must not look alike. */
+.lib-error .headline {
+  color: #cc0000;
+}
+
+.lib-error-detail {
+  margin-top: 4px;
+  font-size: 10px;
+  line-height: 14px;
+  color: #aaaaaa;
+}
+
+.lib-retry {
+  margin-top: 12px;
+}
