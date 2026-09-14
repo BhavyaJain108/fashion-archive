@@ -77,13 +77,13 @@ const path = () => window.location.pathname + window.location.search;
 
 beforeEach(() => {
   window.localStorage.clear();
-  // The page loads the YouTube iframe API by inserting a <script> before the
-  // first one in the document. A jsdom document has none, so it needs one to
-  // insert before. (Worth noting rather than fixing here: a real page with no
-  // script tag at all would hit the same null.)
-  if (!document.getElementsByTagName('script')[0]) {
-    document.head.appendChild(document.createElement('script'));
-  }
+  // No script tag is planted in this document. The page loads the YouTube
+  // iframe API by inserting a <script> into the document on mount, and a
+  // jsdom document has no script to insert before — the same document a
+  // fully server-rendered page has. Every render below therefore runs that
+  // effect against an empty document, which is the point: an unguarded
+  // `getElementsByTagName('script')[0].parentNode` throws there, and a throw
+  // in a mount effect unmounts the tree.
   window.history.replaceState({}, '', '/');
 
   API.getSeasons.mockResolvedValue([]);

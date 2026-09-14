@@ -1083,12 +1083,24 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
   }, [currentImageIndex]);
 
   // Load YouTube API
+  //
+  // The <script> goes before the first one on the page when there is one, and
+  // into <head> when there is not. A document with no script tag is not
+  // hypothetical — a fully server-rendered page, a test's jsdom — and
+  // `getElementsByTagName('script')[0].parentNode` on one throws a TypeError
+  // inside a mount effect, which React reports as a render failure and
+  // unmounts the whole tree for. The cost of the missing guard was a white
+  // screen; the thing being loaded is a video player.
   useEffect(() => {
     if (!window.YT) {
       const tag = document.createElement('script');
       tag.src = 'https://www.youtube.com/iframe_api';
       const firstScript = document.getElementsByTagName('script')[0];
-      firstScript.parentNode.insertBefore(tag, firstScript);
+      if (firstScript && firstScript.parentNode) {
+        firstScript.parentNode.insertBefore(tag, firstScript);
+      } else {
+        document.head.appendChild(tag);
+      }
     }
   }, []);
 
