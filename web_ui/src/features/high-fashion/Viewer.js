@@ -1,7 +1,7 @@
 import React from 'react';
 import { FashionArchiveAPI } from '../../shared/api';
 import { cleanDesignerName } from '../../shared/lib/designerName';
-import { lookLabel, lookAlt } from '../../shared/lib/lookLabel';
+import { lookLabel, lookCounter, lookAlt } from '../../shared/lib/lookLabel';
 import { videoSeasonName } from './seasonName';
 import ThumbStrip from './ThumbStrip';
 import VideoPanel from './VideoPanel';
@@ -118,8 +118,23 @@ function Viewer({
                     alt={lookAlt(currentLookNumber)}
                   />
                 </div>
+                {/* One number, not two. This row used to read
+                    "LOOK 07 ☆ 3 / 12": the padded number parsed out of the
+                    filename, and the position in the array, side by side and
+                    both about the same photograph. When the word "LOOK" went
+                    — it was a claim the data does not support, see
+                    lookLabel.js — what was left was two bare numbers in two
+                    formats, and a reader with no way to tell which was which.
+
+                    The position is the half that survives, because it is the
+                    half they can check: 3 of 12, against twelve thumbnails.
+                    The filename number is an identifier, is frequently not
+                    the designer's actual look number, and means nothing to
+                    anyone reading it. It is not gone — it is still the
+                    identity of every favourite, and the grid and the status
+                    bar still print it — it just stops being a second
+                    unexplained number beside this one. */}
                 <div className="hf2-image-info">
-                  <span className="hf2-look-label">{lookLabel(currentLookNumber)}</span>
                   {/* Keeping a look was possible in the database and in the API
                       from the start, and nowhere on the screen. */}
                   <button
@@ -133,7 +148,11 @@ function Viewer({
                   >
                     {isFavourite(currentLookNumber) ? '★' : '☆'}
                   </button>
-                  <span className="hf2-look-count">{currentImageIndex + 1} / {images.length}</span>
+                  {/* lookCounter, so this and the status bar are one
+                      spelling of "n of m" rather than two that drift. */}
+                  <span className="hf2-look-count">
+                    {lookCounter(currentImageIndex + 1, images.length)}
+                  </span>
                 </div>
               </div>
 

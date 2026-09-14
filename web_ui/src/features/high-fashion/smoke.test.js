@@ -529,13 +529,37 @@ describe('Viewer', () => {
 
   it('renders the single view with its controls and thumb strip', () => {
     render(<Viewer {...props} />);
-    expect(screen.getByText('01')).toBeInTheDocument();
-    expect(screen.getByText('1 / 2')).toBeInTheDocument();
+    // One number under the photograph, and it is the position: 1 of 2,
+    // which the reader can check against the two thumbnails below it. In
+    // the same spelling the status bar uses, from the same function.
+    expect(document.querySelector('.hf2-look-count').textContent)
+      .toBe(lookCounter(1, 2));
     expect(screen.getByText('SINGLE')).toBeInTheDocument();
     expect(screen.getByText('VIDEO')).toBeInTheDocument();
     // ThumbStrip is rendered by Viewer in single view — this is the seam
     // between the two, and the props crossing it.
     expect(screen.getByAltText('Look 2')).toBeInTheDocument();
+  });
+
+  // The defect this replaced: `lookLabel(currentLookNumber)` and an inline
+  // `{currentImageIndex + 1} / {images.length}` in the same row — two
+  // different numbers about the same photograph, adjacent, both bare, one
+  // zero-padded and one not. The word "LOOK" had been carrying the
+  // disambiguation. There is one number in this row now.
+  it('shows the position and no second bare number beside it', () => {
+    // A show where the two differ: the filename says look 34, and it is the
+    // second of two photographs on screen.
+    render(
+      <Viewer
+        {...props}
+        images={['shows/1234/look-33.jpg', 'shows/1234/look-34.jpg']}
+        currentImageIndex={1}
+        currentLookNumber={34}
+      />
+    );
+    const row = document.querySelector('.hf2-image-info');
+    expect(row.textContent).toContain(lookCounter(2, 2));
+    expect(row.textContent).not.toContain('34');
   });
 
   it('renders the grid view', () => {
@@ -558,7 +582,8 @@ describe('Viewer', () => {
     // Both the frame and the strip draw look 1, which is the point: the
     // whole viewer is still there.
     expect(screen.getAllByAltText('Look 1')).toHaveLength(2);
-    expect(screen.getByText('1 / 2')).toBeInTheDocument();
+    expect(document.querySelector('.hf2-look-count').textContent)
+      .toBe(lookCounter(1, 2));
     // Marked as not-what-you-asked-for-yet, not removed.
     expect(document.querySelector('.hf2-main.stale')).not.toBeNull();
   });
