@@ -137,3 +137,42 @@ def test_serve_takes_a_store_not_a_directory_path(tmp_path):
 
     assert seen == ["kuurth.com"]
     assert Scheduler(DirectoryObjectStore(tmp_path)).code_version() is not None
+
+
+@pytest.mark.unit
+def test_touch_keeps_a_claim_and_only_the_holder_may_refresh_it(tmp_path):
+    store = DirectoryObjectStore(tmp_path)
+    mine = Scheduler(store, worker_id="w1")
+    mine.add("kuurth.com", cadence_seconds=3600)
+    due = mine.claim_next()
+    assert due is not None
+
+    before = mine.rows()[0]["claimed_at"]
+    assert mine.touch("kuurth.com") is True
+    assert mine.rows()[0]["claimed_at"] >= before
+
+    # someone else's brand is not ours to keep alive
+    assert Scheduler(store, worker_id="w2").touch("kuurth.com") is False
+
+
+@pytest.mark.unit
+def test_a_long_brand_keeps_its_claim_fresh_while_it_runs(env, monkeypatch):
+    """A claim goes stale after an hour so a dead worker frees its brand. A live
+    worker on a brand that takes longer than that must not be treated as dead —
+    psylos1 takes 19 hours, and a stolen claim means two handles on one catalogue."""
+    import backend.archive.runner.daemon as d
+
+    cat, sched = env
+    monkeypatch.setattr(d, "HEARTBEAT_SECONDS", 0.01)
+    stamps: list[str] = []
+
+    def slow(brand):
+        for _ in range(30):
+            time.sleep(0.01)
+            row = sched.rows()[0]
+            if row["claimed_at"] not in stamps:
+                stamps.append(row["claimed_at"])
+        return [rec()], 0.0
+
+    assert d.run_once(cat, sched, slow, log=lambda *a: None) is True
+    assert len(stamps) > 1, "the claim was never refreshed while the brand ran"

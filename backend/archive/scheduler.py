@@ -160,6 +160,26 @@ class Scheduler:
             return Due(row["domain"], row["cadence_seconds"])
         return None
 
+    def touch(self, domain: str, now: datetime | None = None) -> bool:
+        """Say we are still working. False when the claim is no longer ours.
+
+        A claim goes stale after stale_claim_seconds so that a worker which dies
+        mid-brand does not lock that brand out for ever. Without a heartbeat that
+        timeout is also a deadline: a brand that legitimately takes longer than it
+        gets taken from underneath the worker still scraping it, and two handles
+        then write the same catalogue.
+        """
+        key = self._key(domain)
+        row, etag = self._read(key)
+        if not row or row.get("claimed_by") != self.worker_id:
+            return False
+        row["claimed_at"] = _iso(now or _now())
+        try:
+            self._write(key, row, etag)
+        except Conflict:
+            return False
+        return True
+
     def release(self, domain: str, cadence_seconds: int, now: datetime | None = None) -> None:
         """Hand the brand back and set when it is next wanted."""
         now = now or _now()
