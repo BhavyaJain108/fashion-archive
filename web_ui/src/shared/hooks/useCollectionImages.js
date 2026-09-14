@@ -76,7 +76,7 @@ export function useCollectionImages(collection) {
       // asking for something else, so the screen is cleared — there is
       // nothing "not yet arrived" to keep it warm for. EMPTY is a constant
       // so this is an Object.is no-op when there was nothing there anyway.
-      safeAbort(live.current);
+      safeAbort(live.current, 'images: superseded');
       live.current = null;
       setState(EMPTY);
       return undefined;
@@ -161,7 +161,7 @@ export function useCollectionImages(collection) {
     });
 
     return () => {
-      safeAbort(controller);
+      safeAbort(controller, 'images: unmount');
       // Cleanup runs before the next effect, so clearing the ref here can
       // never clear a newer request's claim. It is what makes every late
       // callback above return at isCurrent() — including after unmount,

@@ -1,17 +1,15 @@
-// Abort a controller without letting anything it triggers escape.
+// Abort a controller with a named reason, and let nothing it triggers escape.
 //
-// controller.abort() dispatches its `abort` event synchronously. If a listener
-// the browser registered for an in-flight fetch throws — Chrome does this for a
-// body stream that is mid-read — the exception is reported with abort() at the
-// top of the stack, and in development the overlay presents it as an
-// application error. A cleanup that aborts a live stream must never take the
-// commit phase down with it.
-export function safeAbort(controller) {
+// The reason matters: Chrome reports an unhandled rejection carrying an
+// AbortError with the message of the reason it was aborted with, and the
+// default is the useless "signal is aborted without reason". Naming the
+// effect turns that into a pointer at the promise that was left unobserved.
+export function safeAbort(controller, why = 'cleanup') {
   if (!controller) return;
   try {
-    controller.abort();
+    controller.abort(new DOMException(`aborted: ${why}`, 'AbortError'));
   } catch (e) {
-    // Already aborted, or a listener objected. Either way the request is done.
+    // Already aborted, or a listener objected. Either way the request is over.
   }
 }
 
