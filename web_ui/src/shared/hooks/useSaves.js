@@ -5,8 +5,9 @@ import { FILTER_KEYS } from '../../app/routes';
 // What this user has kept, of any of the three kinds, and the one way to
 // change it.
 //
-//   useSaves() -> { isSaved(target), setSaved, toggle(target), onUnsaved,
-//                   saves, total, hasMore, loadMore, loadingMore,
+//   useSaves({ withRows }) -> { isSaved(target), setSaved, toggle(target),
+//                   onUnsaved,
+//                   saves, total, hasMore, loadRows, loadMore, loadingMore,
 //                   loading, error, reload }
 //
 // TWO readings of the same table, because the two questions have different
@@ -234,7 +235,17 @@ export const PAGE_SIZE = 200;
 //
 // Saves are per user by construction: both endpoints read the session, so there
 // is no user id to pass and no way to see anyone else's.
-export function useSaves() {
+//
+// The rows are OPT-IN and the keys are not, which is the other half of the
+// split and was missing from it. Only a caller that draws the shelf wants two
+// hundred rows; the archive page draws none of them and reads nothing but
+// `isSaved`, `setSaved` and `toggle`, each of which is a function of the keys
+// alone. Fetching both on every mount made that page cost two requests where
+// it had cost one and throw away two hundred rows instead of all of them —
+// the same bug the split was written to end, halved. Pass `withRows` (or call
+// `loadRows()` later) and the shelf half loads; leave it off and nothing asks
+// for it.
+export function useSaves({ withRows = false } = {}) {
   // ── What is saved ──────────────────────────────────────────────────────
   //
   // The identity of every save, complete. This is the list `isSaved` reads and
@@ -360,19 +371,33 @@ export function useSaves() {
   // every star reads dark, and pressing one writes a second save of a row the
   // server already holds — so it is reported as an error rather than swallowed
   // into an empty list, and `saves` is left alone.
+  // Whether anybody has asked for the rows: the option at mount, or a
+  // `loadRows()` since. A ref, so a reload after that first page keeps
+  // fetching them without the caller having to say so twice.
+  const rowsWanted = useRef(withRows);
+  if (withRows) rowsWanted.current = true;
+
+  // One page of rows, applied. Shared by the mount and by `loadRows`, so
+  // there is one statement of what a first page does to this state.
+  const takeFirstPage = useCallback((page) => {
+    applySaves(page.favourites || []);
+    setTotal(page.total || 0);
+    setHasMore(Boolean(page.hasMore));
+    cursor.current = page.nextCursor || null;
+  }, [applySaves]);
+
   const load = useCallback(async () => {
     try {
       const [allKeys, page] = await Promise.all([
         FashionArchiveAPI.getFavouriteKeys(),
-        FashionArchiveAPI.getFavouritesPage({ limit: PAGE_SIZE }),
+        rowsWanted.current
+          ? FashionArchiveAPI.getFavouritesPage({ limit: PAGE_SIZE })
+          : null,
       ]);
       if (!alive.current) return;
       keysLoaded.current = true;
       applyKeys(allKeys || []);
-      applySaves(page.favourites || []);
-      setTotal(page.total || 0);
-      setHasMore(Boolean(page.hasMore));
-      cursor.current = page.nextCursor || null;
+      if (page) takeFirstPage(page);
       setError(null);
     } catch (err) {
       console.error('Could not load saves:', err);
@@ -380,7 +405,22 @@ export function useSaves() {
     } finally {
       if (alive.current) setLoading(false);
     }
-  }, [applyKeys, applySaves]);
+  }, [applyKeys, takeFirstPage]);
+
+  // The shelf half, asked for after the fact. From here on a reload fetches
+  // it too — a caller that has drawn the rows once is drawing them still.
+  const loadRows = useCallback(async () => {
+    rowsWanted.current = true;
+    try {
+      const page = await FashionArchiveAPI.getFavouritesPage({ limit: PAGE_SIZE });
+      if (!alive.current) return;
+      takeFirstPage(page);
+      setError(null);
+    } catch (err) {
+      console.error('Could not load saves:', err);
+      if (alive.current) setError(err);
+    }
+  }, [takeFirstPage]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -617,7 +657,7 @@ export function useSaves() {
 
   return {
     isSaved, setSaved, toggle, onUnsaved,
-    saves, total, hasMore, loadMore, loadingMore,
+    saves, total, hasMore, loadRows, loadMore, loadingMore,
     loading, error, reload: load,
   };
 }

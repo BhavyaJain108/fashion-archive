@@ -389,3 +389,19 @@ test('a star nobody could read the state of writes nothing, twice over', async (
   expect(API.addFavourite).not.toHaveBeenCalled();
   expect(API.removeFavourite).not.toHaveBeenCalled();
 });
+
+// ── what the archive page costs on mount ──────────────────────────────────
+//
+// The keys and the rows were split so this page would stop fetching the
+// library to draw none of it. It draws no row of it: the stars are a function
+// of the keys, and the shelf is the library page's. A second request for two
+// hundred rows it throws away is the bug the split was meant to end, halved.
+
+test('the archive page asks for the keys and for no rows at all', async () => {
+  await renderPage();
+  await openYohji();
+
+  expect(API.getFavouriteKeys).toHaveBeenCalledTimes(1);
+  expect(API.getFavouritesPage).not.toHaveBeenCalled();
+  expect(API.getFavourites).not.toHaveBeenCalled();
+});

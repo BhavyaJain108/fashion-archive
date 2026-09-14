@@ -62,8 +62,14 @@ beforeEach(() => {
 
 afterEach(() => jest.restoreAllMocks());
 
-const mount = async () => {
-  const hook = renderHook(() => useSaves());
+// `{ withRows: true }`, because most of what is asserted below is about the
+// rows — the shelf half — and they are opt-in now. The keys come whole on
+// every mount; the rows come only for a caller that draws them, which is what
+// `describe('the rows are asked for only by a caller that draws them')`
+// pins. Nothing else in this file is about that choice, so it is made once,
+// here, rather than in fifty mounts.
+const mount = async (options = { withRows: true }) => {
+  const hook = renderHook(() => useSaves(options));
   await waitFor(() => expect(api.getFavouriteKeys).toHaveBeenCalled());
   await waitFor(() => expect(hook.result.current.loading).toBe(false));
   return hook;
@@ -274,7 +280,7 @@ describe('what is already saved', () => {
   });
 
   test('loading is true until the rows land, and error stays null', async () => {
-    const { result } = renderHook(() => useSaves());
+    const { result } = renderHook(() => useSaves({ withRows: true }));
     expect(result.current.loading).toBe(true);
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.error).toBeNull();
@@ -897,6 +903,94 @@ describe('a save whose row is on a page that has not been fetched', () => {
     // the bug coming back by another door.
     expect(api.getFavouriteKeys).toHaveBeenCalledWith();
     expect(api.getFavouriteKeys).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ── what a mount actually costs ───────────────────────────────────────────
+//
+// The keys and the rows were split so the archive page would stop fetching
+// the library to draw none of it — and then both halves were fetched on every
+// mount anyway, so the page made two requests where it had made one and
+// discarded two hundred rows instead of all of them. Only `useFavourites`
+// calls this hook, and it reads `isSaved`, `setSaved` and `toggle`: every one
+// of those is a function of the KEYS. `saves`, `total`, `hasMore` and
+// `loadMore` had no caller at all.
+//
+// So the rows are opt-in. The keys stay eager, because the star needs them
+// and there is no page of them to ask for.
+
+describe('the rows are asked for only by a caller that draws them', () => {
+  const mountBare = async () => {
+    const hook = renderHook(() => useSaves());
+    await waitFor(() => expect(hook.result.current.loading).toBe(false));
+    return hook;
+  };
+
+  test('a plain mount fetches the keys and nothing else', async () => {
+    seed([row(look(GUCCI, 3)), row(look(PRADA, 9))]);
+    const { result } = await mountBare();
+
+    expect(api.getFavouriteKeys).toHaveBeenCalledTimes(1);
+    expect(api.getFavouritesPage).not.toHaveBeenCalled();
+
+    // And the star is right about every one of them, which is the whole
+    // point of the split: the keys are complete.
+    expect(result.current.isSaved(look(GUCCI, 3))).toBe(true);
+    expect(result.current.isSaved(look(PRADA, 9))).toBe(true);
+    expect(result.current.isSaved(look(GUCCI, 4))).toBe(false);
+    expect(result.current.saves).toEqual([]);
+  });
+
+  test('loadRows fetches the first page when one is actually wanted', async () => {
+    seed([row(look(GUCCI, 3)), row(look(PRADA, 9))]);
+    const { result } = await mountBare();
+
+    await act(async () => { await result.current.loadRows(); });
+
+    expect(api.getFavouritesPage).toHaveBeenCalledWith({ limit: PAGE_SIZE });
+    expect(result.current.saves).toHaveLength(2);
+    expect(result.current.total).toBe(2);
+  });
+
+  test('a reload after that keeps fetching them', async () => {
+    seed([row(look(GUCCI, 3))]);
+    const { result } = await mountBare();
+    await act(async () => { await result.current.loadRows(); });
+
+    await act(async () => { await result.current.reload(); });
+
+    expect(api.getFavouritesPage).toHaveBeenCalledTimes(2);
+    expect(result.current.saves).toHaveLength(1);
+  });
+
+  test('a reload before that still does not', async () => {
+    const { result } = await mountBare();
+
+    await act(async () => { await result.current.reload(); });
+
+    expect(api.getFavouriteKeys).toHaveBeenCalledTimes(2);
+    expect(api.getFavouritesPage).not.toHaveBeenCalled();
+  });
+
+  test('asked for them at mount, the mount fetches both', async () => {
+    seed([row(look(GUCCI, 3))]);
+    const { result } = await mount();
+
+    expect(api.getFavouritesPage).toHaveBeenCalledWith({ limit: PAGE_SIZE });
+    expect(result.current.saves).toHaveLength(1);
+  });
+
+  // A page that failed to load rows must not report the library as ending
+  // here, and must not lose the error.
+  test('a first page that fails is reported and leaves the keys alone', async () => {
+    seed([row(look(GUCCI, 3))]);
+    api.getFavouritesPage.mockRejectedValue(new Error('down'));
+    const { result } = await mountBare();
+
+    await act(async () => { await result.current.loadRows(); });
+
+    expect(result.current.error).toBeTruthy();
+    expect(result.current.isSaved(look(GUCCI, 3))).toBe(true);
   });
 });
 
