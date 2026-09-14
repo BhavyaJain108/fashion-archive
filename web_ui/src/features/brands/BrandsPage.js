@@ -4,17 +4,8 @@ import TopBar from '../../shared/ui/TopBar';
 import { ArchiveAPI } from '../../shared/api';
 import { usePersistentState } from '../../shared/hooks/usePersistentState';
 import ProductDetailPanel from './ProductDetailPanel';
+import { normalizeSortBy } from '../../shared/lib/preferences';
 import './BrandsPage.css';
-
-// The values the sort <select> below actually offers. Anything else
-// restored from storage (an old build's option, a hand-edited devtools
-// value) falls back to '' — "Sort by..." / archive order — rather than
-// silently sorting by nothing recognisable.
-const SORT_OPTIONS = ['name-asc', 'name-desc', 'price-asc', 'price-desc'];
-
-export function normalizeSortBy(value) {
-  return SORT_OPTIONS.includes(value) ? value : '';
-}
 
 // Same bounds the drag handle enforces (see handleResizeMouseDown below) —
 // kept here so a restored width is clamped to the exact range a user could

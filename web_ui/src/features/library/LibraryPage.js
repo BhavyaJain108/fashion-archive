@@ -3,22 +3,11 @@ import TopBar from '../../shared/ui/TopBar';
 import { FashionArchiveAPI } from '../../shared/api';
 import { usePersistentState } from '../../shared/hooks/usePersistentState';
 import { lookLabel, lookAlt } from '../../shared/lib/lookLabel';
+import { normalizeGroupMode, normalizeViewMode } from '../../shared/lib/preferences';
 import './LibraryPage.css';
 
 // The sidebar's first row: every favourite, rather than one collection.
 const ALL = '__all__';
-
-// The only two groupings the sidebar renders. A restored value that is
-// anything else falls back to the default rather than leaving the sidebar
-// in a state none of the chips reflect.
-export function normalizeGroupMode(value) {
-  return value === 'by-collection' ? 'by-collection' : 'view-all';
-}
-
-// The only two panes the gallery below renders.
-export function normalizeViewMode(value) {
-  return value === 'grid' ? 'grid' : 'single';
-}
 
 function collectionKey(fav) {
   return `${fav.collection.designer}::${fav.season.name}`;

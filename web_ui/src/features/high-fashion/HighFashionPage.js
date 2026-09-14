@@ -11,6 +11,7 @@ import { usePersistentState } from '../../shared/hooks/usePersistentState';
 import { useCollectionImages } from '../../shared/hooks/useCollectionImages';
 import { prepare as prepareDesigners, search as searchDesigners } from '../../shared/lib/designerSearch';
 import { migrateLegacySidebarOpen } from './legacySidebar';
+import { normalizeViewMode } from '../../shared/lib/preferences';
 import TopBar from '../../shared/ui/TopBar';
 import Filters, { GARMENT_TYPES } from './Filters';
 import ShowList from './ShowList';
@@ -29,14 +30,6 @@ import './HighFashionPage.css';
 // to Women — so counting it would put the badge at 1 on a view with nothing
 // chosen and make "Whole archive" unreachable.
 const COUNTED_FILTER_KEYS = Object.keys(EMPTY_FILTERS).filter(k => k !== 'gender');
-
-// The only two values Viewer branches on. A restored value that is anything
-// else — an old build's spelling, a hand-edited devtools value — must not
-// render a blank pane, so it falls back to the same default a first-time
-// visitor gets.
-export function normalizeViewMode(value) {
-  return value === 'grid' ? 'grid' : 'single';
-}
 
 // Why a lookup failed, in the button and in its tooltip. These are
 // different problems and only one of them is about this show.

@@ -1,27 +1,11 @@
 import {
-  normalizeSortBy,
   clampDetailPanelWidth,
   detailPanelMaxWidth,
   DETAIL_PANEL_MIN_WIDTH,
 } from './BrandsPage';
 
-// The <select> only ever offers these five values (including the empty
-// "Sort by..." default). A stored option an old build removed must not
-// silently sort by nothing recognisable.
-describe('normalizeSortBy', () => {
-  test('passes through every option the sort <select> offers', () => {
-    expect(normalizeSortBy('')).toBe('');
-    expect(normalizeSortBy('name-asc')).toBe('name-asc');
-    expect(normalizeSortBy('name-desc')).toBe('name-desc');
-    expect(normalizeSortBy('price-asc')).toBe('price-asc');
-    expect(normalizeSortBy('price-desc')).toBe('price-desc');
-  });
-
-  test('an option no longer offered falls back to the default', () => {
-    expect(normalizeSortBy('brand-asc')).toBe('');
-    expect(normalizeSortBy(null)).toBe('');
-  });
-});
+// normalizeSortBy moved to shared/lib/preferences.js with the other two
+// stored-value enums; its tests moved with it.
 
 // Same bounds as the drag handle in handleResizeMouseDown: at least
 // DETAIL_PANEL_MIN_WIDTH (300), at most half the viewport.
