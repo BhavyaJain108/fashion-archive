@@ -2,6 +2,7 @@ import React from 'react';
 import { FashionArchiveAPI } from '../../shared/api';
 import { cleanDesignerName } from '../../shared/lib/designerName';
 import { lookLabel, lookCounter, lookAlt } from '../../shared/lib/lookLabel';
+import SaveStar from '../../shared/ui/SaveStar';
 import { videoSeasonName } from './seasonName';
 import ThumbStrip from './ThumbStrip';
 import VideoPanel from './VideoPanel';
@@ -136,18 +137,20 @@ function Viewer({
                     unexplained number beside this one. */}
                 <div className="hf2-image-info">
                   {/* Keeping a look was possible in the database and in the API
-                      from the start, and nowhere on the screen. */}
-                  <button
-                    type="button"
-                    className={`hf2-fav-btn ${isFavourite(currentLookNumber) ? 'on' : ''}`}
-                    onClick={() => toggleFavourite(currentLookNumber, images[currentImageIndex])}
+                      from the start, and nowhere on the screen. It is the same
+                      star as the one on the grid tile, the show row and the
+                      filter bar — one component, so the four cannot drift into
+                      four different ways of keeping something. The tooltip
+                      still names the keyboard shortcut; the accessible name
+                      names the look, because that is what is being saved. */}
+                  <SaveStar
+                    saved={isFavourite(currentLookNumber)}
+                    onToggle={() => toggleFavourite(currentLookNumber, images[currentImageIndex])}
+                    label={`Save look ${currentLookNumber}`}
                     title={isFavourite(currentLookNumber)
                       ? 'Remove from favourites (F)'
                       : 'Keep this look (F)'}
-                    aria-pressed={isFavourite(currentLookNumber)}
-                  >
-                    {isFavourite(currentLookNumber) ? '★' : '☆'}
-                  </button>
+                  />
                   {/* lookCounter, so this and the status bar are one
                       spelling of "n of m" rather than two that drift. */}
                   <span className="hf2-look-count">
@@ -193,6 +196,19 @@ function Viewer({
                         src={FashionArchiveAPI.getImageUrl(imgPath)}
                         alt={lookAlt(lookNum)}
                         loading="lazy"
+                      />
+                      {/* Top right of the photograph, the same corner the
+                          marker used to be drawn in — except that was a
+                          ::after with pointer-events: none, a picture of a
+                          star rather than a star. This one can be clicked,
+                          and clicking it keeps the look without opening it:
+                          the tile's own onClick sits on the element around
+                          this one, and SaveStar stops the event. */}
+                      <SaveStar
+                        className="hf2-grid-star"
+                        saved={isFavourite(lookNum)}
+                        onToggle={() => toggleFavourite(lookNum, imgPath)}
+                        label={`Save look ${lookNum}`}
                       />
                     </div>
                     <span className="look-num">{lookLabel(lookNum)}</span>

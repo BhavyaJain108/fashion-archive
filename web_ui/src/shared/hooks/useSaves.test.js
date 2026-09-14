@@ -384,10 +384,14 @@ describe('a write that fails puts back exactly what was there', () => {
   });
 });
 
-// The optimistic marker is what makes a double press dangerous: the second
-// press reads the marker the first one moved and would send the opposite
-// write against a row the server has not heard about yet.
-test('one write at a time, across kinds', async () => {
+// ── one write at a time, per saved thing ─────────────────────────────────
+//
+// The flag this replaced was global: one write anywhere, and every other
+// star on the page was inert until it landed. With the star in four places
+// that is a lost click, silently — keep a show while a look's write is still
+// out and the look you starred a moment earlier is simply not written.
+
+test('different things are written at the same time', async () => {
   api.addFavourite.mockImplementation(() => new Promise(() => {}));   // never settles
   const { result } = await mount();
 
@@ -395,9 +399,53 @@ test('one write at a time, across kinds', async () => {
   await act(async () => { result.current.toggle(show(GUCCI)); });
   await act(async () => { result.current.toggle(view({ city: 'Paris' })); });
 
+  // The look's write is still out and neither of the others waited for it.
   expect(api.addFavourite).toHaveBeenCalledTimes(1);
-  expect(api.addShowFavourite).not.toHaveBeenCalled();
-  expect(api.addViewFavourite).not.toHaveBeenCalled();
+  expect(api.addShowFavourite).toHaveBeenCalledTimes(1);
+  expect(api.addViewFavourite).toHaveBeenCalledTimes(1);
+  // And all three are lit, on one list.
+  expect(result.current.isSaved(look(GUCCI, 3))).toBe(true);
+  expect(result.current.isSaved(show(GUCCI))).toBe(true);
+  expect(result.current.isSaved(view({ city: 'Paris' }))).toBe(true);
+});
+
+// The optimistic marker is what makes a double press on ONE star dangerous:
+// the second press reads the marker the first one moved and would send the
+// opposite write against a row the server has not heard about yet.
+test('a second press on the same star waits for the first', async () => {
+  let settleAdd;
+  api.addFavourite.mockImplementation(() => new Promise((res) => { settleAdd = res; }));
+  const { result } = await mount();
+
+  await act(async () => { result.current.toggle(look(GUCCI, 3)); });
+  await act(async () => { result.current.toggle(look(GUCCI, 3)); });
+
+  // One write out, the second press not sent alongside it.
+  expect(api.addFavourite).toHaveBeenCalledTimes(1);
+  expect(api.removeFavourite).not.toHaveBeenCalled();
+
+  // And not dropped either: it runs the moment the first one lands.
+  await act(async () => { settleAdd({}); });
+  await waitFor(() => expect(api.removeFavourite).toHaveBeenCalledTimes(1));
+  expect(result.current.isSaved(look(GUCCI, 3))).toBe(false);
+});
+
+test('a held press is the last one, not every one', async () => {
+  let settleAdd;
+  api.addFavourite.mockImplementation(() => new Promise((res) => { settleAdd = res; }));
+  const { result } = await mount();
+
+  // Star, un-star, star again while the first write is still out. Two and
+  // three are the same star; what the reader asked for in the end is saved,
+  // and the middle state is not a state they ever asked to end up in.
+  await act(async () => { result.current.toggle(look(GUCCI, 3)); });
+  await act(async () => { result.current.toggle(look(GUCCI, 3)); });
+  await act(async () => { result.current.toggle(look(GUCCI, 3)); });
+
+  await act(async () => { settleAdd({}); });
+  await waitFor(() => expect(api.addFavourite).toHaveBeenCalledTimes(2));
+  expect(api.removeFavourite).not.toHaveBeenCalled();
+  expect(result.current.isSaved(look(GUCCI, 3))).toBe(true);
 });
 
 test('a list that will not load leaves an error and an empty set', async () => {

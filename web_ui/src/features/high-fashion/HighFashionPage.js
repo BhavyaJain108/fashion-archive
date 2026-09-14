@@ -1024,7 +1024,11 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
   // permanently after a failure, and it did nothing at all for the stars,
   // titles and aria-pressed on the read side, which went on answering for
   // the wrong show. See useFavourites.
-  const { isFavourite, toggleFavourite } = useFavourites(imagesCollection, images.length);
+  const {
+    isFavourite, toggleFavourite,
+    isShowSaved, toggleShowSave,
+    isViewSaved, toggleViewSave,
+  } = useFavourites(imagesCollection, images.length);
 
   // Every look the reader chooses themselves goes through here — the arrows,
   // the thumbnail strip, the grid. It cancels any look a deep link was still
@@ -1448,6 +1452,8 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
           facetCount={facetCount}
           clearFilters={clearFilters}
           activeFilterCount={activeFilterCount}
+          viewSaved={isViewSaved(filters)}
+          toggleViewSave={() => toggleViewSave(filters)}
         />
 
         <ShowList
@@ -1465,6 +1471,8 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
           handleCollectionSelect={handleCollectionSelect}
           designerLoading={designerLoading}
           loadingMore={loadingMore}
+          isShowSaved={isShowSaved}
+          toggleShowSave={toggleShowSave}
         />
       </div>
 

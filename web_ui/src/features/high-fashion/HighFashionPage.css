@@ -251,6 +251,31 @@
   color: #888888;
 }
 
+/* The star on a show row, at the trailing edge.
+
+   It is on every row and it is the same box whether or not that show is
+   saved, so the list is its final shape from the first paint and nothing
+   moves when the saves land a moment later. .ar-star reserves that box; this
+   rule may not change it — no width, no height, no padding, no margin.
+
+   Quiet, but not hidden: #cccccc is the shade the row number beside it is
+   already drawn in, so a column of them reads as part of the row's furniture
+   rather than as the point of the page — and it is plainly there to be
+   clicked, which a star that only appears on hover is not. It darkens as the
+   pointer crosses the row, and goes black when the show is kept. */
+.hf2-collection-item .hf2-row-star {
+  color: #cccccc;
+}
+
+.hf2-collection-item:hover .hf2-row-star:not(.on) {
+  color: #999999;
+}
+
+.hf2-collection-item .hf2-row-star:hover:not(:disabled),
+.hf2-collection-item .hf2-row-star.on {
+  color: #000000;
+}
+
 /* A failure, said as a failure. The empty state below means the archive
    really has nothing for these filters; this one means we never found out. */
 .hf2-collections-error {
@@ -498,6 +523,7 @@
 }
 
 .hf2-grid-image-wrapper {
+  position: relative;      /* for the star in the corner */
   aspect-ratio: 3/4;
   overflow: hidden;
   background: #f5f5f5;
@@ -533,6 +559,25 @@
 .hf2-grid-item.selected .look-num {
   color: #000000;
   font-weight: 600;
+}
+
+/* The star on a tile, over the photograph. Still monochrome — white with a
+   shadow rather than a colour — because it is the only way a glyph stays
+   legible over an image that may be any shade, and it is what the old
+   painted-on marker already did. The corner is the same corner. */
+.hf2-grid-star {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  z-index: 1;
+  color: #ffffff;
+  text-shadow: 0 0 2px rgba(0, 0, 0, 0.9);
+}
+
+.hf2-grid-star:hover:not(:disabled),
+.hf2-grid-star.on {
+  color: #ffffff;          /* the glyph fills; the colour has nowhere to go */
+  text-shadow: 0 0 3px rgba(0, 0, 0, 1);
 }
 
 /* Navigation Arrows */
@@ -1181,13 +1226,23 @@
 
 /* Says what the list currently is, and undoes it. Doubles as the only
    place the filter count is stated. */
-.hf2-filter-clear {
-  display: block;
-  width: calc(100% - 20px);
+/* The clear button and the view star share one line and one rule above
+   them. The rule and the margins moved here off .hf2-filter-clear, which
+   used to carry both. */
+.hf2-filter-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   margin: 4px 10px 2px;
+  border-top: 1px solid #ededed;
+}
+
+.hf2-filter-clear {
+  flex: 1;
+  min-width: 0;
+  display: block;
   appearance: none;
   border: none;
-  border-top: 1px solid #ededed;
   background: transparent;
   font-family: inherit;
   font-size: 10px;
@@ -1300,31 +1355,19 @@
 /* Keeping a look. The star sits with the look's own number and count, which
    is the one place on screen that is about this photograph rather than about
    the show or the list. */
-.hf2-fav-btn {
-  appearance: none;
-  border: none;
-  background: transparent;
-  font-family: inherit;
-  font-size: 13px;
-  line-height: 1;
-  color: #cccccc;
-  cursor: pointer;
-  padding: 0 6px;
-}
+/* .hf2-fav-btn is gone: the single view's star is .ar-star now, the same
+   component as the other three, and it brought its own box and its own
+   colours with it. Nothing here sizes or colours a star any more. */
 
-.hf2-fav-btn:hover {
-  color: #000000;
-}
+/* Kept looks are marked in the strip, so a show you have been through before
+   shows you where you stopped. A corner rather than an overlay: the
+   photograph is the point.
 
-.hf2-fav-btn.on {
-  color: #000000;
-}
-
-/* Kept looks are marked in the strip and the grid, so a show you have been
-   through before shows you where you stopped. A corner rather than an overlay:
-   the photograph is the point. */
-.hf2-thumb.kept::after,
-.hf2-grid-item.kept::after {
+   The grid used to be marked the same way. It is not any more — a ::after
+   with pointer-events: none is a picture of a star, and the grid now has a
+   real one that can be clicked. The strip's thumbnails are 44x60 with no room
+   for a control, so they keep the mark. */
+.hf2-thumb.kept::after {
   content: '★';
   position: absolute;
   top: 2px;

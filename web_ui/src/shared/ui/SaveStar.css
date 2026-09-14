@@ -1,0 +1,68 @@
+/* ---------------------------------------------------------------------
+   The star.
+
+   Monochrome, like everything else here: idle is --ar-ink-4, the shade this
+   archive uses for "nothing here yet", and saved is --ar-ink. There is no
+   colour for a saved thing and there must not be — --ar-danger is spoken for,
+   it means a destructive confirmation, and a star is neither.
+
+   The box is the point of this file. `width` and `height` are set on the
+   class itself, not on any state or any of the four sites, so the outline
+   star, the filled star and the star of a row whose saves have not loaded
+   yet are all exactly the same box. A list of shows therefore does not jitter
+   as the saves land — the space was already taken.
+   --------------------------------------------------------------------- */
+
+.ar-star {
+  --ar-star-box: 22px;
+  --ar-star-glyph: 13px;
+
+  /* The box, reserved. Nothing below may change these. */
+  flex: 0 0 auto;
+  width: var(--ar-star-box);
+  height: var(--ar-star-box);
+  padding: 0;
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: var(--ar-star-glyph);
+  line-height: 1;
+  color: var(--ar-ink-4);
+  cursor: pointer;
+  transition: color 0.1s ease;
+}
+
+/* Smaller glyph, same generous target: 18px square is still a comfortable
+   thing to hit on a 22px row, and the hit area is the button, not the star. */
+.ar-star.sm {
+  --ar-star-box: 18px;
+  --ar-star-glyph: 11px;
+}
+
+.ar-star:hover:not(:disabled) {
+  color: var(--ar-ink);
+}
+
+.ar-star.on {
+  color: var(--ar-ink);
+}
+
+/* Keyboard reachable means keyboard visible. */
+.ar-star:focus-visible {
+  outline: 1px solid var(--ar-ink);
+  outline-offset: -1px;
+}
+
+/* Nothing to save. The filter bar's star is disabled with no filter set —
+   "everything" is not a view — so this state is a caption, not a control. */
+.ar-star:disabled {
+  color: var(--ar-line);
+  cursor: default;
+}

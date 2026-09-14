@@ -1,4 +1,5 @@
 import React from 'react';
+import SaveStar from '../../shared/ui/SaveStar';
 
 // Garment category — firstVIEW's `s_n` filter. Optional, like every filter
 // but gender: left unset, Ready-to-Wear, Couture and Swim all appear, and
@@ -72,6 +73,10 @@ function Filters({
   facetCount,
   clearFilters,
   activeFilterCount,
+  // The current view, kept. Inert by default so a caller that has not wired
+  // it through still renders the bar.
+  viewSaved = false,
+  toggleViewSave = () => {},
 }) {
   return (
     <>
@@ -268,16 +273,42 @@ function Filters({
             </select>
           </label>
 
-          <button
-            type="button"
-            className="hf2-filter-clear"
-            onClick={clearFilters}
-            disabled={activeFilterCount === 0}
-          >
-            {activeFilterCount === 0
-              ? 'Whole archive'
-              : `Clear ${activeFilterCount} filter${activeFilterCount > 1 ? 's' : ''}`}
-          </button>
+          {/* What is set, and the two things you can do with it: throw it
+              away, or keep it. They sit on one line because they are the same
+              sentence about the same thing — the filters above. */}
+          <div className="hf2-filter-actions">
+            <button
+              type="button"
+              className="hf2-filter-clear"
+              onClick={clearFilters}
+              disabled={activeFilterCount === 0}
+            >
+              {activeFilterCount === 0
+                ? 'Whole archive'
+                : `Clear ${activeFilterCount} filter${activeFilterCount > 1 ? 's' : ''}`}
+            </button>
+            {/* The same star as the looks and the shows get, saving the one
+                thing this column is: the current set of filters.
+
+                Off with nothing set. A view is a narrowing — a designer, a
+                city, a year — and "the whole archive" is not one: it is
+                where every reader already starts, it is what the button
+                beside this one returns you to, and a saved copy of it would
+                be a row in the library that does nothing when opened. So the
+                star is disabled rather than hidden, because a control that
+                comes and goes is harder to find than one that greys. */}
+            <SaveStar
+              className="hf2-view-star"
+              size="sm"
+              saved={viewSaved}
+              disabled={activeFilterCount === 0}
+              onToggle={toggleViewSave}
+              label="Save this view"
+              title={activeFilterCount === 0
+                ? 'Set a filter to keep a view'
+                : viewSaved ? 'Remove this view from saves' : 'Keep this view'}
+            />
+          </div>
         </div>
     </>
   );

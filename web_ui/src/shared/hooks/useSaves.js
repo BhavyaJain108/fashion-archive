@@ -138,6 +138,18 @@ export function targetOfRow(row) {
   };
 }
 
+// Every key a list of rows names. The lit set on screen and the "was this
+// saved" a write starts from are both this function, so the two readings
+// cannot disagree.
+export function keySetOf(rows) {
+  const keys = new Set();
+  for (const row of rows || []) {
+    const key = keyOf(targetOfRow(row));
+    if (key) keys.add(key);
+  }
+  return keys;
+}
+
 // ---------------------------------------------------------------- hook ---
 
 // Loaded once and held as a set of keys, because the question is asked of
@@ -148,8 +160,34 @@ export function useSaves() {
   const [saves, setSaves] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [busy, setBusy] = useState(false);
   const alive = useRef(true);
+
+  // The rows, readable synchronously. A write reads what is saved, flips it,
+  // and a write that runs later in the same tick must read that flip —
+  // `saves` does not land until the next render, so on its own it would hand
+  // the second write the state the first one started from. Everything that
+  // changes the list goes through `applySaves`, so the ref and the state are
+  // set in the same statement and there is no path that moves one only.
+  const savesRef = useRef(saves);
+  const applySaves = useCallback((rows) => {
+    savesRef.current = rows;
+    setSaves(rows);
+  }, []);
+
+  // One write at a time PER SAVED THING, rather than one write at a time
+  // overall. The star is now in four places at once, and a single global flag
+  // made keeping a show silently drop the look you starred a moment earlier —
+  // different rows, different keys, no reason to queue behind each other.
+  //
+  // What the flag was protecting is real, but it is per key: the optimistic
+  // marker means a second press on the SAME star reads the marker the first
+  // one moved and would send the opposite write against a row the server has
+  // not heard about yet. So a repeat press on a key already in flight is
+  // neither sent nor dropped — it is held here, one deep, and run when the
+  // write in front of it lands. The last thing the reader clicked is always
+  // the thing that gets written.
+  const inFlight = useRef(new Set());
+  const queued = useRef(new Map());
 
   useEffect(() => {
     alive.current = true;
@@ -160,90 +198,142 @@ export function useSaves() {
     try {
       const rows = await FashionArchiveAPI.getFavourites();
       if (!alive.current) return;
-      setSaves(rows || []);
+      applySaves(rows || []);
     } catch (err) {
       console.error('Could not load saves:', err);
       if (alive.current) setError(err);
     } finally {
       if (alive.current) setLoading(false);
     }
-  }, []);
+  }, [applySaves]);
 
   useEffect(() => { load(); }, [load]);
 
-  const savedKeys = useMemo(() => {
-    const keys = new Set();
-    for (const row of saves) {
-      const key = keyOf(targetOfRow(row));
-      if (key) keys.add(key);
-    }
-    return keys;
-  }, [saves]);
+  const savedKeys = useMemo(() => keySetOf(saves), [saves]);
 
   const isSaved = useCallback((target) => {
     const key = keyOf(target);
     return !!key && savedKeys.has(key);
   }, [savedKeys]);
 
-  const toggle = useCallback(async (target) => {
-    // `t` is read once, here, and every argument below comes off it. The
-    // writes are positional and two of a look's three arguments are urls: a
-    // triple assembled out of two shows names a row that exists, deletes it,
-    // and reports success. Nothing below may reach for a season or a
-    // collection by any other name.
+  // One flip undone, on the list as it stands NOW rather than by putting a
+  // remembered copy back. Writes for different stars run at the same time, so
+  // a snapshot taken before this one started may be missing another star's
+  // write that has since landed — restoring it would quietly un-save that one.
+  // The row goes back where it was, not on the end, so a rollback leaves the
+  // list in the order the server sent it.
+  const undoFlip = useCallback((rows, key, added, previous) => {
+    if (added) return rows.filter(row => keyOf(targetOfRow(row)) !== key);
+    if (keySetOf(rows).has(key)) return rows;          // something put it back
+    const at = previous.findIndex(row => keyOf(targetOfRow(row)) === key);
+    if (at < 0) return rows;
+    const back = [...rows];
+    back.splice(Math.min(at, back.length), 0, previous[at]);
+    return back;
+  }, []);
+
+  // The write itself, and nothing else: which endpoint, in which direction.
+  // `added` is what the marker already says — the flip happened in `toggle`,
+  // before this ran — so the two cannot disagree about the direction.
+  //
+  // Everything below comes off `t`, read once: the writes are positional and
+  // two of a look's three arguments are urls, so a triple assembled out of
+  // two shows names a row that exists, deletes it, and reports success.
+  // Nothing here may reach for a season or a collection by any other name.
+  const write = useCallback(async (target, added) => {
     const t = target;
-    const key = keyOf(t);
-    if (!key || busy) return;
-
     const kind = t.kind || 'look';
-    const had = savedKeys.has(key);
-
-    // Move the marker first: keeping something should feel instantaneous, and
-    // the whole list is put back below if the write turns out not to have
-    // worked. `previous` is the exact array that was on screen — restoring it
-    // restores every kind's marker, not just the one that was clicked.
-    const previous = saves;
-    setSaves(had
-      ? previous.filter(row => keyOf(targetOfRow(row)) !== key)
-      : [...previous, rowOfTarget(t)]);
-    setBusy(true);
-
     try {
       if (kind === 'look') {
-        if (had) {
-          await FashionArchiveAPI.removeFavourite(
-            (t.season || {}).url || '', (t.collection || {}).url, (t.look || {}).number);
-        } else {
+        if (added) {
           await FashionArchiveAPI.addFavourite(
             t.season, t.collection, t.look, t.imagePath);
+        } else {
+          await FashionArchiveAPI.removeFavourite(
+            (t.season || {}).url || '', (t.collection || {}).url, (t.look || {}).number);
         }
       } else if (kind === 'show') {
-        if (had) {
-          await FashionArchiveAPI.removeShowFavourite(
-            (t.season || {}).url || '', (t.collection || {}).url);
-        } else {
+        if (added) {
           await FashionArchiveAPI.addShowFavourite(
             t.season, t.collection, t.imagePath);
+        } else {
+          await FashionArchiveAPI.removeShowFavourite(
+            (t.season || {}).url || '', (t.collection || {}).url);
         }
-      } else if (had) {
+      } else if (added) {
+        await FashionArchiveAPI.addViewFavourite(canonicalFilters(t.filters), t.name || '');
+      } else {
         // A view is sent as the filters this client keyed it on, not as they
         // arrived: saving through one rule and deleting through another is how
         // a view becomes undeletable.
         await FashionArchiveAPI.removeViewFavourite(canonicalFilters(t.filters));
-      } else {
-        await FashionArchiveAPI.addViewFavourite(canonicalFilters(t.filters), t.name || '');
       }
       if (alive.current) setError(null);
+      return true;
     } catch (err) {
       console.error('Could not change favourite:', err);
-      if (alive.current) {
-        setSaves(previous);   // put it back exactly the way it was
-        setError(err);
+      if (alive.current) setError(err);
+      return false;
+    }
+  }, []);
+
+  // The one way in, and the only place that knows about ordering.
+  //
+  // Every press moves the marker straight away — keeping something should
+  // feel instantaneous, and a press held behind a write in flight that did
+  // NOT move it would leave the reader clicking a star that does not
+  // respond. So the marker is the reader's intent, and the queue below is
+  // only about making the server agree with it.
+  //
+  // The returned promise settles when this press and anything held behind it
+  // has been written, so a caller that awaits a toggle has awaited the burst.
+  const toggle = useCallback(async (target) => {
+    const key = keyOf(target);
+    if (!key) return;
+
+    const previous = savesRef.current;
+    const added = !keySetOf(previous).has(key);
+
+    // Move the marker first. `previous` is the exact list it moved from, and
+    // the rollback below undoes this one flip against it.
+    applySaves(added
+      ? [...previous, rowOfTarget(target)]
+      : previous.filter(row => keyOf(targetOfRow(row)) !== key));
+
+    // A press on a star whose write is still out is neither sent alongside it
+    // nor dropped: it is held, one deep, and run when that write lands. One
+    // deep because three presses are two states and the middle one is not a
+    // state the reader ever asked to end up in — what is held is always the
+    // last thing they clicked.
+    const job = { target, added, previous };
+    if (inFlight.current.has(key)) {
+      queued.current.set(key, job);
+      return;
+    }
+
+    inFlight.current.add(key);
+    try {
+      let next = job;
+      while (next) {
+        // eslint-disable-next-line no-await-in-loop
+        const ok = await write(next.target, next.added);
+        if (!ok) {
+          // The burst failed at this press. Put its flip back and drop
+          // anything held behind it — it was queued against a state the
+          // server never reached.
+          queued.current.delete(key);
+          const back = undoFlip(savesRef.current, key, next.added, next.previous);
+          savesRef.current = back;
+          if (alive.current) setSaves(back);
+          break;
+        }
+        next = queued.current.get(key) || null;
+        queued.current.delete(key);
       }
     } finally {
-      if (alive.current) setBusy(false);
+      inFlight.current.delete(key);
     }
-  }, [saves, savedKeys, busy]);
+  }, [applySaves, write, undoFlip]);
 
   return { isSaved, toggle, saves, loading, error, reload: load };
 }

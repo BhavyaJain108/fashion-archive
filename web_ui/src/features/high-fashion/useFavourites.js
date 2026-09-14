@@ -2,10 +2,16 @@ import { useCallback } from 'react';
 import { useSaves } from '../../shared/hooks/useSaves';
 import { videoSeasonName } from './seasonName';
 
-// Which looks this user has kept, and the one way to change that.
+// What this user has kept on this page, and the one way to change it.
 //
 //   useFavourites(shownCollection, lookTotal)
-//     -> { isFavourite, toggleFavourite }
+//     -> { isFavourite, toggleFavourite,        // a look, on screen
+//          isShowSaved, toggleShowSave,         // a whole show, any row
+//          isViewSaved, toggleViewSave }        // the current filters
+//
+// One hook, because one useSaves() is one store: called twice it would fetch
+// the list twice and hold two copies of it, and the star on a row and the
+// star on a look would be answering out of different lists.
 //
 // The store and the writing are useSaves' now, which knows about looks, shows
 // and views and nothing about this page. What is left here is the one thing
@@ -49,6 +55,32 @@ export function lookTarget(shown, lookNumber, lookTotal, imagePath) {
   };
 }
 
+// A whole show, written the same way — season and collection, no look
+// number. Same expression, off one row of the list, and deliberately NOT
+// lookTarget with the number left out: the two are different rows in the
+// table and a saved show must not light its looks.
+//
+// This one takes the row that was clicked rather than the show on screen,
+// and that is not the same rule as above by accident. A star on a row is a
+// statement about THAT row — the reader can see which one they pressed —
+// whereas a star in the viewer is a statement about the photograph in front
+// of them, which during the stale window belongs to the previous show.
+export function showTarget(row) {
+  if (!row || !row.url) return null;
+  return {
+    kind: 'show',
+    season: {
+      name: videoSeasonName(row),
+      url: row.season_url || '',
+      link_text: row.subtitle || '',
+    },
+    collection: {
+      designer: row.designer_name || row.designer,
+      url: row.url,
+    },
+  };
+}
+
 export function useFavourites(shownCollection, lookTotal) {
   const { isSaved, toggle } = useSaves();
 
@@ -63,7 +95,31 @@ export function useFavourites(shownCollection, lookTotal) {
     await toggle(target);
   }, [shownCollection, lookTotal, toggle]);
 
-  return { isFavourite, toggleFavourite };
+  const isShowSaved = useCallback((row) => {
+    const target = showTarget(row);
+    return !!target && isSaved(target);
+  }, [isSaved]);
+
+  const toggleShowSave = useCallback(async (row) => {
+    const target = showTarget(row);
+    if (!target) return;
+    await toggle(target);
+  }, [toggle]);
+
+  // A view IS its filters; useSaves does the normalising, so what is handed
+  // over here is whatever the page currently has set.
+  const isViewSaved = useCallback((filters) => isSaved({ kind: 'view', filters }),
+    [isSaved]);
+
+  const toggleViewSave = useCallback(async (filters, name) => {
+    await toggle({ kind: 'view', filters, name });
+  }, [toggle]);
+
+  return {
+    isFavourite, toggleFavourite,
+    isShowSaved, toggleShowSave,
+    isViewSaved, toggleViewSave,
+  };
 }
 
 export default useFavourites;

@@ -177,10 +177,10 @@ describe('useFavourites', () => {
     expect(errorLog).toHaveBeenCalled();
   });
 
-  // The optimistic marker is what makes a double press dangerous: the
-  // second press reads the marker the first one moved and would send the
-  // opposite write against a row the server has not heard about yet.
-  test('one write at a time', async () => {
+  // One write at a time PER LOOK, not per page. Two different looks starred
+  // in quick succession are two rows and neither waits for the other — the
+  // global flag this replaced dropped the second one silently.
+  test('two looks starred in a row are both written', async () => {
     addFavourite.mockImplementation(() => new Promise(() => {}));   // never settles
     const { result } = mount(PRADA, 27);
     await settled(result);
@@ -188,7 +188,32 @@ describe('useFavourites', () => {
     await act(async () => { result.current.toggleFavourite(7, 'prada/look-07.jpg'); });
     await act(async () => { result.current.toggleFavourite(8, 'prada/look-08.jpg'); });
 
+    expect(addFavourite).toHaveBeenCalledTimes(2);
+    expect(removeFavourite).not.toHaveBeenCalled();
+    expect(result.current.isFavourite(7)).toBe(true);
+    expect(result.current.isFavourite(8)).toBe(true);
+  });
+
+  // The optimistic marker is what makes a double press on ONE look
+  // dangerous: the second press reads the marker the first one moved and
+  // would send the opposite write against a row the server has not heard
+  // about yet. Held, not sent — and not dropped.
+  test('a second press on the same look waits for the first', async () => {
+    let settle;
+    addFavourite.mockImplementation(() => new Promise((res) => { settle = res; }));
+    const { result } = mount(PRADA, 27);
+    await settled(result);
+
+    await act(async () => { result.current.toggleFavourite(7, 'prada/look-07.jpg'); });
+    await act(async () => { result.current.toggleFavourite(7, 'prada/look-07.jpg'); });
+
     expect(addFavourite).toHaveBeenCalledTimes(1);
     expect(removeFavourite).not.toHaveBeenCalled();
+    // The star answered the second press straight away, even though the
+    // write behind it had not gone out.
+    expect(result.current.isFavourite(7)).toBe(false);
+
+    await act(async () => { settle({}); });
+    await waitFor(() => expect(removeFavourite).toHaveBeenCalledTimes(1));
   });
 });

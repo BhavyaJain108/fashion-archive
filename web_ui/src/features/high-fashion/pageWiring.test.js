@@ -67,6 +67,10 @@ jest.mock('../../shared/api', () => ({
     downloadVideo: jest.fn(),
     addFavourite: jest.fn(),
     removeFavourite: jest.fn(),
+    addShowFavourite: jest.fn(),
+    removeShowFavourite: jest.fn(),
+    addViewFavourite: jest.fn(),
+    removeViewFavourite: jest.fn(),
     getImageUrl: (p) => `/images/${p}`,
   },
 }));
@@ -124,6 +128,10 @@ beforeEach(() => {
   API.downloadVideo.mockResolvedValue(null);
   API.addFavourite.mockResolvedValue({});
   API.removeFavourite.mockResolvedValue({});
+  API.addShowFavourite.mockResolvedValue({});
+  API.removeShowFavourite.mockResolvedValue({});
+  API.addViewFavourite.mockResolvedValue({});
+  API.removeViewFavourite.mockResolvedValue({});
   API.streamCatalog.mockResolvedValue({ nextPage: 0, hasMore: false });
   API.streamDesignerCollections.mockResolvedValue({});
 
@@ -252,4 +260,71 @@ test('the strip holds a slot for every look the stream has promised', async () =
   // appears to be two looks long until it suddenly is not.
   expect(realThumbs()).toHaveLength(2);
   expect(ghosts()).toHaveLength(3);
+});
+
+// ── The stars, where the page joins them up ───────────────────────────────
+//
+// The four stars are tested as components in saveStars.test.js. What is
+// pinned here is the join: which of this page's values each one is handed.
+// A row star wired to the show on screen rather than to its own row, or a
+// view star wired to a stale filter object, is invisible to a component test
+// and is exactly the kind of prop mistake this file exists for.
+
+const rowStar = (designer) =>
+  screen.getByRole('button', { name: `Save this show — ${designer}` });
+
+test('a row star keeps that row, and does not open it', async () => {
+  await renderPage();
+  await openYohji();
+
+  // Raf's row, while Yohji is the show on screen and Raf's own stream will
+  // never answer. Pressing the star must save RAF — the row it is on — and
+  // must not open him, which is the thing pressing the row does.
+  fireEvent.click(rowStar('Raf Simons'));
+  await waitFor(() => expect(API.addShowFavourite).toHaveBeenCalled());
+
+  const [season, collection] = API.addShowFavourite.mock.calls[0];
+  expect(collection.url).toBe(RAF.url);
+  expect(collection.designer).toBe('Raf Simons');
+  expect(season.url).toBe(RAF.season_url);
+
+  // The show on screen is still Yohji and the list's own highlight never
+  // moved: the click stopped at the star.
+  expect(selectedRow()).toBe('Yohji Yamamoto');
+  expect(statusPath()).toContain('Yohji Yamamoto');
+  // And no look was written. A saved show is not a saved look.
+  expect(API.addFavourite).not.toHaveBeenCalled();
+});
+
+test('a saved show lights its own row and nobody else', async () => {
+  API.getFavourites.mockResolvedValue([{
+    kind: 'show',
+    season: { url: YOHJI.season_url },
+    collection: { url: YOHJI.url, designer: 'Yohji Yamamoto' },
+  }]);
+  await renderPage();
+
+  await waitFor(() => expect(rowStar('Yohji Yamamoto'))
+    .toHaveAttribute('aria-pressed', 'true'));
+  expect(rowStar('Raf Simons')).toHaveAttribute('aria-pressed', 'false');
+
+  // The show is saved; its looks are not.
+  await openYohji();
+  expect(screen.getByRole('button', { name: 'Save look 1' }))
+    .toHaveAttribute('aria-pressed', 'false');
+});
+
+test('the view star keeps the filters that are actually set', async () => {
+  await renderPage();
+  const star = screen.getByRole('button', { name: 'Save this view' });
+  // Nothing narrowed yet, so there is no view to keep.
+  expect(star).toBeDisabled();
+
+  fireEvent.change(screen.getByRole('combobox', { name: 'Brand' }), { target: { value: 'A' } });
+  await waitFor(() => expect(star).not.toBeDisabled());
+
+  fireEvent.click(star);
+  await waitFor(() => expect(API.addViewFavourite).toHaveBeenCalled());
+  const [filters] = API.addViewFavourite.mock.calls[0];
+  expect(filters).toEqual(expect.objectContaining({ letter: 'A' }));
 });
