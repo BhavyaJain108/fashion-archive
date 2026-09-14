@@ -70,8 +70,20 @@ class HostBudget:
         gap: float = 0.0,
         sleep=_time.sleep,
         clock=_time.monotonic,
+        busy_backoff: float = BUSY_BACKOFF,
+        refused_backoff: float = REFUSED_BACKOFF,
+        max_backoff: float = MAX_BACKOFF,
     ):
         self.gap = gap
+        # How long to stand down when a host refuses without saying for how long. The
+        # defaults are the daemon's, and they are deliberately long. An access sweep
+        # passes shorter ones: it is asking whether a different fingerprint changes the
+        # answer, which means going back to a host that just refused — four requests and
+        # then away, not the sustained retrying the long wait exists to prevent. A
+        # Retry-After the host actually sent still outranks all three.
+        self.busy_backoff = busy_backoff
+        self.refused_backoff = refused_backoff
+        self.max_backoff = max_backoff
         self._sleep = sleep
         self._clock = clock
         self._next_allowed: dict[str, float] = {}
@@ -133,9 +145,9 @@ class HostBudget:
         if retry_after:
             return float(retry_after)
         if status in REFUSED:
-            return REFUSED_BACKOFF
+            return self.refused_backoff
         previous = self._penalty.get(host, 0.0)
-        penalty = min(previous * 2 if previous else BUSY_BACKOFF, MAX_BACKOFF)
+        penalty = min(previous * 2 if previous else self.busy_backoff, self.max_backoff)
         self._penalty[host] = penalty
         return penalty
 

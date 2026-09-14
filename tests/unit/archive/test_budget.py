@@ -131,3 +131,30 @@ def test_a_brands_own_image_host_is_quicker_than_its_shop_but_not_a_cdn():
 def test_an_explicit_gap_still_wins():
     b = HostBudget(gap=2.0, sleep=lambda s: None, clock=lambda: 0.0)
     assert b.floor("cdn.shopify.com") == 2.0
+
+
+@pytest.mark.unit
+def test_the_stand_downs_can_be_shortened_for_a_bench_run():
+    """The daemon waits 15 minutes after a 403 because arguing with a bot decision is
+    how a temporary block becomes permanent. A sweep is doing the opposite on purpose —
+    asking whether a different fingerprint changes the answer — and four requests then
+    stopping is not arguing."""
+    slept = []
+    b = HostBudget(gap=0, sleep=slept.append, clock=lambda: 0.0, refused_backoff=5.0)
+    b.observe("x.com", 403)
+    assert b.blocked_for("x.com") == 5.0
+
+
+@pytest.mark.unit
+def test_a_shortened_bench_still_waits_as_long_as_the_host_asked():
+    """Retry-After is the host speaking. It outranks whatever we configured."""
+    b = HostBudget(gap=0, sleep=lambda s: None, clock=lambda: 0.0, busy_backoff=2.0)
+    b.observe("x.com", 429, retry_after=120)
+    assert b.blocked_for("x.com") == 120.0
+
+
+@pytest.mark.unit
+def test_the_daemon_defaults_are_untouched():
+    b = HostBudget(sleep=lambda s: None, clock=lambda: 0.0)
+    b.observe("x.com", 403)
+    assert b.blocked_for("x.com") == 900.0

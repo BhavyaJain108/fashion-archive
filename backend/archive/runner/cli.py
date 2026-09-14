@@ -116,7 +116,11 @@ def _access(args, store: ObjectStore, brands: list[Brand]) -> int:
     # rather than one per cell, which on R2 is the difference that matters.
     held_before = _held(store)
 
-    budget = HostBudget(gap=args.gap)
+    # Short stand-downs on purpose. The daemon waits 15 minutes after a 403 because
+    # sustained retrying turns a temporary block permanent; a sweep asks four questions
+    # with a different fingerprint and then leaves, which is the thing we are here to
+    # measure. A Retry-After the host actually sends is still obeyed in full.
+    budget = HostBudget(gap=args.gap, busy_backoff=args.gap * 4, refused_backoff=args.gap * 4)
 
     def line(r) -> None:
         print(
