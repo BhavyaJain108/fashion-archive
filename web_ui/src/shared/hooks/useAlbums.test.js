@@ -94,6 +94,9 @@ const fakeSaves = () => {
     }),
     unsave: (key) => listeners.forEach(fn => fn(key)),
     listeners,
+    // Asked to go and look, when an album write could not say whether it
+    // saved the thing.
+    reload: jest.fn(),
   };
 };
 
@@ -523,13 +526,25 @@ describe('adding something that is not saved yet', () => {
     expect(saves.isSaved(target)).toBe(false);
   });
 
-  test('a request that never arrives rolls back both halves', async () => {
+  // A request that throws is NOT proof the write did not happen: it may have
+  // been served, the row written, and the connection lost on the way back.
+  // This endpoint saves the thing and files it in one transaction, so rolling
+  // the star back on a guess leaves a dark star over a saved row. Both halves
+  // are asked about instead — the album of the server, the star of the hook
+  // that owns it.
+  test('a request that never arrives asks about both halves', async () => {
     api.addLookToAlbum.mockRejectedValue(new Error('down'));
     const { result } = await mount(1);
+    const reads = api.getAlbum.mock.calls.length;
     const target = look(PRADA, 7);
+
     await act(async () => { await result.current.addToAlbum(1, target); });
+
+    expect(api.getAlbum.mock.calls.length).toBeGreaterThan(reads);
+    expect(saves.reload).toHaveBeenCalled();
+    // Three tiles, which is what the server answered — not a rollback's
+    // guess at what it holds.
     expect(result.current.items).toHaveLength(3);
-    expect(saves.isSaved(target)).toBe(false);
   });
 
   // The other direction of the same bug: un-starring a row that was already
@@ -898,5 +913,122 @@ describe('a press held behind one that fails', () => {
     expect(api.addLookToAlbum).toHaveBeenCalledTimes(2);
     // The server answered `added: true` to both, so both counted.
     expect(shelfRow(result, 1).item_count).toBe(5);
+  });
+});
+
+// ── an answer nobody could read ───────────────────────────────────────────
+//
+// `albumRequest` used to turn an unparseable body into `{}`, so a 2xx
+// carrying a proxy's HTML error page arrived as `{ok: true, status: 200}` —
+// which is exactly what a write that worked and had nothing to add looks
+// like. `wrote` said true, `answer.added` was undefined rather than false so
+// the "already in this album" correction was skipped, and the tile was
+// stamped `favourite_id: undefined` — an id that names nothing, which is what
+// `removeFromAlbum` and `reorderAlbum` would then have sent.
+//
+// A 2xx nobody could read is neither a success nor a failure. It is unknown:
+// the success path is not applied, nothing is stamped, and the server is
+// asked what it actually holds.
+
+const UNREAD = { ok: true, status: 200, bodyRead: false };
+
+describe('a 2xx that does not say what happened', () => {
+  test('stamps no tile with an id the server never gave', async () => {
+    api.addLookToAlbum.mockResolvedValue(UNREAD);
+    const { result } = await mount(1);
+
+    await act(async () => { await result.current.addToAlbum(1, look(GUCCI, 30)); });
+
+    expect(result.current.items.some(
+      r => r.id === undefined || r.id === null)).toBe(false);
+    expect(result.current.items.some(r => r.pending)).toBe(false);
+  });
+
+  test('asks the server what it holds rather than guessing either way', async () => {
+    api.addLookToAlbum.mockResolvedValue(UNREAD);
+    const { result } = await mount(1);
+    const reads = api.getAlbum.mock.calls.length;
+
+    await act(async () => { await result.current.addToAlbum(1, look(GUCCI, 30)); });
+
+    expect(api.getAlbum.mock.calls.length).toBeGreaterThan(reads);
+    expect(result.current.error).toBeTruthy();
+  });
+
+  test('a 200 whose body is JSON but carries no favourite id is the same thing',
+    async () => {
+      // The shape matters as much as the parse: without an id there is
+      // nothing to stamp, and without `added` the "already in this album"
+      // correction cannot be made.
+      api.addLookToAlbum.mockResolvedValue({ ok: true, status: 200, bodyRead: true });
+      const { result } = await mount(1);
+      const reads = api.getAlbum.mock.calls.length;
+
+      await act(async () => { await result.current.addToAlbum(1, look(GUCCI, 30)); });
+
+      expect(result.current.items.some(r => r.pending)).toBe(false);
+      expect(api.getAlbum.mock.calls.length).toBeGreaterThan(reads);
+    });
+
+  test('a held press behind one is dropped, as behind any other non-success',
+    async () => {
+      api.addLookToAlbum.mockResolvedValue(UNREAD);
+      const { result } = await mount();
+
+      await act(async () => {
+        await Promise.all([
+          result.current.addToAlbum(1, look(GUCCI, 3)),
+          result.current.addToAlbum(1, look(GUCCI, 3)),
+        ]);
+      });
+
+      expect(api.addLookToAlbum).toHaveBeenCalledTimes(1);
+    });
+
+  test('a rename nobody could read is not taken as a rename', async () => {
+    api.renameAlbum.mockResolvedValue(UNREAD);
+    const { result } = await mount();
+    const reads = api.getAlbums.mock.calls.length;
+
+    await act(async () => { await result.current.renameAlbum(1, 'Resort 2026'); });
+
+    expect(api.getAlbums.mock.calls.length).toBeGreaterThan(reads);
+    expect(result.current.error).toBeTruthy();
+  });
+});
+
+// ── the network dropping after the server committed ───────────────────────
+//
+// `fetch` throwing does not mean the write did not happen: the request may
+// have been served, the row written, and the connection lost on the way back.
+// Rolling an add back on that leaves a dark star over a row that IS saved and
+// a shelf count one below an album that IS holding the thing — the same class
+// of mistake as trusting a 2xx nobody read, pointing the other way.
+
+describe('an add whose connection dropped', () => {
+  test('asks the server rather than rolling back over it', async () => {
+    api.addLookToAlbum.mockRejectedValue(new TypeError('Failed to fetch'));
+    const { result } = await mount(1);
+    const reads = api.getAlbum.mock.calls.length;
+
+    await act(async () => { await result.current.addToAlbum(1, look(GUCCI, 30)); });
+
+    expect(api.getAlbum.mock.calls.length).toBeGreaterThan(reads);
+    expect(result.current.error).toBeTruthy();
+    // Whatever the server holds is what is shown — three tiles, the reload's
+    // answer — rather than a guess made here.
+    expect(ids(result.current.items)).toEqual([11, 12, 13]);
+  });
+
+  test('a rename whose connection dropped still rolls back', async () => {
+    // Nothing was saved by a rename, so putting the name back is the honest
+    // reading of a request that may not have arrived — and the reload that
+    // follows a genuine commit will correct it.
+    api.renameAlbum.mockRejectedValue(new TypeError('Failed to fetch'));
+    const { result } = await mount();
+
+    await act(async () => { await result.current.renameAlbum(1, 'Resort 2026'); });
+
+    expect(shelfRow(result, 1).name).toBe('Resort');
   });
 });

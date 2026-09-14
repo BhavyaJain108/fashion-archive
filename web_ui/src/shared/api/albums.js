@@ -23,6 +23,18 @@ export class AlbumsEndpoints {
   // The envelope keeps `status` because these endpoints answer with it: 404 is
   // an album that is not yours, 409 a name you already used, 400 a body the
   // server would not store. Throwing would discard the reason.
+  //
+  // It also keeps `bodyRead`, which says whether there was an answer to read
+  // at all. A body that will not parse used to become `{}`, so a 2xx carrying
+  // a proxy's HTML error page arrived here as `{ok: true, status: 200}` —
+  // exactly what a write that succeeded and had nothing to add looks like.
+  // `useAlbums.wrote` read that as success, `added` was undefined rather than
+  // false, and a tile was stamped `favourite_id: undefined`. A 2xx nobody
+  // could read is not a success and not a failure; it is unknown, and the
+  // caller has to be able to tell.
+  //
+  // `bodyRead` is written AFTER the spread, so a server sending a field of
+  // that name cannot decide this for us.
   static async albumRequest(path, { method = 'GET', body } = {}) {
     const hasBody = body !== undefined;
     const response = await fetch(`${ApiClient.BASE_URL}${path}`, {
@@ -32,8 +44,9 @@ export class AlbumsEndpoints {
       body: hasBody ? JSON.stringify(body) : undefined,
     });
     ApiClient.checkAuth(response);
-    const data = await response.json().catch(() => ({}));
-    return { ok: response.ok, status: response.status, ...data };
+    const data = await response.json().catch(() => null);
+    const read = Boolean(data) && typeof data === 'object' && !Array.isArray(data);
+    return { ok: response.ok, status: response.status, ...(read ? data : {}), bodyRead: read };
   }
 
   // ------------------------------------------------------------ the shelf ---

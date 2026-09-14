@@ -198,3 +198,51 @@ describe('the order', () => {
     expect(body).toEqual({ favourite_ids: [9, 4, 7] });
   });
 });
+
+// ── an answer that could not be read ──────────────────────────────────────
+//
+// `albumRequest` answers an unreadable body with `{}`, which made a 2xx
+// carrying a proxy's HTML error page — or nothing at all — arrive as
+// `{ok: true, status: 200}`: indistinguishable from a write that worked and
+// said so. `wrote` read it as success, `added` was undefined rather than
+// false, and a tile was stamped with `favourite_id: undefined`.
+//
+// The envelope now says whether the body was read, so a caller can tell "the
+// server said it did it" from "we have no idea what the server did".
+
+describe('a 2xx whose body is not JSON', () => {
+  const unreadable = (status = 200) => {
+    fetchMock.mockImplementationOnce(() => Promise.resolve({
+      ok: status >= 200 && status < 300,
+      status,
+      statusText: String(status),
+      json: () => Promise.reject(new SyntaxError('Unexpected token < in JSON')),
+    }));
+  };
+
+  test('is marked as unread rather than passed off as an empty success', async () => {
+    unreadable();
+    const answer = await AlbumsEndpoints.addSavedToAlbum(7, 55);
+    expect(answer.ok).toBe(true);
+    expect(answer.status).toBe(200);
+    expect(answer.bodyRead).toBe(false);
+  });
+
+  test('a body that was read says so, even when it is empty', async () => {
+    respondWith(200, {});
+    const answer = await AlbumsEndpoints.addSavedToAlbum(7, 55);
+    expect(answer.bodyRead).toBe(true);
+  });
+
+  test('a body that is not an object is not a body', async () => {
+    respondWith(200, [1, 2, 3]);
+    const answer = await AlbumsEndpoints.addSavedToAlbum(7, 55);
+    expect(answer.bodyRead).toBe(false);
+  });
+
+  test('a server that sends its own bodyRead cannot forge this', async () => {
+    respondWith(200, { bodyRead: false, favourite_id: 5, added: true });
+    const answer = await AlbumsEndpoints.addSavedToAlbum(7, 55);
+    expect(answer.bodyRead).toBe(true);
+  });
+});

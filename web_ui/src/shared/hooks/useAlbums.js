@@ -43,7 +43,7 @@ import { canonicalFilters, keyOf, rowOfTarget, targetOfRow } from './useSaves';
 // because only one of the two callers has one on screen.
 //
 //   { isSaved(target) -> bool, setSaved(target, saved),
-//     onUnsaved(listener) -> unsubscribe }
+//     onUnsaved(listener) -> unsubscribe, reload() }
 //
 // Adding something unsaved to an album SAVES it — one user action, two server
 // effects, in one transaction. The album half of that is this hook's state and
@@ -68,7 +68,18 @@ import { canonicalFilters, keyOf, rowOfTarget, targetOfRow } from './useSaves';
 // saying it until the page is remounted. Told that a save went, this hook
 // asks the server what it holds now. It is not handed the saved list, for the
 // reason above — one owner.
-const NO_SAVES = { isSaved: () => true, setSaved: () => {}, onUnsaved: () => () => {} };
+//
+// `reload` is the third: an add whose answer this hook could not read may or
+// may not have saved the thing, and the star is not this hook's to decide. It
+// asks the owner to go and look, the same way it asks the server about its own
+// half. Guessing either way is a bug — a star put out over a saved row, or one
+// left lit over a row nothing saved.
+const NO_SAVES = {
+  isSaved: () => true,
+  setSaved: () => {},
+  onUnsaved: () => () => {},
+  reload: () => {},
+};
 
 // ------------------------------------------------------------- reading ---
 
@@ -144,6 +155,41 @@ export function wrote(answer, { refusalMeansDone = false } = {}) {
   if (answer.ok === false) return false;
   if (answer.success === false) return refusalMeansDone;
   return true;
+}
+
+// A 2xx that says nothing readable about what it did.
+//
+// `albumRequest` marks a body it could not parse — or one that is not an
+// object — with `bodyRead: false`. Such an answer used to arrive as
+// `{ok: true, status: 200}`, which is indistinguishable from a write that
+// worked and had nothing to add, so `wrote` above said true over a proxy's
+// HTML error page.
+//
+// This is a THIRD state and not a fourth flavour of failure. A failure is
+// rolled back, because the server did not make the change. An unknown answer
+// is not rolled back, because it may have: the only honest move is to apply
+// neither half and go and ask.
+//
+// An answer with no `bodyRead` at all — every hand-written one, and every
+// caller that does not go through `albumRequest` — is taken at its word,
+// which is the same rule `wrote` applies to a missing `success`.
+export function unread(answer) {
+  return Boolean(answer) && typeof answer === 'object'
+    && answer.ok !== false && answer.bodyRead === false;
+}
+
+// Whether an add's answer carries the two things the caller reads off it.
+//
+// `favourite_id` is the id the tile is stamped with and the id every later
+// write names it by; `added` is whether the thing went in or was already
+// there, and it has to be a BOOLEAN, because `undefined` is not `false` and
+// skipping the "already in this album" correction is a count one too high.
+// An answer missing either is not a failure and not a success: it is the same
+// unknown as an unreadable one, and gets the same reload.
+export function addAnswered(answer) {
+  if (!answer || typeof answer !== 'object') return false;
+  const id = answer.favourite_id;
+  return id !== null && id !== undefined && typeof answer.added === 'boolean';
 }
 
 // The reason the server gave, or a plain one. `error` is what the album
@@ -387,13 +433,35 @@ export function useAlbums(albumId = null, options = {}) {
   // optimistic change and it is run here and nowhere else, so no operation can
   // be written that forgets it.
   const writeThrough = useCallback(async (
-    id, send, undo, { refusalMeansDone = false, forgetOn404 = true } = {},
+    id, send, undo,
+    {
+      refusalMeansDone = false, forgetOn404 = true,
+      unknownIf = () => false, askOnThrow = false,
+    } = {},
   ) => {
+    // Neither applied nor undone: the server may have made this change and
+    // may not, and only the server can say. Everything optimistic is left
+    // where it is and the truth is read back over it.
+    const askTheServer = (err, { andTheStar = false } = {}) => {
+      console.error('Could not tell what the album write did:', err);
+      reload();
+      // The save half is not ours to decide either. See NO_SAVES.
+      if (andTheStar && typeof saves.current.reload === 'function') saves.current.reload();
+      if (alive.current) setError(err);
+      return null;
+    };
+
     let answer;
     try {
       answer = await send();
     } catch (err) {
       console.error('Could not change album:', err);
+      // A throw is not proof the write did not happen — the request may have
+      // been served, the row written, and the connection lost on the way
+      // back. Where that matters (the add, which SAVES the thing as well as
+      // filing it) rolling back would leave a dark star over a row that is
+      // saved, so the caller asks for the truth instead.
+      if (askOnThrow) return askTheServer(err, { andTheStar: true });
       undo();
       if (alive.current) setError(err);
       return null;
@@ -406,9 +474,17 @@ export function useAlbums(albumId = null, options = {}) {
       if (forgetOn404 && answer && answer.status === 404) forget(id);
       return null;
     }
+    // A 2xx nobody could read, or one whose body does not carry what this
+    // caller has to have off it. See `unread`: not a success, not a failure.
+    if (unread(answer) || unknownIf(answer)) {
+      return askTheServer(
+        reasonOf({ message: 'The server did not say what it did' }),
+        { andTheStar: askOnThrow },
+      );
+    }
     if (alive.current) setError(null);
     return answer;
-  }, [forget]);
+  }, [forget, reload]);
 
   // ------------------------------------------------- the album itself ---
 
@@ -568,7 +644,17 @@ export function useAlbums(albumId = null, options = {}) {
       // an album that is not yours AND for a favourite id that is not yours,
       // and dropping the album off the shelf for the second would be a wrong
       // answer to a right refusal.
-      const answer = await writeThrough(id, send, undo, { forgetOn404: false });
+      const answer = await writeThrough(id, send, undo, {
+        forgetOn404: false,
+        // An add that does not come back with an id and an `added` is
+        // unknown, not a success: there is nothing to stamp the tile with and
+        // no way to tell "filed" from "was already there".
+        unknownIf: (a) => !addAnswered(a),
+        // And a dropped connection is not proof it did not happen. This
+        // endpoint saves the favourite and files it in one transaction, so
+        // rolling back would put out a star over a row that is saved.
+        askOnThrow: true,
+      });
       if (!answer) return false;
 
       // Both halves landed. What the server reports is which of them it had to

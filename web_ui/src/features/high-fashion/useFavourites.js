@@ -152,7 +152,8 @@ export function useFavourites(shownCollection, lookTotal) {
   // One object, memoised, so a page writing `useAlbums(null, { saves })`
   // hands over the same reference on every render.
   const saves = useMemo(
-    () => ({ isSaved, setSaved, onUnsaved }), [isSaved, setSaved, onUnsaved]);
+    () => ({ isSaved, setSaved, onUnsaved, reload: reloadSaves }),
+    [isSaved, setSaved, onUnsaved, reloadSaves]);
 
   return {
     isFavourite, toggleFavourite,
