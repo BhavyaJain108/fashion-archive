@@ -1063,10 +1063,21 @@ def get_recents():
     """GET /api/recents - shows the signed-in user has opened, newest first."""
     try:
         with db.transaction() as conn:
-            return jsonify({
-                'recents': recents.list_recent(conn, user_id=current_user().id),
-                'success': True,
-            })
+            rows = recents.list_recent(conn, user_id=current_user().id)
+
+        # season_url is derived, not stored — it is a pure function of gender,
+        # year and season, all three of which recent_collections already holds.
+        # Adding it here matters because a favourite's identity is
+        # (user_id, season_url, collection_url, look_number): without it, the
+        # same look kept from the recents drawer and from the show list would
+        # carry season_url '' one way and a real URL the other, land as two
+        # rows, and removing one would leave the other behind.
+        for row in rows:
+            row['season_url'] = _season_url(
+                row.get('gender'), row.get('year'), row.get('season')
+            )
+
+        return jsonify({'recents': rows, 'success': True})
     except Exception as e:
         return jsonify({'error': str(e), 'success': False}), 500
 
