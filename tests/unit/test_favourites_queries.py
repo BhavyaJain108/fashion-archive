@@ -81,6 +81,114 @@ class TestKinds:
         assert issubclass(favourites.UnknownKind, ValueError)
 
 
+class TestNormaliseFilters:
+    """What the server stores when a client saves a view.
+
+    This is the whole identity of a saved view: `md5(view_filters::text)` is the
+    unique index, so anything that reaches the stored document changes what the
+    view IS. A stray key means the same view saved twice is two rows, and the
+    second one can never be found by the first one's filters again.
+    """
+
+    def test_the_keys_are_the_query_string_ones(self):
+        """web_ui/src/app/routes.js decides which filters exist. If this list
+        and that one drift, a filter the UI sends is silently dropped."""
+        assert set(favourites.FILTER_KEYS) == {
+            "gender",
+            "year",
+            "season",
+            "category",
+            "shootType",
+            "city",
+            "letter",
+        }
+
+    def test_a_known_filter_survives(self):
+        assert favourites.normalise_filters({"city": "Paris"}) == {"city": "Paris"}
+
+    def test_an_unknown_key_is_dropped(self):
+        """A page number or an auth token arriving beside the filters would
+        otherwise be part of the view's identity."""
+        assert favourites.normalise_filters(
+            {"city": "Paris", "page": 3, "token": "abc"}
+        ) == {"city": "Paris"}
+
+    def test_an_empty_value_is_dropped(self):
+        """The client's own rule is `value !== ''` — an unset filter is not a
+        filter, and storing it would make "Paris" and "Paris with the year box
+        empty" two different saved views."""
+        assert favourites.normalise_filters({"city": "Paris", "year": ""}) == {"city": "Paris"}
+
+    def test_whitespace_is_not_a_value(self):
+        assert favourites.normalise_filters({"city": "  ", "year": " 1997 "}) == {"year": "1997"}
+
+    def test_a_number_becomes_its_text(self):
+        """A filter comes off a URL as text. `1997` and `"1997"` are the same
+        view and must not hash differently."""
+        assert favourites.normalise_filters({"year": 1997}) == {"year": "1997"}
+        assert favourites.normalise_filters({"year": 1997}) == favourites.normalise_filters(
+            {"year": "1997"}
+        )
+
+    @pytest.mark.parametrize("value", [None, True, False, [], {}, ["Paris"], {"a": 1}])
+    def test_a_value_that_is_not_a_filter_is_dropped(self, value):
+        assert favourites.normalise_filters({"city": value}) == {}
+
+    @pytest.mark.parametrize("raw", [None, "Paris", 7, [], ["city"]])
+    def test_a_body_that_is_not_an_object_is_no_filters(self, raw):
+        assert favourites.normalise_filters(raw) == {}
+
+    def test_nothing_filtered_is_an_empty_object(self):
+        assert favourites.normalise_filters({}) == {}
+
+    def test_key_order_is_gone_by_the_time_it_is_stored(self):
+        """Built by walking FILTER_KEYS, so the client's ordering is gone before
+        canonical_filters even sees it."""
+        one = favourites.canonical_filters(
+            favourites.normalise_filters({"year": "1997", "city": "Paris"})
+        )
+        other = favourites.canonical_filters(
+            favourites.normalise_filters({"city": "Paris", "year": "1997"})
+        )
+        assert one == other
+
+    def test_junk_cannot_buy_a_second_row(self):
+        """The property the unique index needs: two requests meaning the same
+        view produce the same text however sloppily they were written."""
+        clean = favourites.normalise_filters({"city": "Paris", "year": "1997"})
+        noisy = favourites.normalise_filters(
+            {"year": 1997, "city": " Paris ", "page": 2, "season": "", "junk": None}
+        )
+        assert favourites.canonical_filters(clean) == favourites.canonical_filters(noisy)
+
+
+class TestDeriveViewName:
+    """A display string for the library to list. Not an identity."""
+
+    def test_the_values_read_in_filter_order(self):
+        assert (
+            favourites.derive_view_name({"city": "Paris", "gender": "Womens", "year": "1997"})
+            == "Womens · 1997 · Paris"
+        )
+
+    def test_one_filter_is_just_its_value(self):
+        assert favourites.derive_view_name({"city": "Paris"}) == "Paris"
+
+    def test_nothing_filtered_has_a_name_anyway(self):
+        """A view with no filters is the whole archive, which is a thing a
+        person may well save."""
+        assert favourites.derive_view_name({}) == favourites.WHOLE_ARCHIVE
+
+    def test_junk_does_not_reach_the_name(self):
+        assert favourites.derive_view_name({"city": "Paris", "token": "secret"}) == "Paris"
+
+    def test_a_name_is_not_an_identity(self):
+        """Same name, different filters — two views, and the index says so."""
+        one = favourites.canonical_filters(favourites.normalise_filters({"city": "Paris"}))
+        other = favourites.canonical_filters(favourites.normalise_filters({"city": "Milan"}))
+        assert one != other
+
+
 class TestConflictTarget:
     @pytest.mark.parametrize(
         "kind, predicate",

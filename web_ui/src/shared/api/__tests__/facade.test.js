@@ -9,6 +9,8 @@ test('every method the pages call still resolves', () => {
     'getIndexStatus', 'browseCatalog', 'searchShows', 'getDesigners',
     'streamDesignerCollections', 'streamCollectionImages', 'getRecents',
     'getFavourites', 'addFavourite', 'removeFavourite', 'getFavouriteStats',
+    'addShowFavourite', 'removeShowFavourite', 'checkShowFavourite',
+    'addViewFavourite', 'removeViewFavourite', 'checkViewFavourite',
   ]) {
     expect(typeof FashionArchiveAPI[name]).toBe('function');
   }

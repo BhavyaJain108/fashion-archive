@@ -67,6 +67,67 @@ def canonical_filters(filters: Any) -> str:
     return json.dumps(filters or {}, sort_keys=True, separators=(",", ":"))
 
 
+# The filters a saved view may carry, in the order a derived name reads them.
+#
+# This is `FILTER_KEYS` in web_ui/src/app/routes.js, which is what the archive's
+# query string is parsed against. It is restated here because the server cannot
+# take the client's word for it: `md5(view_filters::text)` is the identity of a
+# saved view, so one stray key — a timestamp, a page number, a typo — makes the
+# same view a second row that the first save will never match again.
+FILTER_KEYS = ("gender", "year", "season", "city", "category", "shootType", "letter")
+
+# What a view with nothing filtered is called. A name is a display string, so
+# this one is allowed to collide; the filters are what make two rows two rows.
+WHOLE_ARCHIVE = "All of the archive"
+
+
+def normalise_filters(raw: Any) -> dict[str, str]:
+    """The filters as they identify a view: known keys, non-empty values.
+
+    The same rule the client applies on the way out of the query string
+    (`FILTER_KEYS.has(key) && value !== ''`), applied again here because the
+    client is not the only thing that can POST. Unknown keys are dropped rather
+    than refused: a newer frontend sending a filter this server has not heard of
+    should save the view it does understand, not fail.
+
+    Numbers become their text, because a filter arrives from a URL as text and
+    `{"year": 1997}` and `{"year": "1997"}` must not be two saved views.
+    Anything that is not a string or a number is not a filter value and is
+    dropped — a list or an object here would be somebody else's payload.
+    """
+    if not isinstance(raw, dict):
+        return {}
+
+    out: dict[str, str] = {}
+    for key in FILTER_KEYS:
+        value = raw.get(key)
+        if isinstance(value, bool):
+            continue  # bool is an int; a filter is never true.
+        if isinstance(value, (int, float)):
+            value = str(value)
+        elif isinstance(value, str):
+            value = value.strip()
+        else:
+            continue
+        if value:
+            out[key] = value
+    return out
+
+
+def derive_view_name(filters: Any) -> str:
+    """A name for a view the client did not name.
+
+    The filter values, read in the order FILTER_KEYS lists them, which is the
+    order they read as English: "Womens · 1997 · Paris". Not an identity — two
+    views can share a name — so it is built from the values alone and leaves the
+    keys out, because "Womens · 1997 · Paris" is what the filter bar shows and
+    "gender=Womens, year=1997" is not.
+    """
+    filters = normalise_filters(filters)
+    values = [filters[key] for key in FILTER_KEYS if key in filters]
+    return " · ".join(values) if values else WHOLE_ARCHIVE
+
+
 def conflict_target(kind: str) -> str:
     """The ON CONFLICT clause naming this kind's partial index.
 

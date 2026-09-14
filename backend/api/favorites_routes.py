@@ -1,12 +1,21 @@
-"""Favourite looks — HTTP endpoints.
+"""Saved looks, shows and views — HTTP endpoints.
 
 Every handler is scoped to `current_user()`, and the user id is part of each
 query rather than being used to pick a file path. That is the substantive
-change: isolation is now enforced by the database on every row, instead of by
-assembling a per-user directory name and trusting it.
+change from the SQLite generation: isolation is now enforced by the database on
+every row, instead of by assembling a per-user directory name and trusting it.
 
-The JSON contract is unchanged, so the frontend does not need to know that
-storage moved.
+A request says which of the three kinds it means with `kind`, defaulting to
+`'look'` — so the look requests the frontend sends today are byte-for-byte the
+requests it sent before views and shows existed, and get byte-for-byte the same
+answers. A kind nothing recognises is a 400 rather than a row: the three
+uniqueness indexes are partial, one per kind, so a row with a fourth kind is one
+no index covers, no `DELETE` finds, and nothing ever cleans up.
+
+The keying is deliberately not written here. `favourites.key_clause` owns which
+columns identify which kind, and `remove` and `check` both go through it, so a
+saved show and a saved look of the same collection cannot be confused for one
+another by one endpoint and not the other.
 """
 
 from __future__ import annotations
@@ -22,43 +31,143 @@ def _body() -> dict:
     return request.get_json(silent=True) or {}
 
 
+def _kind(source) -> str:
+    """The kind this request means, validated before anything is opened.
+
+    Absent is 'look': every request the frontend sent before this existed still
+    means what it meant.
+    """
+    return favourites.check_kind(source.get("kind") or "look")
+
+
+def _refuse(exc: favourites.UnknownKind):
+    """A kind no index covers, answered before a transaction is opened."""
+    return jsonify({"success": False, "error": str(exc)}), 400
+
+
+def _view_filters(body: dict) -> dict:
+    """The filters as this server will store them, not as they arrived.
+
+    Normalised here rather than in the handler bodies so `add`, `remove` and
+    `check` cannot drift: the identity of a saved view is
+    `md5(view_filters::text)`, and a client that saved through one rule and
+    deleted through another would be unable to delete what it saved.
+    """
+    return favourites.normalise_filters(body.get("filters"))
+
+
+def _view_name(body: dict, filters: dict) -> str:
+    """What the library will list this view as.
+
+    A display string, never an identity — two views with the same name and
+    different filters are two rows, and the same filters under two names are
+    still one.
+    """
+    supplied = body.get("name")
+    supplied = supplied.strip() if isinstance(supplied, str) else ""
+    return supplied or favourites.derive_view_name(filters)
+
+
 def get_favourites():
-    """GET /api/favourites — every favourite for the current user."""
+    """GET /api/favourites — everything the current user has saved.
+
+    All three kinds interleaved by date, because the library lists them that
+    way. `?kind=show` narrows it to one.
+    """
+    wanted = request.args.get("kind")
+    if wanted is not None:
+        try:
+            wanted = favourites.check_kind(wanted)
+        except favourites.UnknownKind as exc:
+            return _refuse(exc)
+
     with db.transaction() as conn:
         return jsonify(
-            {"favourites": favourites.list_all(conn, user_id=current_user().id)}
+            {
+                "favourites": favourites.list_all(
+                    conn, user_id=current_user().id, kind=wanted
+                )
+            }
         )
 
 
 def add_favourite():
-    """POST /api/favourites — favourite a look."""
+    """POST /api/favourites — save a look, a show, or a view.
+
+        {"season": {...}, "collection": {...}, "look": {...}, "image_path": ...}
+        {"kind": "show", "season": {...}, "collection": {...}, "image_path": ...}
+        {"kind": "view", "filters": {...}, "name": "optional"}
+
+    Saving something already saved is reported, not an error: the insert is
+    ON CONFLICT DO NOTHING, so a double-click answers `success: false` rather
+    than aborting on a constraint.
+    """
     body = _body()
+    try:
+        kind = _kind(body)
+    except favourites.UnknownKind as exc:
+        return _refuse(exc)
+
+    view_filters = _view_filters(body) if kind == "view" else None
+    view_name = _view_name(body, view_filters) if kind == "view" else None
+
     with db.transaction() as conn:
         added = favourites.add(
             conn,
             user_id=current_user().id,
+            kind=kind,
             season=body.get("season", {}),
             collection=body.get("collection", {}),
             look=body.get("look", {}),
             image_path=body.get("image_path", ""),
             notes=body.get("notes", ""),
+            view_filters=view_filters,
+            view_name=view_name,
         )
 
     if added:
-        return jsonify({"success": True, "message": "Added to favourites"})
-    return jsonify({"success": False, "message": "Already in favourites"})
+        answer = {"success": True, "message": "Added to favourites"}
+    else:
+        answer = {"success": False, "message": "Already in favourites"}
+
+    # A look's answer is the two keys it has always been; the frontend reads it
+    # today and Task 3 is what changes that. The other kinds say which kind they
+    # were, and a view says what it ended up called, so a client that let the
+    # name be derived does not have to refetch the list to learn it.
+    if kind != "look":
+        answer["kind"] = kind
+    if kind == "view":
+        answer["view"] = {"name": view_name, "filters": view_filters}
+    return jsonify(answer)
 
 
 def remove_favourite():
-    """DELETE /api/favourites — unfavourite a look."""
+    """DELETE /api/favourites — unsave one thing.
+
+        {"season_url": ..., "collection_url": ..., "look_number": 12}
+        {"kind": "show", "season_url": ..., "collection_url": ...}
+        {"kind": "view", "filters": {...}}
+
+    The match is the key for the kind and nothing else, which is why a
+    `look_number` sent alongside `kind: show` is ignored rather than narrowing
+    the delete: deleting a saved show must leave a saved look of the same
+    collection alone, and the other way round.
+    """
     body = _body()
+    try:
+        kind = _kind(body)
+    except favourites.UnknownKind as exc:
+        return _refuse(exc)
+
     with db.transaction() as conn:
         removed = favourites.remove(
             conn,
             user_id=current_user().id,
+            kind=kind,
             season_url=body.get("season_url", ""),
             collection_url=body.get("collection_url", ""),
             look_number=body.get("look_number", 0),
+            view_filters=_view_filters(body) if kind == "view" else None,
         )
 
     if removed:
@@ -67,15 +176,26 @@ def remove_favourite():
 
 
 def check_favourite():
-    """POST /api/favourites/check — is this look favourited?"""
+    """POST /api/favourites/check — is this saved?
+
+    Same body as the delete, and the same key, because a star that says saved
+    and a delete that finds nothing is one bug reported twice.
+    """
     body = _body()
+    try:
+        kind = _kind(body)
+    except favourites.UnknownKind as exc:
+        return _refuse(exc)
+
     with db.transaction() as conn:
         is_fav = favourites.exists(
             conn,
             user_id=current_user().id,
+            kind=kind,
             season_url=body.get("season_url", ""),
             collection_url=body.get("collection_url", ""),
             look_number=body.get("look_number", 0),
+            view_filters=_view_filters(body) if kind == "view" else None,
         )
     return jsonify({"is_favourite": is_fav})
 
