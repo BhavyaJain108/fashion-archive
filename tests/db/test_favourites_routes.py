@@ -376,3 +376,49 @@ class TestListing:
         stats = client.get("/api/favourites/stats").get_json()["stats"]
         assert (stats["looks"], stats["shows"], stats["views"]) == (1, 1, 1)
         assert stats["total_favourites"] == 3
+
+
+class TestListingIsBounded:
+    """`?limit=` on the listing endpoint.
+
+    The archive page fetches the whole library on every mount. There is no
+    default cap — the client keys its stars off these rows, so a row that did
+    not arrive is a dark star over something the reader saved — but a caller
+    that wants the newest few can say so, and a query string is somebody's
+    input.
+    """
+
+    def _save(self, client, number):
+        return client.post(
+            "/api/favourites",
+            json={
+                "season": SEASON,
+                "collection": COLLECTION,
+                "look": {"number": number, "total": 48},
+                "image_path": f"/api/images/b/{number}.jpg",
+            },
+        )
+
+    def test_no_limit_returns_everything(self, client):
+        for number in range(1, 5):
+            self._save(client, number)
+
+        body = client.get("/api/favourites").get_json()
+
+        assert len(body["favourites"]) == 4
+
+    def test_a_limit_returns_that_many(self, client):
+        for number in range(1, 5):
+            self._save(client, number)
+
+        body = client.get("/api/favourites?limit=2").get_json()
+
+        assert len(body["favourites"]) == 2
+
+    def test_a_limit_that_is_not_a_number_is_no_limit(self, client):
+        for number in range(1, 5):
+            self._save(client, number)
+
+        body = client.get("/api/favourites?limit=all").get_json()
+
+        assert len(body["favourites"]) == 4

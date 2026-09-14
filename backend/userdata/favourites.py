@@ -317,17 +317,41 @@ def shape(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def list_all(conn, *, user_id: UUID, kind: str | None = None) -> list[dict[str, Any]]:
+# The most rows one request will ever return, however many are asked for.
+# `limit` reaches here off a query string, so it is somebody's input and a
+# request for a billion rows must cost what a request for this many costs.
+MAX_LIST_LIMIT = 1000
+
+
+def list_all(
+    conn, *, user_id: UUID, kind: str | None = None, limit: int | None = None
+) -> list[dict[str, Any]]:
     """Everything a user has saved, newest first.
 
     All three kinds interleaved, because the library lists them that way. Pass
-    `kind` for one of them.
+    `kind` for one of them, and `limit` for the newest N.
+
+    `limit` is deliberately not defaulted to a number. The whole list is
+    fetched on every archive-page mount, which is what makes a cap tempting —
+    but the client keys its stars off exactly these rows, and a row that did
+    not arrive is a dark star over a look the reader saved and a save that
+    writes a second copy of it. That is the bug this phase exists to close,
+    and a default cap would reintroduce it at whatever number we picked. So
+    the parameter is here for a caller that genuinely wants a page, the
+    ceiling below bounds the worst case, and the library goes on asking for
+    all of it. Paging the archive page's copy needs the client to stop keying
+    off the list first, which is a bigger change than a LIMIT.
     """
     where = "user_id = %s"
     params: tuple = (user_id,)
     if kind is not None:
         where += " AND kind = %s"
         params += (check_kind(kind),)
+
+    bound = ""
+    if limit is not None:
+        bound = "LIMIT %s"
+        params += (max(0, min(int(limit), MAX_LIST_LIMIT)),)
 
     with _dict_cursor(conn) as cur:
         cur.execute(
@@ -339,6 +363,7 @@ def list_all(conn, *, user_id: UUID, kind: str | None = None) -> list[dict[str, 
             FROM favourites
             WHERE {where}
             ORDER BY created_at DESC, id DESC
+            {bound}
             """,
             params,
         )

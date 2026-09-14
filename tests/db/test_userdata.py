@@ -264,6 +264,38 @@ class TestAllThreeKinds:
         only = favourites.list_all(conn, user_id=user.id, kind="view")
         assert [item["kind"] for item in only] == ["view"]
 
+    def test_list_all_can_be_asked_for_a_page(self, conn, user):
+        """Unbounded by default, bounded on request.
+
+        The whole library is fetched on every archive-page mount, so the
+        caller has to be able to ask for less. It is not capped by default:
+        the client keys its stars off these rows, and a row that did not
+        arrive is a dark star over something the reader saved.
+        """
+        for number in range(1, 6):
+            add_look(conn, user, look_number=number)
+
+        assert len(favourites.list_all(conn, user_id=user.id)) == 5
+        assert len(favourites.list_all(conn, user_id=user.id, limit=2)) == 2
+
+    def test_a_page_is_the_newest_rows(self, conn, user):
+        """Same order as the unlimited list, which is what makes it a page."""
+        for number in range(1, 6):
+            add_look(conn, user, look_number=number)
+
+        everything = favourites.list_all(conn, user_id=user.id)
+        page = favourites.list_all(conn, user_id=user.id, limit=2)
+
+        assert [item["id"] for item in page] == [item["id"] for item in everything[:2]]
+
+    def test_an_absurd_limit_is_clamped_rather_than_obeyed(self, conn, user):
+        """`?limit=` comes off a query string, so it is somebody's input."""
+        add_look(conn, user)
+
+        assert len(favourites.list_all(conn, user_id=user.id, limit=10 ** 9)) == 1
+        assert favourites.list_all(conn, user_id=user.id, limit=0) == []
+        assert favourites.list_all(conn, user_id=user.id, limit=-4) == []
+
     def test_stats_counts_each_kind_and_ignores_a_views_empty_season(self, conn, user):
         """A view has no season; the empty strings standing in for NOT NULL
         must not be counted as one."""

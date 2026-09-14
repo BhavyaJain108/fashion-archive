@@ -1,11 +1,14 @@
 #!/usr/bin/env node
-// Asserts that archive.css was injected before the feature stylesheets.
+// Asserts that the shared primitives were injected before the feature
+// stylesheets that override them.
 //
 // The .ar-* primitives and the feature classes collide at equal specificity,
-// so whichever is written later into the bundle wins every tie. The import
-// order in src/index.js is the only thing holding that, and it is the kind of
-// line a tidy-up deletes. This turns a silent visual regression into a failed
-// build.
+// so whichever is written later into the bundle wins every tie. Nothing but
+// import order holds that — `import './shared/styles/archive.css'` above
+// `import App` in src/index.js for the archive primitives, and the order of
+// the imports inside a feature's own module for the rest — and both are the
+// kind of line a tidy-up moves. This turns a silent visual regression into a
+// failed build.
 const fs = require('fs');
 const path = require('path');
 
@@ -28,11 +31,18 @@ if (bundles.length === 0) {
 const PAIRS = [
   ['.ar-btn', '.fav-remove'],
   ['.ar-select', '.product-sort-select'],
-  // The star. `.ar-star` is the shared primitive and `.hf2-row-star` is what
-  // a row in the archive list adds to it — same collision at equal
-  // specificity as the two above, and the one that decides whether a saved
-  // show's star is visible when the row is not hovered.
-  ['.ar-star', '.hf2-row-star'],
+  // The star: SaveStar.css's primitive against the archive list's own rule
+  // for it. `.ar-star.on` and `.hf2-collection-item .hf2-row-star` are both
+  // (0,2,0) and both set `color`, so which of the two files is written later
+  // decides what a star on a row looks like — the same tie as the pairs
+  // above.
+  //
+  // Spelled as the descendant selector because that is the only form
+  // HighFashionPage.css ever writes: `.hf2-row-star` alone has no rule
+  // anywhere, and asking for one is how this check reports a class that was
+  // renamed. The pair is (primitive, the feature rule that must win it),
+  // which is what the two above are too.
+  ['.ar-star', '.hf2-collection-item .hf2-row-star'],
 ];
 
 // Find where a class's OWN rule starts, not where the name first appears.
@@ -79,8 +89,11 @@ for (const bundle of bundles) {
     if (a > b) {
       console.error(
         `check:css — ${bundle}: ${primitive} (byte ${a}) comes AFTER ` +
-        `${feature} (byte ${b}). archive.css lost the cascade.\n` +
-        '  Fix: in src/index.js, import the archive stylesheet BEFORE App.'
+        `${feature} (byte ${b}). The primitive lost the cascade.\n` +
+        '  Fix: whichever stylesheet defines the primitive must be imported\n' +
+        '  first — `./shared/styles/archive.css` above `App` in src/index.js\n' +
+        "  for the .ar-* primitives, or the component's import above the\n" +
+        "  feature's own stylesheet inside the feature module."
       );
       failed = true;
     } else {

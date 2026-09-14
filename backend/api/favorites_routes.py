@@ -81,11 +81,21 @@ def get_favourites():
         except favourites.UnknownKind as exc:
             return _refuse(exc)
 
+    # `?limit=` for a caller that wants the newest N rather than all of them.
+    # Absent means all — see `list_all` for why there is no default cap. A
+    # value that is not a number is no value; the query is too cheap to be
+    # worth a 400 over.
+    limit = request.args.get("limit")
+    try:
+        limit = int(limit) if limit is not None else None
+    except ValueError:
+        limit = None
+
     with db.transaction() as conn:
         return jsonify(
             {
                 "favourites": favourites.list_all(
-                    conn, user_id=current_user().id, kind=wanted
+                    conn, user_id=current_user().id, kind=wanted, limit=limit
                 )
             }
         )
