@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { safeAbort } from '../lib/safeAbort';
 import { FashionArchiveAPI } from '../api';
 
 // The looks of one collection, streamed, without ever taking the previous
@@ -75,7 +76,7 @@ export function useCollectionImages(collection) {
       // asking for something else, so the screen is cleared — there is
       // nothing "not yet arrived" to keep it warm for. EMPTY is a constant
       // so this is an Object.is no-op when there was nothing there anyway.
-      if (live.current) live.current.abort();
+      safeAbort(live.current);
       live.current = null;
       setState(EMPTY);
       return undefined;
@@ -160,7 +161,7 @@ export function useCollectionImages(collection) {
     });
 
     return () => {
-      controller.abort();
+      safeAbort(controller);
       // Cleanup runs before the next effect, so clearing the ref here can
       // never clear a newer request's claim. It is what makes every late
       // callback above return at isCurrent() — including after unmount,

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { safeAbort } from '../../shared/lib/safeAbort';
 import { FashionArchiveAPI } from '../../shared/api';
 import { buildRoute } from '../../app/routes';
 import {
@@ -246,14 +247,14 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
   const collectionsAbort = useRef(null);
 
   const abortCollections = useCallback(() => {
-    if (collectionsAbort.current) collectionsAbort.current.abort();
+    safeAbort(collectionsAbort.current);
     collectionsAbort.current = null;
   }, []);
 
   // Drop any in-flight work when the component goes away. The image stream
   // has its own cleanup inside the hook.
   useEffect(() => () => {
-    if (collectionsAbort.current) collectionsAbort.current.abort();
+    safeAbort(collectionsAbort.current);
   }, []);
 
   // Anything a stored value could hold that isn't one of these two branches
@@ -602,7 +603,7 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
       }
     })();
 
-    return () => { cancelled = true; controller.abort(); };
+    return () => { cancelled = true; safeAbort(controller); };
   }, [indexReady, designerMode]);
 
   // The streaming crawl of firstVIEW — the fallback when the archive is not
@@ -643,7 +644,7 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
       }
     })();
 
-    return () => { cancelled = true; controller.abort(); };
+    return () => { cancelled = true; safeAbort(controller); };
   }, [indexReady, filters, designerMode]);
 
   // The next page. Indexed, that is an offset; crawling, it is the next
