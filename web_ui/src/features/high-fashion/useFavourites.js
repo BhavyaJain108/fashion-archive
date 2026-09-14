@@ -7,7 +7,8 @@ import { videoSeasonName } from './seasonName';
 //   useFavourites(shownCollection, lookTotal)
 //     -> { isFavourite, toggleFavourite,        // a look, on screen
 //          isShowSaved, toggleShowSave,         // a whole show, any row
-//          isViewSaved, toggleViewSave }        // the current filters
+//          isViewSaved, toggleViewSave,         // the current filters
+//          savesError, reloadSaves }            // why the stars are dark
 //
 // One hook, because one useSaves() is one store: called twice it would fetch
 // the list twice and hold two copies of it, and the star on a row and the
@@ -82,7 +83,9 @@ export function showTarget(row) {
 }
 
 export function useFavourites(shownCollection, lookTotal) {
-  const { isSaved, setSaved, toggle } = useSaves();
+  const {
+    isSaved, setSaved, toggle, error: savesError, reload: reloadSaves,
+  } = useSaves();
 
   const isFavourite = useCallback((lookNumber) => {
     const target = lookTarget(shownCollection, lookNumber, lookTotal);
@@ -148,6 +151,14 @@ export function useFavourites(shownCollection, lookTotal) {
     isViewSaved, toggleViewSave,
     lookOnScreen, showOnScreen,
     saves,
+    // Why every star on the page is dark, when it is dark for a reason that
+    // is not "you have kept nothing".
+    //
+    // `useSaves` refuses to write while the keys have not loaded, which stops
+    // the second press of a dark star from deleting a save — but a control
+    // that does nothing and says nothing is its own bug. The page renders this
+    // where the stars are, and `reloadSaves` is the way out of it.
+    savesError, reloadSaves,
   };
 }
 

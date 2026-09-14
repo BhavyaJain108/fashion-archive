@@ -276,6 +276,30 @@
   color: #000000;
 }
 
+/* The same statement about the stars: they are dark because the saved list
+   could not be read, not because nothing is kept. Between the filter bar and
+   the list, which is where the stars it is about are. */
+.hf2-saves-error {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #e5e5e5;
+  font-size: 11px;
+  line-height: 15px;
+  color: #cc0000;
+}
+
+.hf2-saves-error .detail {
+  color: #aaaaaa;
+  font-size: 10px;
+  line-height: 14px;
+}
+
+.hf2-saves-retry {
+  align-self: flex-start;
+}
+
 /* A failure, said as a failure. The empty state below means the archive
    really has nothing for these filters; this one means we never found out. */
 .hf2-collections-error {

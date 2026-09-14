@@ -225,3 +225,32 @@ describe('useFavourites', () => {
     await waitFor(() => expect(removeFavourite).toHaveBeenCalledTimes(1));
   });
 });
+
+// ── a key load that failed ────────────────────────────────────────────────
+//
+// The store reports it; this hook is what hands it to the page, and the page
+// is what has to say it out loud. Without that the reader gets a star field
+// that is entirely dark and no statement anywhere that it is dark because we
+// never found out, rather than because they have kept nothing.
+
+describe('when the saved list could not be read', () => {
+  test('the failure is handed to the page rather than stopping here', async () => {
+    getFavouriteKeys.mockRejectedValue(new Error('session gone'));
+    const { result } = mount(GUCCI);
+
+    await waitFor(() => expect(result.current.savesError).toBeTruthy());
+    expect(result.current.isFavourite(3)).toBe(false);
+  });
+
+  test('and the page is given the way to ask again', async () => {
+    getFavouriteKeys.mockRejectedValue(new Error('session gone'));
+    const { result } = mount(GUCCI);
+    await waitFor(() => expect(result.current.savesError).toBeTruthy());
+
+    getFavouriteKeys.mockResolvedValue([kept(GUCCI, 3)]);
+    await act(async () => { await result.current.reloadSaves(); });
+
+    expect(result.current.savesError).toBeNull();
+    expect(result.current.isFavourite(3)).toBe(true);
+  });
+});

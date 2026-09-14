@@ -281,6 +281,90 @@ describe('what is already saved', () => {
   });
 });
 
+// ── when the keys never arrive ────────────────────────────────────────────
+//
+// `getFavouriteKeys` rethrows precisely so a caller can report this, and for
+// a while nobody did. An empty key set and a failed one look identical on
+// screen: every star reads dark. The reader presses one, the server answers
+// "Already in favourites" — which this hook deliberately does not roll back,
+// because a dark star over a saved row is the same bug pointing the other
+// way — and the press after that goes out as a DELETE and takes the save.
+//
+// So a star whose state is unknown does not write at all. Not the add, which
+// would be a second save of a row the server already holds, and above all not
+// the delete, which is the one press here that destroys something.
+
+describe('a key load that failed', () => {
+  const dead = () => {
+    api.getFavouriteKeys.mockRejectedValue(new Error('session gone'));
+  };
+
+  const mountDead = async () => {
+    const hook = renderHook(() => useSaves());
+    await waitFor(() => expect(hook.result.current.loading).toBe(false));
+    return hook;
+  };
+
+  test('is reported rather than swallowed into an empty library', async () => {
+    dead();
+    const { result } = await mountDead();
+
+    expect(result.current.error).toBeTruthy();
+    // And the list is left alone rather than being answered as "nothing
+    // saved", which is what an all-dark star field would otherwise mean.
+    expect(result.current.isSaved(look(GUCCI, 3))).toBe(false);
+  });
+
+  test('a press writes nothing, because nothing here knows what is saved', async () => {
+    dead();
+    const { result } = await mountDead();
+
+    await act(async () => { await result.current.toggle(look(GUCCI, 3)); });
+
+    expect(api.addFavourite).not.toHaveBeenCalled();
+    expect(api.removeFavourite).not.toHaveBeenCalled();
+  });
+
+  test('and the second press does not delete the save', async () => {
+    dead();
+    const { result } = await mountDead();
+
+    await act(async () => { await result.current.toggle(look(GUCCI, 3)); });
+    await act(async () => { await result.current.toggle(look(GUCCI, 3)); });
+
+    // THE press this guard exists for. Without it the first press flips the
+    // marker to lit, and the second reads that marker and sends a delete for
+    // a row the reader never asked to lose.
+    expect(api.removeFavourite).not.toHaveBeenCalled();
+    expect(api.addFavourite).not.toHaveBeenCalled();
+  });
+
+  test('a show and a view are refused on the same ground', async () => {
+    dead();
+    const { result } = await mountDead();
+
+    await act(async () => { await result.current.toggle(show(GUCCI)); });
+    await act(async () => { await result.current.toggle(view({ city: 'Paris' })); });
+
+    expect(api.addShowFavourite).not.toHaveBeenCalled();
+    expect(api.removeShowFavourite).not.toHaveBeenCalled();
+    expect(api.addViewFavourite).not.toHaveBeenCalled();
+    expect(api.removeViewFavourite).not.toHaveBeenCalled();
+  });
+
+  test('once the keys do arrive, the star writes again', async () => {
+    dead();
+    const { result } = await mountDead();
+    api.getFavouriteKeys.mockResolvedValue([]);
+
+    await act(async () => { await result.current.reload(); });
+    await act(async () => { await result.current.toggle(look(GUCCI, 3)); });
+
+    expect(api.addFavourite).toHaveBeenCalledTimes(1);
+    expect(result.current.error).toBeNull();
+  });
+});
+
 // The one most likely to be got subtly wrong, in both directions.
 describe('a show and its looks are independent', () => {
   test('saving the whole show stars no look in it', async () => {

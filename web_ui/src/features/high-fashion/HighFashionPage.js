@@ -1034,6 +1034,7 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
     isViewSaved, toggleViewSave,
     lookOnScreen, showOnScreen,
     saves,
+    savesError, reloadSaves,
   } = useFavourites(imagesCollection, images.length);
 
   // The album shelf, and the one write this page makes to it. No album id:
@@ -1544,6 +1545,33 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
           viewSaved={isViewSaved(filters)}
           toggleViewSave={() => toggleViewSave(filters)}
         />
+
+        {/* Why the stars are dark, when they are dark because we never
+            found out rather than because nothing is kept.
+
+            It sits here, between the filter bar and the list, because that
+            is where the stars are: the view star is in the bar above it and
+            a star is on every row below. Dark means "not kept" everywhere
+            else on this page, so the one state where it means "unknown" has
+            to say so next to the marks it is about — and `useSaves` refuses
+            to write while the keys have not loaded, so without this the
+            reader presses a star, nothing happens, and nothing explains it.
+
+            `role="status"` rather than `alert`: it is a statement about what
+            is on screen, not an interruption, and the reader can go on
+            reading the archive while it stands. */}
+        {savesError && (
+          <div className="hf2-saves-error" role="status">
+            <span>Your saved looks could not be read, so the stars are not
+              showing what you have kept.</span>
+            <span className="detail">{String(savesError.message || savesError)}</span>
+            <button
+              type="button"
+              className="ar-btn hf2-saves-retry"
+              onClick={() => reloadSaves()}
+            >Try again</button>
+          </div>
+        )}
 
         <ShowList
           designerMode={designerMode}

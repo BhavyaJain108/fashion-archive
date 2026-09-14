@@ -258,6 +258,20 @@ export function useSaves() {
   const [error, setError] = useState(null);
   const alive = useRef(true);
 
+  // Whether the keys have ever landed. Not "whether loading has finished" —
+  // a load that failed has finished too, and it is the one that matters.
+  //
+  // A ref because `toggle` reads it synchronously, in the same tick as the
+  // press, before any state a failed load set could have rendered.
+  //
+  // Everything a star does is a function of the key set, and an empty key set
+  // is indistinguishable from a reader who has saved nothing: every star reads
+  // dark. Press one and the add is answered "Already in favourites", which is
+  // deliberately not rolled back; press it again and the marker — now lit by
+  // this hook's own optimism — sends a DELETE for a row the reader never asked
+  // to lose. So until this is true, `toggle` writes nothing at all.
+  const keysLoaded = useRef(false);
+
   // Both lists, readable synchronously. A write reads what is saved, flips it,
   // and a write that runs later in the same tick must read that flip — state
   // does not land until the next render, so on its own it would hand the second
@@ -310,6 +324,7 @@ export function useSaves() {
         FashionArchiveAPI.getFavouritesPage({ limit: PAGE_SIZE }),
       ]);
       if (!alive.current) return;
+      keysLoaded.current = true;
       applyKeys(allKeys || []);
       applySaves(page.favourites || []);
       setTotal(page.total || 0);
@@ -497,6 +512,12 @@ export function useSaves() {
   const toggle = useCallback(async (target) => {
     const key = keyOf(target);
     if (!key) return;
+
+    // A star whose state is unknown does not flip and does not write. See
+    // `keysLoaded`: the second press of a dark star over a load that failed
+    // is a delete, and it is the only press on this page that destroys
+    // something. The reader is told why by whatever renders `error`.
+    if (!keysLoaded.current) return;
 
     // Read off the KEYS, not off the page of rows. This is the trap the whole
     // split exists for: a look saved long enough ago that its row is on a page

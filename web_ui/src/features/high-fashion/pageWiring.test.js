@@ -17,7 +17,7 @@
 // synchronously — so the harness here is the same one with a stream per
 // show, one of which never answers.
 import React from 'react';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 
 import HighFashionPage from './HighFashionPage';
 
@@ -335,4 +335,57 @@ test('the view star keeps the filters that are actually set', async () => {
   await waitFor(() => expect(API.addViewFavourite).toHaveBeenCalled());
   const [filters] = API.addViewFavourite.mock.calls[0];
   expect(filters).toEqual(expect.objectContaining({ letter: 'A' }));
+});
+
+// ── when the saved list could not be read ─────────────────────────────────
+//
+// `getFavouriteKeys` rethrows and `useSaves` reports it, and for a while the
+// only caller threw the report away: a reader whose session had expired got a
+// star field that was entirely dark with nothing on screen saying why. Dark
+// means "you have not kept this" everywhere else on the page, so the one
+// state where it means "we do not know" has to say so, next to the stars it
+// is about.
+
+test('a saved list that could not be read is said, beside the stars', async () => {
+  API.getFavouriteKeys.mockRejectedValue(new Error('session gone'));
+  await renderPage();
+
+  const banner = await screen.findByRole('status');
+  expect(banner.textContent).toMatch(/could not be read/i);
+  // The stars are still drawn — the page works, the marks on it are the part
+  // that is unknown — and none of them claims to be lit.
+  expect(rowStar('Yohji Yamamoto')).toHaveAttribute('aria-pressed', 'false');
+});
+
+test('the banner goes when the list does arrive', async () => {
+  API.getFavouriteKeys.mockRejectedValueOnce(new Error('session gone'));
+  await renderPage();
+  const banner = await screen.findByRole('status');
+
+  API.getFavouriteKeys.mockResolvedValue([{
+    kind: 'show',
+    season: { url: YOHJI.season_url },
+    collection: { url: YOHJI.url },
+  }]);
+  fireEvent.click(within(banner).getByRole('button', { name: /again/i }));
+
+  await waitFor(() => expect(screen.queryByRole('status')).toBeNull());
+  expect(rowStar('Yohji Yamamoto')).toHaveAttribute('aria-pressed', 'true');
+});
+
+// The press this refusal exists for. A dark star over a load that failed is
+// not an unsaved look, and pressing it twice used to send a DELETE for a row
+// the reader never asked to lose.
+test('a star nobody could read the state of writes nothing, twice over', async () => {
+  API.getFavouriteKeys.mockRejectedValue(new Error('session gone'));
+  await renderPage();
+  await openYohji();
+  await screen.findByRole('status');
+
+  fireEvent.keyDown(document.body, { key: 'f' });
+  fireEvent.keyDown(document.body, { key: 'f' });
+  await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument());
+
+  expect(API.addFavourite).not.toHaveBeenCalled();
+  expect(API.removeFavourite).not.toHaveBeenCalled();
 });
