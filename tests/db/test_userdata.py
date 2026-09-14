@@ -50,14 +50,18 @@ class TestFavourites:
         assert items[0]["look"]["number"] == 12
 
     def test_shape_matches_what_the_frontend_consumes(self, conn, user):
-        """Storage moved; the JSON did not. This is what makes that true."""
+        """Storage moved; the JSON did not. `kind` and `view` are additions —
+        every key the frontend already read is still here and still spelled the
+        same."""
         add_look(conn, user)
         item = favourites.list_all(conn, user_id=user.id)[0]
         assert set(item) == {
             "id",
+            "kind",
             "season",
             "collection",
             "look",
+            "view",
             "image_path",
             "date_added",
             "notes",
@@ -65,6 +69,7 @@ class TestFavourites:
         assert set(item["season"]) == {"name", "url", "link_text"}
         assert set(item["collection"]) == {"designer", "url"}
         assert set(item["look"]) == {"number", "total"}
+        assert item["kind"] == "look"
 
     def test_adding_twice_is_reported_not_duplicated(self, conn, user):
         assert add_look(conn, user) is True
@@ -124,6 +129,153 @@ class TestFavourites:
 
     def test_stats_on_an_empty_collection(self, conn, user):
         assert favourites.stats(conn, user_id=user.id)["total_favourites"] == 0
+
+
+class TestSavedShows:
+    """A show is a favourite with no look number.
+
+    The old unique constraint could not express one: it covered look_number,
+    and null is not equal to null, so every save of the same show would have
+    been accepted as a new row."""
+
+    def add_show(self, conn, user):
+        return favourites.add(
+            conn,
+            user_id=user.id,
+            kind="show",
+            season=SEASON,
+            collection=COLLECTION,
+            image_path="/api/images/balenciaga/f24/look1.jpg",
+        )
+
+    def test_a_show_saves_with_no_look_number(self, conn, user):
+        assert self.add_show(conn, user) is True
+        item = favourites.list_all(conn, user_id=user.id)[0]
+        assert item["kind"] == "show"
+        assert item["look"]["number"] is None
+
+    def test_saving_the_same_show_twice_is_reported_not_duplicated(self, conn, user):
+        assert self.add_show(conn, user) is True
+        assert self.add_show(conn, user) is False
+        assert len(favourites.list_all(conn, user_id=user.id)) == 1
+
+    def test_two_users_can_save_the_same_show(self, conn, user, other_user):
+        assert self.add_show(conn, user) is True
+        assert self.add_show(conn, other_user) is True
+
+    def test_saving_a_show_does_not_save_its_looks(self, conn, user):
+        """Starring a whole show must not light up every look in it."""
+        self.add_show(conn, user)
+        assert (
+            favourites.exists(
+                conn,
+                user_id=user.id,
+                season_url=SEASON["url"],
+                collection_url=COLLECTION["url"],
+                look_number=12,
+            )
+            is False
+        )
+
+    def test_removing_a_look_leaves_the_show_saved(self, conn, user):
+        self.add_show(conn, user)
+        add_look(conn, user)
+        favourites.remove(
+            conn,
+            user_id=user.id,
+            season_url=SEASON["url"],
+            collection_url=COLLECTION["url"],
+            look_number=12,
+        )
+        assert (
+            favourites.exists(
+                conn,
+                user_id=user.id,
+                kind="show",
+                season_url=SEASON["url"],
+                collection_url=COLLECTION["url"],
+            )
+            is True
+        )
+
+
+class TestSavedViews:
+    """A view is its filters. Identity is the filters themselves, which is why
+    the client's key order must not be able to produce two of the same view."""
+
+    def add_view(self, conn, user, filters, name="Paris 1997"):
+        return favourites.add(
+            conn, user_id=user.id, kind="view", view_filters=filters, view_name=name
+        )
+
+    def test_a_view_saves_with_its_filters_and_name(self, conn, user):
+        assert self.add_view(conn, user, {"city": "Paris", "year": 1997}) is True
+        item = favourites.list_all(conn, user_id=user.id)[0]
+        assert item["kind"] == "view"
+        assert item["view"] == {"name": "Paris 1997", "filters": {"city": "Paris", "year": 1997}}
+
+    def test_the_same_filters_in_another_key_order_are_the_same_view(self, conn, user):
+        assert self.add_view(conn, user, {"city": "Paris", "year": 1997}) is True
+        assert self.add_view(conn, user, {"year": 1997, "city": "Paris"}, name="again") is False
+        assert len(favourites.list_all(conn, user_id=user.id)) == 1
+
+    def test_different_filters_are_different_views(self, conn, user):
+        assert self.add_view(conn, user, {"city": "Paris"}) is True
+        assert self.add_view(conn, user, {"city": "Milan"}, name="Milan") is True
+
+    def test_a_view_is_removable_by_filters_in_either_order(self, conn, user):
+        self.add_view(conn, user, {"city": "Paris", "year": 1997})
+        assert (
+            favourites.remove(
+                conn, user_id=user.id, kind="view", view_filters={"year": 1997, "city": "Paris"}
+            )
+            is True
+        )
+        assert favourites.list_all(conn, user_id=user.id) == []
+
+
+class TestAllThreeKinds:
+    def test_an_unknown_kind_never_reaches_the_table(self, conn, user):
+        with pytest.raises(favourites.UnknownKind):
+            favourites.add(conn, user_id=user.id, kind="folder")
+        assert conn.execute("SELECT count(*) FROM favourites").fetchone()[0] == 0
+
+    def test_list_all_returns_every_kind_tagged(self, conn, user):
+        add_look(conn, user)
+        favourites.add(
+            conn,
+            user_id=user.id,
+            kind="show",
+            season=SEASON,
+            collection=COLLECTION,
+            image_path="/api/images/balenciaga/f24/look1.jpg",
+        )
+        favourites.add(
+            conn, user_id=user.id, kind="view", view_filters={"city": "Paris"}, view_name="Paris"
+        )
+        kinds = {item["kind"] for item in favourites.list_all(conn, user_id=user.id)}
+        assert kinds == {"look", "show", "view"}
+
+    def test_list_all_can_be_narrowed_to_one_kind(self, conn, user):
+        add_look(conn, user)
+        favourites.add(
+            conn, user_id=user.id, kind="view", view_filters={"city": "Paris"}, view_name="Paris"
+        )
+        only = favourites.list_all(conn, user_id=user.id, kind="view")
+        assert [item["kind"] for item in only] == ["view"]
+
+    def test_stats_counts_each_kind_and_ignores_a_views_empty_season(self, conn, user):
+        """A view has no season; the empty strings standing in for NOT NULL
+        must not be counted as one."""
+        add_look(conn, user)
+        favourites.add(
+            conn, user_id=user.id, kind="view", view_filters={"city": "Paris"}, view_name="Paris"
+        )
+        s = favourites.stats(conn, user_id=user.id)
+        assert s["total_favourites"] == 2
+        assert s["looks"] == 1
+        assert s["views"] == 1
+        assert s["unique_seasons"] == 1
 
 
 class TestFavouritesIsolation:
