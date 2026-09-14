@@ -326,6 +326,92 @@ test('the second saved show opens its own show, not the first row show', async (
   expect(wentTo()).toBe('/hf/raf-simons-fall-2001/5678');
 });
 
+// The two rows the library and the album grid used to read differently.
+//
+// `showIdOf` prefers the `collection_id` the server stores — the column a
+// CHECK constraint keeps equal to `favourites_collection_id(collection_url)` —
+// and the library used to parse the url itself with a regex that read neither
+// of these the way the database does: `?id=1234#top` as nothing at all, and
+// `?collection=99&id=1234` as show 99. The album tile opened; the library
+// tile beside it was disabled, or opened somebody else's show.
+const ODDLY_SPELLED = [
+  {
+    ...SHOW,
+    id: 'fav-show-fragment',
+    collection: {
+      designer: 'Yohji Yamamoto Ready To Wear Fall 1999',
+      url: 'https://www.firstview.com/collection_images.php?id=1234#top',
+      id: '1234',
+    },
+  },
+  // And a row whose url this build's parse cannot read at all. Only the
+  // stored column can answer for it, which is the whole reason the column is
+  // preferred rather than consulted second.
+  {
+    ...LOOK,
+    id: 'fav-show-stored-only',
+    kind: 'show',
+    season: { name: 'Spring 2004', url: 'https://www.firstview.com/season.php?id=ss2004' },
+    collection: {
+      designer: 'Helmut Lang Ready To Wear Spring 2004',
+      url: 'https://www.firstview.com/collection_images.php?c=4321',
+      id: '4321',
+    },
+  },
+  {
+    ...OTHER_SHOW,
+    id: 'fav-show-both',
+    collection: {
+      designer: 'Raf Simons Menswear Fall 2001',
+      url: 'https://www.firstview.com/collection_images.php?collection=99&id=5678',
+      id: '5678',
+    },
+  },
+];
+
+test('a show whose url ends in a fragment opens, on the id the server stored', async () => {
+  serve(ODDLY_SPELLED);
+  await renderPage();
+  openKind('Shows');
+  await waitFor(() => expect(showCards()).toHaveLength(3));
+
+  const open = within(showCards()[0]).getByText('Yohji Yamamoto').closest('button');
+  expect(open).not.toBeDisabled();
+  fireEvent.click(open);
+  expect(wentTo()).toBe('/hf/yohji-yamamoto-fall-1999/1234');
+});
+
+test('a show only the stored id can name still opens', async () => {
+  serve(ODDLY_SPELLED);
+  await renderPage();
+  openKind('Shows');
+  await waitFor(() => expect(showCards()).toHaveLength(3));
+
+  const open = within(showCards()[1]).getByText('Helmut Lang').closest('button');
+  // Not disabled with the title that says there is no address: there is one,
+  // and the server put it in the row.
+  expect(open).not.toBeDisabled();
+  fireEvent.click(open);
+  expect(wentTo()).toBe('/hf/helmut-lang-spring-2004/4321');
+});
+
+test('a show whose url carries both parameters opens the one the server named', async () => {
+  serve(ODDLY_SPELLED);
+  await renderPage();
+  openKind('Shows');
+  await waitFor(() => expect(showCards()).toHaveLength(3));
+
+  fireEvent.click(within(showCards()[2]).getByText('Raf Simons'));
+
+  // 5678, which is what `id=` says and what the column holds — not the 99 a
+  // first-match-wins parse of `?collection=99&id=5678` answers.
+  expect(navigate).toHaveBeenCalledWith({
+    page: 'high-fashion',
+    collectionId: '5678',
+    slug: 'raf-simons-fall-2001',
+  });
+});
+
 test('clicking a saved view opens the archive with those filters applied', async () => {
   await renderPage();
   openKind('Views');

@@ -7,7 +7,7 @@ import { usePersistentState } from '../../shared/hooks/usePersistentState';
 import { useAlbums } from '../../shared/hooks/useAlbums';
 import AlbumPicker from '../../shared/ui/AlbumPicker';
 import { lookLabel, lookAlt } from '../../shared/lib/lookLabel';
-import { collectionIdOf, filterPairs, kindOf } from '../../shared/lib/savedRow';
+import { filterPairs, kindOf, showIdOf } from '../../shared/lib/savedRow';
 import {
   normalizeGroupMode, normalizeKind, normalizeViewMode,
 } from '../../shared/lib/preferences';
@@ -533,7 +533,13 @@ function LibraryPage({
 
   const openShow = (favourite) => {
     const r = favourite;
-    const id = collectionIdOf(r.collection);
+    // `showIdOf`, which is the column the server stored, falling back to the
+    // url only for a row saved before that column existed. This page used to
+    // parse the url itself and the album grid did not, so one saved show
+    // opened from an album tile and did nothing at all from the library tile
+    // beside it — two spellings of one rule, which is the thing
+    // `collection_id` was added to end.
+    const id = showIdOf(r.collection);
     if (!id) return;
     navigate({
       page: 'high-fashion',
@@ -834,8 +840,8 @@ function LibraryPage({
                         type="button"
                         className="lib-show-open"
                         onClick={() => openShow(fav)}
-                        disabled={!collectionIdOf(fav.collection)}
-                        title={collectionIdOf(fav.collection)
+                        disabled={!showIdOf(fav.collection)}
+                        title={showIdOf(fav.collection)
                           ? 'Open this show'
                           : 'This show has no address to open'}
                       >

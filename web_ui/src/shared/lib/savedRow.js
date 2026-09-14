@@ -44,10 +44,33 @@ export function filterPairs(filters) {
 // the only authoritative segment. A crawled row whose url carries no id is
 // not openable, and this answers null rather than building
 // /hf/<slug>/undefined.
+//
+// `favourites_collection_id` in backend/userdata/schema.sql is the same rule,
+// and this is written to be the same rule and not merely a similar one — the
+// column that function fills is what `showIdOf` below prefers, so a client
+// that read the url differently from the database would open one show from an
+// album tile and refuse to open it from a library tile. Two things follow from
+// that file and neither is decoration:
+//
+//   `id` wins over `collection`, wherever both appear and in whichever order,
+//   because that is `qs.get("id") or qs.get("collection")` in
+//   firstview.collection_id_from_url — the two alternatives are tried in turn
+//   rather than matched as one `(?:id|collection)` group, which answers with
+//   whichever comes FIRST IN THE STRING and reads `?collection=99&id=1234` as
+//   show 99.
+//
+//   a value ends where a query parameter ends — `&`, `#`, or the end of the
+//   string — so `?id=1234#top` is show 1234 and `?id=123abc` is not a show id
+//   at all.
+const ID_PARAM = /[?&]id=(\d+)(?:[&#]|$)/;
+const COLLECTION_PARAM = /[?&]collection=(\d+)(?:[&#]|$)/;
+
 export function collectionIdOf(collection) {
-  const match = /[?&](?:id|collection)=(\d+)(?:&|$)/
-    .exec(String((collection || {}).url || ''));
-  return match ? match[1] : null;
+  const url = String((collection || {}).url || '');
+  const byId = ID_PARAM.exec(url);
+  if (byId) return byId[1];
+  const byCollection = COLLECTION_PARAM.exec(url);
+  return byCollection ? byCollection[1] : null;
 }
 
 // The same id, preferring the column over the parse.
