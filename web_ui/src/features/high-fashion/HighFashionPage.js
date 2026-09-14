@@ -9,12 +9,14 @@ import {
 import { useRoute } from '../../shared/hooks/useRoute';
 import { usePersistentState } from '../../shared/hooks/usePersistentState';
 import { useCollectionImages } from '../../shared/hooks/useCollectionImages';
+import { useRecents } from '../../shared/hooks/useRecents';
 import { prepare as prepareDesigners, search as searchDesigners } from '../../shared/lib/designerSearch';
 import { migrateLegacySidebarOpen } from './legacySidebar';
 import { normalizeViewMode } from '../../shared/lib/preferences';
 import TopBar from '../../shared/ui/TopBar';
 import Filters, { GARMENT_TYPES } from './Filters';
 import ShowList from './ShowList';
+import RecentsDrawer from './RecentsDrawer';
 import Viewer from './Viewer';
 import StatusBar from './StatusBar';
 import { videoSeasonName } from './seasonName';
@@ -1030,6 +1032,13 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
     isViewSaved, toggleViewSave,
   } = useFavourites(imagesCollection, images.length);
 
+  // Where the reader has been, for the drawer at the foot of the sidebar.
+  // The list only; opening one of them is `handleCollectionSelect` below,
+  // the same function a row in the show list calls.
+  const {
+    recents, loading: recentsLoading, reload: reloadRecents,
+  } = useRecents();
+
   // Every look the reader chooses themselves goes through here — the arrows,
   // the thumbnail strip, the grid. It cancels any look a deep link was still
   // waiting to reach: without that, arrowing while /hf/x/1/12 loads yanks
@@ -1473,6 +1482,22 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
           loadingMore={loadingMore}
           isShowSaved={isShowSaved}
           toggleShowSave={toggleShowSave}
+        />
+
+        {/* Where you have been. Last child of the sidebar, so it is the
+            rectangle at the bottom; open, it takes a fifth of the sidebar
+            and the show list above gives up exactly that much.
+
+            `onOpen` is handleCollectionSelect itself — the same function the
+            rows above call — so a recent opens through the one path, writes
+            the address bar, and keeps the show on screen until the new one
+            has a photograph of its own. There is no second way to open a
+            show on this page. */}
+        <RecentsDrawer
+          recents={recents}
+          loading={recentsLoading}
+          onOpen={handleCollectionSelect}
+          onReload={reloadRecents}
         />
       </div>
 

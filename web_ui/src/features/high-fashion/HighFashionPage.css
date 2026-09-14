@@ -302,6 +302,172 @@
   font-size: 11px;
 }
 
+/* ---------------------------------------------------------------------
+   Recently seen — the drawer at the foot of the sidebar.
+
+   Closed it is one rectangle: the header and nothing else. Open it is a
+   fifth of the sidebar, and it opens UPWARDS in the only sense that matters
+   here — the sidebar's own height never changes, so the extra fifth comes
+   out of the show list above rather than off the bottom of the viewport.
+
+   The whole of that relationship is these two facts:
+
+     .hf2-collections-area   flex: 1;  min-height: 0     (declared above)
+     .hf2-recents.open       flex: 0 0 20%
+
+   .hf2-sidebar is a flex column whose height is definite (it stretches to
+   .hf2-content, which is `flex: 1` inside a 100vh column), so the 20% is
+   20% of the sidebar and resolves without anything measuring anything. The
+   list is `flex: 1` with `min-height: 0`, which means it is whatever is
+   left over AND that it is allowed to be smaller than its content — without
+   that second half a flex item refuses to shrink below its rows and the
+   sidebar grows a scrollbar instead of the list shrinking.
+
+   `flex-shrink: 0` on the drawer is deliberate: the fifth is the fifth. If
+   anything has to give it is the list, which can scroll, and not the drawer,
+   which would otherwise be squeezed to a sliver on a short window.
+   --------------------------------------------------------------------- */
+
+.hf2-recents {
+  /* Closed: exactly the header. No basis, no growth. */
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  /* The drawer never spills; its list scrolls inside it. */
+  overflow: hidden;
+  background: var(--ar-bg-sub);
+  border-top: 1px solid var(--ar-line);
+}
+
+.hf2-recents.open {
+  /* A fifth of the sidebar, header included. */
+  flex: 0 0 20%;
+}
+
+/* The rectangle. A button, because the whole band is the target — a
+   12px chevron is not something to aim at. */
+.hf2-recents-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  appearance: none;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  font-family: inherit;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: var(--ar-ink-3);
+  padding: 10px 12px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.hf2-recents-head:hover {
+  color: var(--ar-ink);
+  background: var(--ar-wash);
+}
+
+.hf2-recents-head .label {
+  flex: 1;
+  min-width: 0;
+}
+
+.hf2-recents-head .count {
+  color: var(--ar-ink-4);
+  letter-spacing: normal;
+}
+
+.hf2-recents-head .chev {
+  font-size: 9px;
+  line-height: 1;
+  color: var(--ar-ink-4);
+}
+
+.hf2-recents-head:hover .chev {
+  color: var(--ar-ink);
+}
+
+/* The list itself. `min-height: 0` again, for the same reason as above:
+   this is the flex item that is allowed to be shorter than its rows, and
+   the one that scrolls. */
+.hf2-recents-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  border-top: 1px solid var(--ar-line);
+}
+
+.hf2-recents-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+
+.hf2-recents-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.hf2-recents-scroll::-webkit-scrollbar-thumb {
+  background: #dddddd;
+}
+
+/* One line per show, not two. Measured at 1440x813: the sidebar is 729px,
+   so the open drawer is 145.8px and the list inside it is 110.8px. At the
+   show list's two-line 41px rhythm that is two rows and a half — not a list
+   anyone would scroll. At 25px it is four, and the fifth is half-showing,
+   which is what tells you there is more below. */
+.hf2-recent-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  appearance: none;
+  border: none;
+  border-left: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  font-family: inherit;
+  font-size: 11px;
+  color: var(--ar-ink-2);
+  padding: 5px 12px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.hf2-recent-item:hover {
+  color: var(--ar-ink);
+  background: var(--ar-wash);
+  border-left-color: var(--ar-ink);
+}
+
+.hf2-recent-item .name {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hf2-recent-item .meta {
+  flex: 0 0 auto;
+  font-size: 10px;
+  color: var(--ar-ink-4);
+}
+
+.hf2-recent-item:hover .meta {
+  color: var(--ar-ink-3);
+}
+
+.hf2-recents-empty {
+  padding: 16px 12px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--ar-ink-4);
+}
+
 /* Main Area */
 .hf2-main {
   flex: 1;
