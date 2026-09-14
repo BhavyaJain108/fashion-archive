@@ -223,6 +223,24 @@ function App() {
     navigate: go,
   };
 
+  // Signed out: the sign-in form and nothing else. The pages used to render
+  // underneath it, which meant every one of their loads fired without a
+  // session (a wall of 401s in the console) and, worse, none of them refetched
+  // once the user signed in — the archive stayed empty until a reload.
+  // Mounting them only after authentication fixes both.
+  if (!isAuthenticated) {
+    return (
+      <div className="ar-app">
+        <AuthPanel
+          onAuthenticated={handleAuthenticated}
+          initialMode={authMode}
+          initialNotice={authNotice}
+          resetToken={resetToken}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="ar-app">
       {currentPage === 'high-fashion' ? (
@@ -233,15 +251,6 @@ function App() {
         <AlbumGrid {...pageProps} albumId={route.albumId} />
       ) : (
         <LibraryPage {...pageProps} />
-      )}
-
-      {!isAuthenticated && (
-        <AuthPanel
-          onAuthenticated={handleAuthenticated}
-          initialMode={authMode}
-          initialNotice={authNotice}
-          resetToken={resetToken}
-        />
       )}
     </div>
   );
