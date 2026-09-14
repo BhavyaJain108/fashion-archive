@@ -28,6 +28,11 @@ if (bundles.length === 0) {
 const PAIRS = [
   ['.ar-btn', '.fav-remove'],
   ['.ar-select', '.product-sort-select'],
+  // The star. `.ar-star` is the shared primitive and `.hf2-row-star` is what
+  // a row in the archive list adds to it — same collision at equal
+  // specificity as the two above, and the one that decides whether a saved
+  // show's star is visible when the row is not hovered.
+  ['.ar-star', '.hf2-row-star'],
 ];
 
 // Find where a class's OWN rule starts, not where the name first appears.

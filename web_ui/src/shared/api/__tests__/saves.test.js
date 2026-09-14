@@ -93,23 +93,6 @@ describe('a show', () => {
       collection_url: 'https://ex.com/bal',
     });
   });
-
-  test('checkShowFavourite unwraps the answer to a boolean', async () => {
-    fetchMock.mockResolvedValue({
-      ok: true, statusText: 'OK', json: () => Promise.resolve({ is_favourite: true }),
-    });
-    await expect(
-      SavesEndpoints.checkShowFavourite('https://ex.com/f24', 'https://ex.com/bal'),
-    ).resolves.toBe(true);
-    expect(lastCall().url).toBe(`${ApiClient.BASE_URL}/api/favourites/check`);
-  });
-
-  test('an absent is_favourite is false, not undefined', async () => {
-    fetchMock.mockResolvedValue({
-      ok: true, statusText: 'OK', json: () => Promise.resolve({}),
-    });
-    await expect(SavesEndpoints.checkShowFavourite('a', 'b')).resolves.toBe(false);
-  });
 });
 
 describe('a view', () => {
@@ -146,13 +129,6 @@ describe('a view', () => {
     const { method, body } = lastCall();
     expect(method).toBe('DELETE');
     expect(body).toEqual({ kind: 'view', filters: { city: 'Paris' } });
-  });
-
-  test('checkViewFavourite unwraps the answer to a boolean', async () => {
-    fetchMock.mockResolvedValue({
-      ok: true, statusText: 'OK', json: () => Promise.resolve({ is_favourite: false }),
-    });
-    await expect(SavesEndpoints.checkViewFavourite({ city: 'Paris' })).resolves.toBe(false);
   });
 });
 

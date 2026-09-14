@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import sys
 import time
 from pathlib import Path
 from typing import Any, cast
@@ -19,7 +20,7 @@ from backend.archive.planner import compose_plan
 from backend.archive.runner.run import run_brand
 from backend.archive.score import score
 from backend.archive.store.catalog import Catalog
-from backend.archive.store.objects import ObjectStore, object_store
+from backend.archive.store.objects import ObjectStore, R2ObjectStore, object_store
 from backend.archive.transport import HttpxTransport, Transport
 
 _DEFAULT_BRANDS = Path(__file__).parent.parent / "brands.yml"
@@ -558,6 +559,18 @@ def main(argv: list[str] | None = None) -> int:
                 for r in running:
                     print(f"   {r['domain']:<28}{r['claimed_by']}  since {r['claimed_at'][:19]}")
                 return 0
+            # Without this the worst outcome is silent. When a credential is missing,
+            # object_store falls back to a directory inside the container: the daemon
+            # boots, logs "daemon up", finds no brands in its empty local store and
+            # sleeps for ever, having written nothing anywhere anyone will look.
+            if args.objects is None and not isinstance(store, R2ObjectStore):
+                print(
+                    "refusing to start: R2 is not configured and no --objects was given. "
+                    "Set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY and "
+                    "R2_BUCKET, or pass --objects <dir> to run against a directory.",
+                    file=sys.stderr,
+                )
+                return 2
             sched.request_stop(False)  # a fresh start clears a previous stop
             catalog.close()
             budget = HostBudget(gap=args.gap)

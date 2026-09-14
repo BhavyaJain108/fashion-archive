@@ -130,15 +130,6 @@ export class SavesEndpoints {
     });
   }
 
-  static async checkShowFavourite(seasonUrl, collectionUrl) {
-    const data = await ApiClient.callPython('/api/favourites/check', {
-      kind: 'show',
-      season_url: seasonUrl,
-      collection_url: collectionUrl
-    });
-    return Boolean(data.is_favourite);
-  }
-
   // ------------------------------------------------------------- a view ---
   // A saved view IS its filters — the server hashes them to decide whether it
   // has this view already, so the filter object is sent as itself and nothing
@@ -158,14 +149,6 @@ export class SavesEndpoints {
       kind: 'view',
       filters: filters || {}
     });
-  }
-
-  static async checkViewFavourite(filters) {
-    const data = await ApiClient.callPython('/api/favourites/check', {
-      kind: 'view',
-      filters: filters || {}
-    });
-    return Boolean(data.is_favourite);
   }
 
 
