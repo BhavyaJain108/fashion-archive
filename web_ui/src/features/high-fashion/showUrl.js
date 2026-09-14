@@ -200,3 +200,51 @@ export function lookToApply(state, { imagesLength, expectedLookCount }) {
     index: Math.min(wanted, imagesLength) - 1,
   };
 }
+
+// ── URL → state, for the filters ──────────────────────────────────────────
+
+// What the applied filters should become for a URL that says `routeFilters`,
+// or null when they already say it.
+//
+// The bug this exists for is a sequence, which is why it is a function of a
+// value rather than a line in an effect. `route.filters` used to be read
+// once, in the page's initial state, and never again:
+//
+//   filters F1 → open show A, which pushes ?F1
+//               → change to F2, which replaces, so no new entry
+//               → open show B, which pushes ?F2
+//               → Back
+//
+// Back restores the entry carrying ?F1 and reopens show A. Nothing read the
+// F1 out of it, so the applied filters were still F2 — and the state → URL
+// effect, re-running because the selection had changed, wrote F2 straight
+// back over the entry Back had just restored. The filters were discarded and
+// the history entry was rewritten in place, so pressing Back again could not
+// get them back either.
+//
+// Returning null rather than an equal object is the whole of the guard that
+// keeps this from fighting state → URL. Every URL that effect writes carries
+// the applied filters, so the route change it causes arrives here saying
+// exactly what is already applied, and this answers "nothing to do". Only a
+// URL the page did not write — Back, Forward, a shared link, a restored
+// session — can differ, and that is the only case where the URL should win.
+// (The caller must not run this on a filter change of its own: the route has
+// not caught up yet at that point, and this would read the stale query
+// string as a disagreement and undo the reader's change.)
+//
+// The answer is a whole filter set, not a patch. A filter dropped from the
+// query string is a filter that was cleared, and patching would leave it
+// applied — Back out of "Paris, 2024" into "2024" has to lose Paris.
+export function filtersToApply(applied, routeFilters) {
+  const next = { ...EMPTY_FILTERS };
+  for (const key of Object.keys(routeFilters || {})) {
+    // Only the seven. parseRoute already drops everything else, but this is
+    // also reached from a stored session, and the query string it came from
+    // is shared with the auth parameters.
+    if (key in next) next[key] = routeFilters[key] || '';
+  }
+
+  const unchanged = Object.keys(next).every(
+    (key) => ((applied || {})[key] || '') === next[key]);
+  return unchanged ? null : next;
+}

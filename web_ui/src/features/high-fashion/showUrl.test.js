@@ -1,8 +1,8 @@
-import { FILTER_KEYS, buildRoute } from '../../app/routes';
+import { FILTER_KEYS, buildRoute, parseRoute } from '../../app/routes';
 import {
   EMPTY_FILTERS, showId, showSlug, sameShow, clickAction,
   initialUrlSync, deepLinkStarted, deepLinkSettled, deepLinkAbandoned,
-  routeChanged, manualLook, urlWrite, lookToApply,
+  routeChanged, manualLook, urlWrite, lookToApply, filtersToApply,
 } from './showUrl';
 
 // ── Which row a URL can name ──────────────────────────────────────────────
@@ -412,5 +412,335 @@ describe('the URL a filter change writes while a show is open', () => {
     expect(decided.target).toBe('archive');
     expect(buildRoute({ page: 'high-fashion', filters: { gender: 'Men' } }))
       .toBe('/?gender=Men');
+  });
+});
+
+
+// ── The filters a URL carries, after the first one ────────────────────────
+
+describe('filtersToApply', () => {
+  const applied = (over = {}) => ({ ...EMPTY_FILTERS, ...over });
+
+  test('a URL saying what is already applied asks for nothing', () => {
+    // The guard. Every URL the state -> URL effect writes carries the
+    // applied filters, so the route change it causes arrives here and must
+    // answer "nothing to do" — a new object would restart the list query.
+    expect(filtersToApply(applied({ city: 'Paris' }), { city: 'Paris' }))
+      .toBeNull();
+    expect(filtersToApply(applied(), {})).toBeNull();
+    expect(filtersToApply(applied(), undefined)).toBeNull();
+  });
+
+  test('a URL naming a different filter wins', () => {
+    expect(filtersToApply(applied({ city: 'Milan' }), { city: 'Paris' }))
+      .toEqual(applied({ city: 'Paris' }));
+  });
+
+  test('a filter dropped from the URL is cleared, not kept', () => {
+    // Back out of "Paris, 2024" into "2024" has to lose Paris. A patch
+    // would leave it applied and the address bar and the list would then
+    // disagree in the other direction.
+    expect(filtersToApply(applied({ city: 'Paris', year: '2024' }), { year: '2024' }))
+      .toEqual(applied({ year: '2024' }));
+  });
+
+  test('a URL with no filters at all clears every one of them', () => {
+    expect(filtersToApply(applied({ city: 'Paris', year: '2024', gender: 'Men' }), {}))
+      .toEqual(EMPTY_FILTERS);
+  });
+
+  test('the answer is a whole filter set, every key present', () => {
+    const next = filtersToApply(applied(), { city: 'Paris' });
+    expect(Object.keys(next).sort()).toEqual(Object.keys(EMPTY_FILTERS).sort());
+  });
+
+  test('all seven filters come across', () => {
+    const all = {
+      gender: 'Men', year: '2024', season: 'Fall / Winter',
+      category: 'Ready To Wear', shootType: 'Runway', city: 'Paris', letter: 'Y',
+    };
+    expect(filtersToApply(applied(), all)).toEqual(applied(all));
+    expect(filtersToApply(applied(all), all)).toBeNull();
+  });
+
+  test('anything that is not a filter is ignored', () => {
+    // The query string is shared with the auth parameters. parseRoute drops
+    // them already; a stored session is read through the same parse, but
+    // this is not the place to start trusting that.
+    expect(filtersToApply(applied(), { token: 'secret', verified: '1' }))
+      .toBeNull();
+    expect(filtersToApply(applied({ city: 'Paris' }), { city: 'Paris', token: 'x' }))
+      .toBeNull();
+  });
+
+  test('an empty string in the URL reads as no filter', () => {
+    expect(filtersToApply(applied(), { city: '' })).toBeNull();
+    expect(filtersToApply(applied({ city: 'Paris' }), { city: '' }))
+      .toEqual(EMPTY_FILTERS);
+  });
+});
+
+
+// ── Back across two shows with different filters ──────────────────────────
+//
+// The sequence deferred out of phase 1, run end to end. The pieces below
+// are the page's own decisions — urlWrite, filtersToApply, clickAction,
+// buildRoute, parseRoute — wired together in the order the page's effects
+// run them, over a history stack that behaves like the browser's.
+//
+// What used to happen at step 5: Back restored the entry carrying ?F1 and
+// reopened show A, nothing read the F1 out of the URL, and state -> URL —
+// re-running because the selection had changed — wrote ?F2 straight back
+// over the entry Back had just restored. The filters were discarded and the
+// entry was rewritten where it stood.
+
+const SHOW_A = { collection_id: '111', designer: 'Alaia', subtitle: 'FW 2024' };
+const SHOW_B = { collection_id: '222', designer: 'Balenciaga', subtitle: 'SS 2025' };
+
+const F1 = { city: 'Paris', year: '2024' };
+const F2 = { city: 'Milan' };
+
+function archivePage() {
+  // The history stack, and where in it the reader is standing.
+  const stack = ['/'];
+  let at = 0;
+  let filters = { ...EMPTY_FILTERS };
+  let open = null;
+  let sync = initialUrlSync('/');
+
+  const shown = () => stack[at];
+
+  // navigate(), reduced to the two things this sequence needs: replace
+  // rewrites the entry the reader is standing on, push adds one after it.
+  // The no-op on an unchanged URL is router.js's and matters here — it is
+  // why re-writing the same show URL costs no history.
+  const write = (route, { replace }) => {
+    const url = buildRoute(route);
+    if (url === shown()) return;
+    if (replace) {
+      stack[at] = url;
+    } else {
+      stack.length = at + 1;
+      stack.push(url);
+      at += 1;
+    }
+  };
+
+  // state -> URL. The address bar follows the viewer.
+  const stateToUrl = () => {
+    const decided = urlWrite(sync, {
+      hasSelection: Boolean(open), imagesLength: 2, currentIndex: 0,
+    });
+    sync = decided.state;
+    if (decided.target === 'none') return;
+    if (decided.target === 'archive') {
+      write({ page: 'high-fashion', filters }, { replace: true });
+      return;
+    }
+    write({
+      page: 'high-fashion',
+      slug: showSlug(open),
+      collectionId: showId(open),
+      imageNumber: decided.imageNumber,
+      filters,
+    }, { replace: true });
+  };
+
+  // URL -> state, in the order the page declares the effects: the
+  // first-write guard, then the filters, then the show.
+  const urlToState = () => {
+    const route = parseRoute(shown().split('?')[0],
+      shown().includes('?') ? `?${shown().split('?')[1]}` : '');
+    sync = routeChanged(sync, { path: buildRoute(route) });
+    const next = filtersToApply(filters, route.filters);
+    if (next) filters = next;
+
+    const wanted = route.collectionId;
+    if (!wanted) {
+      if (open && showId(open)) open = null;
+      stateToUrl();
+      return;
+    }
+    if (open && showId(open) === wanted) {
+      stateToUrl();
+      return;
+    }
+    // The show is fetched. While that is in flight the URL is ahead of the
+    // state and state -> URL writes nothing.
+    sync = deepLinkStarted(sync, {
+      collectionId: wanted, imageNumber: route.imageNumber,
+    });
+    stateToUrl();
+    return (row) => {
+      sync = deepLinkSettled(sync, { found: Boolean(row) });
+      if (row) {
+        expect(clickAction({ clicked: row, open, fromUrl: true })).toBe('adopt');
+        open = row;
+      }
+      stateToUrl();
+    };
+  };
+
+  return {
+    stack,
+    url: shown,
+    filters: () => filters,
+    open: () => open,
+
+    // The page's first render: nothing open, and the arrival URL is left
+    // alone.
+    mount: () => { stateToUrl(); },
+
+    // The reader changes a filter. The route has not moved, so only
+    // state -> URL runs.
+    setFilters: (over) => {
+      filters = { ...EMPTY_FILTERS, ...over };
+      stateToUrl();
+      urlToState();
+    },
+
+    // The reader clicks a row. One push, the only one this page makes.
+    clickShow: (row) => {
+      expect(clickAction({ clicked: row, open })).toBe('open');
+      open = row;
+      sync = manualLook(sync);
+      write({
+        page: 'high-fashion', slug: showSlug(row), collectionId: showId(row), filters,
+      }, { replace: false });
+      stateToUrl();
+      urlToState();
+    },
+
+    // Back. The browser moves the pointer and fires popstate; everything
+    // after that is the page reading the URL it now has.
+    back: (row) => {
+      at -= 1;
+      const settle = urlToState();
+      if (settle) settle(row);
+    },
+
+    forward: (row) => {
+      at += 1;
+      const settle = urlToState();
+      if (settle) settle(row);
+    },
+  };
+}
+
+describe('Back across entries written under different filters', () => {
+  // The five steps exactly as the review wrote them. They do not, on their
+  // own, land on the disagreement — and the reason is worth a test of its
+  // own, because it is the same replace-rather-than-push discipline the
+  // rest of this file is about. Step 3 changes the filters while show A is
+  // open, and state -> URL replaces: it rewrites the entry the reader is
+  // standing on, which is show A's. So show A's entry carries ?F2 by the
+  // time step 4 pushes show B, and the Back at step 5 finds a URL that
+  // agrees with what is applied.
+  //
+  // The entry still carrying ?F1 is the archive entry underneath, and the
+  // Back that reaches it is the one that used to go wrong.
+  test('the five steps, and the Back that follows them', () => {
+    const page = archivePage();
+    page.mount();
+
+    // 1. Apply filters F1.
+    page.setFilters(F1);
+    expect(page.url()).toBe('/?city=Paris&year=2024');
+
+    // 2. Open show A. This pushes an entry carrying ?F1.
+    page.clickShow(SHOW_A);
+    expect(page.url()).toBe('/hf/alaia-fw-2024/111/1?city=Paris&year=2024');
+    expect(page.stack).toHaveLength(2);
+
+    // 3. Change to filters F2. This replaces, so no new entry — and what it
+    // replaces is show A's entry, which now carries ?F2 rather than ?F1.
+    page.setFilters(F2);
+    expect(page.url()).toBe('/hf/alaia-fw-2024/111/1?city=Milan');
+    expect(page.stack).toHaveLength(2);
+
+    // 4. Open show B. This pushes an entry carrying ?F2.
+    page.clickShow(SHOW_B);
+    expect(page.url()).toBe('/hf/balenciaga-ss-2025/222/1?city=Milan');
+    expect(page.stack).toHaveLength(3);
+
+    // 5. Back. Show A reopens, under the filters its entry actually holds.
+    page.back(SHOW_A);
+    expect(page.open()).toBe(SHOW_A);
+    expect(page.filters()).toEqual({ ...EMPTY_FILTERS, ...F2 });
+    expect(page.url()).toBe('/hf/alaia-fw-2024/111/1?city=Milan');
+
+    // 6. Back again, onto the archive entry that still carries ?F1. This is
+    // the step that used to discard them: nothing read the filters out of
+    // the restored URL, so F2 stayed applied, and state -> URL — re-running
+    // because the selection had just been cleared — wrote ?city=Milan
+    // straight back over the entry Back had restored.
+    page.back();
+    expect(page.open()).toBeNull();
+    expect(page.filters()).toEqual({ ...EMPTY_FILTERS, ...F1 });
+    expect(page.url()).toBe('/?city=Paris&year=2024');
+
+    // Nothing pushed, nothing dropped: Forward still reaches both shows.
+    expect(page.stack).toEqual([
+      '/?city=Paris&year=2024',
+      '/hf/alaia-fw-2024/111/1?city=Milan',
+      '/hf/balenciaga-ss-2025/222/1?city=Milan',
+    ]);
+  });
+
+  // The same five steps with the filter change moved one beat later, which
+  // is the sequence the review was describing: both shows are opened under
+  // F1, so show A's entry keeps ?F1, and the filter change lands on show
+  // B's entry instead. Now Back reopens a show AND crosses a filter change,
+  // which is the case the bug was written about — the state -> URL effect
+  // re-runs on the selection change and, with F2 still applied, rewrites
+  // the entry Back had just restored.
+  test('Back onto a show opened under different filters keeps them', () => {
+    const page = archivePage();
+    page.mount();
+
+    page.setFilters(F1);
+    page.clickShow(SHOW_A);
+    page.clickShow(SHOW_B);
+    expect(page.url()).toBe('/hf/balenciaga-ss-2025/222/1?city=Paris&year=2024');
+
+    page.setFilters(F2);
+    expect(page.url()).toBe('/hf/balenciaga-ss-2025/222/1?city=Milan');
+    expect(page.stack).toHaveLength(3);
+
+    page.back(SHOW_A);
+
+    // Show A is back, and so are the filters it was opened under.
+    expect(page.open()).toBe(SHOW_A);
+    expect(page.filters()).toEqual({ ...EMPTY_FILTERS, ...F1 });
+
+    // And its entry still says what it said. Without the fix this read
+    // '/hf/alaia-fw-2024/111/1?city=Milan': the filters were discarded and
+    // the entry rewritten where it stood, so a second Back could not get
+    // them back either.
+    expect(page.url()).toBe('/hf/alaia-fw-2024/111/1?city=Paris&year=2024');
+    expect(page.stack).toEqual([
+      '/?city=Paris&year=2024',
+      '/hf/alaia-fw-2024/111/1?city=Paris&year=2024',
+      '/hf/balenciaga-ss-2025/222/1?city=Milan',
+    ]);
+  });
+
+  test('Forward across a filter change restores what its entry carries', () => {
+    // The other direction, for the same reason: an entry reached by Forward
+    // is no more written by this page than one reached by Back.
+    const page = archivePage();
+    page.mount();
+    page.setFilters(F1);
+    page.clickShow(SHOW_A);
+    page.back();
+    expect(page.filters()).toEqual({ ...EMPTY_FILTERS, ...F1 });
+
+    page.setFilters(F2);
+    expect(page.url()).toBe('/?city=Milan');
+
+    page.forward(SHOW_A);
+    expect(page.open()).toBe(SHOW_A);
+    expect(page.filters()).toEqual({ ...EMPTY_FILTERS, ...F1 });
+    expect(page.url()).toBe('/hf/alaia-fw-2024/111/1?city=Paris&year=2024');
   });
 });

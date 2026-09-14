@@ -5,6 +5,7 @@ import AuthPanel from '../features/auth/AuthPanel';
 import HighFashionPage from '../features/high-fashion/HighFashionPage';
 import { FashionArchiveAPI } from '../shared/api';
 import { useRoute } from '../shared/hooks/useRoute';
+import { rememberSession, restoreSession, shouldRestore } from './session';
 
 // Which page a parsed route opens. Exported because it is the one rule in
 // this file worth testing on its own, and a test that restated it could not
@@ -108,6 +109,39 @@ function App() {
 
     restore();
   }, []);
+
+  // Reopen the last session, but only on a blank arrival.
+  //
+  // Declared after the effect above, and so run after it, on purpose: that
+  // one strips the auth parameters out of the query string, and an arrival
+  // from a confirmation link — "/?verified=1" — is a blank arrival with a
+  // receipt stapled to it, not a destination. By the time this runs the
+  // receipt is gone and the URL says what the reader actually asked for.
+  //
+  // replace, never push. A restored session is not somewhere the reader
+  // navigated, so it must not leave the bare "/" behind it as an entry Back
+  // can walk into: pressing Back from a restored show should leave the app,
+  // not bounce between the show and an empty archive. navigate() does
+  // nothing at all when the stored route is the one already shown.
+  //
+  // A stored show that no longer resolves needs nothing here. It goes down
+  // the same path a mistyped deep link does — the archive stays on screen
+  // and the URL is corrected once the lookup comes back empty.
+  useEffect(() => {
+    if (!shouldRestore(window.location.pathname, window.location.search)) return;
+    const stored = restoreSession();
+    if (stored) go(stored, { replace: true });
+    // Mount only. A later arrival at "/" is the reader going to the archive,
+    // which is a destination like any other.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // And remember it. `route` is a stable reference while the URL is
+  // unchanged — router.js caches it — so this writes once per real
+  // navigation rather than once per render.
+  useEffect(() => {
+    rememberSession(route);
+  }, [route]);
 
   const handleAuthenticated = (user) => {
     setCurrentUser(user);

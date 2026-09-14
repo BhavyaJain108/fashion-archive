@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { FashionArchiveAPI } from '../../shared/api';
-import { getRoute } from '../../app/router';
+import { buildRoute } from '../../app/routes';
 import {
   EMPTY_FILTERS, showId, showSlug, clickAction,
   initialUrlSync, deepLinkStarted, deepLinkSettled, deepLinkAbandoned,
-  routeChanged, manualLook, urlWrite, lookToApply,
+  routeChanged, manualLook, urlWrite, lookToApply, filtersToApply,
 } from './showUrl';
 import { useRoute } from '../../shared/hooks/useRoute';
 import { usePersistentState } from '../../shared/hooks/usePersistentState';
@@ -62,6 +62,23 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
   // filters — a year with no shows for the chosen gender is not offered.
   const [parsedSeasons, setParsedSeasons] = useState({});
 
+  // The address bar, and the one reading of it this page makes.
+  //
+  // useRoute() is that reading: it is useSyncExternalStore over router.js's
+  // cached getRoute, so on the first render it returns the very object
+  // getRoute() would have returned, and on every later one it returns the
+  // route the address bar actually shows. `arrivedOn` is that first value
+  // held still — useState's initialiser runs once, so the mount route stays
+  // the mount route however far the reader navigates afterwards, and the
+  // two are the same object for exactly as long as the URL has not moved.
+  //
+  // This used to be three readings: a useState(getRoute), this useRoute(),
+  // and a window.location read for the arrival URL. They agreed only because
+  // all three ran in the same first render, which is a fact about render
+  // order rather than a rule anything enforced.
+  const [route, go] = useRoute();
+  const [arrivedOn] = useState(route);
+
   // The filter set. Everything except gender is optional and starts empty,
   // so the list opens on the whole archive instead of on an instruction to
   // choose a year, then a season, then a gender before anything appears.
@@ -69,12 +86,6 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
   // Gender is the one axis that cannot be empty: a firstVIEW query with no
   // gender does not mean "everything", it returns a 34-row bucket of shows
   // catalogued with no gender at all.
-  // The URL as it was when this page mounted. Read through useState's lazy
-  // initialiser, which runs exactly once — useRef's argument is eager, so
-  // useRef(getRoute()) re-read the URL on every render and read as reactive
-  // when the intent is mount-only.
-  const [arrivedOn] = useState(getRoute);
-
   const [filters, setFilters] = useState(() => ({
     ...EMPTY_FILTERS,
     // Left empty once the archive is held locally — see the effect below.
@@ -85,12 +96,17 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
     ...arrivedOn.filters,
   }));
 
-  // Whether the link that opened this page named a gender. The effect below
-  // widens the default 'Women' to everything once the local index is ready;
-  // a link that says gender=Men meant it, and must not be widened.
-  const genderFromUrl = Boolean(arrivedOn.filters.gender);
+  // Whether a URL has named a gender. The effect below widens the default
+  // 'Women' to everything once the local index is ready; a link that says
+  // gender=Men meant it, and must not be widened.
+  //
+  // A ref rather than a value derived from `arrivedOn`, because the arrival
+  // URL is no longer the only URL that can name one: getIndexStatus is a
+  // fetch, and a Back or a restored session can apply gender=Men from the
+  // address bar while it is still in flight. Reading the mount URL alone
+  // would then widen that gender away a beat after the URL set it.
+  const genderNamedByUrl = useRef(Boolean(arrivedOn.filters.gender));
 
-  const [route, go] = useRoute();
   // Who may write the address bar, and which look a link is still trying to
   // reach — one value, in showUrl.js, because the interesting part is the
   // sequence of states rather than any one of them. Declared here rather
@@ -99,8 +115,11 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
   // The URL the page mounted on goes in with it: the first-write guard is
   // there to protect that one URL, and routeChanged below retires the guard
   // the moment the address bar stops showing it.
-  const urlSync = useRef(
-    initialUrlSync(window.location.pathname + window.location.search));
+  // buildRoute rather than window.location: the arrival URL is only ever
+  // compared for equality against the current one, and both ends now come
+  // from the same route objects, so the comparison is between two canonical
+  // spellings instead of between two raw ones.
+  const urlSync = useRef(initialUrlSync(buildRoute(arrivedOn)));
 
   // Collections state. `cursor` is where the next window starts; the list is
   // a window on 900+ pages, not a list that was ever fully fetched.
@@ -290,9 +309,11 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
       // Gender was only ever required because firstVIEW cannot answer a
       // query without one. Our own rows can, so the archive opens on
       // everything rather than on half of it.
-      if (ready && !genderFromUrl) setFilters(prev => ({ ...prev, gender: '' }));
+      if (ready && !genderNamedByUrl.current) {
+        setFilters(prev => ({ ...prev, gender: '' }));
+      }
     });
-  }, [genderFromUrl]);
+  }, []);
 
   // The designer index, once. Failure is not fatal — the archive still
   // browses, the search box just says it cannot search.
@@ -794,10 +815,44 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
   // it. `route` is a stable reference while the URL is unchanged — router.js
   // caches it — so this runs once per real navigation.
   useEffect(() => {
-    urlSync.current = routeChanged(urlSync.current, {
-      path: window.location.pathname + window.location.search,
-    });
+    urlSync.current = routeChanged(urlSync.current, { path: buildRoute(route) });
   }, [route]);
+
+  // URL → state, for the filters. Back, Forward, a shared link opened in
+  // place, a restored session: every one of them can carry a filter set the
+  // page is not applying, and until now only the very first of them was ever
+  // read — `route.filters` went into the initial state above and was never
+  // looked at again.
+  //
+  // The sequence that made it visible: filters F1, open show A (pushes ?F1),
+  // open show B (pushes ?F1), change to F2 (replaces show B's entry), Back.
+  // Show A came back, F2 stayed applied, and state → URL — re-running
+  // because the selection had changed — wrote ?F2 over the entry Back had
+  // just restored. The filters were silently discarded and the history entry
+  // was rewritten where it stood, so Back a second time could not return
+  // them either. Any Back or Forward across two entries whose query strings
+  // differ does it; that is only the shortest way to reach one.
+  //
+  // Two things keep this from fighting the effect pointing the other way:
+  //
+  //   The dependency is the route alone. A filter the reader changes by hand
+  //   must not come through here — the address bar has not caught up yet at
+  //   that point, and this would read the old query string as a disagreement
+  //   and undo them. It is a URL change that this answers, nothing else.
+  //
+  //   filtersToApply returns null when the URL already says what is applied,
+  //   which is the case for every URL the state → URL effect writes. So the
+  //   route change that effect causes lands here and does nothing — no new
+  //   object, and so no refetch of the list.
+  //
+  // The mount run is skipped: `route` is still the object `arrivedOn` holds,
+  // and that route's filters are already in the initial state above, seeded
+  // over a default gender this must not clear.
+  useEffect(() => {
+    if (route === arrivedOn) return;
+    if (route.filters.gender) genderNamedByUrl.current = true;
+    setFilters((applied) => filtersToApply(applied, route.filters) ?? applied);
+  }, [route, arrivedOn]);
 
   // URL → state. First load, and Back/Forward.
   useEffect(() => {
