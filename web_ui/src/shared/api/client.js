@@ -130,9 +130,31 @@ export class ApiClient {
     const decoder = new TextDecoder();
     let buffer = '';
 
+    // Aborting a fetch mid-body errors the stream. Two promises reject with the
+    // abort reason: the pending read(), which the loop below catches, and the
+    // reader's `closed` promise, which nothing awaits — so the rejection was
+    // reported as an uncaught error every time the archive page unmounted
+    // mid-stream. Observe it, and cancel the reader explicitly on abort rather
+    // than leaving the browser to tear it down underneath a pending read.
+    reader.closed.catch(() => {});
+    const onAbort = () => { reader.cancel().catch(() => {}); };
+    if (signal) {
+      if (signal.aborted) onAbort();
+      else signal.addEventListener('abort', onAbort, { once: true });
+    }
+
     try {
       while (true) {
-        const { done, value } = await reader.read();
+        let chunk;
+        try {
+          chunk = await reader.read();
+        } catch (error) {
+          // The caller aborted. That is a stop, not a failure: every caller
+          // already treats an aborted stream as "nothing more to apply".
+          if (error && error.name === 'AbortError') return;
+          throw error;
+        }
+        const { done, value } = chunk;
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
 
@@ -152,7 +174,8 @@ export class ApiClient {
         }
       }
     } finally {
-      reader.releaseLock();
+      if (signal) signal.removeEventListener('abort', onAbort);
+      try { reader.releaseLock(); } catch (e) { /* already released by cancel */ }
     }
   }
 
