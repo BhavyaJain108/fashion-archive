@@ -84,7 +84,8 @@ export function showTarget(row) {
 
 export function useFavourites(shownCollection, lookTotal) {
   const {
-    isSaved, setSaved, toggle, error: savesError, reload: reloadSaves,
+    isSaved, setSaved, toggle, onUnsaved,
+    error: savesError, reload: reloadSaves,
   } = useSaves();
 
   const isFavourite = useCallback((lookNumber) => {
@@ -141,9 +142,17 @@ export function useFavourites(shownCollection, lookTotal) {
   // pair — rather than by `useAlbums` keeping a list of its own, because two
   // owners of that list is how a star ends up lit for a row nobody saved.
   //
+  // `onUnsaved` is the other direction over the same seam. Pressing the star
+  // a second time deletes the favourite, and `album_items` is ON DELETE
+  // CASCADE on it — so the server empties the look out of every album it was
+  // in and tells nobody. Without this the shelf goes on showing the count it
+  // had before the press, and the next add counts up from that stale number,
+  // so an album holding one reads as two until the page is remounted.
+  //
   // One object, memoised, so a page writing `useAlbums(null, { saves })`
   // hands over the same reference on every render.
-  const saves = useMemo(() => ({ isSaved, setSaved }), [isSaved, setSaved]);
+  const saves = useMemo(
+    () => ({ isSaved, setSaved, onUnsaved }), [isSaved, setSaved, onUnsaved]);
 
   return {
     isFavourite, toggleFavourite,

@@ -332,3 +332,90 @@ test('a row star saves the show and asks nothing either', async () => {
   expect(screen.queryByRole('dialog')).toBeNull();
   expect(AlbumsAPI.addShowToAlbum).not.toHaveBeenCalled();
 });
+
+// ── an unsave, and the shelf that was showing what it was in ──────────────
+//
+// THE DRIFT. `album_items` is ON DELETE CASCADE on the favourite, so pressing
+// the star a second time takes the look out of every album it was in — on the
+// server, in one statement, with nothing sent to the client. The picker's
+// counts are `item_count` off the shelf, and they were true before that press.
+//
+// The sequence, exactly as a reader does it: star look 1, file it in Resort,
+// press the star again. Resort now holds what it held before; the shelf said
+// one more than that, and adding the same look back counted up from the wrong
+// number — two on the shelf over an album holding one, permanently, until the
+// page was remounted.
+
+const pickerCount = (name) => albumButton(name).querySelector('.alp-album-count').textContent;
+
+// The server, keeping one count honestly: Resort holds nothing, gains the
+// look when it is filed, and loses it again when the favourite is deleted.
+const cascadingShelf = () => {
+  let resort = 0;
+  AlbumsAPI.getAlbums.mockImplementation(async () => ([
+    { ...SHELF[0], item_count: resort },
+    SHELF[1],
+  ]));
+  AlbumsAPI.addLookToAlbum.mockImplementation(async () => { resort += 1; return FILED; });
+  API.removeFavourite.mockImplementation(async () => {
+    resort = 0;                       // the cascade, from the server's side
+    return { success: true };
+  });
+  // The key list follows the same table: after the add the look is saved.
+  API.getFavouriteKeys.mockResolvedValue([]);
+  return { held: () => resort };
+};
+
+test('unsaving a look leaves the shelf saying what the albums actually hold',
+  async () => {
+    const server = cascadingShelf();
+    await renderPage();
+    await openYohji();
+
+    await openPicker();
+    expect(pickerCount('Resort')).toBe('0');
+    fireEvent.click(albumButton('Resort'));
+    await waitFor(() => expect(AlbumsAPI.addLookToAlbum).toHaveBeenCalled());
+    await waitFor(() => expect(lookStar(1)).toHaveAttribute('aria-pressed', 'true'));
+
+    // Filed: one on the shelf, one in the album.
+    await openPicker();
+    expect(pickerCount('Resort')).toBe('1');
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    // The star again. The favourite goes, and the server empties Resort with
+    // it without being asked.
+    fireEvent.click(lookStar(1));
+    await waitFor(() => expect(API.removeFavourite).toHaveBeenCalled());
+    expect(server.held()).toBe(0);
+
+    // THE ASSERTION. The shelf says what the album holds, not what it held
+    // before the delete.
+    await openPicker();
+    await waitFor(() => expect(pickerCount('Resort')).toBe('0'));
+  });
+
+test('and the count after adding it back is the true one, not one higher',
+  async () => {
+    const server = cascadingShelf();
+    await renderPage();
+    await openYohji();
+
+    await openPicker();
+    fireEvent.click(albumButton('Resort'));
+    await waitFor(() => expect(lookStar(1)).toHaveAttribute('aria-pressed', 'true'));
+
+    fireEvent.click(lookStar(1));
+    await waitFor(() => expect(API.removeFavourite).toHaveBeenCalled());
+    await openPicker();
+    await waitFor(() => expect(pickerCount('Resort')).toBe('0'));
+
+    // Add it back. The optimistic +1 is applied to the shelf as it now
+    // stands, so it lands on the album's real count.
+    fireEvent.click(albumButton('Resort'));
+    await waitFor(() => expect(AlbumsAPI.addLookToAlbum).toHaveBeenCalledTimes(2));
+    expect(server.held()).toBe(1);
+
+    await openPicker();
+    expect(pickerCount('Resort')).toBe('1');
+  });

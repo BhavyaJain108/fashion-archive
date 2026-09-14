@@ -672,6 +672,105 @@ test('a list that will not load leaves an error and an empty set', async () => {
 // left to send — only a star to light. Anything here that reached for the
 // favourites API would be a second add of a row the server already has.
 
+// ── telling the rest of the app a save is gone ────────────────────────────
+//
+// Unsaving something does not only empty a star. `album_items` is ON DELETE
+// CASCADE on the favourite, so the server takes the row out of every album it
+// was in, in the same statement — and nothing on the client is asked. The
+// album shelf goes on showing the count it had before.
+//
+// `LibraryPage` re-reads the shelf after its own delete for exactly this
+// reason. The archive page has the same delete, on the star, and had no way
+// to hear about it: a look starred, filed into Resort, then unstarred left
+// the shelf saying 1 over an album holding 0, and the next add to that album
+// counted up from the wrong number and stayed wrong until the page remounted.
+//
+// So this hook — the one owner of the saved list — announces a delete that
+// the SERVER has actually made. `useAlbums` listens, and re-reads. It does
+// not get a copy of the list, because two owners of that list is the bug this
+// whole split exists to prevent.
+
+describe('a delete announces itself', () => {
+  const heard = () => {
+    const calls = [];
+    return { calls, fn: jest.fn(key => calls.push(key)) };
+  };
+
+  test('a listener hears the key of a save the server removed', async () => {
+    seed([row(look(GUCCI, 3))]);
+    const { result } = await mount();
+    const listener = heard();
+    act(() => { result.current.onUnsaved(listener.fn); });
+
+    await act(async () => { await result.current.toggle(look(GUCCI, 3)); });
+
+    expect(listener.fn).toHaveBeenCalledTimes(1);
+    expect(listener.calls[0]).toBe(keyOf(look(GUCCI, 3)));
+  });
+
+  test('an add announces nothing — nothing cascaded', async () => {
+    const { result } = await mount();
+    const listener = heard();
+    act(() => { result.current.onUnsaved(listener.fn); });
+
+    await act(async () => { await result.current.toggle(look(GUCCI, 3)); });
+
+    expect(listener.fn).not.toHaveBeenCalled();
+  });
+
+  // The announcement is about what the SERVER did. A delete that was refused
+  // or never went out is rolled back here, and a listener told about it would
+  // re-read a shelf that had not changed — or, worse, act on a removal that
+  // did not happen.
+  test('a delete the server refused announces nothing', async () => {
+    seed([row(look(GUCCI, 3))]);
+    api.removeFavourite.mockResolvedValue(
+      { success: false, message: 'Not found in favourites' });
+    const { result } = await mount();
+    const listener = heard();
+    act(() => { result.current.onUnsaved(listener.fn); });
+
+    await act(async () => { await result.current.toggle(look(GUCCI, 3)); });
+
+    expect(listener.fn).not.toHaveBeenCalled();
+    expect(result.current.isSaved(look(GUCCI, 3))).toBe(true);
+  });
+
+  // `setSaved` moves a marker and sends nothing — it exists for the album add,
+  // whose server transaction has already done the saving. Nothing was deleted,
+  // so there is nothing to announce, in either direction.
+  test('a marker moved without a write announces nothing', async () => {
+    seed([row(look(GUCCI, 3))]);
+    const { result } = await mount();
+    const listener = heard();
+    act(() => { result.current.onUnsaved(listener.fn); });
+
+    act(() => { result.current.setSaved(look(GUCCI, 3), false); });
+
+    expect(listener.fn).not.toHaveBeenCalled();
+  });
+
+  test('a listener that has gone is not called', async () => {
+    seed([row(look(GUCCI, 3)), row(look(GUCCI, 4))]);
+    const { result } = await mount();
+    const listener = heard();
+    let stop;
+    act(() => { stop = result.current.onUnsaved(listener.fn); });
+    act(() => { stop(); });
+
+    await act(async () => { await result.current.toggle(look(GUCCI, 3)); });
+
+    expect(listener.fn).not.toHaveBeenCalled();
+  });
+
+  test('subscribing does not change identity on every render', async () => {
+    const { result, rerender } = await mount();
+    const first = result.current.onUnsaved;
+    rerender();
+    expect(result.current.onUnsaved).toBe(first);
+  });
+});
+
 describe('setSaved', () => {
   test('lights a star without sending anything', async () => {
     const { result } = await mount();

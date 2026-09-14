@@ -78,6 +78,7 @@ let saves;
 // a set of keys, so a test can see the save half of an add and its rollback.
 const fakeSaves = () => {
   const lit = new Set();
+  const listeners = new Set();
   return {
     lit,
     isSaved: jest.fn(target => lit.has(keyOf(target))),
@@ -85,6 +86,14 @@ const fakeSaves = () => {
       if (on) lit.add(keyOf(target));
       else lit.delete(keyOf(target));
     }),
+    // The real one announces a delete the server made. Here it is a hook the
+    // test pulls, so "a save went" can be staged without a favourites API.
+    onUnsaved: jest.fn((listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    }),
+    unsave: (key) => listeners.forEach(fn => fn(key)),
+    listeners,
   };
 };
 
@@ -742,5 +751,62 @@ describe('writes are serialised per thing, not globally', () => {
     await act(async () => { settleAdd({ ...OK, favourite_id: 21, saved: false, added: true }); });
     await waitFor(() => expect(api.removeFromAlbum).toHaveBeenCalledTimes(1));
     expect(ids(result.current.items)).toEqual([11, 12, 13]);
+  });
+});
+
+// ── a save that went away underneath the shelf ────────────────────────────
+//
+// Unsaving something is not an album write and does not come through this
+// hook at all, but it changes every album the thing was in: `album_items` is
+// ON DELETE CASCADE on the favourite, so the server empties it out of them in
+// the same statement and says nothing. The shelf's `item_count` is stale from
+// that instant — and permanently, because the next add to that album counts
+// up from the stale number.
+//
+// The archive page is where this bit: star a look, file it into Resort, press
+// the star again. Resort held nothing and the shelf said 1; adding the same
+// look back made it say 2 over an album holding 1, and it stayed wrong until
+// the page was remounted. `LibraryPage` has always re-read the shelf after
+// its own delete; this is the same re-read, asked for by the owner of the
+// saved list rather than by the page.
+
+describe('when something is unsaved somewhere else', () => {
+  test('the shelf is re-read, because the server has emptied it out of albums',
+    async () => {
+      const { result } = await mount();
+      expect(shelfRow(result, 1).item_count).toBe(3);
+      expect(saves.onUnsaved).toHaveBeenCalled();
+
+      // The server has cascaded: Resort holds two now.
+      api.getAlbums.mockResolvedValue(
+        shelf().map(row => (row.id === 1 ? { ...row, item_count: 2 } : row)));
+      await act(async () => { saves.unsave('some-key'); });
+
+      await waitFor(() => expect(shelfRow(result, 1).item_count).toBe(2));
+    });
+
+  test('the open album is re-read with it', async () => {
+    const { result } = await mount(1);
+    expect(result.current.items).toHaveLength(3);
+
+    api.getAlbum.mockResolvedValue({
+      album: openAlbum().album, items: [item(11, 1), item(12, 2)],
+    });
+    await act(async () => { saves.unsave('some-key'); });
+
+    await waitFor(() => expect(result.current.items).toHaveLength(2));
+  });
+
+  test('a page with no collaborator neither subscribes nor breaks', async () => {
+    const hook = renderHook(() => useAlbums(null));
+    await waitFor(() => expect(hook.result.current.loading).toBe(false));
+    expect(hook.result.current.albums).toHaveLength(2);
+  });
+
+  test('the subscription is dropped when the page goes', async () => {
+    const hook = await mount();
+    expect(saves.listeners.size).toBe(1);
+    hook.unmount();
+    expect(saves.listeners.size).toBe(0);
   });
 });

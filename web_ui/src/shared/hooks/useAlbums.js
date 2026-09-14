@@ -42,7 +42,8 @@ import { canonicalFilters, keyOf, rowOfTarget, targetOfRow } from './useSaves';
 // `saves` is the optional collaborator that owns the star, and it is optional
 // because only one of the two callers has one on screen.
 //
-//   { isSaved(target) -> bool, setSaved(target, saved) }
+//   { isSaved(target) -> bool, setSaved(target, saved),
+//     onUnsaved(listener) -> unsubscribe }
 //
 // Adding something unsaved to an album SAVES it — one user action, two server
 // effects, in one transaction. The album half of that is this hook's state and
@@ -56,7 +57,18 @@ import { canonicalFilters, keyOf, rowOfTarget, targetOfRow } from './useSaves';
 // With no collaborator the album half is still optimistic and the star simply
 // follows on the next load of the favourites list. Nothing here breaks; the
 // star is late.
-const NO_SAVES = { isSaved: () => true, setSaved: () => {} };
+//
+// `onUnsaved` is the other direction, and it is a notification rather than a
+// handle on the list. Unsaving something is not an album write and does not
+// come through this hook at all — but `album_items` is ON DELETE CASCADE on
+// the favourite, so the server empties the thing out of every album it was in
+// inside the same statement and tells nobody. The shelf's `item_count` is
+// stale from that instant, and permanently: the next add counts up from the
+// stale number, so the shelf says two over an album holding one and goes on
+// saying it until the page is remounted. Told that a save went, this hook
+// asks the server what it holds now. It is not handed the saved list, for the
+// reason above — one owner.
+const NO_SAVES = { isSaved: () => true, setSaved: () => {}, onUnsaved: () => () => {} };
 
 // ------------------------------------------------------------- reading ---
 
@@ -238,6 +250,21 @@ export function useAlbums(albumId = null, options = {}) {
   const reload = useCallback(async () => {
     await Promise.all([load(), loadItems()]);
   }, [load, loadItems]);
+
+  // A save deleted anywhere on the page has already been cascaded out of
+  // every album on the server. Nothing local can be patched honestly from
+  // here — the key names one favourite, and which albums held it is the
+  // server's fact, not ours — so the answer is to ask again.
+  //
+  // `options.saves` directly rather than the ref above: this is an effect
+  // and wants to re-subscribe if the collaborator is ever replaced, and both
+  // callers memoise the object they pass.
+  const collaborator = options.saves;
+  useEffect(() => {
+    const subscribe = collaborator && collaborator.onUnsaved;
+    if (typeof subscribe !== 'function') return undefined;
+    return subscribe(() => { reload(); });
+  }, [collaborator, reload]);
 
   // ------------------------------------------------- optimistic changes ---
   //

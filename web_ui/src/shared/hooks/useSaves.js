@@ -5,7 +5,7 @@ import { FILTER_KEYS } from '../../app/routes';
 // What this user has kept, of any of the three kinds, and the one way to
 // change it.
 //
-//   useSaves() -> { isSaved(target), setSaved, toggle(target),
+//   useSaves() -> { isSaved(target), setSaved, toggle(target), onUnsaved,
 //                   saves, total, hasMore, loadMore, loadingMore,
 //                   loading, error, reload }
 //
@@ -305,6 +305,49 @@ export function useSaves() {
   const inFlight = useRef(new Set());
   const queued = useRef(new Map());
 
+  // ── who else needs to know a save is gone ──────────────────────────────
+  //
+  // Unsaving something does not only empty a star. `album_items` is ON DELETE
+  // CASCADE on the favourite, so the server takes the row out of every album
+  // it was in inside the same statement, and the client is never asked. An
+  // album shelf drawn from `item_count` is therefore stale the instant a
+  // delete lands, and it stays stale: the next add to that album counts up
+  // from the wrong number, so the shelf says two over an album holding one
+  // and goes on saying it until the page is remounted.
+  //
+  // `LibraryPage` re-reads the shelf after its own delete for exactly this
+  // reason. The archive page has the same delete, on the star, and had no way
+  // to hear about it — so this is that way, and it is deliberately a
+  // notification rather than a handle on the list: the listener is told a save
+  // went, and goes and asks the server what it holds now. Handing it the list
+  // would make it a second owner of the thing `isSaved` reads, which is the
+  // one arrangement this hook exists to prevent.
+  const listeners = useRef(new Set());
+
+  // Subscribe; the returned function unsubscribes. Stable, so an effect that
+  // subscribes does not tear down and re-subscribe on every render.
+  const onUnsaved = useCallback((listener) => {
+    if (typeof listener !== 'function') return () => {};
+    listeners.current.add(listener);
+    return () => { listeners.current.delete(listener); };
+  }, []);
+
+  // Announced for a delete the SERVER made, and for nothing else. Not for a
+  // refused one — that is rolled back here and nothing cascaded — and not for
+  // `setSaved`, which moves a marker and sends no request at all.
+  //
+  // One listener throwing must not stop the next from being told, and must not
+  // turn a completed write into a failed one.
+  const announceUnsaved = useCallback((key, target) => {
+    listeners.current.forEach((listener) => {
+      try {
+        listener(key, target);
+      } catch (err) {
+        console.error('A listener for an unsaved row threw:', err);
+      }
+    });
+  }, []);
+
   useEffect(() => {
     alive.current = true;
     return () => { alive.current = false; };
@@ -560,16 +603,20 @@ export function useSaves() {
           applySaves(undoFlip(savesRef.current, key, next.added, next.previousRows));
           break;
         }
+        // The server has made this change. If it was a delete it has also
+        // cascaded the row out of every album it was in, and whoever draws
+        // those albums is now showing a count that was true a moment ago.
+        if (!next.added) announceUnsaved(key, next.target);
         next = queued.current.get(key) || null;
         queued.current.delete(key);
       }
     } finally {
       inFlight.current.delete(key);
     }
-  }, [applyKeys, applySaves, flip, write, undoFlip]);
+  }, [applyKeys, applySaves, flip, write, undoFlip, announceUnsaved]);
 
   return {
-    isSaved, setSaved, toggle,
+    isSaved, setSaved, toggle, onUnsaved,
     saves, total, hasMore, loadMore, loadingMore,
     loading, error, reload: load,
   };
