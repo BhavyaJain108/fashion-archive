@@ -6,6 +6,7 @@ import { slugify } from '../../app/routes';
 import { cleanDesignerName } from '../../shared/lib/designerName';
 import { usePersistentState } from '../../shared/hooks/usePersistentState';
 import { useAlbums } from '../../shared/hooks/useAlbums';
+import AlbumPicker from '../../shared/ui/AlbumPicker';
 import { lookLabel, lookAlt } from '../../shared/lib/lookLabel';
 import { collectionIdOf, filterPairs, kindOf } from '../../shared/lib/savedRow';
 import {
@@ -80,7 +81,23 @@ function LibraryPage({ currentPage, onPageSwitch, currentUser, onLogout }) {
   // The shelf, and only the shelf — no album id, so the hook holds the rows
   // and nothing's contents. It is the way IN to an album; the way out is the
   // album page's own Back, and both are navigate + buildRoute.
-  const { albums } = useAlbums();
+  //
+  // No `{ saves }` collaborator here, and that is not an omission. The
+  // collaborator exists so that adding an UNSAVED thing can light its star;
+  // everything on this page is saved already, by definition — it is the list
+  // of saved things — so every add from here goes by favourite id and
+  // changes nothing about what is saved. The archive page, where a thing may
+  // not be saved yet, is where the collaborator is passed.
+  const {
+    albums, createAlbum, addToAlbum, reload: reloadAlbums, error: albumsError,
+  } = useAlbums();
+
+  // What is ticked, by favourite id. Ids and not indices: the panes re-sort
+  // and re-filter under the selection, and an index would follow whatever
+  // landed in that slot.
+  const [picked, setPicked] = useState(() => new Set());
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [albumBusy, setAlbumBusy] = useState(false);
 
   const thumbStripRef = useRef(null);
   const activeThumbRef = useRef(null);
@@ -223,6 +240,98 @@ function LibraryPage({ currentPage, onPageSwitch, currentUser, onLogout }) {
   const handleSelectKind = (next) => {
     setKind(next);
     setSelectedIndex(0);
+    // The selection is cleared on the way out of a pane. An album holds all
+    // three kinds, so carrying it across would work — but the bar would then
+    // say "3 selected" over a pane showing none of them, and the reader
+    // would be adding things they cannot see.
+    setPicked(new Set());
+  };
+
+  // ── The selection, and putting it in an album ─────────────────────────
+  //
+  // A tick box on the thing itself, and a bar that appears when anything is
+  // ticked. Not a mode to enter first: the boxes are always there, so adding
+  // one thing is one tick and one press rather than three.
+
+  const togglePicked = (favouriteId) => {
+    setPicked(prev => {
+      const next = new Set(prev);
+      if (next.has(favouriteId)) next.delete(favouriteId);
+      else next.add(favouriteId);
+      return next;
+    });
+  };
+
+  // The rows themselves, in the order the library holds them. Derived every
+  // render rather than stored beside the ids: a row that has been unsaved
+  // since it was ticked is simply not in `favourites` any more, so it cannot
+  // be added to an album by a stale copy of itself.
+  const pickedRows = favourites.filter(fav => picked.has(fav.id));
+
+  // What a tick box is called. Every one of them names its own row, because
+  // a reader who cannot see the screen has nothing else to tell twenty
+  // identical boxes apart.
+  const pickLabel = (fav) => {
+    const k = kindOf(fav);
+    if (k === 'view') return (fav.view || {}).name || 'saved view';
+    const designer = cleanDesignerName((fav.collection || {}).designer || '');
+    if (k === 'show') return `${designer} ${(fav.season || {}).name || ''}`.trim();
+    return `${designer} ${lookLabel((fav.look || {}).number)}`.trim();
+  };
+
+  const pickBox = (fav) => (
+    <input
+      type="checkbox"
+      className="lib-pick"
+      checked={picked.has(fav.id)}
+      onChange={() => togglePicked(fav.id)}
+      // A tile is clickable and a card opens a show; ticking is neither.
+      onClick={(e) => e.stopPropagation()}
+      aria-label={`Select ${pickLabel(fav)}`}
+    />
+  );
+
+  // Every ticked row into one album, one at a time.
+  //
+  // Each of these is already saved and carries its favourite id, so the add
+  // goes by id and the endpoint files a row that exists — no second copy of
+  // anything, and nothing about what is saved changes.
+  //
+  // Sequential rather than all at once, so a failure is attributable: the
+  // ones before it landed, the selection is kept, and the panel stays open
+  // with the reason under it.
+  const fillAlbum = async (albumId) => {
+    const rows = pickedRows;
+    if (!rows.length || albumId === null || albumId === undefined) return false;
+    let all = true;
+    for (const row of rows) {
+      // eslint-disable-next-line no-await-in-loop
+      const ok = await addToAlbum(albumId, row);
+      if (!ok) all = false;
+    }
+    return all;
+  };
+
+  const addPickedToAlbum = async (albumId) => {
+    setAlbumBusy(true);
+    const ok = await fillAlbum(albumId);
+    setAlbumBusy(false);
+    if (!ok) return;
+    setPicked(new Set());
+    setPickerOpen(false);
+  };
+
+  // An album made and filled in one press. Two requests, because the id is
+  // the server's to mint — and if the name is taken the 409 stops it here,
+  // with the panel still open and the selection still ticked.
+  const createAlbumAndAdd = async (name) => {
+    setAlbumBusy(true);
+    const made = await createAlbum(name);
+    const ok = made ? await fillAlbum(made.id) : false;
+    setAlbumBusy(false);
+    if (!ok) return;
+    setPicked(new Set());
+    setPickerOpen(false);
   };
 
   const handleSelectCollection = (key) => {
@@ -245,7 +354,18 @@ function LibraryPage({ currentPage, onPageSwitch, currentUser, onLogout }) {
     setSelectedIndex(i => (i < visible.length - 1 ? i + 1 : 0));
   };
 
-  // ── Removal, for all three kinds ──────────────────────────────────────
+  // ── Unsaving, for all three kinds ─────────────────────────────────────
+  //
+  // THE destructive act of this feature, and the only one that is. It takes
+  // the thing out of the library and, by the cascade on `album_items`, out of
+  // every album it was in. Nothing puts it back.
+  //
+  // The other one — `removeFromAlbum`, on the album page — takes a tile out
+  // of one album and leaves the favourite exactly where it was; putting it
+  // back is one press of the same picker. So this button is the one that says
+  // UNSAVE and carries `ar-btn-danger`, and that button says REMOVE FROM
+  // ALBUM and carries no colour at all. They are told apart by what they are
+  // called and by the one token this design language reserves.
   //
   // One function, because there is one hazard and it is the same in three
   // places. `removeFavourite(seasonUrl, collectionUrl, lookNumber)` is
@@ -288,7 +408,25 @@ function LibraryPage({ currentPage, onPageSwitch, currentUser, onLogout }) {
       // By id, so the row that goes is the row that was deleted and not
       // another row of the same designer, the same season, or the same kind.
       setFavourites(prev => prev.filter(f => f.id !== r.id));
+      // A row that has just been unsaved cannot be ticked for an album.
+      setPicked(prev => {
+        if (!prev.has(r.id)) return prev;
+        const next = new Set(prev);
+        next.delete(r.id);
+        return next;
+      });
       loadStats();
+      // The cascade, from this side of it.
+      //
+      // `album_items` is ON DELETE CASCADE on the favourite, so unsaving
+      // something takes it out of every album it was in — one statement, in
+      // the database, and the client is never asked. What the client still
+      // owes is the second reading of it: the shelf in the sidebar is
+      // showing `item_count` per album, and those counts were true before
+      // this delete and are not after. Without this re-read the sidebar goes
+      // on claiming four items in an album that now holds three, and the
+      // reader only finds out by opening it.
+      reloadAlbums();
     } catch (error) {
       console.error('Error removing favourite:', error);
     }
@@ -513,6 +651,7 @@ function LibraryPage({ currentPage, onPageSwitch, currentUser, onLogout }) {
                           alt={lookAlt(fav.look.number)}
                           loading="lazy"
                         />
+                        {pickBox(fav)}
                       </div>
                       <span className="look-num">{lookLabel(fav.look.number)}</span>
                     </div>
@@ -539,6 +678,7 @@ function LibraryPage({ currentPage, onPageSwitch, currentUser, onLogout }) {
                     </div>
                     <div className="fav-image-info">
                       <span className="fav-look-label">
+                        {pickBox(current)}
                         {lookLabel(current.look.number)}
                       </span>
                       <span className="fav-look-meta">
@@ -546,9 +686,10 @@ function LibraryPage({ currentPage, onPageSwitch, currentUser, onLogout }) {
                           Added {new Date(current.date_added).toLocaleDateString()}
                         </span>
                         <button
-                          className="ar-btn fav-remove"
+                          className="ar-btn ar-btn-danger fav-remove"
                           onClick={() => handleRemove(current)}
-                        >Remove</button>
+                          title="Take it out of the library. It leaves every album with it."
+                        >Unsave</button>
                       </span>
                     </div>
                   </div>
@@ -589,6 +730,7 @@ function LibraryPage({ currentPage, onPageSwitch, currentUser, onLogout }) {
                 <div className="lib-cards">
                   {shows.map(fav => (
                     <div key={fav.id} className="lib-show-card">
+                      {pickBox(fav)}
                       <button
                         type="button"
                         className="lib-show-open"
@@ -615,9 +757,10 @@ function LibraryPage({ currentPage, onPageSwitch, currentUser, onLogout }) {
                         </span>
                       </button>
                       <button
-                        className="ar-btn fav-remove"
+                        className="ar-btn ar-btn-danger fav-remove"
                         onClick={() => handleRemove(fav)}
-                      >Remove</button>
+                        title="Take it out of the library. It leaves every album with it."
+                      >Unsave</button>
                     </div>
                   ))}
                 </div>
@@ -633,6 +776,7 @@ function LibraryPage({ currentPage, onPageSwitch, currentUser, onLogout }) {
               <div className="lib-views-container ar-scroll">
                 {views.map(fav => (
                   <div key={fav.id} className="lib-view-row">
+                    {pickBox(fav)}
                     <button
                       type="button"
                       className="lib-view-open"
@@ -653,13 +797,39 @@ function LibraryPage({ currentPage, onPageSwitch, currentUser, onLogout }) {
                       </span>
                     </button>
                     <button
-                      className="ar-btn fav-remove"
+                      className="ar-btn ar-btn-danger fav-remove"
                       onClick={() => handleRemove(fav)}
-                    >Remove</button>
+                      title="Take it out of the library. It leaves every album with it."
+                    >Unsave</button>
                   </div>
                 ))}
               </div>
             )
+          )}
+
+          {/* What is ticked, and the one thing to do with it. It appears only
+              when something is ticked, directly above the status bar — the
+              foot of the pane is where this page already puts what it is
+              telling you about the pane, and a bar that is always there would
+              be a permanent strip of disabled controls. */}
+          {picked.size > 0 && (
+            <div className="lib-select-bar">
+              <span className="lib-select-count">
+                {picked.size} selected
+              </span>
+              <span className="lib-select-acts">
+                <button
+                  type="button"
+                  className="ar-btn lib-add-to-album"
+                  onClick={() => setPickerOpen(true)}
+                >Add to album</button>
+                <button
+                  type="button"
+                  className="ar-btn lib-clear-picked"
+                  onClick={() => setPicked(new Set())}
+                >Clear</button>
+              </span>
+            </div>
           )}
 
           <div className="ar-status-bar">
@@ -683,6 +853,21 @@ function LibraryPage({ currentPage, onPageSwitch, currentUser, onLogout }) {
           </div>
         </div>
       </div>
+
+      {/* The same panel the archive page opens. One picker, so "put this in
+          an album" is one act wherever the reader starts it. No `choices`
+          here: what is being added is what is ticked. */}
+      {pickerOpen && (
+        <AlbumPicker
+          albums={albums}
+          heading={`${picked.size} selected`}
+          onPick={addPickedToAlbum}
+          onCreate={createAlbumAndAdd}
+          onClose={() => setPickerOpen(false)}
+          busy={albumBusy}
+          error={albumsError}
+        />
+      )}
     </div>
   );
 }

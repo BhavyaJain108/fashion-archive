@@ -21,6 +21,7 @@
 
   --ar-wash: rgba(0, 0, 0, 0.02);         /* hover */
   --ar-wash-strong: rgba(0, 0, 0, 0.03);  /* selected */
+  --ar-scrim: rgba(0, 0, 0, 0.28);        /* behind a panel that has focus */
 
   --ar-font: 'JetBrains Mono', 'SF Mono', 'Monaco', monospace;
 }

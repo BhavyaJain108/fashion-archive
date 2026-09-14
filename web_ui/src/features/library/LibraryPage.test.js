@@ -25,11 +25,18 @@ jest.mock('../../shared/api', () => ({
     removeViewFavourite: jest.fn(),
     getImageUrl: (p) => `/images/${p}`,
   },
-  // The sidebar's albums shelf reads this. It is the way in to an album and
-  // nothing else on this page touches it, so the shelf is empty in every
-  // test but the one below that gives it a row.
+  // The sidebar's albums shelf reads this, and so does the picker that puts
+  // ticked things into one. The shelf is empty in every test but the ones
+  // below that give it rows.
   AlbumsAPI: {
     getAlbums: jest.fn(),
+    getAlbum: jest.fn(),
+    createAlbum: jest.fn(),
+    addSavedToAlbum: jest.fn(),
+    addLookToAlbum: jest.fn(),
+    addShowToAlbum: jest.fn(),
+    addViewToAlbum: jest.fn(),
+    removeFromAlbum: jest.fn(),
   },
 }));
 
@@ -120,7 +127,29 @@ beforeEach(() => {
   API.removeShowFavourite.mockResolvedValue({ success: true });
   API.removeViewFavourite.mockResolvedValue({ success: true });
   AlbumsAPI.getAlbums.mockResolvedValue([]);
+  AlbumsAPI.createAlbum.mockResolvedValue({
+    ok: true, status: 201, success: true,
+    album: { id: 11, name: 'Archive', layout_mode: 'grid', sort_by: 'added' },
+  });
+  // What POST /api/albums/<id>/items answers for something already saved:
+  // the favourite id it filed, and `saved: false` because it was already.
+  AlbumsAPI.addSavedToAlbum.mockImplementation(async (albumId, favouriteId) => ({
+    ok: true, status: 201, success: true,
+    favourite_id: favouriteId, saved: false, added: true,
+  }));
 });
+
+const SHELF = [
+  { id: 7, name: 'Resort', item_count: 4, cover_image_path: null,
+    layout_mode: 'grid', sort_by: 'added' },
+  { id: 9, name: 'Tailoring', item_count: 0, cover_image_path: null,
+    layout_mode: 'grid', sort_by: 'added' },
+];
+
+const albumButton = (name) => Array.from(document.querySelectorAll('.alp-album'))
+  .find(node => node.querySelector('.alp-album-name').textContent === name);
+
+const tick = (label) => fireEvent.click(screen.getByLabelText(`Select ${label}`));
 
 const kindRow = (label) => screen.getByText(label).closest('.lib-kind');
 const openKind = (label) => fireEvent.click(kindRow(label));
@@ -299,7 +328,7 @@ test('removing a show removes that show and leaves the saved look of it', async 
   openKind('Shows');
   await waitFor(() => expect(showCards()).toHaveLength(2));
 
-  fireEvent.click(within(showCards()[0]).getByText('Remove'));
+  fireEvent.click(within(showCards()[0]).getByText('Unsave'));
 
   await waitFor(() => expect(API.removeShowFavourite).toHaveBeenCalledTimes(1));
   // Season url and collection url off the one row — no look number, because
@@ -321,7 +350,7 @@ test('removing the second show does not remove the first', async () => {
   openKind('Shows');
   await waitFor(() => expect(showCards()).toHaveLength(2));
 
-  fireEvent.click(within(showCards()[1]).getByText('Remove'));
+  fireEvent.click(within(showCards()[1]).getByText('Unsave'));
 
   await waitFor(() => expect(API.removeShowFavourite).toHaveBeenCalledTimes(1));
   // Raf's pair, not Yohji's, and not one of each.
@@ -336,7 +365,7 @@ test('removing a view removes that view and leaves the other', async () => {
   openKind('Views');
   await waitFor(() => expect(viewRows()).toHaveLength(2));
 
-  fireEvent.click(within(viewRows()[0]).getByText('Remove'));
+  fireEvent.click(within(viewRows()[0]).getByText('Unsave'));
 
   await waitFor(() => expect(API.removeViewFavourite).toHaveBeenCalledTimes(1));
   // The filters this row was drawn from, which is the whole of a view's
@@ -354,7 +383,7 @@ test('removing the second view sends its own filters, not the first row filters'
   openKind('Views');
   await waitFor(() => expect(viewRows()).toHaveLength(2));
 
-  fireEvent.click(within(viewRows()[1]).getByText('Remove'));
+  fireEvent.click(within(viewRows()[1]).getByText('Unsave'));
 
   await waitFor(() => expect(API.removeViewFavourite).toHaveBeenCalledTimes(1));
   // Milan's filters, off Milan's row. A view's filters ARE its identity on
@@ -372,7 +401,7 @@ test('a removal the server refuses leaves the row on screen', async () => {
   openKind('Shows');
   await waitFor(() => expect(showCards()).toHaveLength(2));
 
-  fireEvent.click(within(showCards()[0]).getByText('Remove'));
+  fireEvent.click(within(showCards()[0]).getByText('Unsave'));
 
   await waitFor(() => expect(API.removeShowFavourite).toHaveBeenCalled());
   expect(showCards()).toHaveLength(2);
@@ -422,4 +451,126 @@ test('a reader with nothing saved still sees all three kinds', async () => {
   expect(kindRow('Shows')).not.toBeNull();
   openKind('Views');
   await screen.findByText('No saved views');
+});
+
+// ── Putting saved things in an album ──────────────────────────────────────
+//
+// Everything on this page is saved already, so every add here goes by
+// favourite id — `addSavedToAlbum` and nothing else. A page that reached for
+// `addLookToAlbum` with a body would file a SECOND copy of something the
+// reader had already starred, which is the one mistake this half of the
+// feature can make.
+
+test('several saved things go into one album in one press', async () => {
+  AlbumsAPI.getAlbums.mockResolvedValue(SHELF);
+  await renderPage();
+  openKind('Shows');
+  await waitFor(() => expect(showCards()).toHaveLength(2));
+
+  tick('Yohji Yamamoto Fall 1999');
+  tick('Raf Simons Fall 2001');
+  expect(screen.getByText('2 selected')).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Add to album' }));
+  await screen.findByRole('dialog');
+  fireEvent.click(albumButton('Resort'));
+
+  await waitFor(() => expect(AlbumsAPI.addSavedToAlbum).toHaveBeenCalledTimes(2));
+  // Both of them, by their own ids, into the album that was chosen. One call
+  // would mean the bar acts on the last tick rather than on the selection.
+  expect(AlbumsAPI.addSavedToAlbum).toHaveBeenCalledWith(7, 'fav-show');
+  expect(AlbumsAPI.addSavedToAlbum).toHaveBeenCalledWith(7, 'fav-show-2');
+  // Saved things are added by id; nothing is re-saved.
+  expect(AlbumsAPI.addShowToAlbum).not.toHaveBeenCalled();
+
+  // The panel closes and the ticks are cleared, so the next press is not an
+  // accidental second filing of the same two.
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  expect(screen.queryByText('2 selected')).toBeNull();
+});
+
+test('an album can be made from the picker and filled in the same press', async () => {
+  AlbumsAPI.getAlbums.mockResolvedValue(SHELF);
+  await renderPage();
+  openKind('Views');
+  await waitFor(() => expect(viewRows()).toHaveLength(2));
+
+  tick('Paris 2020');
+  fireEvent.click(screen.getByRole('button', { name: 'Add to album' }));
+  await screen.findByRole('dialog');
+
+  fireEvent.click(screen.getByRole('button', { name: 'New album' }));
+  fireEvent.change(screen.getByLabelText('New album name'), { target: { value: 'Archive' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Create and add' }));
+
+  await waitFor(() => expect(AlbumsAPI.createAlbum).toHaveBeenCalledWith('Archive', {}));
+  // The id is the server's to mint, so the add has to wait for it and use it.
+  await waitFor(() => expect(AlbumsAPI.addSavedToAlbum).toHaveBeenCalledWith(11, 'fav-view'));
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+});
+
+test('the selection is dropped when the pane changes under it', async () => {
+  await renderPage();
+  openKind('Shows');
+  await waitFor(() => expect(showCards()).toHaveLength(2));
+  tick('Yohji Yamamoto Fall 1999');
+  expect(screen.getByText('1 selected')).toBeInTheDocument();
+
+  openKind('Views');
+  // "1 selected" over a pane holding none of it is a bar the reader cannot
+  // check, and a press on it adds something they cannot see.
+  expect(screen.queryByText('1 selected')).toBeNull();
+});
+
+// ── The two destructive acts ──────────────────────────────────────────────
+
+test('the button that unsaves says so, and is the only one wearing the danger token', async () => {
+  await renderPage();
+  openKind('Shows');
+  await waitFor(() => expect(showCards()).toHaveLength(2));
+
+  const unsave = within(showCards()[0]).getByText('Unsave');
+  expect(unsave).toHaveClass('ar-btn-danger');
+  expect(unsave).toHaveAttribute(
+    'title', 'Take it out of the library. It leaves every album with it.');
+  // Nothing else on this page claims that token.
+  expect(document.querySelectorAll('.ar-btn-danger')).toHaveLength(showCards().length);
+});
+
+test('unsaving something re-reads the albums, because the server has taken it out of them', async () => {
+  // Four items in Resort before, three after: `album_items` is ON DELETE
+  // CASCADE on the favourite, so unsaving one takes it out of every album it
+  // was in — in one statement, in the database, without asking the client.
+  AlbumsAPI.getAlbums
+    .mockResolvedValueOnce([{ ...SHELF[0], item_count: 4 }])
+    .mockResolvedValue([{ ...SHELF[0], item_count: 3 }]);
+  await renderPage();
+  await waitFor(() => expect(document.querySelector('.lib-album')).not.toBeNull());
+  expect(within(document.querySelector('.lib-album')).getByText('4')).toBeInTheDocument();
+
+  openKind('Shows');
+  await waitFor(() => expect(showCards()).toHaveLength(2));
+  fireEvent.click(within(showCards()[0]).getByText('Unsave'));
+  await waitFor(() => expect(API.removeShowFavourite).toHaveBeenCalled());
+
+  // The shelf is read again and the count comes down. Without the re-read the
+  // sidebar goes on claiming four items in an album that holds three, and the
+  // reader only finds out by opening it.
+  await waitFor(() => expect(AlbumsAPI.getAlbums).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(
+    within(document.querySelector('.lib-album')).getByText('3')).toBeInTheDocument());
+});
+
+test('a ticked thing that is unsaved stops being ticked', async () => {
+  await renderPage();
+  openKind('Shows');
+  await waitFor(() => expect(showCards()).toHaveLength(2));
+
+  tick('Yohji Yamamoto Fall 1999');
+  tick('Raf Simons Fall 2001');
+  fireEvent.click(within(showCards()[0]).getByText('Unsave'));
+
+  // One left, and it is the one still on screen — a selection holding an id
+  // the library no longer has would file a row that does not exist.
+  await waitFor(() => expect(screen.getByText('1 selected')).toBeInTheDocument());
 });

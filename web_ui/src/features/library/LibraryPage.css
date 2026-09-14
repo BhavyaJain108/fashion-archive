@@ -577,3 +577,69 @@
 .lib-album.selected .count {
   color: var(--ar-ink-3);
 }
+
+/* --- Choosing things, and putting them in an album ------------------- */
+
+/* The tick box, the same one on all three kinds. Monochrome: accent-color
+   points the browser's own control at the ink token rather than at the
+   system blue, which is the only colour that could get in here. */
+.lib-pick {
+  flex-shrink: 0;
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  accent-color: var(--ar-ink);
+  cursor: pointer;
+}
+
+/* On a grid tile it sits on the photograph, top left — the opposite corner
+   from the archive page's star, so the two never land on top of each other
+   in a reader's memory of where things are. The box is absolutely positioned
+   so that it cannot change the tile's height: the grid's rows are all one
+   height and a tick must not make one of them taller. */
+.fav-grid-image {
+  position: relative;
+}
+
+.fav-grid-image .lib-pick {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 1;
+}
+
+.fav-look-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.lib-show-card .lib-pick,
+.lib-view-row .lib-pick {
+  align-self: flex-start;
+}
+
+/* The bar, at the foot of the pane above the status bar. It is only drawn
+   when something is ticked, so it takes no room the rest of the time. */
+.lib-select-bar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 24px;
+  border-top: 1px solid var(--ar-line);
+  background: var(--ar-bg-sub);
+}
+
+.lib-select-count {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ar-ink);
+}
+
+.lib-select-acts {
+  display: flex;
+  gap: 8px;
+}

@@ -249,3 +249,23 @@
   text-align: center;
   color: var(--ar-ink-3);
 }
+
+/* --- Taking a tile out ---------------------------------------------- */
+
+/* No colour. `--ar-danger` is spent on unsaving, in the library, which is
+   the act that cannot be undone; this one is a press of the picker away
+   from being undone and must not wear the same warning. */
+.alb-acts {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  border-top: 1px solid var(--ar-line);
+}
+
+.alb-acts-note {
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--ar-ink-4);
+}

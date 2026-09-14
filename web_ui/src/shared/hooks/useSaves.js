@@ -260,6 +260,33 @@ export function useSaves() {
     return !!key && savedKeys.has(key);
   }, [savedKeys]);
 
+  // The marker moved, and NOTHING sent. The only write-less way into this
+  // list, and it exists for exactly one caller.
+  //
+  // `useAlbums` adds something to an album that may not be saved yet, and the
+  // server does the save and the filing in one transaction: by the time that
+  // answer lands the favourite row exists, and there is no second request left
+  // to make — only a star to light. Calling `toggle` for it would send a
+  // second add of a row the server already has, and a `removeFavourite` on the
+  // rollback would delete a favourite the failed transaction never created.
+  //
+  // This hook stays the one owner of the list a star reads. `useAlbums` does
+  // not hold saves, it asks the owner to move one marker, which is why the
+  // collaborator it takes is this pair and not the list.
+  //
+  // Idempotent on purpose, and it moves ONE key: asked for a state the list is
+  // already in it does nothing, so an album add that lit a star cannot be
+  // undone into putting out a star somebody else lit.
+  const setSaved = useCallback((target, saved) => {
+    const key = keyOf(target);
+    if (!key) return;
+    const rows = savesRef.current;
+    if (keySetOf(rows).has(key) === Boolean(saved)) return;
+    applySaves(saved
+      ? [...rows, rowOfTarget(target)]
+      : rows.filter(row => keyOf(targetOfRow(row)) !== key));
+  }, [applySaves]);
+
   // One flip undone, on the list as it stands NOW rather than by putting a
   // remembered copy back. Writes for different stars run at the same time, so
   // a snapshot taken before this one started may be missing another star's
@@ -388,7 +415,7 @@ export function useSaves() {
     }
   }, [applySaves, write, undoFlip]);
 
-  return { isSaved, toggle, saves, loading, error, reload: load };
+  return { isSaved, setSaved, toggle, saves, loading, error, reload: load };
 }
 
 export default useSaves;

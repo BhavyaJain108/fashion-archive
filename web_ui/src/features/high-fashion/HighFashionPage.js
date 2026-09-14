@@ -10,6 +10,7 @@ import { useRoute } from '../../shared/hooks/useRoute';
 import { usePersistentState } from '../../shared/hooks/usePersistentState';
 import { useCollectionImages } from '../../shared/hooks/useCollectionImages';
 import { useRecents } from '../../shared/hooks/useRecents';
+import { useAlbums } from '../../shared/hooks/useAlbums';
 import { prepare as prepareDesigners, search as searchDesigners } from '../../shared/lib/designerSearch';
 import { migrateLegacySidebarOpen } from './legacySidebar';
 import { normalizeViewMode } from '../../shared/lib/preferences';
@@ -18,6 +19,7 @@ import Filters, { GARMENT_TYPES } from './Filters';
 import ShowList from './ShowList';
 import RecentsDrawer from './RecentsDrawer';
 import Viewer from './Viewer';
+import AlbumPicker from '../../shared/ui/AlbumPicker';
 import StatusBar from './StatusBar';
 import { videoSeasonName } from './seasonName';
 import { useFavourites } from './useFavourites';
@@ -1030,7 +1032,30 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
     isFavourite, toggleFavourite,
     isShowSaved, toggleShowSave,
     isViewSaved, toggleViewSave,
+    lookOnScreen, showOnScreen,
+    saves,
   } = useFavourites(imagesCollection, images.length);
+
+  // The album shelf, and the one write this page makes to it. No album id:
+  // this page never opens an album, it only puts things into one.
+  //
+  // `{ saves }` is the collaborator, and it is the whole of the wiring that
+  // was missing. Adding something unsaved to an album saves it inside the
+  // album endpoint's own transaction — there is no second request to make —
+  // so the star over it has to light off that one answer. It lights because
+  // `useAlbums` asks the owner of the saved list to move one marker. Drop
+  // this argument and the add still works, the row is still saved, and the
+  // star stays dark until the next load of the favourites list: a reader
+  // watching a star they just filled in stay empty.
+  const {
+    albums, createAlbum, addToAlbum, error: albumsError,
+  } = useAlbums(null, { saves });
+
+  // Whether the picker is up, and whether a write is out. The picker is the
+  // only thing on this page that asks a question before it acts; the star
+  // asks nothing, which is the point of having two controls.
+  const [albumPickerOpen, setAlbumPickerOpen] = useState(false);
+  const [albumBusy, setAlbumBusy] = useState(false);
 
   // Where the reader has been, for the drawer at the foot of the sidebar.
   // The list only; opening one of them is `handleCollectionSelect` below,
@@ -1409,6 +1434,60 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
     ? extractLookNumber(images[imageIndex], imageIndex)
     : 0;
 
+  // ── Putting what is on screen in an album ────────────────────────────
+  //
+  // Both targets come from `useFavourites`, off the collection whose
+  // photographs are ON SCREEN — the same rule, from the same place, as the
+  // star in the row beside this control. A second builder here reading
+  // `selectedCollection` would file the look the reader is looking at under
+  // the show they have just clicked, which is the phase-2 corruption bug
+  // wearing a different button.
+  const albumTarget = (what) => (what === 'show'
+    ? showOnScreen()
+    : lookOnScreen(currentLookNumber, images[imageIndex]));
+
+  // What the picker offers. The look first, because the look in front of the
+  // reader is the common act and the whole show is the one they go looking
+  // for. Only offered at all when there is a photograph on screen — the
+  // control lives in the single view, which does not exist without one.
+  // What the panel says it is about to file: the show whose photographs are
+  // on screen, named the way the status bar names it. `imagesCollection`
+  // again, and not the selection — during the stale window they are two
+  // different shows and this must agree with the target below it.
+  const albumHeading = [
+    imagesCollection && (imagesCollection.designer_name || imagesCollection.designer),
+    videoSeasonName(imagesCollection),
+  ].filter(Boolean).join(' / ');
+
+  const albumChoices = [
+    { value: 'look', label: `Look ${currentLookNumber}` },
+    { value: 'show', label: 'Whole show' },
+  ];
+
+  const addToAlbumFromViewer = async (albumId, what) => {
+    const target = albumTarget(what);
+    if (!target || albumId === null || albumId === undefined) return;
+    setAlbumBusy(true);
+    const ok = await addToAlbum(albumId, target);
+    setAlbumBusy(false);
+    // Left open on a failure, with the reason under it: closing it would
+    // take the only thing on screen that says the add did not happen.
+    if (ok) setAlbumPickerOpen(false);
+  };
+
+  // An album made and filled in one press. Two requests and not one — the
+  // server mints the id — so the add only goes if the create came back with
+  // one, and a 409 on the name leaves the picker open saying so.
+  const createAlbumAndAdd = async (name, what) => {
+    const target = albumTarget(what);
+    if (!target) return;
+    setAlbumBusy(true);
+    const made = await createAlbum(name);
+    const ok = made ? await addToAlbum(made.id, target) : false;
+    setAlbumBusy(false);
+    if (ok) setAlbumPickerOpen(false);
+  };
+
   return (
     <div className="hf2-container">
       <TopBar
@@ -1520,6 +1599,7 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
         selectImageFromGrid={selectImageFromGrid}
         isFavourite={isFavourite}
         toggleFavourite={toggleFavourite}
+        onAddToAlbum={() => setAlbumPickerOpen(true)}
         thumbStripRef={thumbStripRef}
         activeThumbRef={activeThumbRef}
         showVideo={showVideo}
@@ -1543,6 +1623,22 @@ function HighFashionPage({ currentPage = 'high-fashion', onPageSwitch, onLogout,
       />
       </div>
 
+
+      {/* The picker, at the page level rather than inside the Viewer: it
+          covers the page, it holds the album shelf, and the Viewer is
+          presentational and knows nothing about albums. */}
+      {albumPickerOpen && (
+        <AlbumPicker
+          albums={albums}
+          heading={albumHeading}
+          choices={albumChoices}
+          onPick={addToAlbumFromViewer}
+          onCreate={createAlbumAndAdd}
+          onClose={() => setAlbumPickerOpen(false)}
+          busy={albumBusy}
+          error={albumsError}
+        />
+      )}
 
       {/* Status Bar */}
       <StatusBar

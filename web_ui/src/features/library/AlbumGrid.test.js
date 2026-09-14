@@ -13,12 +13,19 @@ jest.mock('../../shared/api', () => ({
   FashionArchiveAPI: {
     getMe: jest.fn(),
     logout: jest.fn(),
+    // Not called by this page, and the test below says so out loud: taking a
+    // tile out of an album must never reach the endpoint that unsaves.
+    removeFavourite: jest.fn(),
+    removeShowFavourite: jest.fn(),
+    removeViewFavourite: jest.fn(),
     getImageUrl: (p) => `/images/${p}`,
   },
   AlbumsAPI: {
     getAlbums: jest.fn(),
     getAlbum: jest.fn(),
     setAlbumOptions: jest.fn(),
+    deleteAlbum: jest.fn(),
+    removeFromAlbum: jest.fn(),
   },
 }));
 
@@ -160,6 +167,8 @@ beforeEach(() => {
     if (opts.sortBy !== undefined) albumRow.sort_by = opts.sortBy;
     return { ok: true, status: 200, success: true };
   });
+  AlbumsAPI.removeFromAlbum.mockResolvedValue({ ok: true, status: 200, success: true });
+  AlbumsAPI.deleteAlbum.mockResolvedValue({ ok: true, status: 200, success: true });
 });
 
 const path = () => window.location.pathname + window.location.search;
@@ -424,4 +433,52 @@ test('/library/albums/:id renders the album, and Back returns to the library', a
   });
   await waitFor(() => expect(path()).toBe('/library/albums/7'));
   await waitFor(() => expect(tiles().length).toBe(4));
+});
+
+// ── Taking a tile out, which is not unsaving ─────────────────────────────
+//
+// The two destructive acts of this feature sit one page apart and one of them
+// cannot be undone. REMOVE FROM ALBUM takes a tile out of this album and
+// leaves the favourite exactly where it was; UNSAVE, in the library, ends the
+// favourite and the cascade on `album_items` takes it out of every album on
+// the way past. A control wired to the wrong one of those looks identical
+// until somebody's saved look is gone.
+
+const removeButton = () => screen.getByRole('button', { name: 'Remove from album' });
+
+test('removing a tile takes it out of the album and leaves the favourite saved', async () => {
+  rows = [LOOK_A, SHOW_B];
+  await openAlbum();
+
+  // It names the thing it is about, and does nothing until one is chosen.
+  expect(removeButton()).toBeDisabled();
+  fireEvent.click(tiles()[0]);
+  await waitFor(() => expect(removeButton()).not.toBeDisabled());
+  expect(removeButton()).toHaveAttribute(
+    'title', 'Take Yohji Yamamoto out of this album');
+
+  fireEvent.click(removeButton());
+
+  await waitFor(() => expect(AlbumsAPI.removeFromAlbum).toHaveBeenCalledWith(7, 101));
+  // Not the endpoint that unsaves, and not the one that deletes the album.
+  expect(API.removeFavourite).not.toHaveBeenCalled();
+  expect(API.removeShowFavourite).not.toHaveBeenCalled();
+  expect(AlbumsAPI.deleteAlbum).not.toHaveBeenCalled();
+
+  // The tile goes; the album stays, with the other tile in it.
+  await waitFor(() => expect(tiles()).toHaveLength(1));
+  expect(screen.getByText('Resort')).toBeInTheDocument();
+});
+
+test('the control does not dress itself as the one that cannot be undone', async () => {
+  rows = [LOOK_A];
+  await openAlbum();
+
+  // `--ar-danger` is spent on unsaving and on nothing else. This act is one
+  // press of the picker away from being undone, and a red button over it
+  // would teach the reader that both buttons mean the same thing.
+  expect(removeButton()).not.toHaveClass('ar-btn-danger');
+  expect(document.querySelectorAll('.ar-btn-danger')).toHaveLength(0);
+  // And it says which of the two it is, in the words the act uses.
+  expect(screen.getByText(/It stays in your library/)).toBeInTheDocument();
 });

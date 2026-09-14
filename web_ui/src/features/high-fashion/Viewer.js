@@ -16,7 +16,9 @@ import VideoPanel from './VideoPanel';
 // it sits in the tree does not decide where it sits on screen.
 //
 // Presentational: every value and every handler is a prop, including
-// `isFavourite`, which is asked per tile rather than precomputed.
+// `isFavourite`, which is asked per tile rather than precomputed — and
+// `onAddToAlbum`, which only opens the page's picker. Nothing here knows what
+// an album is.
 function Viewer({
   images,
   imagesLoading,
@@ -35,6 +37,7 @@ function Viewer({
   selectImageFromGrid,
   isFavourite,
   toggleFavourite,
+  onAddToAlbum,
   thumbStripRef,
   activeThumbRef,
   // Video
@@ -136,21 +139,38 @@ function Viewer({
                     bar still print it — it just stops being a second
                     unexplained number beside this one. */}
                 <div className="hf2-image-info">
-                  {/* Keeping a look was possible in the database and in the API
-                      from the start, and nowhere on the screen. It is the same
-                      star as the one on the grid tile, the show row and the
-                      filter bar — one component, so the four cannot drift into
-                      four different ways of keeping something. The tooltip
-                      still names the keyboard shortcut; the accessible name
-                      names the look, because that is what is being saved. */}
-                  <SaveStar
-                    saved={isFavourite(currentLookNumber)}
-                    onToggle={() => toggleFavourite(currentLookNumber, images[currentImageIndex])}
-                    label={`Save look ${currentLookNumber}`}
-                    title={isFavourite(currentLookNumber)
-                      ? 'Remove from favourites (F)'
-                      : 'Keep this look (F)'}
-                  />
+                  <span className="hf2-image-acts">
+                    {/* Keeping a look was possible in the database and in the API
+                        from the start, and nowhere on the screen. It is the same
+                        star as the one on the grid tile, the show row and the
+                        filter bar — one component, so the four cannot drift into
+                        four different ways of keeping something. The tooltip
+                        still names the keyboard shortcut; the accessible name
+                        names the look, because that is what is being saved. */}
+                    <SaveStar
+                      saved={isFavourite(currentLookNumber)}
+                      onToggle={() => toggleFavourite(currentLookNumber, images[currentImageIndex])}
+                      label={`Save look ${currentLookNumber}`}
+                      title={isFavourite(currentLookNumber)
+                        ? 'Remove from favourites (F)'
+                        : 'Keep this look (F)'}
+                    />
+                    {/* Beside the star and deliberately unlike it: a word, not
+                        a glyph, and a panel rather than an instant effect.
+                        Keeping something is one click with no question asked;
+                        filing it somewhere is a second act with a question in
+                        it, and the two must not be the same control. The star
+                        never asks which album, and this never saves silently —
+                        it says what it is about to do first. */}
+                    {onAddToAlbum && (
+                      <button
+                        type="button"
+                        className="hf2-album-btn"
+                        onClick={() => onAddToAlbum()}
+                        title="Put this look, or this whole show, in an album"
+                      >Add to album</button>
+                    )}
+                  </span>
                   {/* lookCounter, so this and the status bar are one
                       spelling of "n of m" rather than two that drift. */}
                   <span className="hf2-look-count">

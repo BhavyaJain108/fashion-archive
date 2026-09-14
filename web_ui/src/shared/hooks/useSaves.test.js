@@ -565,3 +565,67 @@ test('a list that will not load leaves an error and an empty set', async () => {
   expect(result.current.error).toBeTruthy();
   expect(result.current.isSaved(look(GUCCI, 3))).toBe(false);
 });
+
+// ── setSaved: the marker, moved, with nothing sent ────────────────────────
+//
+// The collaborator `useAlbums` takes. The album endpoint saves and files in
+// one transaction, so when it answers the row exists and there is nothing
+// left to send — only a star to light. Anything here that reached for the
+// favourites API would be a second add of a row the server already has.
+
+describe('setSaved', () => {
+  test('lights a star without sending anything', async () => {
+    const { result } = await mount();
+    expect(result.current.isSaved(look(GUCCI, 3))).toBe(false);
+
+    act(() => { result.current.setSaved(look(GUCCI, 3), true); });
+
+    expect(result.current.isSaved(look(GUCCI, 3))).toBe(true);
+    expect(api.addFavourite).not.toHaveBeenCalled();
+    expect(api.removeFavourite).not.toHaveBeenCalled();
+  });
+
+  test('puts one out again, and only the one', async () => {
+    const { result } = await mount();
+    act(() => { result.current.setSaved(look(GUCCI, 3), true); });
+    act(() => { result.current.setSaved(look(PRADA, 3), true); });
+
+    act(() => { result.current.setSaved(look(GUCCI, 3), false); });
+
+    expect(result.current.isSaved(look(GUCCI, 3))).toBe(false);
+    expect(result.current.isSaved(look(PRADA, 3))).toBe(true);
+    expect(api.removeFavourite).not.toHaveBeenCalled();
+  });
+
+  test('asked for the state the list is already in, it does nothing', async () => {
+    api.getFavourites.mockResolvedValue([row(look(GUCCI, 3))]);
+    const { result } = await mount();
+    const before = result.current.saves;
+
+    act(() => { result.current.setSaved(look(GUCCI, 3), true); });
+
+    // The same array, untouched. A second row for a look already in the list
+    // is how a rollback later takes out a star somebody else lit.
+    expect(result.current.saves).toBe(before);
+    expect(result.current.saves).toHaveLength(1);
+  });
+
+  test('a target that names nothing moves nothing', async () => {
+    const { result } = await mount();
+    act(() => { result.current.setSaved({ kind: 'look', look: { number: 1 } }, true); });
+    expect(result.current.saves).toHaveLength(0);
+  });
+
+  test('all three kinds, keyed the way the star reads them', async () => {
+    const { result } = await mount();
+    act(() => {
+      result.current.setSaved(show(GUCCI), true);
+      result.current.setSaved(view({ year: '2020' }, 'Twenty'), true);
+    });
+
+    expect(result.current.isSaved(show(GUCCI))).toBe(true);
+    expect(result.current.isSaved(view({ year: '2020' }))).toBe(true);
+    // A saved show is not a saved look of it.
+    expect(result.current.isSaved(look(GUCCI, 1))).toBe(false);
+  });
+});

@@ -564,6 +564,36 @@
   padding: 0 4px;
 }
 
+/* The star and the album control, together at the left of the row, with the
+   count still at its right. A group rather than three children of one
+   space-between row: the count belongs at the far edge, and a third child
+   would have pushed it into the middle of the photograph. */
+.hf2-image-acts {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* A word, not a glyph. It has to read as a different act from the star it
+   sits beside — quiet, in the same ink as the count, and never coloured:
+   nothing here destroys anything. */
+.hf2-album-btn {
+  border: none;
+  background: none;
+  padding: 0;
+  font-family: var(--ar-font);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ar-ink-3);
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.hf2-album-btn:hover {
+  color: var(--ar-ink);
+}
+
 .hf2-look-count {
   font-size: 12px;
   color: #999999;

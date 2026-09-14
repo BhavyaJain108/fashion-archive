@@ -214,7 +214,7 @@ function Tile({ item, selected, onSelect, onOpen }) {
 
 function AlbumGrid({ currentPage, onPageSwitch, currentUser, onLogout, albumId }) {
   const {
-    album, items, itemsLoading, setAlbumOptions,
+    album, items, itemsLoading, setAlbumOptions, removeFromAlbum,
   } = useAlbums(albumId);
 
   // Which tile is selected, by favourite id. Not by index: the list is
@@ -339,6 +339,44 @@ function AlbumGrid({ currentPage, onPageSwitch, currentUser, onLogout, albumId }
                 <option key={s.value} value={s.value}>{s.label}</option>
               ))}
             </select>
+          </div>
+
+          {/* Taking a tile out of this album.
+
+              This is NOT the button that unsaves, and it is written so that
+              a reader can tell at a glance which of the two they are about
+              to press. It says what it does to the thing it names, it is a
+              plain control in the same ink as everything else, and the line
+              under it says where the thing goes: nowhere. It carries no
+              `ar-btn-danger`, because this design language spends that token
+              on one thing only — discarding something irreversibly — and
+              putting a tile back is one press of the same picker that put it
+              here.
+
+              The library's UNSAVE is the one that gets the colour. It ends
+              the favourite, and the cascade on `album_items` takes it out of
+              this album and every other one on the way past.
+
+              It names the selected tile rather than sitting on every tile:
+              one button on screen at a time, saying which thing it is about,
+              is harder to press by accident than a row of small identical
+              ones. */}
+          <div className="alb-acts">
+            <button
+              type="button"
+              className="ar-btn ar-btn-block alb-remove"
+              onClick={() => { if (selected) removeFromAlbum(album.id, selected.id); }}
+              disabled={!selected}
+              title={selected
+                ? `Take ${captionOf(selected).name} out of this album`
+                : 'Select a tile to take it out of this album'}
+            >
+              Remove from album
+            </button>
+            <span className="alb-acts-note">
+              It stays in your library. Unsaving is in the library, and takes
+              it out of every album.
+            </span>
           </div>
 
           {backRow}

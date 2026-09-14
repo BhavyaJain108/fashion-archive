@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useSaves } from '../../shared/hooks/useSaves';
 import { videoSeasonName } from './seasonName';
 
@@ -82,7 +82,7 @@ export function showTarget(row) {
 }
 
 export function useFavourites(shownCollection, lookTotal) {
-  const { isSaved, toggle } = useSaves();
+  const { isSaved, setSaved, toggle } = useSaves();
 
   const isFavourite = useCallback((lookNumber) => {
     const target = lookTarget(shownCollection, lookNumber, lookTotal);
@@ -115,10 +115,39 @@ export function useFavourites(shownCollection, lookTotal) {
     await toggle({ kind: 'view', filters, name });
   }, [toggle]);
 
+  // What the reader is looking at, as a target, for anything on this page
+  // that is NOT the star — putting it in an album, to begin with.
+  //
+  // These exist so there is one answer to "which show is this about". The
+  // star's answer is the show whose photographs are on screen, worked out
+  // above; a second caller building its own target out of
+  // `selectedCollection` would file the look the reader is looking at under
+  // the show they have just clicked, which is the phase-2 data-corruption bug
+  // with a different button on it.
+  const lookOnScreen = useCallback(
+    (lookNumber, imagePath) => lookTarget(shownCollection, lookNumber, lookTotal, imagePath),
+    [shownCollection, lookTotal]);
+
+  const showOnScreen = useCallback(() => showTarget(shownCollection), [shownCollection]);
+
+  // The collaborator `useAlbums` takes, and the reason it takes one.
+  //
+  // Adding an unsaved thing to an album saves it inside the album endpoint's
+  // own transaction, so the star has to light without a second request. It
+  // lights by asking the owner of the saved list to move one marker — this
+  // pair — rather than by `useAlbums` keeping a list of its own, because two
+  // owners of that list is how a star ends up lit for a row nobody saved.
+  //
+  // One object, memoised, so a page writing `useAlbums(null, { saves })`
+  // hands over the same reference on every render.
+  const saves = useMemo(() => ({ isSaved, setSaved }), [isSaved, setSaved]);
+
   return {
     isFavourite, toggleFavourite,
     isShowSaved, toggleShowSave,
     isViewSaved, toggleViewSave,
+    lookOnScreen, showOnScreen,
+    saves,
   };
 }
 
