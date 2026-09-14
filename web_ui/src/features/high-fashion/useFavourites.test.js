@@ -28,7 +28,13 @@ const PRADA = {
   year: '2001',
 };
 
+// A row as GET /api/favourites returns one: nested, and carrying the season
+// url as well as the collection's, because a look is keyed on
+// (season, collection, number) — the server's unique index — and a fixture
+// that left the season out would let a key that ignores it pass.
 const kept = (collection, number) => ({
+  kind: 'look',
+  season: { url: collection.season_url },
   collection: { url: collection.url },
   look: { number },
 });
@@ -87,6 +93,18 @@ describe('useFavourites', () => {
 
     rerender({ c: GUCCI, t: 40 });
     expect(result.current.isFavourite(3)).toBe(true);
+  });
+
+  // The season url is the third part of a look's key and the first argument
+  // of the positional delete. A row filed under another season is another
+  // row, and the star must not claim it.
+  test('a look kept under another season is not this look', async () => {
+    getFavourites.mockResolvedValue([
+      { ...kept(PRADA, 7), season: { url: GUCCI.season_url } },
+    ]);
+    const { result } = mount(PRADA, 27);
+    await settled(result);
+    expect(result.current.isFavourite(7)).toBe(false);
   });
 
   test('nothing is kept when there is nothing on screen', async () => {
