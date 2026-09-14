@@ -175,3 +175,59 @@ describe('every delete goes through one place', () => {
     await expect(SavesEndpoints.removeViewFavourite({ city: 'Paris' })).rejects.toThrow();
   });
 });
+
+// ── an expired session ────────────────────────────────────────────────────
+//
+// `getFavourites` caught everything and returned [], so a 401 rendered an
+// empty library and an all-dark star field — the reader's saves apparently
+// gone, with no sign-in prompt and nothing in `useSaves.error`, which is
+// unreachable on the load path because the throw never escapes. `getRecents`
+// has always called `ApiClient.checkAuth`; this is the same endpoint family
+// answering the same dead session two different ways.
+
+describe('a session that has expired', () => {
+  const unauthorized = () => {
+    global.fetch = jest.fn(() => Promise.resolve({
+      ok: false, status: 401, statusText: 'UNAUTHORIZED',
+      json: () => Promise.resolve({}),
+    }));
+  };
+
+  test('getFavourites tells the app the session is gone', async () => {
+    const onUnauthorized = jest.fn();
+    ApiClient.onUnauthorized = onUnauthorized;
+    unauthorized();
+
+    const rows = await SavesEndpoints.getFavourites();
+
+    expect(onUnauthorized).toHaveBeenCalledTimes(1);
+    expect(rows).toEqual([]);
+    ApiClient.onUnauthorized = null;
+  });
+
+  test('getRecents does the same, as it always has', async () => {
+    const onUnauthorized = jest.fn();
+    ApiClient.onUnauthorized = onUnauthorized;
+    unauthorized();
+
+    await SavesEndpoints.getRecents();
+
+    expect(onUnauthorized).toHaveBeenCalledTimes(1);
+    ApiClient.onUnauthorized = null;
+  });
+
+  test('a 500 is not a dead session', async () => {
+    const onUnauthorized = jest.fn();
+    ApiClient.onUnauthorized = onUnauthorized;
+    global.fetch = jest.fn(() => Promise.resolve({
+      ok: false, status: 500, statusText: 'SERVER ERROR',
+      json: () => Promise.resolve({}),
+    }));
+
+    const rows = await SavesEndpoints.getFavourites();
+
+    expect(onUnauthorized).not.toHaveBeenCalled();
+    expect(rows).toEqual([]);
+    ApiClient.onUnauthorized = null;
+  });
+});

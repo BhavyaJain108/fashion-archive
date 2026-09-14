@@ -35,7 +35,13 @@ export class SavesEndpoints {
         headers: headers
       });
 
+      // A dead session is not an empty library. Without this a 401 was caught
+      // below and answered with [], so the reader saw no saves, an all-dark
+      // star field and no sign-in prompt — and `useSaves.error` never fired,
+      // because the throw did not escape. `getRecents` has always reported it;
+      // this is the same endpoint family and now gives the same answer.
       if (!response.ok) {
+        ApiClient.checkAuth(response);
         throw new Error(`API call failed: ${response.statusText}`);
       }
 
