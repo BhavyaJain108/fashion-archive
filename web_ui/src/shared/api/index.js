@@ -5,6 +5,7 @@
 // the pages already use, so splitting the file did not mean touching every
 // call in the app on the same commit.
 import ApiClient from './client';
+import AlbumsEndpoints from './albums';
 import ArchiveEndpoints from './archive';
 import SavesEndpoints from './saves';
 
@@ -35,7 +36,7 @@ export function copyStatics(target, source) {
 
 // FashionArchiveAPI.getSeasons and .addFavourite keep working because every
 // own property of the three modules lands on the facade here.
-for (const source of [ApiClient, ArchiveEndpoints, SavesEndpoints]) {
+for (const source of [ApiClient, AlbumsEndpoints, ArchiveEndpoints, SavesEndpoints]) {
   copyStatics(FashionArchiveAPI, source);
 }
 
@@ -47,6 +48,7 @@ Object.defineProperty(FashionArchiveAPI, 'onUnauthorized', {
   configurable: true,
 });
 
+export { default as AlbumsAPI } from './albums';
 export { default as ArchiveAPI } from './brands';
 export { ApiClient };
 export default FashionArchiveAPI;

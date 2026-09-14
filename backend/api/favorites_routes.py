@@ -68,6 +68,32 @@ def _view_name(body: dict, filters: dict) -> str:
     return supplied or favourites.derive_view_name(filters)
 
 
+def favourite_target(body: dict) -> dict:
+    """One save body as the keyword arguments the data layer takes.
+
+    Public, and the only place a request body becomes a favourite. The album
+    add endpoint saves through this too — the spec's rule is that adding
+    something unsaved to an album saves it first, so the two endpoints have to
+    agree about what a body means down to the derived view name. Two readings
+    of one body is how the same look becomes two rows.
+
+    Raises `favourites.UnknownKind` for a kind no index covers; the caller
+    turns that into the 400 `_refuse` writes.
+    """
+    kind = _kind(body)
+    view_filters = _view_filters(body) if kind == "view" else None
+    return {
+        "kind": kind,
+        "season": body.get("season", {}),
+        "collection": body.get("collection", {}),
+        "look": body.get("look", {}),
+        "image_path": body.get("image_path", ""),
+        "notes": body.get("notes", ""),
+        "view_filters": view_filters,
+        "view_name": _view_name(body, view_filters) if kind == "view" else None,
+    }
+
+
 def get_favourites():
     """GET /api/favourites — everything the current user has saved.
 
@@ -118,28 +144,17 @@ def add_favourite():
     that could send one the url disagrees with, which is the two-keys-for-one-show
     bug this column was added to end. It comes back on every row from GET.
     """
-    body = _body()
     try:
-        kind = _kind(body)
+        target = favourite_target(_body())
     except favourites.UnknownKind as exc:
         return _refuse(exc)
 
-    view_filters = _view_filters(body) if kind == "view" else None
-    view_name = _view_name(body, view_filters) if kind == "view" else None
+    kind = target["kind"]
+    view_filters = target["view_filters"]
+    view_name = target["view_name"]
 
     with db.transaction() as conn:
-        added = favourites.add(
-            conn,
-            user_id=current_user().id,
-            kind=kind,
-            season=body.get("season", {}),
-            collection=body.get("collection", {}),
-            look=body.get("look", {}),
-            image_path=body.get("image_path", ""),
-            notes=body.get("notes", ""),
-            view_filters=view_filters,
-            view_name=view_name,
-        )
+        added = favourites.add(conn, user_id=current_user().id, **target)
 
     if added:
         answer = {"success": True, "message": "Added to favourites"}

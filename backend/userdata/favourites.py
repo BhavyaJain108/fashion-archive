@@ -176,6 +176,20 @@ def _key_params(kind: str, values: dict[str, Any]) -> tuple:
     return tuple(values[name] for name in names)
 
 
+def _look_number(kind: str, look: dict | None) -> int | None:
+    """The number that identifies a look, and None for the kinds that have no
+    position.
+
+    A function rather than an expression inside `add`, because `add_returning_id`
+    has to key its lookup on exactly the number `add` stored. Two spellings of
+    "which look is this" is the same class of bug as two spellings of a key.
+    """
+    if kind != "look":
+        return None
+    look = look or {}
+    return look.get("number", look.get("lookNumber", 0))
+
+
 def add(
     conn,
     *,
@@ -205,7 +219,7 @@ def add(
     # A show is the whole run, so it has no number; a view has no show at all.
     # The text columns are NOT NULL from when every row was a look, so what a
     # kind does not have is the empty string rather than a null.
-    look_number = look.get("number", look.get("lookNumber", 0)) if kind == "look" else None
+    look_number = _look_number(kind, look)
 
     # Read once and sent twice: once as the column, once to the function that
     # derives collection_id from it. The caller never supplies the id — a
@@ -246,6 +260,55 @@ def add(
         ),
     )
     return cur.fetchone() is not None
+
+
+def add_returning_id(
+    conn,
+    *,
+    user_id: UUID,
+    kind: str = "look",
+    season: dict | None = None,
+    collection: dict | None = None,
+    look: dict | None = None,
+    image_path: str = "",
+    notes: str = "",
+    view_filters: Any = None,
+    view_name: str | None = None,
+) -> tuple[int | None, bool]:
+    """Save something and return (id, created).
+
+    `add` answers whether a row was written, which is all the favourites
+    endpoints ever needed. A caller that must then reference the row — the
+    album add endpoint, which saves a look and puts it in an album — needs the
+    id whether this request created it or a previous one did, and `add`'s
+    RETURNING gives nothing back for the second case.
+
+    The lookup is keyed here rather than by the caller, on the arguments that
+    were just stored, so the id an album is handed is by construction the row
+    `remove` and `exists` would find for the same target.
+    """
+    created = add(
+        conn,
+        user_id=user_id,
+        kind=kind,
+        season=season,
+        collection=collection,
+        look=look,
+        image_path=image_path,
+        notes=notes,
+        view_filters=view_filters,
+        view_name=view_name,
+    )
+    favourite_id = find_id(
+        conn,
+        user_id=user_id,
+        kind=kind,
+        season_url=(season or {}).get("url", ""),
+        collection_url=(collection or {}).get("url", ""),
+        look_number=_look_number(kind, look),
+        view_filters=view_filters,
+    )
+    return favourite_id, created
 
 
 def remove(
@@ -297,6 +360,57 @@ def exists(
     )
     cur = conn.execute(f"SELECT 1 FROM favourites WHERE {where}", params)
     return cur.fetchone() is not None
+
+
+def find_id(
+    conn,
+    *,
+    user_id: UUID,
+    kind: str = "look",
+    season_url: str = "",
+    collection_url: str = "",
+    look_number: int | None = None,
+    view_filters: Any = None,
+) -> int | None:
+    """The id of one saved thing, or None if it is not saved.
+
+    `add` answers whether a row was written; this answers which row is there,
+    which is what a caller that has to reference the favourite afterwards needs
+    — the album add endpoint saves a look and then puts it in an album, and
+    the id is the only handle between the two halves.
+
+    It goes through `key_clause` like `remove` and `exists` do, for the reason
+    stated at the top of this module: a lookup keyed on different columns than
+    the delete would hand an album the wrong row, and the two would disagree
+    only for the kinds nobody tested.
+    """
+    where, _ = key_clause(kind)
+    params = _key_params(
+        kind,
+        {
+            "user_id": user_id,
+            "season_url": season_url,
+            "collection_url": collection_url,
+            "look_number": look_number,
+            "view_filters": canonical_filters(view_filters),
+        },
+    )
+    row = conn.execute(f"SELECT id FROM favourites WHERE {where}", params).fetchone()
+    return row[0] if row else None
+
+
+def owns(conn, *, user_id: UUID, favourite_id: int) -> bool:
+    """Is this favourite id this user's?
+
+    The user id is in the WHERE rather than compared afterwards, so an id
+    belonging to somebody else is indistinguishable from one that never
+    existed. A caller answering an HTTP request needs exactly that: both are a
+    404, and telling them apart would confirm a stranger's row exists.
+    """
+    row = conn.execute(
+        "SELECT 1 FROM favourites WHERE id = %s AND user_id = %s", (favourite_id, user_id)
+    ).fetchone()
+    return row is not None
 
 
 def shape(row: dict[str, Any]) -> dict[str, Any]:

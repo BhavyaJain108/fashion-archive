@@ -101,7 +101,17 @@ except Exception as e:
     import traceback
     traceback.print_exc()
 
-# 6. Archive API (My Brands: the roster in brands.yml, served from the archive
+# 6. Albums API (named groups of saved things, ordered by hand)
+try:
+    print("🔧 Registering Albums API...")
+    from backend.api.album_routes import register_album_routes
+    register_album_routes(app)
+except Exception as e:
+    print(f"❌ Error registering Albums API: {e}")
+    import traceback
+    traceback.print_exc()
+
+# 7. Archive API (My Brands: the roster in brands.yml, served from the archive
 # catalogue the scraper writes). Registered before install_auth so the hook below
 # covers it like every other route.
 try:
