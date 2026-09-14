@@ -150,6 +150,36 @@ export function keySetOf(rows) {
   return keys;
 }
 
+// Whether a write the server answered actually happened.
+//
+// A resolved promise is not a completed write. The favourites endpoints answer
+// a change they did not make with HTTP 200 and {"success": false} — so
+// `callPython` resolves, and awaiting it and returning true meant a delete
+// that matched nothing was indistinguishable from one that removed a row. The
+// star went dark, the row stayed in the database, and the next load put it
+// back. LibraryPage.js has always read `result.success` on these same
+// endpoints; this hook did not, and that difference is what made the recents
+// key split silent instead of noisy.
+//
+// The two directions do not mean the same thing, because the server's two
+// refusals do not:
+//
+//   delete -> "Not found in favourites"  the row is still there under some
+//                                        other key; the press did not happen
+//   add    -> "Already in favourites"    the row is there, which is exactly
+//                                        what the press asked for
+//
+// So a refused delete is a failure and is rolled back, and a refused add is
+// not: un-starring it would leave a dark star over a saved row, which is the
+// same bug pointing the other way. An answer with no `success` field at all is
+// taken at its word — not every endpoint sends one, and inventing a failure
+// out of its absence would break every write that has ever worked.
+export function wrote(answer, added) {
+  if (!answer || typeof answer !== 'object') return true;
+  if (answer.success !== false) return true;
+  return Boolean(added);
+}
+
 // ---------------------------------------------------------------- hook ---
 
 // Loaded once and held as a set of keys, because the question is asked of
@@ -244,29 +274,38 @@ export function useSaves() {
     const t = target;
     const kind = t.kind || 'look';
     try {
+      let answer;
       if (kind === 'look') {
         if (added) {
-          await FashionArchiveAPI.addFavourite(
+          answer = await FashionArchiveAPI.addFavourite(
             t.season, t.collection, t.look, t.imagePath);
         } else {
-          await FashionArchiveAPI.removeFavourite(
+          answer = await FashionArchiveAPI.removeFavourite(
             (t.season || {}).url || '', (t.collection || {}).url, (t.look || {}).number);
         }
       } else if (kind === 'show') {
         if (added) {
-          await FashionArchiveAPI.addShowFavourite(
+          answer = await FashionArchiveAPI.addShowFavourite(
             t.season, t.collection, t.imagePath);
         } else {
-          await FashionArchiveAPI.removeShowFavourite(
+          answer = await FashionArchiveAPI.removeShowFavourite(
             (t.season || {}).url || '', (t.collection || {}).url);
         }
       } else if (added) {
-        await FashionArchiveAPI.addViewFavourite(canonicalFilters(t.filters), t.name || '');
+        answer = await FashionArchiveAPI.addViewFavourite(
+          canonicalFilters(t.filters), t.name || '');
       } else {
         // A view is sent as the filters this client keyed it on, not as they
         // arrived: saving through one rule and deleting through another is how
         // a view becomes undeletable.
-        await FashionArchiveAPI.removeViewFavourite(canonicalFilters(t.filters));
+        answer = await FashionArchiveAPI.removeViewFavourite(canonicalFilters(t.filters));
+      }
+      if (!wrote(answer, added)) {
+        const err = new Error(
+          (answer && answer.message) || 'The server did not make that change');
+        console.error('Could not change favourite:', err);
+        if (alive.current) setError(err);
+        return false;
       }
       if (alive.current) setError(null);
       return true;

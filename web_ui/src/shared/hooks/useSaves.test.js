@@ -372,6 +372,69 @@ describe('a write that fails puts back exactly what was there', () => {
     expect(result.current.isSaved(show(PRADA))).toBe(true);
   });
 
+  // ── the server answering 200 with a refusal ────────────────────────────
+  //
+  // A rejected promise is not the only way a write fails. The API answers a
+  // delete that matched nothing with HTTP 200 and
+  // {"success": false, "message": "Not found in favourites"}, so `callPython`
+  // resolves and, before this, the star went dark while the row stayed in the
+  // database. LibraryPage already read `result.success` on the same endpoint;
+  // this hook did not, which is what made the recents key split silent rather
+  // than noisy.
+
+  const deleteCases = [
+    ['a look', () => look(GUCCI, 3), 'removeFavourite'],
+    ['a show', () => show(GUCCI), 'removeShowFavourite'],
+    ['a view', () => view({ city: 'Paris' }), 'removeViewFavourite'],
+  ];
+
+  test.each(deleteCases)('%s the server would not delete stays starred',
+    async (_name, target, del) => {
+      api[del].mockResolvedValue({ success: false, message: 'Not found in favourites' });
+      const before = [row(target()), row(look(PRADA, 9)), row(show(PRADA))];
+      api.getFavourites.mockResolvedValue(before);
+      const { result } = await mount();
+      expect(result.current.isSaved(target())).toBe(true);
+
+      await act(async () => { await result.current.toggle(target()); });
+
+      expect(result.current.isSaved(target())).toBe(true);
+      expect(result.current.saves).toEqual(before);
+      expect(result.current.error).toBeTruthy();
+      expect(errorLog).toHaveBeenCalled();
+    });
+
+  test('the reason the server gave is the reason that surfaces', async () => {
+    api.removeFavourite.mockResolvedValue({
+      success: false, message: 'Not found in favourites',
+    });
+    api.getFavourites.mockResolvedValue([row(look(GUCCI, 3))]);
+    const { result } = await mount();
+
+    await act(async () => { await result.current.toggle(look(GUCCI, 3)); });
+
+    expect(String(result.current.error.message)).toContain('Not found in favourites');
+  });
+
+  // The other direction is not a failure and must not be rolled back. The
+  // server answers an add for a row it already holds with the same
+  // `success: false`, meaning "Already in favourites" — the state the press
+  // asked for. Un-starring it would be the very bug above, pointing the other
+  // way: a star dark over a row that is saved.
+  test.each([
+    ['a look', () => look(GUCCI, 3), 'addFavourite'],
+    ['a show', () => show(GUCCI), 'addShowFavourite'],
+    ['a view', () => view({ city: 'Paris' }), 'addViewFavourite'],
+  ])('%s the server already had stays starred', async (_name, target, add) => {
+    api[add].mockResolvedValue({ success: false, message: 'Already in favourites' });
+    const { result } = await mount();
+
+    await act(async () => { await result.current.toggle(target()); });
+
+    expect(result.current.isSaved(target())).toBe(true);
+    expect(result.current.error).toBeNull();
+  });
+
   test('a later write that works clears the error', async () => {
     api.addFavourite.mockRejectedValueOnce(new Error('nope'));
     const { result } = await mount();
