@@ -379,7 +379,11 @@ def main(argv: list[str] | None = None) -> int:
             return worst
 
         if args.cmd == "images":
-            from backend.archive.runner.archive_images import archive_all, outstanding
+            from backend.archive.runner.archive_images import (
+                archive_all,
+                outstanding,
+                summarise,
+            )
 
             if args.shown:
                 from backend.archive.roster import app_roster

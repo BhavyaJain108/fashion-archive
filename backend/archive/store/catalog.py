@@ -28,6 +28,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from backend.archive.domain.brand import Brand, ScrapePlan
+from backend.archive.domain.product import usable_image_url
 from backend.archive.domain.run import Coverage
 from backend.archive.store.objects import Conflict, ObjectStore, dumps, loads
 
@@ -575,7 +576,7 @@ class Catalog:
                 urls = []
             if not isinstance(urls, list):
                 urls = []
-            missing = [u for u in urls if isinstance(u, str) and u not in done]
+            missing = [u for u in urls if usable_image_url(u) and u not in done]
             if missing:
                 work.append((itemurl, missing))
         return work

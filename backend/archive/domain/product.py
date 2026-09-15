@@ -197,6 +197,23 @@ def pack_sizes(sizes: list[dict]) -> dict:
     }
 
 
+def usable_image_url(url: str) -> bool:
+    """Whether this is a whole image URL rather than the front of one.
+
+    Galleries learned from a page come from an attribute the theme may cut short —
+    psylos1's stops at about 2048 characters, so the last entry arrives as
+    "https://cdn.shopify.com" or "https://esa.psylos1.com/common/2026/0". Kept, they
+    are requested on every pass for ever and can never succeed.
+    """
+    if not isinstance(url, str) or not url.startswith("http"):
+        return False
+    rest = url.split("://", 1)[-1]
+    host, _, path = rest.partition("/")
+    if not host or not path:
+        return False
+    return "." in path.split("?")[0].rsplit("/", 1)[-1]
+
+
 def pack_images(urls: list[str]) -> dict:
     urls = [u for u in urls if u]
     return {

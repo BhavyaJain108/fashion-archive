@@ -15,6 +15,7 @@ from backend.archive.domain.product import (
     ProductRecord,
     ProductRef,
     is_worth_chasing,
+    usable_image_url,
 )
 from backend.archive.domain.recipe import RecipeBook
 from backend.archive.evidence import SearchLog
@@ -556,7 +557,7 @@ _NUMBER = re.compile(r"\d[\d\s,]*(?:\.\d+)?")
 
 def _coerce(field: str, value: str):
     if field == "all_images":
-        urls = [u.strip() for u in value.split(",") if u.strip().startswith("http")]
+        urls = [u.strip() for u in value.split(",") if usable_image_url(u.strip())]
         return json.dumps(urls) if len(urls) > 1 else None
 
     """A rule always returns page text; the field may not be text.
