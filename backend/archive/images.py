@@ -59,16 +59,36 @@ class ImageStore:
     ) -> bool:
         """Fetch and keep one photograph. Safe to call from several threads at once:
         the transport is shared, the budget paces per host, and recording is locked."""
+        # A gallery read from a page can be cut short mid-query as well as mid-path:
+        # psylos1 stores "?x-oss-process=image/resize,w_1200/format,webp/q", and the
+        # server answers "the value: q of parameter: process is invalid". The bytes are
+        # there without it, at full size, so a failure is worth one retry bare.
+        for candidate in self._candidates(url):
+            got = self._fetch(transport, candidate)
+            if got is None:
+                continue
+            content, ctype = got
+            sha, served = self.store(domain, content, ctype)
+            catalog.record_image(domain, itemurl, url, sha, stored_url=served)
+            return True
+        catalog.record_image_miss(domain, itemurl, url)
+        return False
+
+    def _candidates(self, url: str) -> list[str]:
+        fetch = self._fetch_url(url)
+        bare = url.split("?", 1)[0]
+        return [fetch] if bare == url else [fetch, bare]
+
+    @staticmethod
+    def _fetch(transport: Transport, url: str):
         try:
-            resp = transport.get(self._fetch_url(url))
+            resp = transport.get(url)
         except Exception:
-            return False  # a missing image never fails a run
+            return None  # a missing image never fails a run
         ctype = resp.headers.get("content-type", "").split(";")[0].strip()
         if resp.status_code != 200 or not ctype.startswith("image/"):
-            return False
-        sha, served = self.store(domain, resp.content, ctype)
-        catalog.record_image(domain, itemurl, url, sha, stored_url=served)
-        return True
+            return None
+        return resp.content, ctype
 
     def adopt(self, catalog: Catalog, itemurl: str, domain: str, url: str, path: Path) -> bool:
         """Move an image an earlier run already fetched into the sink, off disk.

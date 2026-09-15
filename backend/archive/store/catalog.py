@@ -536,6 +536,25 @@ class Catalog:
         if due:
             self.flush()
 
+    GIVE_UP_AFTER = 3
+
+    def record_image_miss(self, domain: str, itemurl: str, url: str) -> None:
+        """Note that this photograph could not be fetched.
+
+        Without it a 404 is retried on every pass for ever. psylos1 carries a few
+        thousand whose images the shop has since replaced, and they drift to the front
+        of the queue because everything fetchable around them leaves it.
+        """
+        with self._images_lock:
+            rows = self._images(domain).setdefault(itemurl, [])
+            for row in rows:
+                if row["url"] == url:
+                    row["misses"] = (row.get("misses") or 0) + 1
+                    break
+            else:
+                rows.append({"url": url, "content_hash": None, "stored_url": None, "misses": 1})
+            self._images_dirty.add(domain)
+
     def known_image_urls(self, domain: str, itemurl: str) -> set[str]:
         return {row["url"] for row in self._images(domain).get(itemurl, [])}
 
@@ -568,7 +587,11 @@ class Catalog:
         work = []
         for record in self.current_products(domain):
             itemurl = record.get("itemurl", "")
-            done = {r["url"] for r in held.get(itemurl, []) if r.get("stored_url")}
+            done = {
+                r["url"]
+                for r in held.get(itemurl, [])
+                if r.get("stored_url") or (r.get("misses") or 0) >= self.GIVE_UP_AFTER
+            }
             raw = record.get("all_images")
             try:
                 urls = json.loads(raw) if isinstance(raw, str) else (raw or [])
