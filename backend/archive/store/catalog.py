@@ -23,6 +23,7 @@ A stored record averages 7.8 KB because of that payload; the slim form of a
 
 import json
 import secrets
+import threading
 from datetime import datetime, timezone
 from typing import Any
 
@@ -79,6 +80,13 @@ class Catalog:
         # A brand's catalogue, held while a run writes to it. domain -> (products, dirty)
         self._open: dict[str, dict[str, Any]] = {}
         self._dirty: set[str] = set()
+        # The same buffer for the image index, and for the same reason. Written per
+        # photograph it read and rewrote a whole object to add ~350 bytes, which for a
+        # brand with 60,000 photographs is megabytes of traffic each time and gets
+        # worse as the brand fills.
+        self._open_images: dict[str, dict[str, list[dict]]] = {}
+        self._images_dirty: set[str] = set()
+        self._images_lock = threading.Lock()
         self._pending_observations: dict[tuple[str, str], list[dict]] = {}
         self._since_flush = 0
         # Read once per instance. Three fleet views were each fetching it, and a
@@ -320,12 +328,20 @@ class Catalog:
             self._write_search_index(domain)
             self._refresh_meta(domain)
         self._dirty.clear()
+        with self._images_lock:
+            pending = sorted(self._images_dirty)
+            held = {d: self._open_images[d] for d in pending}
+            self._images_dirty.clear()
+        for domain in pending:
+            self._write(f"images/{domain}.json", held[domain])
         # Drop the cached copies. `_open` is a buffer for the run in flight, not a
         # cache that outlives it: a handle that kept a brand's catalogue in memory
         # would later write that stale copy over whatever another handle had written
         # in the meantime. That is how the coverage stamps went missing — the run
         # recorded its products, and a stale buffer put the unstamped version back.
         self._open.clear()
+        with self._images_lock:
+            self._open_images.clear()
         for (domain, run_id), rows in sorted(self._pending_observations.items()):
             key = f"history/{domain}/{run_id}.json"
             held = self._read(key, {"observations": []})
@@ -491,7 +507,9 @@ class Catalog:
 
     # --- images ---
     def _images(self, domain: str) -> dict[str, list[dict]]:
-        return self._read(f"images/{domain}.json", {})
+        if domain not in self._open_images:
+            self._open_images[domain] = self._read(f"images/{domain}.json", {})
+        return self._open_images[domain]
 
     def record_image(
         self,
@@ -501,17 +519,21 @@ class Catalog:
         content_hash: str,
         stored_url: str | None = None,
     ) -> None:
-        key = f"images/{domain}.json"
-        held = self._read(key, {})
-        rows = held.setdefault(itemurl, [])
-        for row in rows:
-            if row["url"] == url:
-                row["content_hash"] = content_hash
-                row["stored_url"] = stored_url or row.get("stored_url")
-                break
-        else:
-            rows.append({"url": url, "content_hash": content_hash, "stored_url": stored_url})
-        self._write(key, held)
+        with self._images_lock:
+            held = self._images(domain)
+            rows = held.setdefault(itemurl, [])
+            for row in rows:
+                if row["url"] == url:
+                    row["content_hash"] = content_hash
+                    row["stored_url"] = stored_url or row.get("stored_url")
+                    break
+            else:
+                rows.append({"url": url, "content_hash": content_hash, "stored_url": stored_url})
+            self._images_dirty.add(domain)
+            self._since_flush += 1
+            due = self._since_flush >= FLUSH_EVERY
+        if due:
+            self.flush()
 
     def known_image_urls(self, domain: str, itemurl: str) -> set[str]:
         return {row["url"] for row in self._images(domain).get(itemurl, [])}
