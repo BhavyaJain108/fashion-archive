@@ -95,7 +95,7 @@ def test_the_transport_asks_the_budget_before_every_request(clock):
 
 @pytest.mark.unit
 def test_a_clean_run_speeds_up_to_the_hosts_floor_and_no_further():
-    b = HostBudget(gap=0.5, sleep=lambda s: None, clock=lambda: 0.0)
+    b = HostBudget(sleep=lambda s: None, clock=lambda: 0.0)
     for _ in range(400):
         b.observe("cdn.shopify.com", 200)
         b.observe("kuurth.com", 200)
@@ -105,7 +105,7 @@ def test_a_clean_run_speeds_up_to_the_hosts_floor_and_no_further():
 
 @pytest.mark.unit
 def test_a_refusal_halves_the_rate_and_it_climbs_back():
-    b = HostBudget(gap=0.5, sleep=lambda s: None, clock=lambda: 0.0)
+    b = HostBudget(sleep=lambda s: None, clock=lambda: 0.0)
     for _ in range(400):
         b.observe("cdn.shopify.com", 200)
     fast = b.gap_for("cdn.shopify.com")
@@ -116,3 +116,18 @@ def test_a_refusal_halves_the_rate_and_it_climbs_back():
     for _ in range(400):
         b.observe("cdn.shopify.com", 200)
     assert b.gap_for("cdn.shopify.com") == pytest.approx(fast)
+
+
+@pytest.mark.unit
+def test_a_brands_own_image_host_is_quicker_than_its_shop_but_not_a_cdn():
+    b = HostBudget(sleep=lambda s: None, clock=lambda: 0.0)
+    assert b.floor("esa.psylos1.com") == pytest.approx(1 / 5)  # unknown: treat as a shop
+    b.mark_asset_host("esa.psylos1.com")
+    assert b.floor("esa.psylos1.com") == pytest.approx(1 / 15)
+    assert b.floor("cdn.shopify.com") == pytest.approx(1 / 30)
+
+
+@pytest.mark.unit
+def test_an_explicit_gap_still_wins():
+    b = HostBudget(gap=2.0, sleep=lambda s: None, clock=lambda: 0.0)
+    assert b.floor("cdn.shopify.com") == 2.0

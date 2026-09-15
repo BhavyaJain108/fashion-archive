@@ -97,7 +97,12 @@ def main(argv: list[str] | None = None) -> int:
                 "--limit", type=int, default=0, help="images per brand (0 = all of them)"
             )
             sp.add_argument("--workers", type=int, default=4, help="brands fetched at once")
-            sp.add_argument("--gap", type=float, default=0.5, help="seconds between hits on a host")
+            sp.add_argument(
+                "--gap",
+                type=float,
+                default=0.0,
+                help="minimum seconds between hits on a host (0 = each host's own pace)",
+            )
             sp.add_argument(
                 "--width",
                 type=int,
@@ -120,7 +125,7 @@ def main(argv: list[str] | None = None) -> int:
                 action="store_true",
                 help="scrape catalogues only, leaving the photographs to `images`",
             )
-            sp.add_argument("--gap", type=float, default=0.5)
+            sp.add_argument("--gap", type=float, default=0.0)
             sp.add_argument("--images-dir", type=Path, default=Path("backend/archive/data/images"))
         if name == "brands":
             sp.add_argument(
@@ -194,8 +199,8 @@ def main(argv: list[str] | None = None) -> int:
             sp.add_argument(
                 "--gap",
                 type=float,
-                default=0.5,
-                help="seconds between requests to one host (0 = no pacing)",
+                default=0.0,
+                help="minimum seconds between requests to one host (0 = each host's own pace)",
             )
             sp.add_argument(
                 "--pause",

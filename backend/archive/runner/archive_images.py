@@ -12,6 +12,7 @@ loses nothing but the request in flight.
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 from backend.archive.budget import HostBudget
 from backend.archive.images import ImageStore
@@ -76,6 +77,13 @@ def archive_brand(
         ]
         if budgeted is not None:
             jobs = jobs[:budgeted]
+
+        # Anything serving this brand's photographs from somewhere other than its own
+        # storefront is an asset host, and may be asked faster than a shop.
+        shop = {domain.lower(), f"www.{domain.lower()}".removeprefix("www.www.")}
+        for host in {urlparse(url).netloc.lower() for _, url in jobs}:
+            if host and host not in shop and not host.endswith(f"//{domain}"):
+                budget.mark_asset_host(host)
         with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
             futures = [
                 pool.submit(images.archive_one, transport, catalog, itemurl, domain, url)

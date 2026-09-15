@@ -35,16 +35,24 @@ DEFAULT_GAP = 0.5  # seconds between requests to one host: 2/second, sustained
 # 97% of what this archive fetches is images from one CDN, so that floor is where the
 # hours are won, and the storefront floor costs us almost nothing to keep polite.
 CDN_FLOOR = 1 / 30  # 30 a second
+# A host that serves a brand's image bytes and nothing else — psylos1 keeps 9,164 of
+# its photographs on esa.psylos1.com. Static files, so far quicker than a storefront
+# is safe, but it is the brand's own bandwidth rather than a CDN's, so not CDN quick.
+ASSET_FLOOR = 1 / 15
 SHOP_FLOOR = 1 / 5  # 5 a second
 CEILING = 8.0  # never crawl slower than this, refusals aside
 EASE = 0.97  # multiplicative speed-up per clean answer
 _CDN_MARKERS = ("cdn.", "cdn-", "images.", "img.", ".cdn", "cloudfront.net", "akamaized.net")
 
 
-def floor_for(host: str) -> float:
+def floor_for(host: str, assets: set[str] | None = None) -> float:
     """The fastest we will ask this host, by what it appears to be."""
     h = host.lower()
-    return CDN_FLOOR if any(m in h for m in _CDN_MARKERS) else SHOP_FLOOR
+    if any(m in h for m in _CDN_MARKERS):
+        return CDN_FLOOR
+    if assets and h in assets:
+        return ASSET_FLOOR
+    return SHOP_FLOOR
 
 
 BUSY_BACKOFF = 60.0  # first stand-down when a host says 429/503 without a Retry-After
@@ -59,7 +67,7 @@ class HostBudget:
 
     def __init__(
         self,
-        gap: float = DEFAULT_GAP,
+        gap: float = 0.0,
         sleep=_time.sleep,
         clock=_time.monotonic,
     ):
@@ -70,10 +78,26 @@ class HostBudget:
         self._penalty: dict[str, float] = {}
         # The gap we are currently using for each host, which moves with what it says.
         self._gap_for: dict[str, float] = {}
+        # Hosts the image pass has told us serve only photographs.
+        self._assets: set[str] = set()
         self._lock = threading.Lock()
 
+    def mark_asset_host(self, host: str) -> None:
+        """Say that this host serves image bytes, not a shop."""
+        with self._lock:
+            self._assets.add(host.lower())
+            self._gap_for.pop(host, None)  # re-floored on its next answer
+
+    def floor(self, host: str) -> float:
+        """The fastest this host may be asked: its class, unless a caller asked for
+        slower. `gap` is an override, not the policy — pass 0 to accept the class."""
+        return max(floor_for(host, self._assets), self.gap)
+
     def gap_for(self, host: str) -> float:
-        return self._gap_for.get(host, self.gap)
+        # Start where we believe the host is happy rather than crawling up to it: 3%
+        # per answer takes ~89 clean replies to get from half a second to a thirtieth,
+        # which is most of a short run spent accelerating.
+        return self._gap_for.get(host) or self.floor(host)
 
     def acquire(self, host: str) -> float:
         """Block until this host may be asked again. Returns how long that took."""
@@ -83,7 +107,7 @@ class HostBudget:
             wait = max(0.0, ready - now)
             # Reserve this slot before releasing the lock, so two workers sharing a host
             # queue behind each other instead of both deciding they may go now.
-            self._next_allowed[host] = max(ready, now) + self._gap_for.get(host, self.gap)
+            self._next_allowed[host] = max(ready, now) + self.gap_for(host)
         if wait > 0:
             self._sleep(wait)
         return wait
@@ -94,16 +118,16 @@ class HostBudget:
             if status in BUSY or status in REFUSED:
                 # Back off hard: we were going too fast, so halve the rate as well as
                 # standing down. Approaching a limit is cheap; being blocked is not.
-                current = self._gap_for.get(host, self.gap)
-                self._gap_for[host] = min(CEILING, max(current, floor_for(host)) * 2)
+                current = self._gap_for.get(host) or self.floor(host)
+                self._gap_for[host] = min(CEILING, max(current, self.floor(host)) * 2)
                 self._next_allowed[host] = self._clock() + self._stand_down(
                     host, status, retry_after
                 )
             elif status is not None and status < 400:
                 self._penalty.pop(host, None)  # forgiven
                 # A clean answer earns a little more speed, never past this host's floor.
-                current = self._gap_for.get(host, self.gap)
-                self._gap_for[host] = max(floor_for(host), current * EASE)
+                current = self._gap_for.get(host) or self.floor(host)
+                self._gap_for[host] = max(self.floor(host), current * EASE)
 
     def _stand_down(self, host: str, status: int, retry_after: int | None) -> float:
         if retry_after:
