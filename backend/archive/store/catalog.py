@@ -23,6 +23,7 @@ A stored record averages 7.8 KB because of that payload; the slim form of a
 
 import json
 import secrets
+import sys
 import threading
 from datetime import datetime, timezone
 from typing import Any
@@ -87,7 +88,14 @@ class Catalog:
         # worse as the brand fills.
         self._open_images: dict[str, dict[str, list[dict]]] = {}
         self._images_dirty: set[str] = set()
+        # Counted separately from products. Sharing one counter meant a photograph
+        # could trigger a flush of the product buffers, which are not locked — safe
+        # today only because the image pass happens to build its own Catalog.
+        self._images_since_flush = 0
         self._images_lock = threading.Lock()
+        # Only one flush may be in flight. Several image threads reach FLUSH_EVERY at
+        # about the same moment, and a flush clears buffers another flush is reading.
+        self._flush_lock = threading.RLock()
         self._pending_observations: dict[tuple[str, str], list[dict]] = {}
         self._since_flush = 0
         # Read once per instance. Three fleet views were each fetching it, and a
@@ -104,6 +112,8 @@ class Catalog:
 
     def close(self) -> None:
         self.flush()
+        with self._images_lock:
+            self._open_images.clear()
 
     # --- brands ---
     def upsert_brand(self, brand: Brand) -> None:
@@ -316,6 +326,21 @@ class Catalog:
             self.flush()
         return changed
 
+    def flush_images(self) -> None:
+        """Write the image index alone, leaving the product buffers untouched."""
+        with self._flush_lock:
+            with self._images_lock:
+                pending = sorted(self._images_dirty)
+                held = {d: self._open_images[d] for d in pending}
+                self._images_dirty.clear()
+            for domain in pending:
+                self._write(f"images/{domain}.json", held[domain])
+            # Deliberately not evicted. Other threads are still appending to the very
+            # dict just written, and dropping it here orphans their writes — measured
+            # at 242 of 480 rows lost. The buffer belongs to this handle and is
+            # released when it closes; a handle never outlives its brand's pass, so
+            # there is no stale copy to put back over anyone.
+
     def flush(self) -> None:
         """Write what is held in memory.
 
@@ -324,25 +349,22 @@ class Catalog:
         is the cost of not writing a 9.8 MB object per product, and acceptable because
         a killed run is re-run from the start rather than resumed.
         """
+        with self._flush_lock:
+            self._flush_locked()
+
+    def _flush_locked(self) -> None:
         for domain in sorted(self._dirty):
             self._write(f"catalogue/{domain}.json", self._open[domain])
             self._write_search_index(domain)
             self._refresh_meta(domain)
         self._dirty.clear()
-        with self._images_lock:
-            pending = sorted(self._images_dirty)
-            held = {d: self._open_images[d] for d in pending}
-            self._images_dirty.clear()
-        for domain in pending:
-            self._write(f"images/{domain}.json", held[domain])
+        self.flush_images()
         # Drop the cached copies. `_open` is a buffer for the run in flight, not a
         # cache that outlives it: a handle that kept a brand's catalogue in memory
         # would later write that stale copy over whatever another handle had written
         # in the meantime. That is how the coverage stamps went missing — the run
         # recorded its products, and a stale buffer put the unstamped version back.
         self._open.clear()
-        with self._images_lock:
-            self._open_images.clear()
         for (domain, run_id), rows in sorted(self._pending_observations.items()):
             key = f"history/{domain}/{run_id}.json"
             held = self._read(key, {"observations": []})
@@ -382,7 +404,7 @@ class Catalog:
         self._write(f"catalogue/{domain}.meta.json", meta)
         self._merge_into_fleet(domain, meta)
 
-    def _merge_into_fleet(self, domain: str, meta: dict, attempts: int = 5) -> None:
+    def _merge_into_fleet(self, domain: str, meta: dict, attempts: int = 10) -> None:
         """Keep one object describing every brand.
 
         The sidebar is a single view and so it is a single read. Assembled from the
@@ -405,6 +427,14 @@ class Catalog:
                 return
             except Conflict:
                 continue
+        # Giving up here used to be silent, and what it costs is a brand disappearing
+        # from the sidebar until its next run — a wrong number with nothing to explain
+        # it. More workers make it likelier, so it says so.
+        print(
+            f"fleet.json: gave up merging {domain} after {attempts} attempts; "
+            f"the sidebar will not show it until its next run",
+            file=sys.stderr,
+        )
 
     def mark_seen(self, domain: str, run_id: str, urls: list[str]) -> None:
         products = self._catalogue(domain)["products"]
@@ -531,10 +561,12 @@ class Catalog:
             else:
                 rows.append({"url": url, "content_hash": content_hash, "stored_url": stored_url})
             self._images_dirty.add(domain)
-            self._since_flush += 1
-            due = self._since_flush >= FLUSH_EVERY
+            self._images_since_flush += 1
+            due = self._images_since_flush >= FLUSH_EVERY
+            if due:
+                self._images_since_flush = 0
         if due:
-            self.flush()
+            self.flush_images()
 
     GIVE_UP_AFTER = 3
 

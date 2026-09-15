@@ -601,7 +601,14 @@ def main(argv: list[str] | None = None) -> int:
                     if not args.no_images:
                         from backend.archive.runner.archive_images import archive_brand
 
-                        archive_brand(brand.domain, store, image_sink(args.images_dir), budget)
+                        # Its own store: `store` belongs to the main thread and the
+                        # workers are threads, so they would share one client.
+                        archive_brand(
+                            brand.domain,
+                            object_store(args.objects),
+                            image_sink(args.images_dir),
+                            budget,
+                        )
                     rows = cat.current_products(brand.domain)
                     return [ProductRecord(**cast(Any, r)) for r in rows], 0.0
 

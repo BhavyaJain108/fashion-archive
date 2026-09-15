@@ -13,6 +13,7 @@ UPDATE ... RETURNING. R2 refuses a stale If-Match with PreconditionFailed, which
 the same guarantee by a different name.
 """
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -139,8 +140,15 @@ class Scheduler:
         now = now or _now()
         stale = _iso(now - timedelta(seconds=self.stale_claim_seconds))
         candidates = []
-        for key in self._store.list(_SCHEDULE):
-            row, etag = self._read(key)
+        # Read the rows at once. They are independent reads of small objects, and a
+        # round trip to the bucket is ~400ms: at 32 brands that was 13 seconds of
+        # waiting before a worker could start anything, paid again on every poll by
+        # every worker. Claiming is still one conditional write, so a staler etag only
+        # means a Conflict, which the loop below already expects.
+        keys = list(self._store.list(_SCHEDULE))
+        with ThreadPoolExecutor(max_workers=min(16, max(1, len(keys)))) as pool:
+            rows = list(pool.map(self._read, keys))
+        for key, (row, etag) in zip(keys, rows, strict=True):
             if not row or not row.get("enabled"):
                 continue
             if row["next_due"] > _iso(now):
