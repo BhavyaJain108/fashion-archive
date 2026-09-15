@@ -91,3 +91,28 @@ def test_the_transport_asks_the_budget_before_every_request(clock):
     assert b.blocked_for("kuurth.com") == 90  # learned from the response
     t.get("https://kuurth.com/b")
     assert 90 in clock.slept  # and waited before asking again
+
+
+@pytest.mark.unit
+def test_a_clean_run_speeds_up_to_the_hosts_floor_and_no_further():
+    b = HostBudget(gap=0.5, sleep=lambda s: None, clock=lambda: 0.0)
+    for _ in range(400):
+        b.observe("cdn.shopify.com", 200)
+        b.observe("kuurth.com", 200)
+    assert b.gap_for("cdn.shopify.com") == pytest.approx(1 / 30)  # an image CDN
+    assert b.gap_for("kuurth.com") == pytest.approx(1 / 5)  # someone's storefront
+
+
+@pytest.mark.unit
+def test_a_refusal_halves_the_rate_and_it_climbs_back():
+    b = HostBudget(gap=0.5, sleep=lambda s: None, clock=lambda: 0.0)
+    for _ in range(400):
+        b.observe("cdn.shopify.com", 200)
+    fast = b.gap_for("cdn.shopify.com")
+
+    b.observe("cdn.shopify.com", 429)
+    assert b.gap_for("cdn.shopify.com") == pytest.approx(fast * 2)
+
+    for _ in range(400):
+        b.observe("cdn.shopify.com", 200)
+    assert b.gap_for("cdn.shopify.com") == pytest.approx(fast)

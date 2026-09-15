@@ -50,6 +50,7 @@ def archive_brand(
     *,
     limit: int = 0,
     width: int | None = None,
+    workers: int = 16,
 ) -> Outcome:
     """One brand's outstanding images, into the sink.
 
@@ -65,14 +66,26 @@ def archive_brand(
         transport = HttpxTransport(sink=requests, budget=budget)
         budgeted = limit or None
 
-        for itemurl, urls in catalog.images_awaiting_archive(domain):
-            if budgeted is not None and out.stored >= budgeted:
-                break
-            if budgeted is not None:
-                urls = urls[: budgeted - out.stored]
-            stored = images.archive(transport, catalog, itemurl, domain, urls)
-            out.fetched += stored
-            out.failed += len(urls) - stored
+        # Every photograph is independent of every other, so the only thing that has
+        # to be in order is how fast each host is asked — which the budget owns, not
+        # this loop. One at a time was never a requirement, only how it was written.
+        jobs = [
+            (itemurl, url)
+            for itemurl, urls in catalog.images_awaiting_archive(domain)
+            for url in urls
+        ]
+        if budgeted is not None:
+            jobs = jobs[:budgeted]
+        with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+            futures = [
+                pool.submit(images.archive_one, transport, catalog, itemurl, domain, url)
+                for itemurl, url in jobs
+            ]
+            for future in as_completed(futures):
+                if future.result():
+                    out.fetched += 1
+                else:
+                    out.failed += 1
 
         requests.flush()
         out.outstanding = outstanding(catalog, domain)

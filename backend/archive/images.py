@@ -48,21 +48,27 @@ class ImageStore:
         self, transport: Transport, catalog: Catalog, itemurl: str, domain: str, urls: list[str]
     ) -> int:
         known = catalog.stored_image_urls(domain, itemurl)
-        stored = 0
-        for url in urls:
-            if url in known:
-                continue  # delta economics: an unchanged image costs zero requests
-            try:
-                resp = transport.get(self._fetch_url(url))
-            except Exception:
-                continue  # a missing image never fails a run
-            ctype = resp.headers.get("content-type", "").split(";")[0].strip()
-            if resp.status_code != 200 or not ctype.startswith("image/"):
-                continue
-            sha, served = self.store(domain, resp.content, ctype)
-            catalog.record_image(domain, itemurl, url, sha, stored_url=served)
-            stored += 1
-        return stored
+        return sum(
+            self.archive_one(transport, catalog, itemurl, domain, url)
+            for url in urls
+            if url not in known  # delta economics: an unchanged image costs zero requests
+        )
+
+    def archive_one(
+        self, transport: Transport, catalog: Catalog, itemurl: str, domain: str, url: str
+    ) -> bool:
+        """Fetch and keep one photograph. Safe to call from several threads at once:
+        the transport is shared, the budget paces per host, and recording is locked."""
+        try:
+            resp = transport.get(self._fetch_url(url))
+        except Exception:
+            return False  # a missing image never fails a run
+        ctype = resp.headers.get("content-type", "").split(";")[0].strip()
+        if resp.status_code != 200 or not ctype.startswith("image/"):
+            return False
+        sha, served = self.store(domain, resp.content, ctype)
+        catalog.record_image(domain, itemurl, url, sha, stored_url=served)
+        return True
 
     def adopt(self, catalog: Catalog, itemurl: str, domain: str, url: str, path: Path) -> bool:
         """Move an image an earlier run already fetched into the sink, off disk.
