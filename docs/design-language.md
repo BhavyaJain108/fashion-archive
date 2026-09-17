@@ -15,6 +15,13 @@ This document is the written half of the system. The other half is live:
 - **`web_ui/design/tokens.json`** is the same tokens as W3C Design Tokens
   JSON, generated from the CSS, for import into Figma variables or Tokens
   Studio. Never edited by hand.
+- **Figma: [Fashion Archive — Design Language](https://www.figma.com/design/Ue3QlUaNY7W9O0yFbbtmAT)**
+  is the design deliverable. Three pages: `01 · Cover + Foundations`
+  (the tokens as an `Archive` variable collection with `var(--ar-*)` code
+  syntax, 13 text styles, rules, swatches, type specimens), `02 · Components`
+  (every primitive as a component set with its states, bound to the
+  variables), `03 · Screens` (one section per flow, the screen as built at
+  1440 × 900 with real photographs, its states beside it). Comment there.
 
 Terms: **chrome** is the interface (labels, buttons, headers, status).
 **Content** is what the archive holds (a designer, a show, a product, a
