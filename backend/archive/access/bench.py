@@ -11,7 +11,6 @@ us later.
 
 from collections.abc import Callable, Iterable
 
-from backend.archive.access.outcome import Outcome
 from backend.archive.access.policy import next_strategies
 from backend.archive.access.probe import AccessResult, try_access
 from backend.archive.access.strategy import Strategy
@@ -38,20 +37,10 @@ def sweep(
 
 def _climb(domain, strategies, probe_fn, probe_kw):
     remaining = sorted(strategies, key=lambda s: s.rank)
-    retried = False
-
     while remaining:
         current, remaining = remaining[0], remaining[1:]
         result = probe_fn(domain, current, **probe_kw)
         yield result
-
-        # Hosts flap. One second chance on the same rung is worth it; climbing the
-        # ladder against a name that does not resolve is not.
-        if result.outcome is Outcome.UNREACHABLE and not retried:
-            retried = True
-            remaining = [current, *remaining]
-            continue
-
         remaining = next_strategies(result.outcome, remaining)
 
 

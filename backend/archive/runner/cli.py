@@ -73,6 +73,33 @@ def _held(store: ObjectStore) -> set[str] | None:
         return None
 
 
+def _products_over_winners(results) -> None:
+    """Getting in is only half of it. Hand each brand's winning transport to the pipeline
+    we already have and see whether products come out the other end."""
+    from backend.archive.access import learned
+    from backend.archive.access.bench import winners
+    from backend.archive.access.strategy import get as get_strategy
+
+    reports = []
+    for domain, won in winners(results).items():
+        transport = get_strategy(won.strategy).build()
+        try:
+            rep = probe_brand(
+                Brand(domain=domain, homepage_url=f"https://{domain}"),
+                transport,
+                prober=learned.prober,
+            )
+        finally:
+            if hasattr(transport, "close"):
+                transport.close()
+        rep.note = f"[{won.strategy}] {rep.note}"
+        reports.append(rep)
+        print(f"  products {domain:<26} {rep.verdict}", flush=True)
+    if reports:
+        print()
+        print(format_matrix(reports, show_gated=True))
+
+
 def _access(args, store: ObjectStore, brands: list[Brand]) -> int:
     """Measure what it costs to get into each brand, and write the answer down."""
     from datetime import datetime, timezone
@@ -85,7 +112,7 @@ def _access(args, store: ObjectStore, brands: list[Brand]) -> int:
     from backend.archive.roster import load_roster
 
     if args.domain:
-        domains = [args.domain]
+        domains = list(args.domain)
     elif args.only_failing:
         domains = failing_domains(load_roster(args.brands))
     elif args.all:
@@ -140,6 +167,9 @@ def _access(args, store: ObjectStore, brands: list[Brand]) -> int:
 
     print()
     print(format_matrix(results))
+
+    if args.products:
+        _products_over_winners(results)
 
     if not args.no_save:
         at = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
@@ -220,7 +250,7 @@ def main(argv: list[str] | None = None) -> int:
             sp.add_argument("domain", nargs="?")
             sp.add_argument("--every", type=int, default=86400, help="cadence in seconds")
         if name == "access":
-            sp.add_argument("domain", nargs="?")
+            sp.add_argument("domain", nargs="*")
             sp.add_argument("--all", action="store_true", help="every brand in brands.yml")
             sp.add_argument(
                 "--only-failing",
@@ -240,6 +270,12 @@ def main(argv: list[str] | None = None) -> int:
             sp.add_argument("--gap", type=float, default=1.0, help="seconds between hits on a host")
             sp.add_argument(
                 "--no-save", action="store_true", help="print the matrix without recording a sweep"
+            )
+            sp.add_argument(
+                "--products",
+                action="store_true",
+                help="for each brand we got into, run the existing pipeline on a few products "
+                "over the transport that worked (writes nothing)",
             )
         if name == "plan":
             sp.add_argument("domain")

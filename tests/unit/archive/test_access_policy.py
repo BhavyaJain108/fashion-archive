@@ -27,16 +27,22 @@ def test_a_password_stops_the_climb():
 
 
 @pytest.mark.unit
-def test_an_unreachable_host_stops_the_climb():
-    """Nothing to escalate against — a dearer transport does not fix DNS. The single
-    retry belongs to the sweep, which knows whether it already made one."""
-    assert next_strategies(Outcome.UNREACHABLE, REST) == []
+def test_a_timeout_climbs_because_a_silent_waf_looks_like_a_dead_host():
+    """Van Cleef dropped plain HTTP without answering; only a different handshake tells
+    a silent refusal from a host that is really down."""
+    assert next_strategies(Outcome.UNREACHABLE, REST) == REST
 
 
 @pytest.mark.unit
 @pytest.mark.parametrize(
     "outcome",
-    [Outcome.RATE_429, Outcome.WAF_403, Outcome.TLS_BLOCKED, Outcome.CHALLENGE],
+    [
+        Outcome.RATE_429,
+        Outcome.WAF_403,
+        Outcome.TLS_BLOCKED,
+        Outcome.CHALLENGE,
+        Outcome.UNREACHABLE,
+    ],
 )
 def test_every_refusal_climbs_the_whole_remaining_ladder(outcome):
     assert next_strategies(outcome, REST) == REST

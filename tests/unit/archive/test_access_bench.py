@@ -68,24 +68,10 @@ def test_a_password_stops_after_one_look():
 
 
 @pytest.mark.unit
-def test_an_unreachable_host_is_given_exactly_one_second_chance():
-    """Hosts flap. One retry is worth it; a ladder climb against DNS is not."""
+def test_a_host_that_times_out_is_tried_with_every_other_key():
     p = scripted(default=Outcome.UNREACHABLE)
-    sweep(["gone.example"], LADDER, probe_fn=p)
-    assert [c[1] for c in p.calls] == ["cheap", "cheap"]
-
-
-@pytest.mark.unit
-def test_a_host_that_comes_back_on_the_retry_carries_on_normally():
-    seen = {"n": 0}
-
-    def flaky(domain):
-        seen["n"] += 1
-        return Outcome.UNREACHABLE if seen["n"] == 1 else Outcome.OK
-
-    p = scripted(cheap=flaky)
-    sweep(["flaky.example"], LADDER, probe_fn=p)
-    assert [c[1] for c in p.calls] == ["cheap", "cheap"]
+    sweep(["www.vancleefarpels.com"], LADDER, probe_fn=p)
+    assert [c[1] for c in p.calls] == ["cheap", "mid", "browser"]
 
 
 @pytest.mark.unit

@@ -16,8 +16,16 @@ nothing left to learn from paying more.
 from backend.archive.access.outcome import Outcome
 from backend.archive.access.strategy import Strategy
 
-# A refusal. The site decided about us, so a different disguise is the thing to try.
-_CLIMB = (Outcome.RATE_429, Outcome.WAF_403, Outcome.TLS_BLOCKED, Outcome.CHALLENGE)
+# A refusal, or something that may be one. UNREACHABLE is here because a WAF that drops
+# the connection without answering looks identical to a dead host — Van Cleef timed out
+# on plain HTTP and was never offered a different handshake (sweep of 2026-09-14).
+_CLIMB = (
+    Outcome.RATE_429,
+    Outcome.WAF_403,
+    Outcome.TLS_BLOCKED,
+    Outcome.CHALLENGE,
+    Outcome.UNREACHABLE,
+)
 
 
 def next_strategies(outcome: Outcome, remaining: list[Strategy]) -> list[Strategy]:
@@ -31,6 +39,5 @@ def next_strategies(outcome: Outcome, remaining: list[Strategy]) -> list[Strateg
         return ordered
     if outcome is Outcome.OK_THIN:
         return [s for s in ordered if s.kind == "browser"]
-    # OK: done. GATED: no transport opens a password. UNREACHABLE: nothing to escalate
-    # against, and the one retry belongs to the sweep, which knows if it made it already.
+    # OK: done. GATED: no transport opens a password.
     return []
