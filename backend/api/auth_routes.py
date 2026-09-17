@@ -11,16 +11,20 @@ would strand the user on a blank API page.
 from __future__ import annotations
 
 import json
+import secrets
 
 from flask import current_app, jsonify, redirect, request
 
 from backend.auth import db, oauth
 from backend.auth import repository as repo
 from backend.auth.middleware import (
+    OAUTH_STATE_COOKIE_NAME,
     SESSION_COOKIE_NAME,
     SESSION_TTL,
+    clear_oauth_state_cookie,
     clear_session_cookie,
     current_user,
+    set_oauth_state_cookie,
     set_session_cookie,
 )
 from backend.auth.ratelimit import limited
@@ -60,6 +64,14 @@ def _back_to_site(code: str | None = None):
     return redirect(f"{app_base}/?auth_error={code}" if code else f"{app_base}/")
 
 
+def _finish(code: str | None = None):
+    """Back to the site, and the pending attempt is over either way — a binding
+    cookie left behind is one someone else could still finish."""
+    return clear_oauth_state_cookie(
+        _back_to_site(code), config=current_app.config["APP_CONFIG"]
+    )
+
+
 def auth_providers():
     """GET /api/auth/providers — which sign-in buttons the site should show."""
     return jsonify({"success": True, "providers": sorted(_providers())})
@@ -72,8 +84,15 @@ def auth_oauth_start(provider):
     if p is None:
         return _back_to_site("PROVIDER_UNAVAILABLE")
     with db.transaction() as conn:
-        url = oauth.begin(conn, p, api_base_url=current_app.config["API_BASE_URL"])
-    return redirect(url)
+        url, state = oauth.begin(conn, p, api_base_url=current_app.config["API_BASE_URL"])
+    return set_oauth_state_cookie(
+        redirect(url),
+        state,
+        config=current_app.config["APP_CONFIG"],
+        # Apple answers with a cross-site POST; Google comes back as a top-level
+        # GET, which carries a Lax cookie.
+        cross_site=(p.response_mode == "form_post"),
+    )
 
 
 @limited(limit=30, window_seconds=60)
@@ -81,11 +100,11 @@ def auth_oauth_callback(provider):
     """GET (Google) or POST (Apple) /api/auth/oauth/<provider>/callback"""
     p = _providers().get(provider)
     if p is None:
-        return _back_to_site("PROVIDER_UNAVAILABLE")
+        return _finish("PROVIDER_UNAVAILABLE")
 
     args = request.form if request.method == "POST" else request.args
     if args.get("error"):
-        return _back_to_site("CANCELLED" if args["error"] in _CANCELLED else "PROVIDER_ERROR")
+        return _finish("CANCELLED" if args["error"] in _CANCELLED else "PROVIDER_ERROR")
 
     # Apple sends the person's name once, on their very first sign-in, as a
     # form field beside the code — never inside the ID token.
@@ -97,10 +116,19 @@ def auth_oauth_callback(provider):
         except (ValueError, AttributeError):
             apple_name = None
 
+    # The state in the URL proves the provider sent us here; the cookie proves
+    # this is the browser that asked. Without the second, an attacker can finish
+    # their own sign-in inside someone else's browser and hand them a session for
+    # the attacker's account.
+    state = args.get("state", "")
+    bound = request.cookies.get(OAUTH_STATE_COOKIE_NAME, "")
+    if not bound or not state or not secrets.compare_digest(bound, state):
+        return _finish("STATE_NOT_BOUND")
+
     try:
         with db.transaction() as conn:
             identity = oauth.complete(
-                conn, p, state=args.get("state", ""), code=args.get("code", ""),
+                conn, p, state=state, code=args.get("code", ""),
                 api_base_url=current_app.config["API_BASE_URL"], apple_name=apple_name,
             )
             user = oauth.sign_in(conn, identity)
@@ -108,9 +136,9 @@ def auth_oauth_callback(provider):
             repo.create_session(conn, user_id=user.id, token=token, ttl=SESSION_TTL)
     except oauth.OAuthError as exc:
         current_app.logger.warning("sign-in with %s failed: %s", provider, exc)
-        return _back_to_site(exc.code)
+        return _finish(exc.code)
 
-    return set_session_cookie(_back_to_site(), token, config=current_app.config["APP_CONFIG"])
+    return set_session_cookie(_finish(), token, config=current_app.config["APP_CONFIG"])
 
 
 def auth_logout():

@@ -72,6 +72,17 @@ def callback(client, state, **extra):
                       query_string={"state": state, "code": "auth-code", **extra})
 
 
+def bind(client, state):
+    """Put the binding cookie back, as the browser that began the attempt would.
+
+    The callback clears it on every finished attempt, so a test that wants to
+    reach the database's single-use check has to present it again.
+    """
+    from backend.auth.middleware import OAUTH_STATE_COOKIE_NAME
+
+    client.set_cookie(OAUTH_STATE_COOKIE_NAME, state, path="/api/auth")
+
+
 def session_cookie(response):
     for header in response.headers.getlist("Set-Cookie"):
         if header.startswith("fa_session="):
@@ -138,13 +149,43 @@ class TestCallback:
         state = start(client)
         assert callback(client, state).headers["Location"] == f"{APP}/"
 
+        # Even from the browser that started it: the row is gone after one use.
+        bind(client, state)
         replayed = callback(client, state)
         assert "auth_error=INVALID_STATE" in replayed.headers["Location"]
+        assert session_cookie(replayed) is None
 
     def test_a_forged_state_is_refused(self, client, provider):
+        """A state we never issued, presented as though we had."""
+        bind(client, "state-we-never-issued")
         response = callback(client, "state-we-never-issued")
         assert "auth_error=INVALID_STATE" in response.headers["Location"]
         assert session_cookie(response) is None
+
+    def test_an_attempt_this_browser_did_not_start_is_refused(self, client, provider):
+        """Login CSRF. Someone else begins a sign-in and has this browser finish
+        it; without the binding cookie the browser would be handed a session for
+        *their* account."""
+        state = start(client)
+        client.delete_cookie("fa_oauth_state", path="/api/auth")
+
+        response = callback(client, state)
+        assert "auth_error=STATE_NOT_BOUND" in response.headers["Location"]
+        assert session_cookie(response) is None
+
+    def test_a_binding_cookie_for_another_attempt_is_refused(self, client, provider):
+        state = start(client)
+        bind(client, "some-other-attempt")
+
+        response = callback(client, state)
+        assert "auth_error=STATE_NOT_BOUND" in response.headers["Location"]
+        assert session_cookie(response) is None
+
+    def test_the_binding_cookie_is_dropped_once_the_attempt_is_over(self, client, provider):
+        response = callback(client, start(client))
+        cleared = [h for h in response.headers.getlist("Set-Cookie")
+                   if h.startswith("fa_oauth_state=")]
+        assert cleared and ("Expires=Thu, 01 Jan 1970" in cleared[0] or "Max-Age=0" in cleared[0])
 
     def test_a_cancelled_sign_in_says_so(self, client, provider):
         response = callback(client, start(client), error="access_denied")

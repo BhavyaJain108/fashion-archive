@@ -10,9 +10,13 @@ Accounts are found by (provider, subject) first. A first-time identity with a
 verified email that matches an existing account is linked to it, so people who
 signed up with email and password keep their archive when they switch.
 
-`state` and `nonce` are stored in Postgres, not a cookie. Apple returns the
-user with a cross-site POST, and SameSite=Lax cookies are not sent on those, so
-a cookie-held state would never come back from Apple.
+The `state` row and its nonce live in Postgres; the caller also puts the state in
+a short-lived cookie, and the callback requires both. The row proves the provider
+sent the browser to us, and the cookie proves it is the browser that started —
+without the second, an attacker can finish their own sign-in inside someone
+else's browser and hand them a session for the attacker's account. Apple replies
+with a cross-site POST, which a Lax cookie is not sent on, so that cookie is
+issued SameSite=None for Apple and Lax for Google.
 """
 
 from __future__ import annotations
@@ -201,15 +205,21 @@ def redirect_uri(api_base_url: str, provider: str) -> str:
     return f"{api_base_url.rstrip('/')}/api/auth/oauth/{provider}/callback"
 
 
-def begin(conn, provider: Provider, *, api_base_url: str) -> str:
-    """Record state for this attempt and return the provider URL to send the browser to."""
+def begin(conn, provider: Provider, *, api_base_url: str) -> tuple[str, str]:
+    """Record this attempt. Returns (provider URL, state).
+
+    The state is handed back so the caller can also put it in a cookie: the row
+    below proves the provider sent the browser to us, and the cookie proves it is
+    the browser that started.
+    """
     state = new_token()
     nonce = new_token()
     verifier = new_token() if provider.use_pkce else None
     repo.create_oauth_state(conn, state=state, provider=provider.name, nonce=nonce,
                             code_verifier=verifier, ttl=STATE_TTL)
-    return provider.authorize_url(redirect_uri=redirect_uri(api_base_url, provider.name),
-                                  state=state, nonce=nonce, code_verifier=verifier)
+    url = provider.authorize_url(redirect_uri=redirect_uri(api_base_url, provider.name),
+                                 state=state, nonce=nonce, code_verifier=verifier)
+    return url, state
 
 
 def complete(conn, provider: Provider, *, state: str, code: str, api_base_url: str,

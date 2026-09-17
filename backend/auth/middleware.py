@@ -102,6 +102,56 @@ def set_session_cookie(response: Response, token: str, *, config) -> Response:
     return response
 
 
+# One sign-in attempt, named in the browser that started it. The database row
+# holds the nonce and the code verifier; this holds nothing but proof that the
+# browser finishing the flow is the browser that began it.
+OAUTH_STATE_COOKIE_NAME = "fa_oauth_state"
+OAUTH_STATE_COOKIE_TTL = 600
+
+
+def set_oauth_state_cookie(response: Response, state: str, *, config, cross_site: bool) -> Response:
+    """Bind a pending sign-in to this browser.
+
+    Without this, `state` lives only in the database, so any browser can finish
+    any pending sign-in: an attacker starts a flow and has the victim's browser
+    load the callback, and the victim is handed a session for the attacker's
+    account. Requiring the cookie to come back makes the attempt browser-bound.
+
+    Apple replies with a cross-site POST, and Lax cookies are not sent on those,
+    so Apple needs SameSite=None — which browsers only honour on Secure cookies.
+    In local development over plain http that combination is dropped entirely,
+    so there we fall back to Lax and Apple's callback is unbound; production is
+    https and gets the real thing.
+    """
+    same_site = "None" if (cross_site and config.COOKIE_SECURE) else "Lax"
+    response.set_cookie(
+        OAUTH_STATE_COOKIE_NAME,
+        state,
+        max_age=OAUTH_STATE_COOKIE_TTL,
+        httponly=True,
+        secure=config.COOKIE_SECURE,
+        samesite=same_site,
+        domain=config.COOKIE_DOMAIN or None,
+        path="/api/auth",
+    )
+    return response
+
+
+def clear_oauth_state_cookie(response: Response, *, config) -> Response:
+    """Drop the binding cookie. Called on every finished attempt, good or bad, so
+    a failed sign-in does not leave a usable one behind."""
+    response.set_cookie(
+        OAUTH_STATE_COOKIE_NAME,
+        "",
+        expires=0,
+        httponly=True,
+        secure=config.COOKIE_SECURE,
+        domain=config.COOKIE_DOMAIN or None,
+        path="/api/auth",
+    )
+    return response
+
+
 def clear_session_cookie(response: Response, *, config) -> Response:
     """Remove the session cookie.
 
