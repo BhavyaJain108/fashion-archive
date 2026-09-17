@@ -111,18 +111,6 @@
   flex-shrink: 0;
 }
 
-.fav-view-toggle {
-  display: flex;
-  gap: 1px;
-  background: var(--ar-line);
-  padding: 1px;
-}
-
-.fav-view-toggle .ar-btn {
-  border: none;
-  padding: 8px 16px;
-}
-
 /* --- Single view --------------------------------------------------- */
 
 .fav-single {

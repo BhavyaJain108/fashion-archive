@@ -119,6 +119,12 @@ export function parseRoute(pathname, search) {
     return { ...EMPTY, filters, page: 'shared', token: rest[0] };
   }
 
+  // The design language, rendered. Needs no session: it shows tokens and
+  // primitives, nothing from the archive.
+  if (head === 'styleguide') {
+    return { ...EMPTY, filters, page: 'styleguide' };
+  }
+
   // Anything unrecognised opens the archive rather than a 404 screen. There is
   // nothing behind a bad URL worth a page of its own.
   return { ...EMPTY, filters };
@@ -151,6 +157,8 @@ export function buildRoute(route) {
   }
 
   if (r.page === 'library') return `/library${q}`;
+
+  if (r.page === 'styleguide') return '/styleguide';
 
   if (r.page === 'shared' && r.token) {
     return `/s/${encodeURIComponent(r.token)}${q}`;

@@ -850,35 +850,6 @@
   z-index: 1000;
 }
 
-.hf2-view-toggle {
-  display: flex;
-  gap: 1px;
-  background: var(--ar-line);
-  padding: 1px;
-}
-
-.hf2-view-btn {
-  font-family: var(--ar-font);
-  font-size: var(--ar-fs-ui);
-  padding: 8px 16px;
-  border: none;
-  background: var(--ar-bg);
-  color: var(--ar-ink-3);
-  cursor: pointer;
-  letter-spacing: var(--ar-track-ui);
-  text-transform: uppercase;
-}
-
-.hf2-view-btn:hover {
-  background: var(--ar-bg-sunk);
-  color: var(--ar-ink-2);
-}
-
-.hf2-view-btn.active {
-  background: var(--ar-ink);
-  color: var(--ar-bg);
-}
-
 /* Video Button */
 .hf2-video-btn {
   font-family: var(--ar-font);

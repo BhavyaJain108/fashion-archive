@@ -262,15 +262,15 @@ function Viewer({
       {/* View Toggle & Video Button */}
       {images.length > 0 && (
         <div className="hf2-controls">
-          <div className="hf2-view-toggle">
+          <div className="ar-segmented">
             <button
-              className={`hf2-view-btn ${viewMode === 'single' ? 'active' : ''}`}
+              className={`ar-segment ${viewMode === 'single' ? 'selected' : ''}`}
               onClick={() => setViewMode('single')}
             >
               SINGLE
             </button>
             <button
-              className={`hf2-view-btn ${viewMode === 'grid' ? 'active' : ''}`}
+              className={`ar-segment ${viewMode === 'grid' ? 'selected' : ''}`}
               onClick={() => setViewMode('grid')}
             >
               GRID

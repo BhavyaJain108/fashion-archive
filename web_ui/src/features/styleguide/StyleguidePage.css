@@ -1,0 +1,155 @@
+/* The styleguide's own chrome. Everything it *demonstrates* comes from
+   archive.css untouched; these classes only lay the demonstrations out. */
+
+.sg-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 24px 32px 48px;
+}
+
+.sg-head {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  padding-bottom: 16px;
+  border-bottom: var(--ar-hairline) solid var(--ar-line);
+}
+
+.sg-wordmark {
+  font-size: var(--ar-fs-heading);
+  font-weight: 700;
+  letter-spacing: var(--ar-track-wide);
+  color: var(--ar-ink);
+}
+
+.sg-sub {
+  font-size: var(--ar-fs-label);
+  letter-spacing: var(--ar-track-label);
+  color: var(--ar-ink-3);
+}
+
+.sg-section {
+  padding-top: 8px;
+  max-width: 880px;
+}
+
+.sg-section > .ar-section-header {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.sg-rules {
+  padding-left: 24px;
+  font-size: var(--ar-fs-body);
+  line-height: 20px;
+  color: var(--ar-ink-2);
+}
+
+.sg-row {
+  display: grid;
+  grid-template-columns: 200px 180px 140px 1fr;
+  align-items: center;
+  gap: 16px;
+  min-height: 32px;
+  border-bottom: var(--ar-hairline) solid var(--ar-line-soft);
+}
+
+.sg-cell {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+}
+
+.sg-name {
+  font-family: var(--ar-font);
+  font-size: var(--ar-fs-ui);
+  color: var(--ar-ink);
+}
+
+.sg-value,
+.sg-note {
+  font-size: var(--ar-fs-ui);
+  color: var(--ar-ink-3);
+}
+
+.sg-lead {
+  padding: 4px 0 8px;
+}
+
+.sg-swatch {
+  width: 48px;
+  height: 24px;
+  border: var(--ar-hairline) solid var(--ar-line-soft);
+}
+
+.sg-type { color: var(--ar-ink); white-space: nowrap; }
+.sg-type-label { text-transform: uppercase; letter-spacing: var(--ar-track-label); color: var(--ar-ink-3); }
+.sg-type-ui { text-transform: uppercase; letter-spacing: var(--ar-track-ui); }
+
+.sg-bar {
+  height: 12px;
+  background: var(--ar-ink);
+}
+
+.sg-pulse {
+  width: 24px;
+  height: 24px;
+  background: var(--ar-ink-4);
+  transition-property: background, transform;
+  transition-timing-function: ease;
+}
+
+.sg-pulse:hover {
+  background: var(--ar-ink);
+  transform: translateX(48px);
+}
+
+/* Demonstrations sit on the sub ground so a white primitive shows its edge. */
+.sg-demo {
+  margin: 8px 0;
+  padding: 16px;
+  background: var(--ar-bg-sub);
+  border: var(--ar-hairline) solid var(--ar-line);
+}
+
+.sg-demo-sidebar {
+  width: var(--ar-sidebar-w);
+  padding: 0;
+}
+
+.sg-chips {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 0;
+}
+
+.sg-inline {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.sg-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+}
+
+.sg-tall > * {
+  flex: 1 1 200px;
+  min-height: 120px;
+}
+
+.sg-scrollbox {
+  height: 160px;
+  overflow-y: auto;
+}
+
+.sg-section > .sg-name {
+  display: block;
+  padding: 4px 0 16px;
+  color: var(--ar-ink-3);
+}

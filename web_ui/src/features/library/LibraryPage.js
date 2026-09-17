@@ -760,13 +760,13 @@ function LibraryPage({
         <div className="fav-main">
           {kind === 'look' && (
             <div className="fav-controls">
-              <div className="fav-view-toggle">
+              <div className="ar-segmented">
                 <button
-                  className={`ar-btn ${viewMode === 'single' ? 'active' : ''}`}
+                  className={`ar-segment ${viewMode === 'single' ? 'selected' : ''}`}
                   onClick={() => setViewMode('single')}
                 >Single</button>
                 <button
-                  className={`ar-btn ${viewMode === 'grid' ? 'active' : ''}`}
+                  className={`ar-segment ${viewMode === 'grid' ? 'selected' : ''}`}
                   onClick={() => setViewMode('grid')}
                 >Grid</button>
               </div>

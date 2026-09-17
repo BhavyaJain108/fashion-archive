@@ -336,12 +336,12 @@ function AlbumGrid({
           </div>
 
           <div className="alb-title">{album.name}</div>
-          <div className="alb-layout-toggle" role="group" aria-label="Layout">
+          <div className="ar-segmented alb-layout-toggle" role="group" aria-label="Layout">
             {['grid', 'canvas'].map(mode => (
               <button
                 key={mode}
                 type="button"
-                className={`ar-btn ${(album.layout_mode || 'grid') === mode ? 'on' : ''}`}
+                className={`ar-segment ${(album.layout_mode || 'grid') === mode ? 'selected' : ''}`}
                 aria-pressed={(album.layout_mode || 'grid') === mode}
                 onClick={() => setAlbumOptions(album.id, { layoutMode: mode })}
               >

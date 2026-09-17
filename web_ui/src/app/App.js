@@ -5,6 +5,7 @@ import SharedView from '../features/library/SharedView';
 import BrandsPage from '../features/brands/BrandsPage';
 import AuthPanel from '../features/auth/AuthPanel';
 import HighFashionPage from '../features/high-fashion/HighFashionPage';
+import StyleguidePage from '../features/styleguide/StyleguidePage';
 import { FashionArchiveAPI } from '../shared/api';
 import { useRoute } from '../shared/hooks/useRoute';
 import {
@@ -197,6 +198,10 @@ function App() {
   // for the cookie check or sit behind the sign-in overlay.
   if (route.page === 'shared') {
     return <SharedView token={route.token} />;
+  }
+
+  if (route.page === 'styleguide') {
+    return <StyleguidePage />;
   }
 
   if (!authChecked) {

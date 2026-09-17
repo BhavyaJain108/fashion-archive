@@ -119,6 +119,11 @@ describe('parseRoute', () => {
     expect(r.token).toBe('AbC123');
   });
 
+  test('the styleguide', () => {
+    expect(parseRoute('/styleguide', '').page).toBe('styleguide');
+    expect(buildRoute({ page: 'styleguide' })).toBe('/styleguide');
+  });
+
   test('an unknown path falls back to high fashion', () => {
     expect(parseRoute('/nonsense/deep/path', '').page).toBe('high-fashion');
   });

@@ -71,7 +71,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 9px 16px;
+  padding: 8px 16px;
   border: none;
   border-left: var(--ar-marker) solid transparent;
   background: transparent;

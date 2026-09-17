@@ -222,6 +222,44 @@ body {
   border-left-color: var(--ar-ink);
 }
 
+/* --- Segmented (one of N views, side by side) ---------------------- */
+
+/* A row of segments separated by hairline gaps, the chosen one filled
+   black. Use it for a view switch (SINGLE / GRID, GRID / FREEFORM). For
+   a set of independent modes that stack in a sidebar, use .ar-chip. */
+.ar-segmented {
+  display: inline-flex;
+  gap: var(--ar-hairline);
+  background: var(--ar-line);
+  padding: var(--ar-hairline);
+}
+
+.ar-segment {
+  appearance: none;
+  border: none;
+  border-radius: 0;
+  font-family: var(--ar-font);
+  font-size: var(--ar-fs-ui);
+  letter-spacing: var(--ar-track-ui);
+  text-transform: uppercase;
+  padding: 8px 16px;
+  background: var(--ar-bg);
+  color: var(--ar-ink-3);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--ar-fast) ease, color var(--ar-fast) ease;
+}
+
+.ar-segment:hover {
+  background: var(--ar-bg-sunk);
+  color: var(--ar-ink-2);
+}
+
+.ar-segment.selected {
+  background: var(--ar-ink);
+  color: var(--ar-bg);
+}
+
 /* --- Buttons ------------------------------------------------------- */
 
 .ar-btn {
