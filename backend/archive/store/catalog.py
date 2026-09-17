@@ -34,6 +34,11 @@ from backend.archive.domain.run import Coverage
 from backend.archive.store.objects import Conflict, ObjectStore, dumps, loads
 
 FLUSH_EVERY = 200
+# Every write of the image index is the whole index, which for psylos1 is 19 MB. The
+# photographs are already in R2 when their rows are written, so what a crash between
+# flushes costs is re-fetching at most this many — about 300 MB — against 19 MB saved
+# every time we do not flush.
+IMAGES_FLUSH_EVERY = 2000
 
 # One object describing every brand, so the sidebar is one read and not 130.
 FLEET = "fleet.json"
@@ -233,7 +238,12 @@ class Catalog:
         domain = self._domain_of_run(run_id)
         if domain is None:
             return
-        self.flush()
+        # The run row first, then the stamps into the buffer, then one flush. This
+        # used to flush, stamp, and write the catalogue, search index and meta a second
+        # time — every psylos1 pass uploaded its 35 MB catalogue twice at the end, on
+        # top of forty times during. The order that matters is kept: the search index
+        # and meta filter on the latest covered run, so they are written after both
+        # the run row and the stamps exist, which the flush below guarantees.
         row = self._run(domain, run_id) or {}
         row["finished_at"] = _now()
         row["exit_status"] = exit_status
@@ -250,14 +260,15 @@ class Catalog:
             for entry in products.values():
                 if entry.get("last_seen_run") == run_id:
                     entry["last_covered_run"] = run_id
-            self._write(f"catalogue/{domain}.json", self._open[domain])
+            self._dirty.add(domain)
 
-        # After the run row, not before. Both of these filter on the latest covered
-        # run, and during the flush above this run had no coverage yet — so they would
-        # have matched the previous run and left the index describing products that
-        # were no longer the current ones. On a brand's second run that emptied it.
-        self._write_search_index(domain)
-        self._refresh_meta(domain)
+        flushed = domain in self._dirty
+        self.flush()  # catalogue, then search index and meta, once each
+        if not flushed:
+            # Nothing recorded and nothing stamped, but the run still finished, and
+            # the sidebar's freshness and state come from meta.
+            self._write_search_index(domain)
+            self._refresh_meta(domain)
 
     def latest_run(self, domain: str) -> dict | None:
         for run_id in reversed(self.run_ids(domain)):
@@ -321,9 +332,10 @@ class Catalog:
                 }
             )
         self._dirty.add(domain)
-        self._since_flush += 1
-        if self._since_flush >= FLUSH_EVERY:
-            self.flush()
+        # No flush here. Writing every 200 products re-uploaded a brand's whole
+        # catalogue each time — for psylos1, 35 MB forty times a pass — and bought
+        # nothing: a run killed halfway is re-run from the start, not resumed, so
+        # a partial write was never going to be used.
         return changed
 
     def flush_images(self) -> None:
@@ -562,7 +574,7 @@ class Catalog:
                 rows.append({"url": url, "content_hash": content_hash, "stored_url": stored_url})
             self._images_dirty.add(domain)
             self._images_since_flush += 1
-            due = self._images_since_flush >= FLUSH_EVERY
+            due = self._images_since_flush >= IMAGES_FLUSH_EVERY
             if due:
                 self._images_since_flush = 0
         if due:
@@ -750,4 +762,4 @@ class Catalog:
         return sorted(out, key=lambda r: r["domain"])
 
 
-__all__ = ["Catalog", "Conflict", "FLUSH_EVERY", "new_run_id"]
+__all__ = ["Catalog", "Conflict", "FLUSH_EVERY", "IMAGES_FLUSH_EVERY", "new_run_id"]
