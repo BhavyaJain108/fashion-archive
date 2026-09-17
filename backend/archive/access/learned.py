@@ -6,6 +6,7 @@ research, and a learning earns its way into the pipeline only after it holds on 
 the brand that taught it. See LEARNINGS.md for the record of where each one came from.
 """
 
+import json
 import re
 
 from backend.archive.connectors import get_connector
@@ -14,6 +15,7 @@ from backend.archive.domain.product import pack_sizes
 from backend.archive.fingerprint import probe
 
 _LOC = re.compile(r"<loc>\s*([^<\s]+)\s*</loc>", re.I)
+_LD_BLOCKS = re.compile(r"<script[^>]*application/ld\+json[^>]*>(.*?)</script>", re.S | re.I)
 
 
 def prober(domain: str, transport, retry_pause: float = 1.0) -> Capability:
@@ -198,12 +200,87 @@ class LearnedConnector:
     def fetch(self, ref, transport):
         record = self._inner.fetch(ref, transport)
         html = getattr(self._inner, "last_html", None)
-        if not record.size_info and html:
+        if not html:
+            return record
+        if not record.size_info:
             sizes = sizes_from_swatches(html)
             if sizes:
                 record = record.model_copy(update=pack_sizes(sizes))
-        return record
+        cats = categories_from_breadcrumbs(html, record.product_title)
+        # Only fill blanks: a channel that named a category knows better than a breadcrumb.
+        fill = {
+            f"category{i}": name
+            for i, name in enumerate(cats, start=1)
+            if not getattr(record, f"category{i}", None)
+        }
+        return record.model_copy(update=fill) if fill else record
 
 
 def connector_factory(plan, sitemap_url=None, limit=None):
     return LearnedConnector(get_connector(plan, sitemap_url=sitemap_url, limit=limit))
+
+
+_MAX_CATEGORIES = 10
+
+
+def categories_from_breadcrumbs(html: str, product_title: str | None = None) -> list[str]:
+    """The category path, from the BreadcrumbList every one of these sites publishes.
+
+    Learned on all four brands at once (2026-09-17). The shape is the same everywhere: the
+    first crumb is the site root, the last is the product itself, and what is left is the
+    path a shopper walked to reach it.
+
+        Home → Women → Clothing → Skirts → Scribble Check Skirt   (Vivienne Westwood)
+        Homepage → Jewelry → Alhambra - Jewelry → Magic Alhambra… (Van Cleef)
+        Home → Glasses → Jennie - Zen C1                          (Gentle Monster)
+        XSAI → WIDE PANTS                                         (XSAI)
+
+    XSAI yields nothing, which is right: it has no category level to record, and a rule
+    that invented one would be worse than the blank.
+    """
+    crumbs = _breadcrumb_names(html)
+    if len(crumbs) < 2:
+        return []
+    names = crumbs[1:]  # the first crumb is the site root
+    if names and _same_thing(names[-1], product_title):
+        names = names[:-1]  # the last is the product, which is not a category
+    return [n for n in names if n][:_MAX_CATEGORIES]
+
+
+def _breadcrumb_names(html: str) -> list[str]:
+    for block in _LD_BLOCKS.findall(html):
+        try:
+            data = json.loads(block.strip())
+        except json.JSONDecodeError:
+            continue
+        for node in _walk(data):
+            if isinstance(node, dict) and node.get("@type") == "BreadcrumbList":
+                items = node.get("itemListElement") or []
+                ordered = sorted(items, key=lambda i: i.get("position", 0))
+                return [_crumb_name(i) for i in ordered]
+    return []
+
+
+def _crumb_name(item: dict) -> str:
+    name = item.get("name")
+    if not name and isinstance(item.get("item"), dict):
+        name = item["item"].get("name")
+    return (name or "").strip()
+
+
+def _walk(node):
+    yield node
+    if isinstance(node, dict):
+        for value in node.values():
+            yield from _walk(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from _walk(value)
+
+
+def _same_thing(crumb: str, title: str | None) -> bool:
+    """The last crumb is the product. Sites truncate it, so compare loosely."""
+    if not title:
+        return True  # nothing to compare against; the last crumb is the product by convention
+    a, b = crumb.strip().lower(), title.strip().lower()
+    return a.startswith(b[:20]) or b.startswith(a[:20])

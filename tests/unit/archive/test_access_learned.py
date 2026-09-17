@@ -137,3 +137,46 @@ def test_a_catalogue_where_every_product_sits_at_one_depth_is_untouched():
 
     refs = [ProductRef(url=f"https://gm.com/us/en/item/C{i}/frame-{i}") for i in range(30)]
     assert drop_landing_pages(refs) == refs
+
+
+def crumbs(*names):
+    items = ",".join(
+        f'{{"@type":"ListItem","position":{i},"name":"{n}"}}' for i, n in enumerate(names, 1)
+    )
+    return f'<script type="application/ld+json">{{"@type":"BreadcrumbList","itemListElement":[{items}]}}</script>'
+
+
+@pytest.mark.unit
+def test_the_category_path_is_the_breadcrumbs_without_the_root_or_the_product():
+    from backend.archive.access.learned import categories_from_breadcrumbs
+
+    html = crumbs("Home", "Women", "Clothing", "Skirts", "Scribble Check Skirt")
+    assert categories_from_breadcrumbs(html, "Scribble Check Skirt") == [
+        "Women",
+        "Clothing",
+        "Skirts",
+    ]
+
+
+@pytest.mark.unit
+def test_a_truncated_last_crumb_is_still_recognised_as_the_product():
+    from backend.archive.access.learned import categories_from_breadcrumbs
+
+    html = crumbs("Homepage", "Jewelry", "Alhambra - Jewelry", "Magic Alhambra long neck")
+    got = categories_from_breadcrumbs(html, "Magic Alhambra long necklace, 1 motif 18K gold")
+    assert got == ["Jewelry", "Alhambra - Jewelry"]
+
+
+@pytest.mark.unit
+def test_a_shop_with_no_category_level_gets_no_invented_one():
+    """XSAI's breadcrumbs are brand then product. There is no category to record."""
+    from backend.archive.access.learned import categories_from_breadcrumbs
+
+    assert categories_from_breadcrumbs(crumbs("XSAI", "WIDE PANTS"), "WIDE PANTS") == []
+
+
+@pytest.mark.unit
+def test_a_page_without_breadcrumbs_yields_nothing():
+    from backend.archive.access.learned import categories_from_breadcrumbs
+
+    assert categories_from_breadcrumbs("<p>nothing</p>", "x") == []

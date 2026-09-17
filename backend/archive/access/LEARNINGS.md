@@ -4,6 +4,41 @@ What each round of testing taught us about getting products out of brands that t
 pipeline could not reach. Research for a general shopping bot: nothing here is wired into
 the production scraper.
 
+## The method
+
+Every learning below was found the same way, and the loop matters more than any single
+learning in it. Six steps:
+
+1. **Measure everything, not the summary.** The capability matrix prints 5 columns and they
+   all read 100%. E0005 has 45 fields and we filled 9. Sizes, categories and the two wrong
+   catalogue counts were all invisible until the whole field set was measured at once.
+   A number that only covers what already works cannot tell you what to do next.
+
+2. **Pick the widest gap, and go and look at one real page.** Not a guess about why the
+   field is empty — open the page a product actually lives on and find the markup. Sizes
+   took one page view: `data-tau-size-id="XXS" title="XXS (not available)"`.
+
+3. **Write the narrowest rule that explains what you saw.** "Any attribute whose name
+   contains size, plus the neighbouring title for availability" — not "if Salesforce
+   Commerce Cloud, then...". A rule aimed at one brand teaches nothing about the next.
+
+4. **Verify on the brands that did not teach it.** The product-sitemap rule came from
+   Vivienne Westwood and had to leave Van Cleef and XSAI unchanged. A rule that improves
+   its own brand and quietly damages another is worse than no rule.
+
+5. **Distrust improvements.** Every number that moved in our favour got checked, and two
+   were wrong: 4,352 products were 544 country copies, and 1,333 included the landing
+   pages that the samples had been measuring. Wins are where the errors hide, because
+   nobody investigates good news.
+
+6. **Write down where it came from.** Each learning below names the brand, the date and the
+   evidence. That is what makes it reviewable later, and what lets a rule be deleted when a
+   site changes rather than lingering as folklore.
+
+Rules live in `access/learned.py`, applied on top of the pipeline rather than inside it, so
+the production extractor keeps its own behaviour until a rule has earned its way in. Only
+one has so far: learning 8, which was a plain bug.
+
 **Scope:** brands on the roster that are not Shopify (including Shopify behind a custom
 front end) and did not already work. As of 2026-09-17 that is Vivienne Westwood, Van Cleef
 & Arpels, Gentle Monster and XSAI. Out of scope: STAUD, Psylos1, The Outnet, MARRKNULL,
@@ -14,12 +49,12 @@ Ragamalak, Sicko Kittens, LINISS (all Shopify).
 All four in scope give up their catalogues. Counts corrected 2026-09-17 — see learnings
 10 and 11; the earlier figures of 4,352 and 1,333 were both wrong.
 
-| Brand | Gets in with | Products | Core fields | Sizes | Size availability |
-|---|---|---|---|---|---|
-| Vivienne Westwood | `cffi:chrome142` | 492 | 100% | 100% | 100% |
-| Van Cleef & Arpels | `cffi:chrome142` | 1,299 | 100% | 0% (jewellery) | — |
-| Gentle Monster | `playwright` (challenge-aware) | 1,332 | 100% | 0% (eyewear) | — |
-| XSAI | `cffi:chrome142` | 103 | 100% | 100% | 0% |
+| Brand | Gets in with | Products | Core fields | Sizes | Size avail. | Category levels |
+|---|---|---|---|---|---|---|
+| Vivienne Westwood | `cffi:chrome142` | 492 | 100% | 100% | 100% | 3 |
+| Van Cleef & Arpels | `cffi:chrome142` | 1,299 | 100% | 0% (jewellery) | — | 2 |
+| Gentle Monster | `playwright` (challenge-aware) | 1,332 | 100% | 0% (eyewear) | — | 1 |
+| XSAI | `cffi:chrome142` | 103 | 100% | 100% | 0% | 0 (has none) |
 
 Core fields = title, price, in_stock, main_image_url, all_images, description.
 Fill measured on 5 sampled products per brand.
@@ -28,14 +63,16 @@ Fill measured on 5 sampled products per brand.
 
 E0005 has 45 fields. We fill 9-13 of them. Measured 2026-09-17:
 
-Everywhere: itemurl, product_title, description, price, in_stock, main_image_url, all_images.
+Everywhere: itemurl, product_title, description, price, in_stock, main_image_url, all_images,
+category1 (except XSAI, which publishes no category level).
 Mostly: product_code (3 of 4), brand (3 of 4), additional_code_1 + type (2 of 4).
 Gentle Monster only: specifications, color_info, material_info, category1.
 Vivienne Westwood + XSAI only: size_info. Vivienne Westwood only: size_availability.
+Categories: 3 levels on Vivienne Westwood, 2 on Van Cleef, 1 on Gentle Monster.
 
 Empty on all four: additional_code_2/3 (+types), size_stock_counts, variant_info,
 full_price, promotion_type, promotion_end_date, ppu, unit_type, package_desc, quantity,
-category2-10, additional_tags, delivery, additional_content.
+category4-10, additional_tags, delivery, additional_content.
 
 ## Learnings
 
@@ -121,14 +158,28 @@ landings at 6-7. Keeping everything at or deeper than the most common depth drop
 no request cost, and changes nothing for brands whose products share one depth.
 Code: `learned.drop_landing_pages`.
 
+### 12. Categories are the breadcrumbs, minus the root and the product — 2026-09-17
+All four brands publish `BreadcrumbList` JSON-LD and none of it was being read. The shape
+is the same everywhere: first crumb is the site root, last is the product itself, and what
+remains is the category path.
+
+    Home → Women → Clothing → Skirts → Scribble Check Skirt        → 3 levels
+    Homepage → Jewelry → Alhambra - Jewelry → Magic Alhambra…      → 2 levels
+    Home → Glasses → Jennie - Zen C1                               → 1 level
+    XSAI → WIDE PANTS                                              → 0, correctly
+
+The last crumb is often truncated, so it is matched loosely against the product title
+rather than exactly. XSAI yields nothing and that is the right answer — it has no category
+level, and a rule that invented one would be worse than the blank. Values spot-checked:
+Women/Clothing/Skirts, Women/Clothing/Knitwear, Jewelry/Alhambra - Jewelry.
+Only blank fields are filled, so a channel that names a category still wins.
+Code: `learned.categories_from_breadcrumbs`.
+
 ## Open
 
 Next, in the order they look worth doing:
 
-1. **Categories (0 of 10 filled on three brands).** Van Cleef and Gentle Monster both
-   publish `BreadcrumbList` JSON-LD, which is the category path. One generic learning
-   should fill category1-N on every brand that has breadcrumbs.
-2. **color_info** — filled only on Gentle Monster. Vivienne Westwood carries colour in the
+1. **color_info** — filled only on Gentle Monster. Vivienne Westwood carries colour in the
    SKU and the URL (`--RED`), and has colour swatches beside the size swatches.
 3. **full_price / promotion fields** — empty everywhere, but these only exist on discounted
    products and nothing sampled was on sale. Needs a sale item to test against, not a fix.
