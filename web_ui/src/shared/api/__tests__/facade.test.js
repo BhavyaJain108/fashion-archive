@@ -3,8 +3,7 @@ import ArchiveEndpoints from '../archive';
 
 test('every method the pages call still resolves', () => {
   for (const name of [
-    'getMe', 'login', 'register', 'logout', 'resendVerification',
-    'requestPasswordReset', 'resetPassword', 'callPython', 'consumeSSE',
+    'getMe', 'getProviders', 'oauthStartUrl', 'logout', 'callPython', 'consumeSSE',
     'getImageUrl', 'getSeasons', 'downloadVideo', 'streamCatalog',
     'getIndexStatus', 'browseCatalog', 'searchShows', 'getDesigners',
     'streamDesignerCollections', 'streamCollectionImages', 'getRecents',

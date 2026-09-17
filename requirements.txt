@@ -8,10 +8,10 @@ Pillow>=10.0.0
 flask>=2.3.0
 flask-cors>=4.0.0
 
-# Auth: Postgres accounts, sessions and password hashing
+# Auth: Postgres accounts and sessions; Google/Apple ID-token verification
 psycopg[binary]>=3.1
 psycopg_pool>=3.2
-argon2-cffi>=23.1
+PyJWT[crypto]>=2.8
 
 # Image storage: Cloudflare R2 via its S3-compatible API
 boto3>=1.34

@@ -83,15 +83,23 @@ services:
       - key: COOKIE_SECURE
         value: "true"
 
-      - key: MAIL_FROM
-        value: no-reply@premiumpropogandafashion.studio
       - key: R2_BUCKET
         value: fashion-archive
       - key: R2_PUBLIC_BASE
         value: https://images.premiumpropogandafashion.studio
 
       # sync: false means Render prompts for these and they never enter the repo.
-      - key: RESEND_API_KEY
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: APPLE_CLIENT_ID
+        sync: false
+      - key: APPLE_TEAM_ID
+        sync: false
+      - key: APPLE_KEY_ID
+        sync: false
+      - key: APPLE_PRIVATE_KEY
         sync: false
       - key: ANTHROPIC_API_KEY
         sync: false

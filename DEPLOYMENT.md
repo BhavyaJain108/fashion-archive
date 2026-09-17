@@ -23,7 +23,12 @@ It will prompt for five secrets, which never enter the repo:
 
 | Variable | From |
 |---|---|
-| `RESEND_API_KEY` | Resend -> API Keys |
+| `GOOGLE_CLIENT_ID` | Google Cloud -> APIs & Services -> Credentials |
+| `GOOGLE_CLIENT_SECRET` | same OAuth client |
+| `APPLE_CLIENT_ID` | Apple Developer -> Identifiers -> your Services ID |
+| `APPLE_TEAM_ID` | Apple Developer -> Membership |
+| `APPLE_KEY_ID` | Apple Developer -> Keys -> the Sign in with Apple key |
+| `APPLE_PRIVATE_KEY` | contents of that key's .p8 file |
 | `ANTHROPIC_API_KEY` | your existing key |
 | `R2_ACCOUNT_ID` | in the R2 endpoint URL |
 | `R2_ACCESS_KEY_ID` | R2 -> Manage R2 API Tokens |
@@ -69,10 +74,9 @@ Custom Domains tab.
 
 Open the site and register. Confirm, in order:
 
-1. the verification email arrives (not in spam — that is what the DKIM/SPF
-   records are for)
-2. the link signs the account off as confirmed
-3. you can log in
+1. the Google (or Apple) consent screen appears
+2. it sends you back signed in
+3. the account is the same one you had before, if you had signed up by email
 4. **reloading the page keeps you logged in** — if this fails the cookie is not
    crossing subdomains; check `COOKIE_DOMAIN` starts with a dot
 5. images load from `images.premiumpropogandafashion.studio`
@@ -86,9 +90,6 @@ from `--threads`.
 
 **`DEBUG` must stay false.** It serves the Werkzeug debugger, an interactive
 Python console, to anyone who can trigger a traceback.
-
-**Rate-limit counters are in memory** and reset on redeploy. Fine for one
-service; revisit if it ever scales out.
 
 **No persistent disk.** Anything written to the container filesystem is gone on
 the next deploy. Images go to R2, everything else to Postgres. If you add a
@@ -106,5 +107,8 @@ Use the same hostname for both — `localhost` for both, or `127.0.0.1` for both
 The browser treats them as different sites, and mixing them makes the session
 cookie silently vanish. See `web_ui/README.md`.
 
-Without `RESEND_API_KEY` set, verification links print to the terminal, so the
-whole signup flow works with no credentials.
+Sign-in needs a provider: with no `GOOGLE_CLIENT_*` or `APPLE_*` variables set,
+`/api/auth/providers` returns an empty list and the site says so rather than
+offering a button that dead-ends. Google allows `http://localhost` redirect
+URIs, so it works locally; Apple does not, so Apple can only be tested on the
+deployed domain.

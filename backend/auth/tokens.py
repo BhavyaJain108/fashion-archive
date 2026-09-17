@@ -20,5 +20,5 @@ def new_token() -> str:
 
 
 def hash_token(token: str) -> bytes:
-    """The 32-byte digest stored in `sessions.token_hash` / `email_tokens.token_hash`."""
+    """The 32-byte digest stored in `sessions.token_hash` / `oauth_states.state_hash`."""
     return hashlib.sha256(token.encode("utf-8")).digest()

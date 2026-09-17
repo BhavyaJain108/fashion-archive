@@ -23,7 +23,9 @@ TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL", DEFAULT_URL)
 os.environ.setdefault("DATABASE_URL", TEST_DATABASE_URL)
 os.environ.setdefault("APP_BASE_URL", "http://localhost:3000")
 os.environ.setdefault("API_BASE_URL", "http://localhost:8081")
-os.environ.pop("RESEND_API_KEY", None)  # never send real mail from a test
+# No provider credentials: tests install a stub provider where they need one.
+for _k in ("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "APPLE_CLIENT_ID"):
+    os.environ.pop(_k, None)
 
 
 @pytest.fixture(scope="session")
@@ -41,22 +43,7 @@ def flask_app():
 
 
 @pytest.fixture
-def sender(flask_app):
-    """Swap in a recording sender and hand it to the test."""
-    from backend.auth.email import RecordingSender
-    from backend.auth.service import AuthService
-
-    recorder = RecordingSender()
-    flask_app.extensions["auth_service"] = AuthService(
-        sender=recorder,
-        api_base_url="http://localhost:8081",
-        app_base_url="http://localhost:3000",
-    )
-    return recorder
-
-
-@pytest.fixture
-def client(flask_app, sender):
+def client(flask_app):
     """A test client against an empty database."""
     from backend.auth import db as auth_db
 
@@ -67,6 +54,27 @@ def client(flask_app, sender):
         yield test_client
 
 
-def token_from(sender):
-    """Extract a token the way a user would — out of the emailed link."""
-    return sender.last.message.text.split("token=")[1].split()[0].strip()
+def sign_in(client, email="user@example.test", *, display_name=None):
+    """Put a real session cookie on the client.
+
+    Sign-in goes through Google or Apple now, so a test cannot walk the flow
+    without a provider. It creates the account and session directly instead —
+    the same rows a callback would have written.
+    """
+    from backend.auth import db as auth_db
+    from backend.auth import repository as repo
+    from backend.auth.middleware import SESSION_COOKIE_NAME, SESSION_TTL
+    from backend.auth.tokens import new_token
+
+    with auth_db.transaction() as conn:
+        user = repo.get_user_by_email(conn, email)
+        if user is None:
+            user = repo.create_user(
+                conn, email=email, display_name=display_name or email.split("@")[0]
+            )
+            repo.mark_email_verified(conn, user.id)
+        token = new_token()
+        repo.create_session(conn, user_id=user.id, token=token, ttl=SESSION_TTL)
+
+    client.set_cookie(SESSION_COOKIE_NAME, token, domain="localhost")
+    return user

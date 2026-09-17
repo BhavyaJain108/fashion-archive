@@ -1,6 +1,9 @@
 // The shared half of the API: the base URL, the session-expiry hook, and the
 // three request shapes every endpoint is built from.
 //
+// Sign-in itself is a browser redirect to Google or Apple, so it is a URL
+// here rather than a request; everything after it is a normal call.
+//
 // Every request sends `credentials: 'include'` so the browser attaches the
 // session cookie. The cookie is HttpOnly, which means this file cannot read it
 // and neither can anything else running on the page — that is the point. The
@@ -47,30 +50,25 @@ export class ApiClient {
     return data.user || null;
   }
 
-  static login(email, password) {
-    return this.authRequest('login', { email, password });
+  // Which sign-in providers the API has credentials for.
+  static async getProviders() {
+    const response = await fetch(`${this.BASE_URL}/api/auth/providers`, {
+      credentials: 'include',
+    });
+    if (!response.ok) throw new Error(`providers: HTTP ${response.status}`);
+    const data = await response.json();
+    return data.providers || [];
   }
 
-  static register(email, password, displayName) {
-    return this.authRequest('register', {
-      email, password, display_name: displayName,
-    });
+  // Where to send the browser to start signing in. A URL rather than a fetch:
+  // the provider shows its own page and redirects back to the API's callback,
+  // which sets the cookie. None of that can happen inside XHR.
+  static oauthStartUrl(provider) {
+    return `${this.BASE_URL}/api/auth/oauth/${encodeURIComponent(provider)}/start`;
   }
 
   static logout() {
     return this.authRequest('logout', {});
-  }
-
-  static resendVerification(email) {
-    return this.authRequest('resend-verification', { email });
-  }
-
-  static requestPasswordReset(email) {
-    return this.authRequest('request-reset', { email });
-  }
-
-  static resetPassword(token, password) {
-    return this.authRequest('reset', { token, password });
   }
 
   // Helper to call Python backend.

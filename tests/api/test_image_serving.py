@@ -11,16 +11,7 @@ import pytest
 
 pytestmark = pytest.mark.db
 
-from .conftest import token_from  # noqa: E402
-
-
-def sign_up(client, sender, email="img@example.com"):
-    client.post(
-        "/api/auth/register",
-        json={"email": email, "password": "a-good-password", "display_name": "Img"},
-    )
-    client.get(f"/api/auth/verify?token={token_from(sender)}")
-    client.post("/api/auth/login", json={"email": email, "password": "a-good-password"})
+from .conftest import sign_in  # noqa: E402
 
 
 @pytest.fixture
@@ -37,30 +28,32 @@ def stored(tmp_path):
 
 
 class TestServeStoredImage:
-    def test_requires_a_session(self, client, sender, stored):
-        assert client.get("/api/images/runway/Balenciaga/look1.png").status_code == 401
+    def test_is_public(self, client, stored):
+        """Deliberately open: a shared page shows its pictures to someone with
+        no account. Keys are opaque, the handler is read-only and rate-limited."""
+        assert client.get("/api/images/runway/Balenciaga/look1.png").status_code == 200
 
-    def test_serves_the_bytes(self, client, sender, stored):
-        sign_up(client, sender)
+    def test_serves_the_bytes(self, client, stored):
+        sign_in(client, "img@example.test")
         response = client.get("/api/images/runway/Balenciaga/look1.png")
         assert response.status_code == 200
         assert response.data.startswith(b"\x89PNG")
 
-    def test_sets_the_content_type(self, client, sender, stored):
+    def test_sets_the_content_type(self, client, stored):
         """Wrong type makes the browser download the file instead of showing it."""
-        sign_up(client, sender)
+        sign_in(client, "img@example.test")
         response = client.get("/api/images/runway/Balenciaga/look1.png")
         assert response.mimetype == "image/png"
 
-    def test_missing_image_is_404(self, client, sender, stored):
-        sign_up(client, sender)
+    def test_missing_image_is_404(self, client, stored):
+        sign_in(client, "img@example.test")
         assert client.get("/api/images/runway/Nope/none.png").status_code == 404
 
-    def test_traversal_is_refused(self, client, sender, stored, tmp_path):
+    def test_traversal_is_refused(self, client, stored, tmp_path):
         """The predecessor would have read and returned this file."""
         secret = tmp_path.parent / "secret.txt"
         secret.write_text("do not serve me")
-        sign_up(client, sender)
+        sign_in(client, "img@example.test")
         response = client.get("/api/images/../secret.txt")
         assert response.status_code in (400, 404)
         assert b"do not serve me" not in response.data

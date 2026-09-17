@@ -42,10 +42,17 @@ class Config:
     # this off. It must be on anywhere real.
     COOKIE_SECURE = os.getenv('COOKIE_SECURE', 'false').lower() == 'true'
 
-    # Email (Resend). Without an API key the app falls back to printing
-    # verification links to stdout, so local signup works with no credentials.
-    RESEND_API_KEY = os.getenv('RESEND_API_KEY')
-    MAIL_FROM = os.getenv('MAIL_FROM', 'no-reply@localhost')
+    # Sign in with Google: OAuth client from Google Cloud Console. The
+    # authorised redirect URI is {API_BASE_URL}/api/auth/oauth/google/callback.
+    GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID')
+    GOOGLE_CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET')
+
+    # Sign in with Apple: a Services ID, your team id, and a .p8 key with Sign
+    # in with Apple enabled. APPLE_PRIVATE_KEY is the full .p8 contents.
+    APPLE_CLIENT_ID = os.getenv('APPLE_CLIENT_ID')
+    APPLE_TEAM_ID = os.getenv('APPLE_TEAM_ID')
+    APPLE_KEY_ID = os.getenv('APPLE_KEY_ID')
+    APPLE_PRIVATE_KEY = os.getenv('APPLE_PRIVATE_KEY')
 
     # Image storage (Cloudflare R2). Without credentials images go to a local
     # directory instead, so development needs no cloud account. Production must

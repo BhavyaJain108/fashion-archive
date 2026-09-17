@@ -3,7 +3,7 @@ import LibraryPage from '../features/library/LibraryPage';
 import AlbumGrid from '../features/library/AlbumGrid';
 import SharedView from '../features/library/SharedView';
 import BrandsPage from '../features/brands/BrandsPage';
-import AuthPanel from '../features/auth/AuthPanel';
+import AuthPanel, { authErrorMessage } from '../features/auth/AuthPanel';
 import HighFashionPage from '../features/high-fashion/HighFashionPage';
 import StyleguidePage from '../features/styleguide/StyleguidePage';
 import { FashionArchiveAPI } from '../shared/api';
@@ -50,9 +50,7 @@ function App() {
   const [authChecked, setAuthChecked] = useState(false);
 
   // Set from the URL when arriving via an emailed link.
-  const [authMode, setAuthMode] = useState(null);
   const [authNotice, setAuthNotice] = useState('');
-  const [resetToken, setResetToken] = useState(null);
 
   // Which page is open is a fact about the URL, not a piece of state. Back
   // and forward work because there is nothing else to keep in step: the
@@ -76,28 +74,22 @@ function App() {
     };
 
     const params = new URLSearchParams(window.location.search);
-    const onResetPage = window.location.pathname.startsWith('/reset-password');
 
-    if (onResetPage && params.get('token')) {
-      setResetToken(params.get('token'));
-      setAuthMode('reset');
-    } else if (params.get('verified')) {
-      setAuthNotice('Email confirmed. You can sign in now.');
-    } else if (params.get('error')) {
-      setAuthNotice('That confirmation link is invalid or has expired.');
+    // The sign-in callback redirects here with a code when it could not finish.
+    if (params.get('auth_error')) {
+      setAuthNotice(authErrorMessage(params.get('auth_error')));
     }
 
-    // Strip only the auth parameters. A reset token must not sit in history
-    // where it can be copied out of the address bar — but the filters live in
-    // this query string now, and wiping the lot would drop them on every load.
-    const AUTH_PARAMS = ['token', 'verified', 'error'];
+    // Strip only the auth parameter. The filters live in this query string
+    // now, and wiping the lot would drop them on every load.
+    const AUTH_PARAMS = ['auth_error'];
     if (AUTH_PARAMS.some((k) => params.has(k))) {
       AUTH_PARAMS.forEach((k) => params.delete(k));
       const rest = params.toString();
       // Deliberately not router.js's navigate(): this runs in App's own mount
-      // effect, before any route consumer has mounted, and it is scrubbing a
-      // secret out of the URL rather than making a navigation — there is
-      // nobody to notify and nothing to canonicalize.
+      // effect, before any route consumer has mounted, and it is tidying a
+      // spent receipt out of the URL rather than making a navigation — there
+      // is nobody to notify and nothing to canonicalize.
       window.history.replaceState(
         {}, '', window.location.pathname + (rest ? `?${rest}` : '')
       );
@@ -124,7 +116,7 @@ function App() {
   //
   // Declared after the effect above, and so run after it, on purpose: that
   // one strips the auth parameters out of the query string, and an arrival
-  // from a confirmation link — "/?verified=1" — is a blank arrival with a
+  // back from a sign-in — "/?auth_error=..." — is a blank arrival with a
   // receipt stapled to it, not a destination. By the time this runs the
   // receipt is gone and the URL says what the reader actually asked for.
   //
@@ -153,14 +145,6 @@ function App() {
     rememberSession(route);
   }, [route]);
 
-  const handleAuthenticated = (user) => {
-    setCurrentUser(user);
-    setIsAuthenticated(true);
-    setAuthMode(null);
-    setAuthNotice('');
-    setResetToken(null);
-  };
-
   const handleLogout = async () => {
     try {
       // The server clears the cookie and deletes the session row; there is no
@@ -176,7 +160,6 @@ function App() {
       clearSession();
       setCurrentUser(null);
       setIsAuthenticated(false);
-      setAuthMode('login');
       setAuthNotice('');
     }
   };
@@ -236,12 +219,7 @@ function App() {
   if (!isAuthenticated) {
     return (
       <div className="ar-app">
-        <AuthPanel
-          onAuthenticated={handleAuthenticated}
-          initialMode={authMode}
-          initialNotice={authNotice}
-          resetToken={resetToken}
-        />
+        <AuthPanel initialNotice={authNotice} />
       </div>
     );
   }

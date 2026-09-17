@@ -1,236 +1,174 @@
-"""HTTP behaviour of the auth endpoints.
+"""Signing in with a provider, over HTTP.
 
-The service tests cover the rules; these cover the wire: status codes, the
-cookie's flags, and the redirect a user lands on after clicking an email link.
-Those are the parts a browser cares about and a service test cannot see.
+The provider itself is stubbed: these tests never leave the machine. What they
+check is everything on our side of the round trip — that a callback without a
+valid state is refused, that a verified email links to an account that already
+exists, that the session cookie comes back with the flags a browser needs, and
+that failures land the user back on the site instead of on a blank API page.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from .conftest import token_from
+from backend.auth import oauth
+
+from .conftest import sign_in
 
 pytestmark = pytest.mark.db
 
-EMAIL = "archivist@example.com"
-PASSWORD = "a-good-password"
+APP = "http://localhost:3000"
 
 
-def register(client, email=EMAIL, password=PASSWORD):
-    return client.post(
-        "/api/auth/register",
-        json={"email": email, "password": password, "display_name": "Archivist"},
-    )
+class StubProvider(oauth.Provider):
+    """Answers like Google without a network call."""
+
+    name = "google"
+    authorize_endpoint = "https://accounts.example.test/authorize"
+    token_endpoint = "https://oauth.example.test/token"
+    jwks_uri = "https://oauth.example.test/certs"
+    issuers = ("https://accounts.example.test",)
+    scope = "openid email profile"
+
+    def __init__(self, *, sub="google-sub-1", email="signup@example.test",
+                 email_verified=True, name="Signup Person"):
+        self.client_id = "client-id"
+        self.claims = {"sub": sub, "email": email, "email_verified": email_verified,
+                       "name": name}
+        self.exchanged = []
+        # Deliberately skips Provider.__init__: no JWKS client is needed.
+
+    def client_secret(self):
+        return "secret"
+
+    def exchange_code(self, *, code, redirect_uri, code_verifier):
+        self.exchanged.append({"code": code, "redirect_uri": redirect_uri,
+                               "code_verifier": code_verifier})
+        return "stub-id-token"
+
+    def verify_id_token(self, id_token, *, nonce):
+        return dict(self.claims)
 
 
-def verify(client, sender):
-    return client.get(f"/api/auth/verify?token={token_from(sender)}")
+@pytest.fixture
+def provider(flask_app):
+    stub = StubProvider()
+    flask_app.extensions["oauth_providers"] = {"google": stub}
+    yield stub
+    flask_app.extensions["oauth_providers"] = {}
 
 
-def login(client, email=EMAIL, password=PASSWORD):
-    return client.post("/api/auth/login", json={"email": email, "password": password})
+def start(client):
+    """Begin a sign-in and return the state the provider would send back."""
+    from urllib.parse import parse_qs, urlparse
+
+    response = client.get("/api/auth/oauth/google/start")
+    assert response.status_code == 302
+    return parse_qs(urlparse(response.headers["Location"]).query)["state"][0]
+
+
+def callback(client, state, **extra):
+    return client.get("/api/auth/oauth/google/callback",
+                      query_string={"state": state, "code": "auth-code", **extra})
 
 
 def session_cookie(response):
-    """The Set-Cookie header for the session, if the response sets one."""
     for header in response.headers.getlist("Set-Cookie"):
         if header.startswith("fa_session="):
             return header
     return None
 
 
-class TestRegister:
-    def test_accepted(self, client, sender):
-        assert register(client).status_code == 202
+class TestProviders:
+    def test_lists_only_configured_providers(self, client, provider):
+        assert client.get("/api/auth/providers").get_json()["providers"] == ["google"]
 
-    def test_sends_verification_email(self, client, sender):
-        register(client)
-        assert sender.last.to == EMAIL
+    def test_empty_when_none_configured(self, client, flask_app):
+        flask_app.extensions["oauth_providers"] = {}
+        assert client.get("/api/auth/providers").get_json()["providers"] == []
 
-    def test_existing_email_returns_the_identical_response(self, client, sender):
-        """Byte-identical, not merely the same status — a different message
-        would still disclose which addresses are registered."""
-        first = register(client)
-        second = register(client)
-        assert first.status_code == second.status_code == 202
-        assert first.get_json() == second.get_json()
-
-    def test_malformed_email_is_rejected(self, client, sender):
-        response = register(client, email="not-an-email")
-        assert response.status_code == 400
-        assert response.get_json()["code"] == "INVALID_EMAIL"
-
-    def test_short_password_is_rejected(self, client, sender):
-        response = register(client, password="short")
-        assert response.status_code == 400
-        assert response.get_json()["code"] == "WEAK_PASSWORD"
-
-    def test_empty_body_is_rejected_not_crashed(self, client, sender):
-        assert client.post("/api/auth/register", json={}).status_code == 400
-
-    def test_no_body_at_all_is_rejected_not_crashed(self, client, sender):
-        assert client.post("/api/auth/register").status_code == 400
+    def test_is_public(self, client, provider):
+        assert client.get("/api/auth/providers").status_code == 200
 
 
-class TestVerify:
-    def test_redirects_to_the_site_on_success(self, client, sender):
-        register(client)
-        response = verify(client, sender)
+class TestStart:
+    def test_redirects_to_the_provider(self, client, provider):
+        response = client.get("/api/auth/oauth/google/start")
         assert response.status_code == 302
-        assert response.headers["Location"] == "http://localhost:3000/login?verified=1"
+        assert response.headers["Location"].startswith(provider.authorize_endpoint)
 
-    def test_redirects_with_an_error_on_a_bad_token(self, client, sender):
-        response = client.get("/api/auth/verify?token=garbage")
+    def test_unknown_provider_goes_back_to_the_site(self, client, provider):
+        """Not a JSON 404: the browser is mid-navigation and needs somewhere to land."""
+        response = client.get("/api/auth/oauth/nope/start")
         assert response.status_code == 302
-        assert "error=INVALID_TOKEN" in response.headers["Location"]
-
-    def test_missing_token_does_not_crash(self, client, sender):
-        assert client.get("/api/auth/verify").status_code == 302
+        assert "auth_error=PROVIDER_UNAVAILABLE" in response.headers["Location"]
 
 
-class TestLogin:
-    def test_refused_before_verification(self, client, sender):
-        register(client)
-        response = login(client)
-        assert response.status_code == 403
-        assert response.get_json()["code"] == "EMAIL_NOT_VERIFIED"
+class TestCallback:
+    def test_signs_in_and_sets_the_cookie(self, client, provider):
+        response = callback(client, start(client))
+        assert response.status_code == 302
+        assert response.headers["Location"] == f"{APP}/"
 
-    def test_succeeds_after_verification(self, client, sender):
-        register(client)
-        verify(client, sender)
-        response = login(client)
-        assert response.status_code == 200
-        assert response.get_json()["user"]["email"] == EMAIL
+        cookie = session_cookie(response)
+        assert cookie and "HttpOnly" in cookie and "SameSite=Lax" in cookie
+        assert client.get("/api/auth/me").get_json()["user"]["email"] == "signup@example.test"
 
-    def test_sets_an_httponly_session_cookie(self, client, sender):
-        """HttpOnly is what stops an XSS bug from reading the session token."""
-        register(client)
-        verify(client, sender)
-        cookie = session_cookie(login(client))
-        assert cookie is not None
-        assert "HttpOnly" in cookie
+    def test_creates_a_verified_account(self, client, provider):
+        callback(client, start(client))
+        user = client.get("/api/auth/me").get_json()["user"]
+        assert user["email_verified"] is True
+        assert user["display_name"] == "Signup Person"
 
-    def test_cookie_is_samesite_lax(self, client, sender):
-        register(client)
-        verify(client, sender)
-        assert "SameSite=Lax" in session_cookie(login(client))
+    def test_second_sign_in_reuses_the_same_account(self, client, provider):
+        callback(client, start(client))
+        first = client.get("/api/auth/me").get_json()["user"]["id"]
+        callback(client, start(client))
+        assert client.get("/api/auth/me").get_json()["user"]["id"] == first
 
-    def test_wrong_password_is_401_with_no_cookie(self, client, sender):
-        register(client)
-        verify(client, sender)
-        response = login(client, password="wrong-password")
-        assert response.status_code == 401
+    def test_links_to_an_account_that_already_existed(self, client, provider):
+        """Someone who signed up by email before keeps their archive."""
+        existing = sign_in(client, "signup@example.test")
+        client.post("/api/auth/logout")
+
+        callback(client, start(client))
+        assert client.get("/api/auth/me").get_json()["user"]["id"] == str(existing.id)
+
+    def test_a_state_cannot_be_replayed(self, client, provider):
+        state = start(client)
+        assert callback(client, state).headers["Location"] == f"{APP}/"
+
+        replayed = callback(client, state)
+        assert "auth_error=INVALID_STATE" in replayed.headers["Location"]
+
+    def test_a_forged_state_is_refused(self, client, provider):
+        response = callback(client, "state-we-never-issued")
+        assert "auth_error=INVALID_STATE" in response.headers["Location"]
         assert session_cookie(response) is None
 
-    def test_unknown_email_gives_the_same_code_as_a_wrong_password(self, client, sender):
-        response = login(client, email="nobody@example.com")
-        assert response.status_code == 401
-        assert response.get_json()["code"] == "INVALID_CREDENTIALS"
+    def test_a_cancelled_sign_in_says_so(self, client, provider):
+        response = callback(client, start(client), error="access_denied")
+        assert "auth_error=CANCELLED" in response.headers["Location"]
 
-    def test_response_never_contains_the_password_hash(self, client, sender):
-        register(client)
-        verify(client, sender)
-        assert "password" not in str(login(client).get_json()["user"])
+    def test_an_unverified_email_is_refused(self, client, flask_app):
+        """Linking on an unverified address would let anyone claim it."""
+        flask_app.extensions["oauth_providers"] = {
+            "google": StubProvider(email_verified=False)
+        }
+        response = callback(client, start(client))
+        assert "auth_error=EMAIL_NOT_VERIFIED" in response.headers["Location"]
+        assert session_cookie(response) is None
 
 
-class TestSessionLifecycle:
-    def test_me_returns_the_user_once_logged_in(self, client, sender):
-        register(client)
-        verify(client, sender)
-        login(client)
-
-        response = client.get("/api/auth/me")
-        assert response.status_code == 200
-        assert response.get_json()["user"]["email"] == EMAIL
-
-    def test_me_reports_verified_status(self, client, sender):
-        register(client)
-        verify(client, sender)
-        login(client)
-        assert client.get("/api/auth/me").get_json()["user"]["email_verified"] is True
-
-    def test_the_session_survives_across_requests(self, client, sender):
-        """This is 'remember me' — no re-login between calls."""
-        register(client)
-        verify(client, sender)
-        login(client)
-        for _ in range(3):
-            assert client.get("/api/auth/me").status_code == 200
-
-    def test_a_session_unlocks_the_other_protected_endpoints(self, client, sender):
-        """Auth is global, so logging in must open more than /auth/me."""
-        register(client)
-        verify(client, sender)
-        login(client)
-        assert client.get("/api/brands").status_code != 401
-
-    def test_logout_ends_the_session(self, client, sender):
-        register(client)
-        verify(client, sender)
-        login(client)
-        assert client.post("/api/auth/logout").status_code == 200
+class TestSession:
+    def test_me_needs_a_session(self, client):
         assert client.get("/api/auth/me").status_code == 401
 
-    def test_logout_without_a_session_still_succeeds(self, client, sender):
-        """An expired cookie should not show an error on the way out."""
-        assert client.post("/api/auth/logout").status_code == 200
-
-
-class TestPasswordResetOverHttp:
-    def test_request_is_accepted_for_a_real_address(self, client, sender):
-        register(client)
-        verify(client, sender)
-        response = client.post("/api/auth/request-reset", json={"email": EMAIL})
-        assert response.status_code == 202
-
-    def test_request_for_unknown_address_looks_identical(self, client, sender):
-        real = client.post("/api/auth/request-reset", json={"email": EMAIL})
-        unknown = client.post("/api/auth/request-reset", json={"email": "nobody@example.com"})
-        assert real.status_code == unknown.status_code == 202
-        assert real.get_json() == unknown.get_json()
-
-    def test_full_reset_flow(self, client, sender):
-        register(client)
-        verify(client, sender)
-        client.post("/api/auth/request-reset", json={"email": EMAIL})
-
-        response = client.post(
-            "/api/auth/reset",
-            json={"token": token_from(sender), "password": "a-brand-new-password"},
-        )
-        assert response.status_code == 200
-        assert login(client, password="a-brand-new-password").status_code == 200
-        assert login(client, password=PASSWORD).status_code == 401
-
-    def test_reset_signs_out_existing_sessions(self, client, sender):
-        register(client)
-        verify(client, sender)
-        login(client)
+    def test_logout_ends_it(self, client):
+        sign_in(client)
         assert client.get("/api/auth/me").status_code == 200
-
-        client.post("/api/auth/request-reset", json={"email": EMAIL})
-        client.post(
-            "/api/auth/reset",
-            json={"token": token_from(sender), "password": "a-brand-new-password"},
-        )
+        assert client.post("/api/auth/logout").status_code == 200
         assert client.get("/api/auth/me").status_code == 401
 
-
-class TestResendVerification:
-    def test_accepted_for_an_unverified_account(self, client, sender):
-        register(client)
-        assert (
-            client.post("/api/auth/resend-verification", json={"email": EMAIL}).status_code == 202
-        )
-
-    def test_the_resent_link_works(self, client, sender):
-        register(client)
-        client.post("/api/auth/resend-verification", json={"email": EMAIL})
-        verify(client, sender)
-        assert login(client).status_code == 200
-
-    def test_unknown_address_looks_identical(self, client, sender):
-        known = client.post("/api/auth/resend-verification", json={"email": EMAIL})
-        unknown = client.post("/api/auth/resend-verification", json={"email": "no@example.com"})
-        assert known.get_json() == unknown.get_json()
+    def test_logout_without_a_session_still_succeeds(self, client):
+        assert client.post("/api/auth/logout").status_code == 200

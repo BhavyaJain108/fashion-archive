@@ -43,6 +43,7 @@ CORS(app,
 # Made available to request handlers that need cookie flags.
 app.config['APP_CONFIG'] = config
 app.config['APP_BASE_URL'] = config.APP_BASE_URL
+app.config['API_BASE_URL'] = config.API_BASE_URL
 
 # =============================================================================
 # HEALTH CHECK
@@ -134,25 +135,18 @@ except Exception as e:
 # only the endpoints named below are reachable without a session.
 
 from backend.auth import db as auth_db  # noqa: E402
-from backend.auth.email import ConsoleSender, ResendSender  # noqa: E402
 from backend.auth.middleware import install_auth  # noqa: E402
-from backend.auth.service import AuthService  # noqa: E402
+from backend.auth.oauth import providers_from_config  # noqa: E402
 from backend.storage import images as image_store  # noqa: E402
 
-if config.RESEND_API_KEY:
-    _sender = ResendSender(config.RESEND_API_KEY, config.MAIL_FROM)
+# Sign-in is Google and Apple. A provider appears on the site only when all of
+# its credentials are set, so a half-configured one is invisible, not broken.
+app.extensions['oauth_providers'] = providers_from_config(config)
+if app.extensions['oauth_providers']:
+    print(f"✅ Sign-in providers: {', '.join(sorted(app.extensions['oauth_providers']))}")
 else:
-    # No key configured: print verification links to stdout so local signup
-    # works without credentials. Loud, because silently not sending email in
-    # production would look like a delivery problem for a long time.
-    print("⚠️  RESEND_API_KEY not set — verification emails will print to stdout")
-    _sender = ConsoleSender()
-
-app.extensions['auth_service'] = AuthService(
-    sender=_sender,
-    api_base_url=config.API_BASE_URL,
-    app_base_url=config.APP_BASE_URL,
-)
+    print("⚠️  No sign-in provider configured — set GOOGLE_CLIENT_ID/SECRET "
+          "or the APPLE_* variables, or nobody can sign in")
 
 if config.DATABASE_URL:
     auth_db.init_pool(config.DATABASE_URL)

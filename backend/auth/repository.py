@@ -1,4 +1,4 @@
-"""Data access for accounts, sessions and email tokens.
+"""Data access for accounts, sessions and sign-in identities.
 
 Every SQL statement in the auth system lives here. Routes and services call
 these functions; nothing above this layer builds a query. That boundary is what
@@ -6,22 +6,19 @@ lets the storage engine change without touching request handling, and it keeps
 parameterisation in one auditable place.
 
 Functions take an open connection rather than opening their own, so a caller can
-run several operations in one transaction — issuing a password reset and
-revoking every existing session, for instance, must be all-or-nothing.
+run several operations in one transaction — creating an account and linking the
+identity that signed in, for instance, must be all-or-nothing.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Literal
 from uuid import UUID
 
 from psycopg.rows import dict_row
 
 from .tokens import hash_token
-
-Purpose = Literal["verify", "reset"]
 
 
 class EmailAlreadyExists(Exception):
@@ -67,8 +64,12 @@ def _to_user(row: dict | None) -> User | None:
 # --------------------------------------------------------------------------
 
 
-def create_user(conn, *, email: str, password_hash: str, display_name: str) -> User:
+def create_user(
+    conn, *, email: str, display_name: str, password_hash: str | None = None
+) -> User:
     """Insert a new, unverified account.
+
+    password_hash is optional: accounts made through Google or Apple have none.
 
     ON CONFLICT rather than catching UniqueViolation: a raised constraint error
     would abort the caller's transaction, forcing every caller to wrap this in a
@@ -116,14 +117,6 @@ def mark_email_verified(conn, user_id: UUID) -> None:
 
 def update_last_login(conn, user_id: UUID) -> None:
     conn.execute("UPDATE users SET last_login_at = now() WHERE id = %s", (user_id,))
-
-
-def set_password_hash(conn, user_id: UUID, password_hash: str) -> None:
-    """Replace a password hash. Callers should also revoke sessions — see
-    `delete_all_sessions` — so a reset locks out anyone already signed in."""
-    conn.execute(
-        "UPDATE users SET password_hash = %s WHERE id = %s", (password_hash, user_id)
-    )
 
 
 def deactivate_user(conn, user_id: UUID) -> None:
@@ -225,45 +218,59 @@ def delete_expired_sessions(conn) -> int:
 
 
 # --------------------------------------------------------------------------
-# Email tokens
+# Sign-in identities (Google, Apple)
 # --------------------------------------------------------------------------
 
 
-def create_email_token(
-    conn, *, user_id: UUID, token: str, purpose: Purpose, ttl: timedelta
-) -> None:
-    """Store a verification or reset token by hash."""
+def get_user_by_identity(conn, provider: str, subject: str) -> User | None:
+    """The active account a provider identity is linked to, or None."""
+    with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            f"""
+            SELECT {", ".join("u." + c.strip() for c in _USER_COLUMNS.split(","))}
+            FROM oauth_identities i
+            JOIN users u ON u.id = i.user_id
+            WHERE i.provider = %s AND i.subject = %s AND u.is_active
+            """,
+            (provider, subject),
+        )
+        return _to_user(cur.fetchone())
+
+
+def link_identity(conn, *, user_id: UUID, provider: str, subject: str, email: str | None) -> None:
     conn.execute(
         """
-        INSERT INTO email_tokens (token_hash, user_id, purpose, expires_at)
-        VALUES (%s, %s, %s, now() + %s)
+        INSERT INTO oauth_identities (provider, subject, user_id, email)
+        VALUES (%s, %s, %s, %s)
+        ON CONFLICT (provider, subject) DO NOTHING
         """,
-        (hash_token(token), user_id, purpose, ttl),
+        (provider, subject, user_id, email),
     )
 
 
-def consume_email_token(conn, token: str, *, purpose: Purpose) -> UUID | None:
-    """Redeem a token exactly once, returning its user id or None.
-
-    The check and the consume are a single UPDATE, so two simultaneous requests
-    with the same token cannot both succeed — a read-then-write would let them.
-    """
-    cur = conn.execute(
+def create_oauth_state(
+    conn, *, state: str, provider: str, nonce: str, code_verifier: str | None, ttl: timedelta
+) -> None:
+    """Remember one sign-in attempt by the hash of its state parameter."""
+    conn.execute(
         """
-        UPDATE email_tokens
-        SET consumed_at = now()
-        WHERE token_hash = %s
-          AND purpose = %s
-          AND consumed_at IS NULL
-          AND expires_at > now()
-        RETURNING user_id
+        INSERT INTO oauth_states (state_hash, provider, nonce, code_verifier, expires_at)
+        VALUES (%s, %s, %s, %s, now() + %s)
         """,
-        (hash_token(token), purpose),
+        (hash_token(state), provider, nonce, code_verifier, ttl),
     )
-    row = cur.fetchone()
-    return row[0] if row else None
+    conn.execute("DELETE FROM oauth_states WHERE expires_at <= now()")
 
 
-def delete_expired_email_tokens(conn) -> int:
-    cur = conn.execute("DELETE FROM email_tokens WHERE expires_at <= now()")
-    return cur.rowcount
+def consume_oauth_state(conn, state: str, *, provider: str) -> dict | None:
+    """Redeem a state exactly once. A single DELETE, so a replayed callback loses."""
+    with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            """
+            DELETE FROM oauth_states
+            WHERE state_hash = %s AND provider = %s AND expires_at > now()
+            RETURNING nonce, code_verifier
+            """,
+            (hash_token(state or ""), provider),
+        )
+        return cur.fetchone()

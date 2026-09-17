@@ -154,7 +154,7 @@ describe('parseRoute', () => {
 
   // Auth params share the query string with filters and must not leak in.
   test('non-filter query params are dropped', () => {
-    const r = parseRoute('/', '?year=2024&token=secret&verified=1&junk=x');
+    const r = parseRoute('/', '?year=2024&auth_error=CANCELLED&junk=x');
     expect(r.filters).toEqual({ year: '2024' });
   });
 

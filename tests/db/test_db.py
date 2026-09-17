@@ -50,7 +50,7 @@ class TestInitPool:
                     "SELECT tablename FROM pg_tables WHERE schemaname = 'public'"
                 ).fetchall()
             }
-        assert {"users", "sessions", "email_tokens"} <= tables
+        assert {"users", "sessions", "oauth_identities", "oauth_states"} <= tables
 
 
 class TestTransaction:

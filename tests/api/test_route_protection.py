@@ -77,13 +77,15 @@ class TestPublicEndpoints:
         fails, someone widened the allowlist — check that they meant to."""
         assert flask_app.config["PUBLIC_ENDPOINTS"] == {
             "health_check",
-            "auth_register",
-            "auth_login",
+            # Sign-in with Google or Apple: the browser is not carrying a
+            # session yet, by definition.
+            "auth_providers",
+            "auth_oauth_start",
+            "auth_oauth_callback",
             "auth_logout",
-            "auth_verify",
-            "auth_resend_verification",
-            "auth_request_reset",
-            "auth_reset_password",
+            # A shared page and its pictures, for a reader with no account.
+            "share_resolve",
+            "serve_stored_image",
         }
 
     def test_auth_me_is_not_public(self, flask_app):
@@ -93,8 +95,9 @@ class TestPublicEndpoints:
     def test_scraper_endpoints_are_not_public(self, flask_app):
         """An open endpoint that launches Chromium against an arbitrary URL is
         an unmetered bill and an abuse vector."""
+        allowed = {"health_check", "share_resolve", "serve_stored_image"}
         public = flask_app.config["PUBLIC_ENDPOINTS"]
-        assert not [e for e in public if not e.startswith("auth_") and e != "health_check"]
+        assert not [e for e in public if not e.startswith("auth_") and e not in allowed]
 
 
 class TestSessionRejection:
