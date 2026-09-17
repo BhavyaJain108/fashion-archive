@@ -599,6 +599,18 @@ class Catalog:
                 rows.append({"url": url, "content_hash": None, "stored_url": None, "misses": 1})
             self._images_dirty.add(domain)
 
+    def release_products(self, domain: str) -> bool:
+        """Drop the parsed catalogue for this brand. False if it had unwritten changes.
+
+        psylos1's catalogue is 35 MB of JSON and several hundred megabytes once parsed,
+        against 512 MB on the machine. Work that needed it only to decide what to do —
+        the photograph queue — can hand it back before doing the work.
+        """
+        if domain in self._dirty:
+            return False
+        self._open.pop(domain, None)
+        return True
+
     def known_image_urls(self, domain: str, itemurl: str) -> set[str]:
         return {row["url"] for row in self._images(domain).get(itemurl, [])}
 

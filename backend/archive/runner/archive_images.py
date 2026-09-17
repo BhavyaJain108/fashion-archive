@@ -77,6 +77,11 @@ def archive_brand(
         ]
         if budgeted is not None:
             jobs = jobs[:budgeted]
+        # The queue is decided; the catalogue that decided it is not needed to fetch
+        # anything. Holding psylos1's parsed 35 MB for the length of its pass is most
+        # of the machine's 512 MB, and the worker died in that pass rather than
+        # fetching a single photograph.
+        catalog.release_products(domain)
 
         # Anything serving this brand's photographs from somewhere other than its own
         # storefront is an asset host, and may be asked faster than a shop.
@@ -84,16 +89,21 @@ def archive_brand(
         for host in {urlparse(url).netloc.lower() for _, url in jobs}:
             if host and host not in shop and not host.endswith(f"//{domain}"):
                 budget.mark_asset_host(host)
-        with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
-            futures = [
-                pool.submit(images.archive_one, transport, catalog, itemurl, domain, url)
-                for itemurl, url in jobs
-            ]
-            for future in as_completed(futures):
-                if future.result():
-                    out.fetched += 1
-                else:
-                    out.failed += 1
+        # In batches rather than one submission of everything: 25,781 pending futures
+        # is memory spent before any photograph has been fetched.
+        pool_size = max(1, workers)
+        with ThreadPoolExecutor(max_workers=pool_size) as pool:
+            for start in range(0, len(jobs), pool_size * 8):
+                batch = jobs[start : start + pool_size * 8]
+                futures = [
+                    pool.submit(images.archive_one, transport, catalog, itemurl, domain, url)
+                    for itemurl, url in batch
+                ]
+                for future in as_completed(futures):
+                    if future.result():
+                        out.fetched += 1
+                    else:
+                        out.failed += 1
 
         requests.flush()
         out.outstanding = outstanding(catalog, domain)
