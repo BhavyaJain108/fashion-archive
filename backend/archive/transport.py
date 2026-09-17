@@ -142,3 +142,58 @@ def _retry_after(resp) -> int | None:
         return int(float(value))
     except ValueError:
         return None  # an HTTP-date form; the number is the useful case
+
+
+# --- T1: plain HTTP in a real browser's accent -------------------------------------
+
+DEFAULT_IMPERSONATE = "chrome142"
+TIMEOUT = 15.0
+
+
+class CurlCffiTransport(LedgeredTransport):
+    """T1 transport whose TLS handshake is indistinguishable from the named browser."""
+
+    def __init__(
+        self,
+        impersonate: str = DEFAULT_IMPERSONATE,
+        level: TransportLevel = TransportLevel.T1,
+        sink=None,
+        budget=None,
+        session=None,
+    ):
+        super().__init__(level=level, sink=sink, budget=budget)
+        self.impersonate = impersonate
+        # Injected in tests; built lazily otherwise so importing this module never
+        # requires curl_cffi to be installed.
+        self._session = session
+
+    def _ensure_session(self):
+        if self._session is None:
+            from curl_cffi import requests as cffi_requests
+
+            self._session = cffi_requests.Session(impersonate=self.impersonate, timeout=TIMEOUT)
+        return self._session
+
+    def _fetch(self, url: str):
+        return self._ensure_session().get(url, allow_redirects=True)
+
+    def close(self) -> None:
+        if self._session is not None:
+            self._session.close()
+            self._session = None
+
+
+def for_level(level: TransportLevel, sink=None, budget=None):
+    """The transport a plan's level asks for.
+
+    T0 is Python's own HTTP. T1 is the same single request with a real browser's TLS
+    handshake, which is what several brands were refusing us over. T2 is a real browser,
+    which costs seconds a page and is the last resort rather than the default.
+    """
+    if level == TransportLevel.T2:
+        from backend.archive.browser.challenge import ChallengeAwareBrowser
+
+        return ChallengeAwareBrowser()
+    if level == TransportLevel.T1:
+        return CurlCffiTransport(sink=sink, budget=budget)
+    return HttpxTransport(sink=sink, budget=budget)

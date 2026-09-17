@@ -47,14 +47,17 @@ def compose_plan(
             "skip_gated",
         )
 
-    # The T0 escalation ladder: each rung is skipped when its capability is absent
-    # or its composition has already failed for this brand (spec §4.3b).
-    if cap.transport == TransportLevel.T0:
+    # The cheap ladder: each rung is skipped when its capability is absent or its
+    # composition has already failed for this brand (spec §4.3b). It is built on whichever
+    # level actually answered — T0, or T1 when the brand refused Python's TLS handshake and
+    # a browser-shaped one got in. Both are one request per page; neither renders anything.
+    if cap.transport in (TransportLevel.T0, TransportLevel.T1):
+        cheap = cap.transport
         rungs = []
         if cap.bulk_json:
             rungs.append(
                 plan(
-                    TransportLevel.T0,
+                    cheap,
                     DiscoveryChannel.BULK_JSON,
                     FetchChannel.PLATFORM_JSON,
                     ChangeSignal.PER_ITEM,
@@ -64,7 +67,7 @@ def compose_plan(
         if cap.woo_api:
             rungs.append(
                 plan(
-                    TransportLevel.T0,
+                    cheap,
                     DiscoveryChannel.WOO_API,
                     FetchChannel.PLATFORM_JSON,
                     ChangeSignal.PER_ITEM,
@@ -74,7 +77,7 @@ def compose_plan(
         if cap.sitemap_url and cap.ldjson_product:
             rungs.append(
                 plan(
-                    TransportLevel.T0,
+                    cheap,
                     DiscoveryChannel.SITEMAP,
                     FetchChannel.STRUCTURED_DATA,
                     ChangeSignal.PER_ITEM,

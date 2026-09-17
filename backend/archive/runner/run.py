@@ -23,6 +23,7 @@ from backend.archive.finder import apply_recipes
 from backend.archive.fingerprint import probe
 from backend.archive.planner import compose_plan
 from backend.archive.store.catalog import Catalog
+from backend.archive.transport import for_level
 from backend.archive.verify import assess, field_fill_rates
 from backend.archive.version import extraction_version
 
@@ -52,6 +53,12 @@ def run_brand(
     image_product_budget: int | None = None,
     browser: bool = False,
     browser_transport_factory=None,
+    transport_factory=for_level,
+    # Fingerprinting is diagnosis, not scraping, and escalation works by provoking the
+    # refusal it then works around. Sharing the scrape's budget means the brand's first
+    # 403 stands the host down for fifteen minutes and the probe blocks on its own
+    # evidence. Callers that pace their scraping hand a gentler transport in here.
+    probe_transport=None,
     field_finder=None,
     max_products: int | None = None,
     learn_budget: int = 10,
@@ -97,7 +104,7 @@ def run_brand(
         # needs_attention and gated verdicts are never trusted from cache: the site may
         # open up, or the system may have grown a new lane since the plan was written.
         if plan is None or plan.stale or plan.status in ("needs_attention", "skip_gated"):
-            cap = prober(brand.domain, transport)
+            cap = prober(brand.domain, probe_transport or transport)
             plan = composer(cap, tried=plan.tried if plan else [], browser=browser)
             catalog.save_plan(plan)
             catalog.set_brand_state(brand.domain, "scoped")
@@ -114,8 +121,13 @@ def run_brand(
             log("needs-attention", tried=[a.composition for a in plan.tried])
             return 1
 
-        # Fingerprinting always uses cheap HTTP; the actual scrape uses the plan's transport —
-        # a browser only when the plan escalated to T2 (and a factory was provided).
+        # The scrape uses the plan's transport. T1 is one request per page like T0, just
+        # with a browser's TLS handshake, so it is built here rather than asked for.
+        if plan.transport == TransportLevel.T1:
+            work_transport = transport_factory(TransportLevel.T1)
+            log("transport", level="t1")
+
+        # A browser only when the plan escalated to T2 (and a factory was provided).
         if plan.transport == TransportLevel.T2:
             if browser_transport_factory is None:
                 return fail_plan(plan, "plan needs browser transport but none available")

@@ -63,8 +63,12 @@ class SitemapConnector:
 
     def discover(self, brand: Brand, transport: Transport) -> list[ProductRef]:
         refs: list[ProductRef] = []
+        # Deduped while walking, not after: a limit has to count products, and Vivienne
+        # Westwood lists each of them in eight countries. Filtering afterwards meant a
+        # limit of 6 collected six URLs that were one product, and the run stored one item.
+        self._seen: set[str] = set()
         self._collect(self.sitemap_url, transport, depth=0, refs=refs)
-        return drop_landing_pages(dedupe_locale_copies(refs))
+        return drop_landing_pages(refs)
 
     def _collect(self, url: str, transport: Transport, depth: int, refs: list[ProductRef]) -> None:
         if depth > 2 or (self.limit is not None and len(refs) >= self.limit):
@@ -93,6 +97,10 @@ class SitemapConnector:
             link = loc.text.strip()
             if not self._is_product(link):
                 continue
+            key = _LOCALE_IN_PATH.sub(r"\1/", link)
+            if key in self._seen:
+                continue
+            self._seen.add(key)
             lastmod = u.find("sm:lastmod", _NS)
             refs.append(
                 ProductRef(

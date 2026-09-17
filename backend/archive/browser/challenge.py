@@ -1,6 +1,6 @@
 """A real browser that waits out a JavaScript challenge before asking again.
 
-Learned on Gentle Monster (2026-09-17). Its pages sit behind an AWS WAF challenge: the
+Gentle Monster (2026-09-17): its pages sit behind an AWS WAF challenge: the
 first load answers 202 with a small page whose script works out a token, sets the
 `aws-waf-token` cookie about two seconds later, and from then on the site answers 200.
 PlaywrightTransport retried immediately after loading the page, before the token existed,

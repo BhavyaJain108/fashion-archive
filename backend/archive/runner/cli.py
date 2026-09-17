@@ -13,6 +13,7 @@ from backend.archive.budget import HostBudget
 from backend.archive.capability import format_matrix, probe_brand
 from backend.archive.domain.brand import Brand
 from backend.archive.domain.product import E0005_FIELDS, ProductRecord
+from backend.archive.escalate import escalating_prober
 from backend.archive.fingerprint import probe
 from backend.archive.images import ImageStore
 from backend.archive.observe import RequestLog, Spend
@@ -76,7 +77,6 @@ def _held(store: ObjectStore) -> set[str] | None:
 def _products_over_winners(results) -> None:
     """Getting in is only half of it. Hand each brand's winning transport to the pipeline
     we already have and see whether products come out the other end."""
-    from backend.archive.access import learned
     from backend.archive.access.bench import winners
     from backend.archive.access.strategy import get as get_strategy
 
@@ -87,7 +87,6 @@ def _products_over_winners(results) -> None:
             rep = probe_brand(
                 Brand(domain=domain, homepage_url=f"https://{domain}"),
                 transport,
-                prober=learned.prober,
             )
         finally:
             if hasattr(transport, "close"):
@@ -406,6 +405,14 @@ def main(argv: list[str] | None = None) -> int:
             if carried:
                 print(f"  standing down on {carried} host(s) refused recently")
             transport = HttpxTransport(sink=requests_log, budget=host_budget)
+            # Probing asks a brand that may refuse, on purpose, and a refusal there is the
+            # answer rather than a reason to stand the host down for a quarter of an hour.
+            probe_transport = HttpxTransport(
+                sink=requests_log,
+                budget=HostBudget(
+                    gap=args.gap, busy_backoff=args.gap * 4, refused_backoff=args.gap * 4
+                ),
+            )
             # A scrape records image URLs; the bytes are the image pass's job. Fetching
             # them here made every scrape wait on 40,000 photographs, which is why the
             # old default only ever archived five products per brand.
@@ -425,7 +432,12 @@ def main(argv: list[str] | None = None) -> int:
                 return learn_recipes(resp.text, url, domain, missing, spend=spend)
 
             def _browser_factory():
-                from backend.archive.browser.transport import PlaywrightTransport
+                # The challenge-aware subclass: a browser that reads a page and closes the
+                # tab kills the challenge script mid-calculation, so the token never
+                # arrives and every request stays at 202 (Gentle Monster, 2026-09-17).
+                from backend.archive.browser.challenge import (
+                    ChallengeAwareBrowser as PlaywrightTransport,
+                )
 
                 return PlaywrightTransport()
 
@@ -463,6 +475,12 @@ def main(argv: list[str] | None = None) -> int:
                     browser_transport_factory=(
                         _browser_factory if (args.browser or args.find_fields) else None
                     ),
+                    # Ask a brand that refuses plain HTTP again in a browser's voice
+                    # before writing it off as unreadable.
+                    prober=escalating_prober(
+                        browser_factory=_browser_factory if args.browser else None
+                    ),
+                    probe_transport=probe_transport,
                     field_finder=_field_finder if args.find_fields else None,
                     max_products=args.max_products or None,
                     learn_budget=args.learn_budget,
@@ -740,6 +758,7 @@ def main(argv: list[str] | None = None) -> int:
                         mode="delta",
                         locks_dir=args.locks if hasattr(args, "locks") else Path("locks"),
                         log_dir=Path("backend/archive/data/logs"),
+                        prober=escalating_prober(),
                     )
                     # The photographs with the catalogue, the same as a hand-run
                     # scrape. A daemon that kept the records fresh and let the images

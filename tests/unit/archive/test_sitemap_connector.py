@@ -178,3 +178,28 @@ def test_a_catalogue_where_every_product_sits_at_one_depth_is_untouched():
 
     refs = [ProductRef(url=f"https://gm.com/us/en/item/C{i}/frame-{i}") for i in range(30)]
     assert drop_landing_pages(refs) == refs
+
+
+@pytest.mark.unit
+def test_a_limit_counts_products_after_filtering_not_urls_before_it():
+    """Vivienne Westwood lists each product in eight countries. A limit of 3 that stopped
+    the walk at 3 URLs yielded one product, and the run stored one item."""
+    urls = "".join(
+        f"<url><loc>https://vw.com{loc}/women/a/b/item-{i}/{i}.html</loc></url>"
+        for i in range(8)
+        for loc in ("", "/en-fr", "/en-de")
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            text='<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+            + urls
+            + "</urlset>",
+        )
+
+    t = HttpxTransport(client=httpx.Client(transport=httpx.MockTransport(handler)))
+    conn = SitemapConnector("https://vw.com/sitemap.xml", url_prefix="/", limit=3)
+    refs = conn.discover(Brand(domain="vw.com", homepage_url="https://vw.com"), t)
+    assert len(refs) == 3
+    assert len({r.url for r in refs}) == 3

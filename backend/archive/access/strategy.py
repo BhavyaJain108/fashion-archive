@@ -82,7 +82,7 @@ def _browser(driver: str):
         # The challenge-aware subclass rather than the bare transport: a browser that
         # retries before a JS challenge has finished sees the challenge every time
         # (Gentle Monster, 2026-09-17 — see LEARNINGS.md).
-        from backend.archive.access.browser import ChallengeAwareBrowser
+        from backend.archive.browser.challenge import ChallengeAwareBrowser
 
         return ChallengeAwareBrowser(driver=driver)
 
