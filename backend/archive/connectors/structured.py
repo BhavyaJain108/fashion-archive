@@ -27,6 +27,14 @@ _SIZE_SELECT = re.compile(
 )
 _OPTION = re.compile(r"<option[^>]*>(.*?)</option>", re.S | re.I)
 _DATA_SIZE = re.compile(r'data-(?:size|option-value)="([^"]{1,12})"', re.I)
+# A variation swatch names its size in an attribute whose name contains "size" — the name
+# itself varies by platform (Salesforce Commerce Cloud writes data-tau-size-id) — and says
+# whether you can buy it in the neighbouring title. Matching only data-size missed every
+# size on Vivienne Westwood, and with them the per-size stock. Lookahead on the tail, or
+# each match eats the next swatch.
+_SWATCH_SIZE = re.compile(r'data-[\w-]*size[\w-]*="([^"{}]{1,12})"(?=(.{0,160}))', re.I | re.S)
+_SWATCH_TITLE = re.compile(r'(?:title|aria-label)="([^"]{0,60})"', re.I)
+_SOLD_OUT = ("not available", "out of stock", "sold out", "unavailable")
 _PLACEHOLDER = re.compile(r"^\s*(select|choose|pick|please)\b|^\s*(size|sizes|--|-)?\s*$", re.I)
 
 
@@ -78,7 +86,68 @@ def sizes_from_dom(html: str) -> list[dict]:
     attrs = [x for x in attrs if x and not _PLACEHOLDER.match(x)]
     if 1 < len(set(attrs)) <= 30:
         return [{"size": x} for x in dict.fromkeys(attrs)]
+    return sizes_from_swatches(html)
+
+
+def sizes_from_swatches(html: str) -> list[dict]:
+    """Sizes and their availability, from variation swatches under any attribute name."""
+    out: dict[str, dict] = {}
+    for value, tail in _SWATCH_SIZE.findall(html):
+        label = value.strip()
+        if not label or label in out or _PLACEHOLDER.match(label):
+            continue
+        title = _SWATCH_TITLE.search(tail)
+        available = None
+        if title:
+            available = not any(s in title.group(1).lower() for s in _SOLD_OUT)
+        out[label] = {"size": label, "available": available}
+    return list(out.values()) if len(out) > 1 else []
+
+
+def categories_from_breadcrumbs(html: str, product_title: str | None = None) -> list[str]:
+    """The category path, from BreadcrumbList JSON-LD.
+
+    The shape is the same on every storefront that publishes it: the first crumb is the
+    site root, the last is the product itself, and what is left is the path a shopper
+    walked to reach it. A shop whose breadcrumbs are only brand then product has no
+    category level, and gets none — inventing one would be worse than the blank.
+    """
+    crumbs = _breadcrumb_names(html)
+    if len(crumbs) < 2:
+        return []
+    names = crumbs[1:]
+    if names and _is_the_product(names[-1], product_title):
+        names = names[:-1]
+    return [n for n in names if n]
+
+
+def _breadcrumb_names(html: str) -> list[str]:
+    for block in _LD_BLOCK.findall(html):
+        try:
+            data = json.loads(block.strip())
+        except json.JSONDecodeError:
+            continue
+        for node in _iter_nodes(data):
+            if isinstance(node, dict) and node.get("@type") == "BreadcrumbList":
+                items = node.get("itemListElement") or []
+                ordered = sorted(items, key=lambda i: i.get("position", 0))
+                return [_crumb_name(i) for i in ordered]
     return []
+
+
+def _crumb_name(item: dict) -> str:
+    name = item.get("name")
+    if not name and isinstance(item.get("item"), dict):
+        name = item["item"].get("name")
+    return (name or "").strip()
+
+
+def _is_the_product(crumb: str, title: str | None) -> bool:
+    """Sites truncate the last crumb, so compare loosely."""
+    if not title:
+        return True
+    a, b = crumb.strip().lower(), title.strip().lower()
+    return a.startswith(b[:20]) or b.startswith(a[:20])
 
 
 def _find_product_node(html: str) -> dict | None:
@@ -210,7 +279,9 @@ def _map_product_node(node: dict, url: str, html: str = "") -> ProductRecord:
         material_info=str(material) if material else None,
         **pack_sizes(sizes),
         **pack_images(_images(node.get("image"))),
-        **pack_categories(_categories(node.get("category"))),
+        **pack_categories(
+            _categories(node.get("category")) or categories_from_breadcrumbs(html, node["name"])
+        ),
         raw={"ldjson": node},
     )
 

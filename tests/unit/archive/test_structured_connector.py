@@ -250,3 +250,72 @@ def test_a_lone_product_group_is_still_used_when_it_is_all_there_is():
 
     html = '<script type="application/ld+json">{"@type":"ProductGroup","name":"Zen"}</script>'
     assert _find_product_node(html)["name"] == "Zen"
+
+
+SWATCHES = """
+<a href="/x?size=XXS" data-tau-size-id="XXS" title="XXS (not available)"><span>XXS</span></a>
+<a href="/x?size=S" data-tau-size-id="S" title="S "><span>S</span></a>
+<a href="/x?size=M" data-tau-size-id="M" title="M "><span>M</span></a>
+<a data-tau-size-id="{{id}}" title="template"></a>
+"""
+
+
+@pytest.mark.unit
+def test_sizes_and_their_availability_are_read_from_swatches():
+    from backend.archive.connectors.structured import sizes_from_swatches
+
+    assert sizes_from_swatches(SWATCHES) == [
+        {"size": "XXS", "available": False},
+        {"size": "S", "available": True},
+        {"size": "M", "available": True},
+    ]
+
+
+@pytest.mark.unit
+def test_a_page_with_no_swatches_yields_no_sizes():
+    from backend.archive.connectors.structured import sizes_from_swatches
+
+    assert sizes_from_swatches("<p>no sizes here</p>") == []
+
+
+def crumbs(*names):
+    items = ",".join(
+        f'{{"@type":"ListItem","position":{i},"name":"{n}"}}' for i, n in enumerate(names, 1)
+    )
+    return f'<script type="application/ld+json">{{"@type":"BreadcrumbList","itemListElement":[{items}]}}</script>'
+
+
+@pytest.mark.unit
+def test_the_category_path_is_the_breadcrumbs_without_the_root_or_the_product():
+    from backend.archive.connectors.structured import categories_from_breadcrumbs
+
+    html = crumbs("Home", "Women", "Clothing", "Skirts", "Scribble Check Skirt")
+    assert categories_from_breadcrumbs(html, "Scribble Check Skirt") == [
+        "Women",
+        "Clothing",
+        "Skirts",
+    ]
+
+
+@pytest.mark.unit
+def test_a_truncated_last_crumb_is_still_recognised_as_the_product():
+    from backend.archive.connectors.structured import categories_from_breadcrumbs
+
+    html = crumbs("Homepage", "Jewelry", "Alhambra - Jewelry", "Magic Alhambra long neck")
+    got = categories_from_breadcrumbs(html, "Magic Alhambra long necklace, 1 motif 18K gold")
+    assert got == ["Jewelry", "Alhambra - Jewelry"]
+
+
+@pytest.mark.unit
+def test_a_shop_with_no_category_level_gets_no_invented_one():
+    """XSAI's breadcrumbs are brand then product. There is no category to record."""
+    from backend.archive.connectors.structured import categories_from_breadcrumbs
+
+    assert categories_from_breadcrumbs(crumbs("XSAI", "WIDE PANTS"), "WIDE PANTS") == []
+
+
+@pytest.mark.unit
+def test_a_page_without_breadcrumbs_yields_nothing():
+    from backend.archive.connectors.structured import categories_from_breadcrumbs
+
+    assert categories_from_breadcrumbs("<p>nothing</p>", "x") == []

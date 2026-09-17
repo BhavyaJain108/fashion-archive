@@ -13,6 +13,43 @@ _NS = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
 _PRODUCT_URL = re.compile(r"^https?://[^/]+(/[a-z]{2}(-[a-z]{2})?)?/products?/[^?#]+/?$", re.I)
 
 
+_LOCALE_IN_PATH = re.compile(r"^(https?://[^/]+)/[a-z]{2}-[a-z]{2}/", re.I)
+
+
+def dedupe_locale_copies(refs: list[ProductRef]) -> list[ProductRef]:
+    """One entry per product, not one per country it is sold in.
+
+    Vivienne Westwood lists every product once per locale (/en-fr/, /en-de/, …), so a
+    catalogue of 544 counted as 4,352. An inflated count reads as success, which makes it
+    worse than a wrong one.
+    """
+    seen: set[str] = set()
+    kept: list[ProductRef] = []
+    for ref in refs:
+        key = _LOCALE_IN_PATH.sub(r"\1/", ref.url)
+        if key in seen:
+            continue
+        seen.add(key)
+        kept.append(ref)
+    return kept
+
+
+def drop_landing_pages(refs: list[ProductRef]) -> list[ProductRef]:
+    """Products in one family sit at one depth; anything shallower is a listing.
+
+    Van Cleef keeps its collection landing pages beside its products, and those pages
+    carry Product blocks of their own — so one read as a product called "Jewelry
+    collections", priced at whatever was featured. They sort first, so they were what
+    every sample measured. Costs no requests, and changes nothing where every product
+    already sits at the same depth.
+    """
+    if len(refs) < 20:
+        return refs
+    depths = [ref.url.count("/") for ref in refs]
+    modal = max(set(depths), key=depths.count)
+    return [ref for ref in refs if ref.url.count("/") >= modal]
+
+
 class SitemapConnector:
     kind = "sitemap"
 
@@ -27,7 +64,7 @@ class SitemapConnector:
     def discover(self, brand: Brand, transport: Transport) -> list[ProductRef]:
         refs: list[ProductRef] = []
         self._collect(self.sitemap_url, transport, depth=0, refs=refs)
-        return refs
+        return drop_landing_pages(dedupe_locale_copies(refs))
 
     def _collect(self, url: str, transport: Transport, depth: int, refs: list[ProductRef]) -> None:
         if depth > 2 or (self.limit is not None and len(refs) >= self.limit):

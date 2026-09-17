@@ -136,3 +136,45 @@ def test_one_broken_child_sitemap_does_not_lose_the_catalogue():
     )
     refs = SitemapConnector("https://big.test/sitemap.xml").discover(BRAND, transport)
     assert [r.url for r in refs] == ["https://big.test/products/alive"]
+
+
+@pytest.mark.unit
+def test_the_same_product_in_eight_countries_is_one_product():
+    from backend.archive.connectors.sitemap import dedupe_locale_copies
+    from backend.archive.domain.product import ProductRef
+
+    refs = [
+        ProductRef(url="https://vw.com/women/a/b/cardigan/1.html"),
+        ProductRef(url="https://vw.com/en-fr/women/a/b/cardigan/1.html"),
+        ProductRef(url="https://vw.com/en-de/women/a/b/cardigan/1.html"),
+        ProductRef(url="https://vw.com/women/a/b/skirt/2.html"),
+    ]
+    kept = dedupe_locale_copies(refs)
+    assert [r.url for r in kept] == [
+        "https://vw.com/women/a/b/cardigan/1.html",
+        "https://vw.com/women/a/b/skirt/2.html",
+    ]
+
+
+@pytest.mark.unit
+def test_collection_landing_pages_are_dropped_from_a_product_family():
+    """Van Cleef keeps /collections/jewelry.html beside its products, and that page has
+    Product blocks of its own — so it read as a product called "Jewelry collections"."""
+    from backend.archive.connectors.sitemap import drop_landing_pages
+    from backend.archive.domain.product import ProductRef
+
+    base = "https://vca.com/us/en/collections/jewelry"
+    refs = [ProductRef(url=f"{base}.html"), ProductRef(url=f"{base}/alhambra.html")]
+    refs += [ProductRef(url=f"{base}/alhambra/vca{i}-bracelet.html") for i in range(30)]
+    kept = drop_landing_pages(refs)
+    assert len(kept) == 30
+    assert all("/alhambra/" in r.url for r in kept)
+
+
+@pytest.mark.unit
+def test_a_catalogue_where_every_product_sits_at_one_depth_is_untouched():
+    from backend.archive.connectors.sitemap import drop_landing_pages
+    from backend.archive.domain.product import ProductRef
+
+    refs = [ProductRef(url=f"https://gm.com/us/en/item/C{i}/frame-{i}") for i in range(30)]
+    assert drop_landing_pages(refs) == refs
