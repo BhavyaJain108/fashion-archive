@@ -1,14 +1,14 @@
 .shv { padding: 0 0 48px; overflow-y: auto; height: 100vh; }
 .shv-top { display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; border-bottom: 1px solid var(--ar-line); }
-.shv-kind { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ar-ink-3); }
+.shv-kind { font-size: var(--ar-fs-label); letter-spacing: var(--ar-track-ui); text-transform: uppercase; color: var(--ar-ink-3); }
 .shv-head { display: flex; align-items: baseline; gap: 14px; padding: 20px; }
-.shv-name { font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; }
-.shv-sub { font-size: 11px; color: var(--ar-ink-2); }
+.shv-name { font-size: var(--ar-fs-heading); letter-spacing: var(--ar-track-tight); text-transform: uppercase; }
+.shv-sub { font-size: var(--ar-fs-ui); color: var(--ar-ink-2); }
 .shv-one { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 24px; }
 .shv-img { max-height: 78vh; max-width: 100%; object-fit: contain; border: 1px solid var(--ar-line); }
-.shv-cap { font-size: 11px; color: var(--ar-ink-2); letter-spacing: 0.06em; }
+.shv-cap { font-size: var(--ar-fs-ui); color: var(--ar-ink-2); letter-spacing: var(--ar-track-tight); }
 .shv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; padding: 0 20px; }
 .shv-tile { display: flex; flex-direction: column; gap: 6px; }
 .shv-tile img, .shv-tile-blank { width: 100%; aspect-ratio: 3 / 4; object-fit: cover; border: 1px solid var(--ar-line); background: var(--ar-bg-sub); display: block; }
-.shv-tile-blank { display: flex; align-items: center; justify-content: center; font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--ar-ink-3); }
-.shv-tile-cap { font-size: 10px; color: var(--ar-ink-2); letter-spacing: 0.06em; text-transform: uppercase; }
+.shv-tile-blank { display: flex; align-items: center; justify-content: center; font-size: var(--ar-fs-label); text-transform: uppercase; letter-spacing: var(--ar-track-ui); color: var(--ar-ink-3); }
+.shv-tile-cap { font-size: var(--ar-fs-label); color: var(--ar-ink-2); letter-spacing: var(--ar-track-tight); text-transform: uppercase; }

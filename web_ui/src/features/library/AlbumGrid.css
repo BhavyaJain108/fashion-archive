@@ -10,9 +10,9 @@
 
 .alb-title {
   padding: 0 12px 12px;
-  font-size: 13px;
+  font-size: var(--ar-fs-heading);
   line-height: 18px;
-  letter-spacing: 0.05em;
+  letter-spacing: var(--ar-track-tight);
   color: var(--ar-ink);
   border-bottom: 1px solid var(--ar-line);
   flex-shrink: 0;
@@ -28,16 +28,16 @@
 }
 
 .alb-sort-label {
-  font-size: 10px;
+  font-size: var(--ar-fs-label);
   text-transform: uppercase;
-  letter-spacing: 0.15em;
+  letter-spacing: var(--ar-track-label);
   color: var(--ar-ink-3);
 }
 
 /* Its own rule so the select can be told apart from the primitive in the
    bundle; the primitive already carries everything it needs. */
 .alb-sort-select {
-  font-size: 11px;
+  font-size: var(--ar-fs-ui);
 }
 
 /* Pushed to the foot of the sidebar: the way out is not the first thing to
@@ -89,7 +89,7 @@
   border: 1px solid transparent;
   border-radius: 0;
   font-family: inherit;
-  font-size: 12px;
+  font-size: var(--ar-fs-body);
   color: var(--ar-ink-2);
   text-align: center;
   cursor: pointer;
@@ -136,7 +136,7 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transition: opacity 0.15s ease;
+  transition: opacity var(--ar-base) ease;
 }
 
 .alb-tile:hover .alb-tile-photo {
@@ -158,9 +158,9 @@
   top: 0;
   left: 0;
   padding: 2px 6px;
-  font-size: 9px;
+  font-size: var(--ar-fs-micro);
   line-height: 12px;
-  letter-spacing: 0.12em;
+  letter-spacing: var(--ar-track-ui);
   text-transform: uppercase;
   color: var(--ar-bg);
   background: var(--ar-ink);
@@ -188,10 +188,10 @@
    day that page is split out. */
 .alb-filter {
   display: inline-flex;
-  gap: 5px;
+  gap: 4px;
   max-width: 100%;
   padding: 2px 6px;
-  font-size: 10px;
+  font-size: var(--ar-fs-label);
   line-height: 14px;
   background: var(--ar-bg);
   border: 1px solid var(--ar-line);
@@ -199,7 +199,7 @@
 
 .alb-filter .k {
   color: var(--ar-ink-4);
-  letter-spacing: 0.05em;
+  letter-spacing: var(--ar-track-tight);
 }
 
 .alb-filter .v {
@@ -225,11 +225,11 @@
 
 .alb-tile-name {
   line-height: 16px;
-  letter-spacing: 0.05em;
+  letter-spacing: var(--ar-track-tight);
 }
 
 .alb-tile-sub {
-  font-size: 10px;
+  font-size: var(--ar-fs-label);
   line-height: 13px;
   color: var(--ar-ink-4);
 }
@@ -265,7 +265,7 @@
 }
 
 .alb-acts-note {
-  font-size: 10px;
+  font-size: var(--ar-fs-label);
   line-height: 1.5;
   color: var(--ar-ink-4);
 }

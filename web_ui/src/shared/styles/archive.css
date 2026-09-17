@@ -1,29 +1,86 @@
 /* ---------------------------------------------------------------------
    The archive design language.
 
-   Every value here was lifted from HighFashionPage.css, which is where the
-   language was first built. That file keeps its literal hex values; these
-   tokens spell the same colours so the pages agree. Migrating High Fashion
-   onto the tokens is deliberately left alone — it works, and this change
-   has no reason to touch it.
+   One monospace face, black on white, greys for everything that is not
+   the thing you came to look at. The photographs are the only colour on
+   the page; the interface stays out of their way.
+
+   RULES — read these before styling anything.
+
+   1. Black means selected or active. Nothing else is black. Body text is
+      ink-2, labels and idle controls are ink-3, counts and disabled
+      things are ink-4. A page with two black things has two selections.
+   2. Colour means destructive. --ar-danger is the only hue, and it is
+      allowed on exactly one control: the confirmation of an irreversible
+      delete. Never on a hover, never on a badge, never for emphasis.
+   3. Uppercase + tracking is chrome. Section headers, buttons, chips,
+      status text, placeholders. Content (a designer, a show, a product,
+      a note the user typed) is sentence case and untracked.
+   4. Hairlines separate, nothing casts a shadow. 1px --ar-line between
+      regions, --ar-line-soft inside a grouped block. No box-shadow.
+   5. Hover is a wash, not a colour. --ar-wash on hover, --ar-wash-strong
+      on the selected row, and the text goes to ink. That is the whole
+      hover vocabulary.
+   6. No radius. Ever. Corners are square, including on inputs, chips,
+      thumbnails and scrollbar thumbs.
+   7. Sizes come off the scales below. A feature stylesheet never writes a
+      hex colour, a px font-size, a raw letter-spacing or a raw duration;
+      it uses the token. `npm run check:tokens` fails the build if one
+      does. Spacing (padding/gap/margin) is even pixels: 2 4 6 8 10 12 16
+      20 24 32 48, plus 1px for a hairline gap. No odd numbers.
+   8. Weight: 400 for text, 600 for emphasis inside content, 700 for the
+      selected row or chip. Nothing lighter, nothing heavier.
+   9. Motion is functional. --ar-fast for colour and hover, --ar-base for
+      borders and opacity, --ar-slow for a panel sliding or resizing.
+      Nothing bounces.
+
+   Every token and primitive below is rendered live at /styleguide.
    --------------------------------------------------------------------- */
 
 :root {
+  /* --- Colour --------------------------------------------------- */
   --ar-bg: #ffffff;          /* page ground */
   --ar-bg-sub: #fafafa;      /* sidebars, strips, toolbars */
-  --ar-line: #e0e0e0;        /* hairline rules */
+  --ar-bg-sunk: #f5f5f5;     /* wells: image placeholders, pressed hover, scrollbar track */
+  --ar-line: #e0e0e0;        /* hairline rules, scrollbar thumb */
   --ar-line-soft: #ededed;   /* rules inside a grouped block */
   --ar-ink: #000000;         /* selected / active */
   --ar-ink-2: #666666;       /* body */
   --ar-ink-3: #999999;       /* labels, idle controls */
-  --ar-ink-4: #cccccc;       /* empty states, counts, disabled */
+  --ar-ink-4: #cccccc;       /* empty states, counts, disabled, placeholders */
   --ar-danger: #cc0000;      /* destructive confirmation ONLY */
 
   --ar-wash: rgba(0, 0, 0, 0.02);         /* hover */
   --ar-wash-strong: rgba(0, 0, 0, 0.03);  /* selected */
   --ar-scrim: rgba(0, 0, 0, 0.28);        /* behind a panel that has focus */
+  --ar-shield: rgba(0, 0, 0, 0.9);        /* over a video while it loads */
 
+  /* --- Type ----------------------------------------------------- */
   --ar-font: 'JetBrains Mono', 'SF Mono', 'Monaco', monospace;
+
+  --ar-fs-micro: 9px;     /* counts, timestamps, meta under a name */
+  --ar-fs-label: 10px;    /* section headers, facet labels, tiny controls */
+  --ar-fs-ui: 11px;       /* buttons, inputs, chips, status bar */
+  --ar-fs-body: 12px;     /* list rows, notes, everything readable */
+  --ar-fs-heading: 13px;  /* the name at the top of a panel or album */
+  --ar-fs-title: 24px;    /* the one big thing on a page, and empty-state glyphs */
+
+  --ar-track-tight: 0.05em;  /* a name that needs a little air */
+  --ar-track-ui: 0.1em;      /* buttons, chips, inputs, status */
+  --ar-track-label: 0.15em;  /* section headers, placeholders, empty states */
+  --ar-track-wide: 0.2em;    /* the wordmark */
+
+  /* --- Size ----------------------------------------------------- */
+  --ar-sidebar-w: 280px;
+  --ar-topbar-h: 48px;
+  --ar-statusbar-h: 36px;
+  --ar-hairline: 1px;
+  --ar-marker: 2px;          /* the left bar on a selected row or chip */
+
+  /* --- Motion --------------------------------------------------- */
+  --ar-fast: 0.1s;
+  --ar-base: 0.15s;
+  --ar-slow: 0.2s;
 }
 
 /* --- Reset -------------------------------------------------------- */
@@ -39,7 +96,7 @@
 
 body {
   font-family: var(--ar-font);
-  font-size: 12px;
+  font-size: var(--ar-fs-body);
   background: var(--ar-bg);
   color: var(--ar-ink-2);
   overflow: hidden;
@@ -66,7 +123,7 @@ body {
   width: 100%;
   background: var(--ar-bg);
   font-family: var(--ar-font);
-  font-size: 12px;
+  font-size: var(--ar-fs-body);
   color: var(--ar-ink-2);
 }
 
@@ -80,8 +137,8 @@ body {
 /* --- Sidebar ------------------------------------------------------- */
 
 .ar-sidebar {
-  width: 280px;
-  min-width: 280px;
+  width: var(--ar-sidebar-w);
+  min-width: var(--ar-sidebar-w);
   background: var(--ar-bg-sub);
   border-right: 1px solid var(--ar-line);
   display: flex;
@@ -98,9 +155,9 @@ body {
 /* --- Labels -------------------------------------------------------- */
 
 .ar-section-header {
-  font-size: 10px;
+  font-size: var(--ar-fs-label);
   text-transform: uppercase;
-  letter-spacing: 0.15em;
+  letter-spacing: var(--ar-track-label);
   padding: 14px 12px 10px;
   color: var(--ar-ink-3);
   display: flex;
@@ -115,11 +172,11 @@ body {
 /* --- List rows ----------------------------------------------------- */
 
 .ar-list-item {
-  font-size: 12px;
+  font-size: var(--ar-fs-body);
   padding: 6px 12px;
   cursor: pointer;
-  transition: all 0.1s ease;
-  border-left: 2px solid transparent;
+  transition: all var(--ar-fast) ease;
+  border-left: var(--ar-marker) solid transparent;
   display: flex;
   align-items: flex-start;
 }
@@ -144,15 +201,15 @@ body {
   border-radius: 0;
   background: transparent;
   font-family: inherit;
-  font-size: 11px;
+  font-size: var(--ar-fs-ui);
   line-height: 20px;
   padding: 0 6px;
   color: var(--ar-ink-3);
   cursor: pointer;
   white-space: nowrap;
-  border-left: 2px solid transparent;
+  border-left: var(--ar-marker) solid transparent;
   text-align: left;
-  transition: color 0.1s ease;
+  transition: color var(--ar-fast) ease;
 }
 
 .ar-chip:hover {
@@ -169,8 +226,8 @@ body {
 
 .ar-btn {
   font-family: var(--ar-font);
-  font-size: 11px;
-  letter-spacing: 0.1em;
+  font-size: var(--ar-fs-ui);
+  letter-spacing: var(--ar-track-ui);
   text-transform: uppercase;
   padding: 8px 16px;
   border: 1px solid var(--ar-line);
@@ -178,7 +235,7 @@ body {
   background: var(--ar-bg);
   color: var(--ar-ink-3);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all var(--ar-base) ease;
 }
 
 .ar-btn:hover {
@@ -227,11 +284,11 @@ body {
   border: 1px solid var(--ar-line);
   border-radius: 0;
   font-family: var(--ar-font);
-  font-size: 11px;
+  font-size: var(--ar-fs-ui);
   background: var(--ar-bg);
   color: var(--ar-ink);
   outline: none;
-  transition: border-color 0.15s ease;
+  transition: border-color var(--ar-base) ease;
 }
 
 .ar-input:focus,
@@ -242,19 +299,19 @@ body {
 .ar-input::placeholder {
   color: var(--ar-ink-4);
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: var(--ar-track-ui);
 }
 
 .ar-select {
   cursor: pointer;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: var(--ar-track-ui);
 }
 
 /* --- Status bar ---------------------------------------------------- */
 
 .ar-status-bar {
-  height: 36px;
+  height: var(--ar-statusbar-h);
   flex-shrink: 0;
   background: var(--ar-bg);
   border-top: 1px solid var(--ar-line);
@@ -262,7 +319,7 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 0 24px;
-  font-size: 11px;
+  font-size: var(--ar-fs-ui);
   color: var(--ar-ink-3);
 }
 
@@ -283,7 +340,7 @@ body {
 }
 
 .ar-scroll::-webkit-scrollbar-thumb {
-  background: #dddddd;
+  background: var(--ar-line);
   border-radius: 0;
 }
 
@@ -303,12 +360,12 @@ body {
   gap: 8px;
   padding: 24px 12px;
   text-align: center;
-  font-size: 11px;
+  font-size: var(--ar-fs-ui);
   color: var(--ar-ink-4);
 }
 
 .ar-empty .headline,
 .ar-loading .headline {
   text-transform: uppercase;
-  letter-spacing: 0.15em;
+  letter-spacing: var(--ar-track-label);
 }

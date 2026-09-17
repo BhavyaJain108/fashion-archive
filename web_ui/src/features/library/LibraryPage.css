@@ -25,13 +25,13 @@
 .lib-kind .name {
   display: block;
   line-height: 16px;
-  letter-spacing: 0.05em;
+  letter-spacing: var(--ar-track-tight);
 }
 
 .lib-kind .count {
-  font-size: 10px;
+  font-size: var(--ar-fs-label);
   color: var(--ar-ink-4);
-  letter-spacing: 0.05em;
+  letter-spacing: var(--ar-track-tight);
 }
 
 .lib-kind:hover .count,
@@ -55,7 +55,7 @@
 .fav-collection .num {
   width: 32px;
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: var(--ar-fs-ui);
   line-height: 16px;
   color: var(--ar-ink-4);
 }
@@ -79,7 +79,7 @@
 
 .fav-collection .sub {
   display: block;
-  font-size: 10px;
+  font-size: var(--ar-fs-label);
   line-height: 13px;
   color: var(--ar-ink-4);
   white-space: nowrap;
@@ -120,7 +120,7 @@
 
 .fav-view-toggle .ar-btn {
   border: none;
-  padding: 7px 16px;
+  padding: 8px 16px;
 }
 
 /* --- Single view --------------------------------------------------- */
@@ -179,9 +179,9 @@
 }
 
 .fav-look-label {
-  font-size: 12px;
+  font-size: var(--ar-fs-body);
   font-weight: 600;
-  letter-spacing: 0.15em;
+  letter-spacing: var(--ar-track-label);
   color: var(--ar-ink);
 }
 
@@ -192,16 +192,16 @@
 }
 
 .fav-added {
-  font-size: 10px;
+  font-size: var(--ar-fs-label);
   color: var(--ar-ink-4);
-  letter-spacing: 0.05em;
+  letter-spacing: var(--ar-track-tight);
 }
 
 /* Unfavouriting is reversible — the look is still in the archive — so this
    is a plain control that only reddens on hover. */
 .fav-remove {
-  padding: 5px 12px;
-  font-size: 10px;
+  padding: 4px 12px;
+  font-size: var(--ar-fs-label);
 }
 
 .fav-remove:hover {
@@ -221,10 +221,10 @@
   background: transparent;
   border: none;
   font-family: inherit;
-  font-size: 24px;
+  font-size: var(--ar-fs-title);
   color: var(--ar-ink-4);
   cursor: pointer;
-  transition: color 0.15s ease;
+  transition: color var(--ar-base) ease;
   z-index: 10;
 }
 
@@ -265,9 +265,9 @@
   height: 60px;
   cursor: pointer;
   overflow: hidden;
-  background: #f5f5f5;
+  background: var(--ar-bg-sunk);
   opacity: 0.5;
-  transition: all 0.15s ease;
+  transition: all var(--ar-base) ease;
 }
 
 .fav-thumb:hover {
@@ -306,7 +306,7 @@
   display: flex;
   flex-direction: column;
   cursor: pointer;
-  transition: transform 0.15s ease;
+  transition: transform var(--ar-base) ease;
 }
 
 .fav-grid-item:hover {
@@ -316,7 +316,7 @@
 .fav-grid-image {
   aspect-ratio: 3 / 4;
   overflow: hidden;
-  background: #f5f5f5;
+  background: var(--ar-bg-sunk);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -326,7 +326,7 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transition: opacity 0.15s ease;
+  transition: opacity var(--ar-base) ease;
 }
 
 .fav-grid-item:hover .fav-grid-image img {
@@ -339,11 +339,11 @@
 }
 
 .fav-grid-item .look-num {
-  font-size: 11px;
+  font-size: var(--ar-fs-ui);
   color: var(--ar-ink-3);
   padding: 8px 0;
   text-align: center;
-  letter-spacing: 0.1em;
+  letter-spacing: var(--ar-track-ui);
 }
 
 .fav-grid-item.selected .look-num {
@@ -400,7 +400,7 @@
   background: none;
   border: none;
   font-family: inherit;
-  font-size: 12px;
+  font-size: var(--ar-fs-body);
   color: var(--ar-ink-2);
   text-align: left;
   cursor: pointer;
@@ -426,7 +426,7 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transition: opacity 0.15s ease;
+  transition: opacity var(--ar-base) ease;
 }
 
 .lib-show-open:hover:not(:disabled) .lib-show-image img {
@@ -440,7 +440,7 @@
 .lib-show-name {
   display: block;
   line-height: 16px;
-  letter-spacing: 0.05em;
+  letter-spacing: var(--ar-track-tight);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -448,7 +448,7 @@
 
 .lib-show-season {
   display: block;
-  font-size: 10px;
+  font-size: var(--ar-fs-label);
   line-height: 13px;
   color: var(--ar-ink-4);
   white-space: nowrap;
@@ -485,7 +485,7 @@
   background: none;
   border: none;
   font-family: inherit;
-  font-size: 12px;
+  font-size: var(--ar-fs-body);
   color: var(--ar-ink-2);
   text-align: left;
   cursor: pointer;
@@ -498,7 +498,7 @@
 .lib-view-name {
   display: block;
   line-height: 16px;
-  letter-spacing: 0.05em;
+  letter-spacing: var(--ar-track-tight);
 }
 
 .lib-view-filters {
@@ -509,9 +509,9 @@
 
 .lib-filter {
   display: inline-flex;
-  gap: 5px;
+  gap: 4px;
   padding: 2px 6px;
-  font-size: 10px;
+  font-size: var(--ar-fs-label);
   line-height: 14px;
   background: var(--ar-wash);
   border: 1px solid var(--ar-line);
@@ -519,7 +519,7 @@
 
 .lib-filter .k {
   color: var(--ar-ink-4);
-  letter-spacing: 0.05em;
+  letter-spacing: var(--ar-track-tight);
 }
 
 .lib-filter .v {
@@ -549,7 +549,7 @@
 
 .lib-albums-empty {
   padding: 0 12px 10px;
-  font-size: 11px;
+  font-size: var(--ar-fs-ui);
   color: var(--ar-ink-4);
 }
 
@@ -561,16 +561,16 @@
 .lib-album .name {
   display: block;
   line-height: 16px;
-  letter-spacing: 0.05em;
+  letter-spacing: var(--ar-track-tight);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .lib-album .count {
-  font-size: 10px;
+  font-size: var(--ar-fs-label);
   color: var(--ar-ink-4);
-  letter-spacing: 0.05em;
+  letter-spacing: var(--ar-track-tight);
 }
 
 .lib-album:hover .count,
@@ -636,8 +636,8 @@
 }
 
 .lib-more-btn {
-  font-size: 11px;
-  letter-spacing: 0.08em;
+  font-size: var(--ar-fs-ui);
+  letter-spacing: var(--ar-track-tight);
   text-transform: uppercase;
 }
 
@@ -655,8 +655,8 @@
 }
 
 .lib-select-count {
-  font-size: 11px;
-  letter-spacing: 0.1em;
+  font-size: var(--ar-fs-ui);
+  letter-spacing: var(--ar-track-ui);
   text-transform: uppercase;
   color: var(--ar-ink);
 }
@@ -670,14 +670,14 @@
    nothing of that kind; this one means the page never found out, and the two
    must not look alike. */
 .lib-error .headline {
-  color: #cc0000;
+  color: var(--ar-danger);
 }
 
 .lib-error-detail {
   margin-top: 4px;
-  font-size: 10px;
+  font-size: var(--ar-fs-label);
   line-height: 14px;
-  color: #aaaaaa;
+  color: var(--ar-ink-3);
 }
 
 .lib-retry {

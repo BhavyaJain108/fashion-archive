@@ -5,10 +5,10 @@
   flex-direction: column;
   height: 100vh;
   width: 100%;
-  background: #ffffff;
-  font-family: 'JetBrains Mono', 'SF Mono', 'Monaco', monospace;
-  font-size: 12px;
-  color: #666666;
+  background: var(--ar-bg);
+  font-family: var(--ar-font);
+  font-size: var(--ar-fs-body);
+  color: var(--ar-ink-2);
 }
 
 /* Content wrapper for sidebar + main */
@@ -30,9 +30,9 @@
      city on most rows. */
   width: 320px;
   min-width: 320px;
-  transition: width 0.18s ease, min-width 0.18s ease;
-  background: #fafafa;
-  border-right: 1px solid #e0e0e0;
+  transition: width var(--ar-slow) ease, min-width var(--ar-slow) ease;
+  background: var(--ar-bg-sub);
+  border-right: 1px solid var(--ar-line);
   display: flex;
   flex-direction: column;
 }
@@ -58,20 +58,20 @@
   width: 16px;
   height: 44px;
   appearance: none;
-  border: 1px solid #e0e0e0;
-  background: #ffffff;
+  border: 1px solid var(--ar-line);
+  background: var(--ar-bg);
   font-family: inherit;
-  font-size: 12px;
+  font-size: var(--ar-fs-body);
   line-height: 1;
-  color: #999999;
+  color: var(--ar-ink-3);
   cursor: pointer;
   padding: 0;
-  transition: left 0.18s ease, color 0.12s ease, border-color 0.12s ease;
+  transition: left var(--ar-slow) ease, color var(--ar-fast) ease, border-color var(--ar-fast) ease;
 }
 
 .hf2-sidebar-handle:hover {
-  color: #000000;
-  border-color: #000000;
+  color: var(--ar-ink);
+  border-color: var(--ar-ink);
 }
 
 .hf2-sidebar-handle.closed {
@@ -82,12 +82,12 @@
 /* Navigation Row (Year/Season/Type) */
 .hf2-nav-row {
   display: flex;
-  border-bottom: 1px solid #e0e0e0;
+  border-bottom: 1px solid var(--ar-line);
 }
 
 .hf2-nav-col {
   flex: 1;
-  border-right: 1px solid #e0e0e0;
+  border-right: 1px solid var(--ar-line);
   max-height: 200px;
   min-width: 0;
   display: flex;
@@ -104,12 +104,12 @@
 }
 
 .hf2-nav-header {
-  font-size: 10px;
+  font-size: var(--ar-fs-label);
   text-transform: uppercase;
-  letter-spacing: 0.15em;
+  letter-spacing: var(--ar-track-label);
   padding: 10px 12px 8px;
-  color: #999999;
-  background: #fafafa;
+  color: var(--ar-ink-3);
+  background: var(--ar-bg-sub);
   flex-shrink: 0;
 }
 
@@ -123,29 +123,29 @@
 }
 
 .hf2-nav-item {
-  font-size: 12px;
+  font-size: var(--ar-fs-body);
   padding: 6px 12px;
   cursor: pointer;
-  transition: all 0.1s ease;
-  border-left: 2px solid transparent;
+  transition: all var(--ar-fast) ease;
+  border-left: var(--ar-marker) solid transparent;
 }
 
 .hf2-nav-item:hover {
-  color: #000000;
-  background: rgba(0, 0, 0, 0.02);
+  color: var(--ar-ink);
+  background: var(--ar-wash);
 }
 
 .hf2-nav-item.selected {
-  color: #000000;
+  color: var(--ar-ink);
   font-weight: 700;
-  border-left-color: #000000;
-  background: rgba(0, 0, 0, 0.03);
+  border-left-color: var(--ar-ink);
+  background: var(--ar-wash-strong);
 }
 
 .hf2-nav-empty {
-  font-size: 11px;
+  font-size: var(--ar-fs-ui);
   padding: 10px 12px;
-  color: #cccccc;
+  color: var(--ar-ink-4);
   font-style: italic;
 }
 
@@ -158,19 +158,19 @@
 }
 
 .hf2-collections-header {
-  font-size: 10px;
+  font-size: var(--ar-fs-label);
   text-transform: uppercase;
-  letter-spacing: 0.15em;
+  letter-spacing: var(--ar-track-label);
   padding: 14px 12px 10px;
-  color: #999999;
-  border-bottom: 1px solid #e0e0e0;
+  color: var(--ar-ink-3);
+  border-bottom: 1px solid var(--ar-line);
   display: flex;
   justify-content: space-between;
   flex-shrink: 0;
 }
 
 .hf2-collections-header .count {
-  color: #bbbbbb;
+  color: var(--ar-ink-4);
 }
 
 .hf2-collections-scroll {
@@ -187,35 +187,35 @@
 }
 
 .hf2-collections-scroll::-webkit-scrollbar-thumb {
-  background: #dddddd;
+  background: var(--ar-line);
 }
 
 .hf2-collection-item {
-  font-size: 12px;
+  font-size: var(--ar-fs-body);
   padding: 6px 12px;
   cursor: pointer;
-  transition: all 0.1s ease;
-  border-left: 2px solid transparent;
+  transition: all var(--ar-fast) ease;
+  border-left: var(--ar-marker) solid transparent;
   display: flex;
   align-items: flex-start;
 }
 
 .hf2-collection-item:hover {
-  color: #000000;
-  background: rgba(0, 0, 0, 0.02);
+  color: var(--ar-ink);
+  background: var(--ar-wash);
 }
 
 .hf2-collection-item.selected {
-  color: #000000;
-  font-weight: 500;
-  border-left-color: #000000;
-  background: rgba(0, 0, 0, 0.03);
+  color: var(--ar-ink);
+  font-weight: 600;
+  border-left-color: var(--ar-ink);
+  background: var(--ar-wash-strong);
 }
 
 .hf2-collection-item .num {
   width: 32px;
-  color: #cccccc;
-  font-size: 11px;
+  color: var(--ar-ink-4);
+  font-size: var(--ar-fs-ui);
   line-height: 16px;
   flex-shrink: 0;
 }
@@ -238,9 +238,9 @@
    truncated off the end of a shared one. */
 .hf2-collection-item .sub {
   display: block;
-  font-size: 10px;
+  font-size: var(--ar-fs-label);
   line-height: 13px;
-  color: #aaaaaa;
+  color: var(--ar-ink-3);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -248,7 +248,7 @@
 
 .hf2-collection-item:hover .sub,
 .hf2-collection-item.selected .sub {
-  color: #888888;
+  color: var(--ar-ink-2);
 }
 
 /* The star on a show row, at the trailing edge.
@@ -258,22 +258,22 @@
    moves when the saves land a moment later. .ar-star reserves that box; this
    rule may not change it — no width, no height, no padding, no margin.
 
-   Quiet, but not hidden: #cccccc is the shade the row number beside it is
+   Quiet, but not hidden: var(--ar-ink-4) is the shade the row number beside it is
    already drawn in, so a column of them reads as part of the row's furniture
    rather than as the point of the page — and it is plainly there to be
    clicked, which a star that only appears on hover is not. It darkens as the
    pointer crosses the row, and goes black when the show is kept. */
 .hf2-collection-item .hf2-row-star {
-  color: #cccccc;
+  color: var(--ar-ink-4);
 }
 
 .hf2-collection-item:hover .hf2-row-star:not(.on) {
-  color: #999999;
+  color: var(--ar-ink-3);
 }
 
 .hf2-collection-item .hf2-row-star:hover:not(:disabled),
 .hf2-collection-item .hf2-row-star.on {
-  color: #000000;
+  color: var(--ar-ink);
 }
 
 /* The same statement about the stars: they are dark because the saved list
@@ -284,15 +284,15 @@
   flex-direction: column;
   gap: 6px;
   padding: 10px 12px;
-  border-bottom: 1px solid #e5e5e5;
-  font-size: 11px;
+  border-bottom: 1px solid var(--ar-line);
+  font-size: var(--ar-fs-ui);
   line-height: 15px;
-  color: #cc0000;
+  color: var(--ar-danger);
 }
 
 .hf2-saves-error .detail {
-  color: #aaaaaa;
-  font-size: 10px;
+  color: var(--ar-ink-3);
+  font-size: var(--ar-fs-label);
   line-height: 14px;
 }
 
@@ -308,13 +308,13 @@
   gap: 6px;
   padding: 24px 12px;
   text-align: center;
-  font-size: 11px;
-  color: #cc0000;
+  font-size: var(--ar-fs-ui);
+  color: var(--ar-danger);
 }
 
 .hf2-collections-error .detail {
-  color: #aaaaaa;
-  font-size: 10px;
+  color: var(--ar-ink-3);
+  font-size: var(--ar-fs-label);
   line-height: 14px;
 }
 
@@ -322,8 +322,8 @@
 .hf2-collections-loading {
   padding: 24px 12px;
   text-align: center;
-  color: #cccccc;
-  font-size: 11px;
+  color: var(--ar-ink-4);
+  font-size: var(--ar-fs-ui);
 }
 
 /* ---------------------------------------------------------------------
@@ -382,9 +382,9 @@
   border-radius: 0;
   background: transparent;
   font-family: inherit;
-  font-size: 10px;
+  font-size: var(--ar-fs-label);
   text-transform: uppercase;
-  letter-spacing: 0.15em;
+  letter-spacing: var(--ar-track-label);
   color: var(--ar-ink-3);
   padding: 10px 12px;
   cursor: pointer;
@@ -407,7 +407,7 @@
 }
 
 .hf2-recents-head .chev {
-  font-size: 9px;
+  font-size: var(--ar-fs-micro);
   line-height: 1;
   color: var(--ar-ink-4);
 }
@@ -435,7 +435,7 @@
 }
 
 .hf2-recents-scroll::-webkit-scrollbar-thumb {
-  background: #dddddd;
+  background: var(--ar-line);
 }
 
 /* One line per show, not two. Measured at 1440x813: the sidebar is 729px,
@@ -450,13 +450,13 @@
   width: 100%;
   appearance: none;
   border: none;
-  border-left: 2px solid transparent;
+  border-left: var(--ar-marker) solid transparent;
   border-radius: 0;
   background: transparent;
   font-family: inherit;
-  font-size: 11px;
+  font-size: var(--ar-fs-ui);
   color: var(--ar-ink-2);
-  padding: 5px 12px;
+  padding: 4px 12px;
   cursor: pointer;
   text-align: left;
 }
@@ -477,7 +477,7 @@
 
 .hf2-recent-item .meta {
   flex: 0 0 auto;
-  font-size: 10px;
+  font-size: var(--ar-fs-label);
   color: var(--ar-ink-4);
 }
 
@@ -488,7 +488,7 @@
 .hf2-recents-empty {
   padding: 16px 12px;
   text-align: center;
-  font-size: 11px;
+  font-size: var(--ar-fs-ui);
   color: var(--ar-ink-4);
 }
 
@@ -497,7 +497,7 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  background: #ffffff;
+  background: var(--ar-bg);
   position: relative;
   overflow: hidden;
   min-width: 0;
@@ -514,7 +514,7 @@
    each of them looks the same as dimming the box. */
 .hf2-main.stale > *:not(.hf2-stale-error) {
   opacity: 0.45;
-  transition: opacity 120ms linear;
+  transition: opacity var(--ar-fast) linear;
 }
 
 /* The load failed and there are still photographs underneath: the show that
@@ -551,8 +551,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #cccccc;
-  font-size: 12px;
+  color: var(--ar-ink-4);
+  font-size: var(--ar-fs-body);
   text-align: center;
 }
 
@@ -606,12 +606,12 @@
   background: none;
   padding: 0;
   font-family: var(--ar-font);
-  font-size: 10px;
-  letter-spacing: 0.1em;
+  font-size: var(--ar-fs-label);
+  letter-spacing: var(--ar-track-ui);
   text-transform: uppercase;
   color: var(--ar-ink-3);
   cursor: pointer;
-  transition: color 0.15s ease;
+  transition: color var(--ar-base) ease;
 }
 
 .hf2-album-btn:hover {
@@ -619,8 +619,8 @@
 }
 
 .hf2-look-count {
-  font-size: 12px;
-  color: #999999;
+  font-size: var(--ar-fs-body);
+  color: var(--ar-ink-3);
 }
 
 /* Horizontal Thumbnail Strip */
@@ -629,8 +629,8 @@
   display: flex;
   justify-content: center;
   overflow: hidden;
-  border-top: 1px solid #e0e0e0;
-  background: #fafafa;
+  border-top: 1px solid var(--ar-line);
+  background: var(--ar-bg-sub);
 }
 
 .hf2-thumb-strip {
@@ -652,9 +652,9 @@
   height: 60px;
   cursor: pointer;
   overflow: hidden;
-  background: #f5f5f5;
+  background: var(--ar-bg-sunk);
   opacity: 0.5;
-  transition: all 0.15s ease;
+  transition: all var(--ar-base) ease;
 }
 
 .hf2-thumb:hover {
@@ -663,7 +663,7 @@
 
 .hf2-thumb.active {
   opacity: 1;
-  outline: 2px solid #000000;
+  outline: 2px solid var(--ar-ink);
   outline-offset: -2px;
 }
 
@@ -713,15 +713,15 @@
 }
 
 .hf2-grid-container::-webkit-scrollbar-track {
-  background: #f5f5f5;
+  background: var(--ar-bg-sunk);
 }
 
 .hf2-grid-container::-webkit-scrollbar-thumb {
-  background: #dddddd;
+  background: var(--ar-line);
 }
 
 .hf2-grid-container::-webkit-scrollbar-thumb:hover {
-  background: #cccccc;
+  background: var(--ar-ink-4);
 }
 
 .hf2-grid-view {
@@ -735,7 +735,7 @@
   display: flex;
   flex-direction: column;
   cursor: pointer;
-  transition: transform 0.15s ease;
+  transition: transform var(--ar-base) ease;
 }
 
 .hf2-grid-item:hover {
@@ -746,7 +746,7 @@
   position: relative;      /* for the star in the corner */
   aspect-ratio: 3/4;
   overflow: hidden;
-  background: #f5f5f5;
+  background: var(--ar-bg-sunk);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -756,7 +756,7 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transition: opacity 0.15s ease;
+  transition: opacity var(--ar-base) ease;
 }
 
 .hf2-grid-item:hover .hf2-grid-image-wrapper img {
@@ -764,20 +764,20 @@
 }
 
 .hf2-grid-item.selected .hf2-grid-image-wrapper {
-  outline: 2px solid #000000;
+  outline: 2px solid var(--ar-ink);
   outline-offset: -2px;
 }
 
 .hf2-grid-item .look-num {
-  font-size: 11px;
-  color: #999999;
+  font-size: var(--ar-fs-ui);
+  color: var(--ar-ink-3);
   padding: 8px 0;
   text-align: center;
-  letter-spacing: 0.1em;
+  letter-spacing: var(--ar-track-ui);
 }
 
 .hf2-grid-item.selected .look-num {
-  color: #000000;
+  color: var(--ar-ink);
   font-weight: 600;
 }
 
@@ -790,14 +790,14 @@
   top: 2px;
   right: 2px;
   z-index: 1;
-  color: #ffffff;
-  text-shadow: 0 0 2px rgba(0, 0, 0, 0.9);
+  color: var(--ar-bg);
+  text-shadow: 0 0 2px var(--ar-shield);
 }
 
 .hf2-grid-star:hover:not(:disabled),
 .hf2-grid-star.on {
-  color: #ffffff;          /* the glyph fills; the colour has nowhere to go */
-  text-shadow: 0 0 3px rgba(0, 0, 0, 1);
+  color: var(--ar-bg);          /* the glyph fills; the colour has nowhere to go */
+  text-shadow: 0 0 3px var(--ar-ink);
 }
 
 /* Navigation Arrows */
@@ -812,16 +812,16 @@
   justify-content: center;
   background: transparent;
   border: none;
-  font-size: 24px;
-  color: #cccccc;
+  font-size: var(--ar-fs-title);
+  color: var(--ar-ink-4);
   cursor: pointer;
-  transition: color 0.15s ease;
+  transition: color var(--ar-base) ease;
   z-index: 10;
   font-family: inherit;
 }
 
 .hf2-nav-arrow:hover {
-  color: #000000;
+  color: var(--ar-ink);
 }
 
 .hf2-nav-arrow.prev {
@@ -853,46 +853,46 @@
 .hf2-view-toggle {
   display: flex;
   gap: 1px;
-  background: #e0e0e0;
+  background: var(--ar-line);
   padding: 1px;
 }
 
 .hf2-view-btn {
-  font-family: 'JetBrains Mono', 'SF Mono', monospace;
-  font-size: 11px;
+  font-family: var(--ar-font);
+  font-size: var(--ar-fs-ui);
   padding: 8px 16px;
   border: none;
-  background: #ffffff;
-  color: #999999;
+  background: var(--ar-bg);
+  color: var(--ar-ink-3);
   cursor: pointer;
-  letter-spacing: 0.1em;
+  letter-spacing: var(--ar-track-ui);
   text-transform: uppercase;
 }
 
 .hf2-view-btn:hover {
-  background: #f5f5f5;
-  color: #666666;
+  background: var(--ar-bg-sunk);
+  color: var(--ar-ink-2);
 }
 
 .hf2-view-btn.active {
-  background: #000000;
-  color: #ffffff;
+  background: var(--ar-ink);
+  color: var(--ar-bg);
 }
 
 /* Video Button */
 .hf2-video-btn {
-  font-family: 'JetBrains Mono', 'SF Mono', monospace;
-  font-size: 11px;
+  font-family: var(--ar-font);
+  font-size: var(--ar-fs-ui);
   padding: 8px 16px;
-  border: 1px solid #e0e0e0;
-  background: #ffffff;
-  color: #999999;
+  border: 1px solid var(--ar-line);
+  background: var(--ar-bg);
+  color: var(--ar-ink-3);
   cursor: pointer;
-  letter-spacing: 0.1em;
+  letter-spacing: var(--ar-track-ui);
   text-transform: uppercase;
   /* Colour and border only. `all` animated width too, so the button visibly
      stretched as its label changed. */
-  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+  transition: color var(--ar-base) ease, border-color var(--ar-base) ease, background var(--ar-base) ease;
 }
 
 /* The label is VIDEO, then SEARCHING, then HIDE VIDEO or a failure reason —
@@ -909,18 +909,18 @@
 }
 
 .hf2-video-btn:hover {
-  border-color: #000000;
-  color: #000000;
+  border-color: var(--ar-ink);
+  color: var(--ar-ink);
 }
 
 .hf2-video-btn.active {
-  background: #000000;
-  color: #ffffff;
-  border-color: #000000;
+  background: var(--ar-ink);
+  color: var(--ar-bg);
+  border-color: var(--ar-ink);
 }
 
 .hf2-video-btn.loading {
-  color: #999999;
+  color: var(--ar-ink-3);
   cursor: wait;
 }
 
@@ -928,13 +928,13 @@
    searching state looks deliberate rather than broken. */
 .hf2-video-btn:disabled {
   opacity: 1;
-  color: #bbbbbb;
-  border-color: #ededed;
+  color: var(--ar-ink-4);
+  border-color: var(--ar-line-soft);
 }
 
 .hf2-video-btn.error {
-  color: #cc0000;
-  border-color: #cc0000;
+  color: var(--ar-danger);
+  border-color: var(--ar-danger);
 }
 
 /* Single Content Split Layout */
@@ -963,7 +963,7 @@
 .hf2-single-container.with-video .hf2-image-side {
   flex: 1;
   padding-right: 24px;
-  border-right: 1px solid #e0e0e0;
+  border-right: 1px solid var(--ar-line);
 }
 
 /* Video Side */
@@ -990,16 +990,16 @@
 .hf2-resize-bar {
   width: 60px;
   height: 3px;
-  background: #e0e0e0;
+  background: var(--ar-line);
   cursor: ns-resize;
-  border-radius: 2px;
-  transition: background 0.15s ease;
+  border-radius: 0;
+  transition: background var(--ar-base) ease;
   flex-shrink: 0;
   margin: 6px 0;
 }
 
 .hf2-resize-bar:hover {
-  background: #000000;
+  background: var(--ar-ink);
 }
 
 /* Video wrapper - full width, crops sides as height increases */
@@ -1010,7 +1010,7 @@
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  background: #000000;
+  background: var(--ar-ink);
 }
 
 .hf2-video-frame {
@@ -1026,7 +1026,7 @@
 .hf2-youtube-player {
   width: 100%;
   height: 100%;
-  background: #000000;
+  background: var(--ar-ink);
 }
 
 .hf2-youtube-player iframe {
@@ -1049,40 +1049,40 @@
 .hf2-play-btn {
   width: 28px;
   height: 28px;
-  border: 1px solid #e0e0e0;
-  background: #ffffff;
-  color: #666666;
+  border: 1px solid var(--ar-line);
+  background: var(--ar-bg);
+  color: var(--ar-ink-2);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 9px;
+  font-size: var(--ar-fs-micro);
   flex-shrink: 0;
-  transition: all 0.15s ease;
+  transition: all var(--ar-base) ease;
 }
 
 .hf2-play-btn:hover {
-  border-color: #000000;
-  color: #000000;
+  border-color: var(--ar-ink);
+  color: var(--ar-ink);
 }
 
 .hf2-progress-bar {
   flex: 1;
   height: 3px;
-  background: #e0e0e0;
+  background: var(--ar-line);
   cursor: pointer;
   position: relative;
 }
 
 .hf2-progress-fill {
   height: 100%;
-  background: #000000;
-  transition: width 0.1s linear;
+  background: var(--ar-ink);
+  transition: width var(--ar-fast) linear;
 }
 
 .hf2-time {
-  font-size: 10px;
-  color: #999999;
+  font-size: var(--ar-fs-label);
+  color: var(--ar-ink-3);
   flex-shrink: 0;
   min-width: 65px;
   text-align: right;
@@ -1090,43 +1090,43 @@
 
 .hf2-quality-btn {
   font-family: inherit;
-  font-size: 9px;
+  font-size: var(--ar-fs-micro);
   padding: 4px 8px;
-  border: 1px solid #e0e0e0;
-  background: #ffffff;
-  color: #999999;
+  border: 1px solid var(--ar-line);
+  background: var(--ar-bg);
+  color: var(--ar-ink-3);
   cursor: pointer;
-  letter-spacing: 0.05em;
-  transition: all 0.15s ease;
+  letter-spacing: var(--ar-track-tight);
+  transition: all var(--ar-base) ease;
   flex-shrink: 0;
 }
 
 .hf2-quality-btn:hover {
-  border-color: #000000;
-  color: #000000;
+  border-color: var(--ar-ink);
+  color: var(--ar-ink);
 }
 
 /* Status Bar */
 .hf2-status-bar {
   position: fixed;
   bottom: 0;
-  left: 280px;
+  left: var(--ar-sidebar-w);
   right: 0;
-  height: 36px;
-  background: #ffffff;
-  border-top: 1px solid #e0e0e0;
+  height: var(--ar-statusbar-h);
+  background: var(--ar-bg);
+  border-top: 1px solid var(--ar-line);
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 24px;
-  font-size: 11px;
-  color: #999999;
+  font-size: var(--ar-fs-ui);
+  color: var(--ar-ink-3);
   z-index: 100;
 }
 
 .hf2-status-path .active,
 .hf2-status-look .active {
-  color: #000000;
+  color: var(--ar-ink);
   font-weight: 600;
 }
 
@@ -1134,7 +1134,7 @@
    different show is on its way. Same grey as the bar, spaced out and
    breathing on the same rhythm as the empty slots above it. */
 .hf2-status-arriving {
-  letter-spacing: 0.08em;
+  letter-spacing: var(--ar-track-tight);
   animation: hf2-arriving-pulse 1.6s ease-in-out infinite;
 }
 
@@ -1164,8 +1164,8 @@
 .hf2-search {
   position: relative;
   padding: 10px 10px 8px;
-  border-bottom: 1px solid #ededed;
-  background: #fafafa;
+  border-bottom: 1px solid var(--ar-line-soft);
+  background: var(--ar-bg-sub);
   flex-shrink: 0;
 }
 
@@ -1173,27 +1173,27 @@
   width: 100%;
   appearance: none;
   border: none;
-  border-bottom: 1px solid #d5d5d5;
+  border-bottom: 1px solid var(--ar-line);
   border-radius: 0;
   background: transparent;
   font-family: inherit;
-  font-size: 12px;
+  font-size: var(--ar-fs-body);
   line-height: 20px;
-  color: #000000;
+  color: var(--ar-ink);
   padding: 2px 18px 4px 0;
 }
 
 .hf2-search-input::placeholder {
-  color: #bbbbbb;
+  color: var(--ar-ink-4);
 }
 
 .hf2-search-input:focus {
   outline: none;
-  border-bottom-color: #000000;
+  border-bottom-color: var(--ar-ink);
 }
 
 .hf2-search-input:disabled {
-  color: #cccccc;
+  color: var(--ar-ink-4);
   cursor: not-allowed;
 }
 
@@ -1205,15 +1205,15 @@
   border: none;
   background: transparent;
   font-family: inherit;
-  font-size: 11px;
+  font-size: var(--ar-fs-ui);
   line-height: 20px;
-  color: #bbbbbb;
+  color: var(--ar-ink-4);
   cursor: pointer;
   padding: 2px 0 4px;
 }
 
 .hf2-search-clear:hover {
-  color: #000000;
+  color: var(--ar-ink);
 }
 
 /* Over the filters, not pushing them down: the list underneath should not
@@ -1224,18 +1224,18 @@
   left: 10px;
   right: 10px;
   z-index: 40;
-  background: #ffffff;
-  border: 1px solid #000000;
+  background: var(--ar-bg);
+  border: 1px solid var(--ar-ink);
   max-height: 260px;
   overflow-y: auto;
 }
 
 .hf2-search-heading {
-  font-size: 9px;
-  letter-spacing: 0.15em;
+  font-size: var(--ar-fs-micro);
+  letter-spacing: var(--ar-track-label);
   text-transform: uppercase;
-  color: #bbbbbb;
-  padding: 7px 10px 4px;
+  color: var(--ar-ink-4);
+  padding: 8px 10px 4px;
 }
 
 .hf2-search-option {
@@ -1247,11 +1247,11 @@
   border: none;
   background: transparent;
   font-family: inherit;
-  font-size: 12px;
+  font-size: var(--ar-fs-body);
   line-height: 18px;
-  color: #333333;
+  color: var(--ar-ink);
   text-align: left;
-  padding: 5px 10px;
+  padding: 4px 10px;
   cursor: pointer;
   white-space: nowrap;
   overflow: hidden;
@@ -1261,8 +1261,8 @@
 /* One highlight, driven by the keyboard, and the mouse moves it rather than
    adding a second — otherwise hovering while arrowing shows two selections. */
 .hf2-search-option.active {
-  background: #000000;
-  color: #ffffff;
+  background: var(--ar-ink);
+  color: var(--ar-bg);
 }
 
 .hf2-search-option .label {
@@ -1277,13 +1277,13 @@
    before the archive was held locally this needed a request per designer. */
 .hf2-search-option .meta {
   flex-shrink: 0;
-  font-size: 10px;
-  color: #bbbbbb;
+  font-size: var(--ar-fs-label);
+  color: var(--ar-ink-4);
 }
 
 .hf2-search-option.active .meta,
 .hf2-search-option.active .sub {
-  color: #999999;
+  color: var(--ar-ink-3);
 }
 
 /* A show rather than a designer: the season line identifies which one. */
@@ -1294,9 +1294,9 @@
 }
 
 .hf2-search-option.show .sub {
-  font-size: 10px;
+  font-size: var(--ar-fs-label);
   line-height: 13px;
-  color: #aaaaaa;
+  color: var(--ar-ink-3);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1304,16 +1304,16 @@
 
 /* "All 312 matching shows" — the way out of the first six. */
 .hf2-search-option.all {
-  border-top: 1px solid #ededed;
-  font-size: 10px;
-  letter-spacing: 0.08em;
+  border-top: 1px solid var(--ar-line-soft);
+  font-size: var(--ar-fs-label);
+  letter-spacing: var(--ar-track-tight);
   text-transform: uppercase;
-  color: #666666;
+  color: var(--ar-ink-2);
 }
 
 .hf2-search-empty {
-  font-size: 11px;
-  color: #cccccc;
+  font-size: var(--ar-fs-ui);
+  color: var(--ar-ink-4);
   padding: 10px;
 }
 
@@ -1329,27 +1329,27 @@
   border: none;
   background: transparent;
   font-family: inherit;
-  font-size: 10px;
-  letter-spacing: 0.1em;
+  font-size: var(--ar-fs-label);
+  letter-spacing: var(--ar-track-ui);
   text-transform: uppercase;
-  color: #999999;
+  color: var(--ar-ink-3);
   cursor: pointer;
   padding: 0 8px 0 0;
   flex-shrink: 0;
 }
 
 .hf2-designer-exit:hover {
-  color: #000000;
+  color: var(--ar-ink);
 }
 
 .hf2-designer-name {
   flex: 1;
   min-width: 0;
-  color: #000000;
+  color: var(--ar-ink);
   font-weight: 700;
   text-transform: none;
   letter-spacing: 0;
-  font-size: 11px;
+  font-size: var(--ar-fs-ui);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1376,8 +1376,8 @@
    --------------------------------------------------------------------- */
 
 .hf2-filters {
-  border-bottom: 1px solid #e0e0e0;
-  background: #fafafa;
+  border-bottom: 1px solid var(--ar-line);
+  background: var(--ar-bg-sub);
   flex-shrink: 0;
   padding-bottom: 4px;
 }
@@ -1395,10 +1395,10 @@
 
 .hf2-facet-label {
   flex: 0 0 42px;
-  font-size: 10px;
-  letter-spacing: 0.1em;
+  font-size: var(--ar-fs-label);
+  letter-spacing: var(--ar-track-ui);
   text-transform: uppercase;
-  color: #bbbbbb;
+  color: var(--ar-ink-4);
 }
 
 /* A native select: it is the shortest control that can hold 39 years, and
@@ -1413,30 +1413,30 @@
   border-radius: 0;
   background: transparent;
   font-family: inherit;
-  font-size: 11px;
+  font-size: var(--ar-fs-ui);
   line-height: 20px;
-  color: #999999;
+  color: var(--ar-ink-3);
   cursor: pointer;
   padding: 0 14px 0 0;
   text-align: left;
   /* The caret, drawn rather than loaded: no external asset, and it stays
      hairline-thin at any zoom. */
   background-image:
-    linear-gradient(45deg, transparent 50%, #cccccc 50%),
-    linear-gradient(135deg, #cccccc 50%, transparent 50%);
+    linear-gradient(45deg, transparent 50%, var(--ar-ink-4) 50%),
+    linear-gradient(135deg, var(--ar-ink-4) 50%, transparent 50%);
   background-position: right 5px center, right 1px center;
   background-size: 4px 4px, 4px 4px;
   background-repeat: no-repeat;
 }
 
 .hf2-facet:hover .hf2-facet-select {
-  color: #000000;
+  color: var(--ar-ink);
 }
 
 /* A filter that is actually doing something reads as set, so the state of
    the list is legible without opening anything. */
 .hf2-facet-select.set {
-  color: #000000;
+  color: var(--ar-ink);
   font-weight: 700;
 }
 
@@ -1454,7 +1454,7 @@
   align-items: center;
   gap: 4px;
   margin: 4px 10px 2px;
-  border-top: 1px solid #ededed;
+  border-top: 1px solid var(--ar-line-soft);
 }
 
 .hf2-filter-clear {
@@ -1465,22 +1465,22 @@
   border: none;
   background: transparent;
   font-family: inherit;
-  font-size: 10px;
-  letter-spacing: 0.1em;
+  font-size: var(--ar-fs-label);
+  letter-spacing: var(--ar-track-ui);
   text-transform: uppercase;
-  color: #000000;
+  color: var(--ar-ink);
   text-align: left;
-  padding: 7px 0 3px;
+  padding: 8px 0 4px;
   cursor: pointer;
 }
 
 .hf2-filter-clear:hover:not(:disabled) {
-  color: #cc0000;
+  color: var(--ar-danger);
 }
 
 /* Nothing to clear: this is just the caption for an unfiltered list. */
 .hf2-filter-clear:disabled {
-  color: #cccccc;
+  color: var(--ar-ink-4);
   cursor: default;
 }
 
@@ -1488,10 +1488,10 @@
    bottom rather than ending as though that were everything. */
 .hf2-collections-more {
   padding: 10px 12px 18px;
-  font-size: 10px;
-  letter-spacing: 0.1em;
+  font-size: var(--ar-fs-label);
+  letter-spacing: var(--ar-track-ui);
   text-transform: uppercase;
-  color: #cccccc;
+  color: var(--ar-ink-4);
 }
 
 /* ---------------------------------------------------------------------
@@ -1505,8 +1505,8 @@
 
 .hf2-segmented {
   display: flex;
-  margin: 8px 10px 7px;
-  border: 1px solid #000000;
+  margin: 8px 10px 8px;
+  border: 1px solid var(--ar-ink);
 }
 
 .hf2-segment {
@@ -1516,34 +1516,34 @@
   border-radius: 0;
   background: transparent;
   font-family: inherit;
-  font-size: 10px;
-  letter-spacing: 0.18em;
+  font-size: var(--ar-fs-label);
+  letter-spacing: var(--ar-track-label);
   text-transform: uppercase;
-  color: #666666;
-  padding: 6px 4px 5px;
+  color: var(--ar-ink-2);
+  padding: 6px 4px 4px;
   cursor: pointer;
   white-space: nowrap;
-  transition: background 0.12s ease, color 0.12s ease;
+  transition: background var(--ar-fast) ease, color var(--ar-fast) ease;
 }
 
 /* A hairline between the halves, drawn once so it cannot double up. */
 .hf2-segment + .hf2-segment {
-  border-left: 1px solid #000000;
+  border-left: 1px solid var(--ar-ink);
 }
 
 .hf2-segment:hover:not(.selected):not(:disabled) {
-  background: rgba(0, 0, 0, 0.04);
-  color: #000000;
+  background: var(--ar-wash-strong);
+  color: var(--ar-ink);
 }
 
 .hf2-segment.selected {
-  background: #000000;
-  color: #ffffff;
+  background: var(--ar-ink);
+  color: var(--ar-bg);
   font-weight: 700;
 }
 
 .hf2-segment:disabled {
-  color: #cccccc;
+  color: var(--ar-ink-4);
   cursor: default;
 }
 
@@ -1563,10 +1563,10 @@
    API deprecated quality control, so styling this as something pressable
    would be a lie about what it does. */
 .hf2-quality-readout {
-  font-family: 'JetBrains Mono', 'SF Mono', monospace;
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  color: #999999;
+  font-family: var(--ar-font);
+  font-size: var(--ar-fs-label);
+  letter-spacing: var(--ar-track-ui);
+  color: var(--ar-ink-3);
   padding: 0 4px;
   cursor: default;
   flex-shrink: 0;
@@ -1592,10 +1592,10 @@
   position: absolute;
   top: 2px;
   right: 3px;
-  font-size: 9px;
+  font-size: var(--ar-fs-micro);
   line-height: 1;
-  color: #ffffff;
-  text-shadow: 0 0 2px rgba(0, 0, 0, 0.9);
+  color: var(--ar-bg);
+  text-shadow: 0 0 2px var(--ar-shield);
   pointer-events: none;
 }
 

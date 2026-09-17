@@ -1,15 +1,15 @@
 /* TopBar - Reusable Navigation Component */
 
 .topbar {
-  height: 48px;
-  min-height: 48px;
+  height: var(--ar-topbar-h);
+  min-height: var(--ar-topbar-h);
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 24px;
-  border-bottom: 1px solid #e0e0e0;
-  background: #ffffff;
-  font-family: 'JetBrains Mono', 'SF Mono', 'Monaco', monospace;
+  border-bottom: 1px solid var(--ar-line);
+  background: var(--ar-bg);
+  font-family: var(--ar-font);
   z-index: 1000;
 }
 
@@ -19,10 +19,10 @@
 }
 
 .topbar-logo {
-  font-size: 13px;
+  font-size: var(--ar-fs-heading);
   font-weight: 700;
-  letter-spacing: 0.2em;
-  color: #000000;
+  letter-spacing: var(--ar-track-wide);
+  color: var(--ar-ink);
 }
 
 .topbar-nav {
@@ -32,25 +32,25 @@
 
 .topbar-link {
   font-family: inherit;
-  font-size: 11px;
-  letter-spacing: 0.1em;
+  font-size: var(--ar-fs-ui);
+  letter-spacing: var(--ar-track-ui);
   text-transform: uppercase;
   padding: 8px 16px;
   border: none;
   background: transparent;
-  color: #999999;
+  color: var(--ar-ink-3);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all var(--ar-base) ease;
 }
 
 .topbar-link:hover {
-  color: #666666;
-  background: #f5f5f5;
+  color: var(--ar-ink-2);
+  background: var(--ar-bg-sunk);
 }
 
 .topbar-link.active {
-  color: #000000;
-  background: #f0f0f0;
+  color: var(--ar-ink);
+  background: var(--ar-bg-sunk);
   font-weight: 600;
 }
 
@@ -61,24 +61,24 @@
 }
 
 .topbar-user {
-  font-size: 11px;
-  color: #999999;
+  font-size: var(--ar-fs-ui);
+  color: var(--ar-ink-3);
 }
 
 .topbar-logout {
   font-family: inherit;
-  font-size: 10px;
-  letter-spacing: 0.1em;
+  font-size: var(--ar-fs-label);
+  letter-spacing: var(--ar-track-ui);
   text-transform: uppercase;
   padding: 6px 12px;
-  border: 1px solid #e0e0e0;
+  border: 1px solid var(--ar-line);
   background: transparent;
-  color: #999999;
+  color: var(--ar-ink-3);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all var(--ar-base) ease;
 }
 
 .topbar-logout:hover {
-  border-color: #000000;
-  color: #000000;
+  border-color: var(--ar-ink);
+  color: var(--ar-ink);
 }

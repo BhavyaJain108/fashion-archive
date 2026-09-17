@@ -36,7 +36,7 @@
   line-height: 1;
   color: var(--ar-ink-4);
   cursor: pointer;
-  transition: color 0.1s ease;
+  transition: color var(--ar-fast) ease;
 }
 
 /* Smaller glyph, same generous target: 18px square is still a comfortable
