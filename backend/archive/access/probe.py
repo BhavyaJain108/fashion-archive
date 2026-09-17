@@ -10,10 +10,10 @@ turns "failed" into something a person can act on.
 import time
 from dataclasses import dataclass, field
 
+from backend.archive.access.learned import prober as learned_prober
 from backend.archive.access.outcome import Outcome, classify
 from backend.archive.access.strategy import Strategy
 from backend.archive.domain.brand import Capability
-from backend.archive.fingerprint import probe
 
 
 @dataclass
@@ -86,7 +86,7 @@ def try_access(
     exc: BaseException | None = None
     started = time.monotonic()
     try:
-        cap = probe(domain, transport, retry_pause=retry_pause)
+        cap = learned_prober(domain, transport, retry_pause=retry_pause)
     except Exception as e:  # noqa: BLE001 — the failure is the measurement
         exc = e
     finally:

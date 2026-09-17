@@ -11,12 +11,17 @@ Ragamalak, Sicko Kittens, LINISS (all Shopify).
 
 ## Where each brand stands
 
+All four in scope now give up their catalogues (verified end to end 2026-09-17T17:49Z,
+53 requests, 70 seconds, $0):
+
 | Brand | Gets in with | Products found | Title / price / stock / images | Sizes |
 |---|---|---|---|---|
 | Vivienne Westwood | `cffi:chrome142` | 4,352 | 100% | 0% |
-| Van Cleef & Arpels | `cffi:chrome142` | 200 | 100% | 0% |
-| XSAI | `httpx` (plain) | 103 | 100% | 0% |
-| Gentle Monster | not yet | — | — | — |
+| Van Cleef & Arpels | `cffi:chrome142` | 1,333 | 100% | 0% |
+| Gentle Monster | `playwright` (challenge-aware) | 1,332 | 100% | 0% |
+| XSAI | `cffi:chrome142` | 103 | 100% | 0% |
+
+Fill rates are measured on 5 sampled products per brand.
 
 ## Learnings
 
@@ -49,9 +54,33 @@ returns 202 with an AWS WAF JavaScript challenge (`gokuProps`, `challenge.js`). 
 sweep called it an "empty room" (reachable, nothing readable); it is really a challenge on
 every path except the cached homepage.
 
+### 6. Let the challenge script finish before asking again — 2026-09-17
+Gentle Monster's AWS WAF challenge is solved by the page's own script, which sets
+`aws-waf-token` about two seconds after load. The browser transport read each page and
+closed the tab at once, killing the script mid-calculation, so no token ever appeared and
+every request stayed at 202 — which is why the brand read as an "empty room" for three
+rounds. Holding a tab open until the cookie appears turns every later request into a 200.
+We wait for the site's own script; we never compute or forge the token.
+Code: `access/browser.ChallengeAwareBrowser`. Also paces at 1.1s for their `Crawl-delay: 1`.
+
+### 7. Products are the biggest family of URLs in a sitemap — 2026-09-17
+Gentle Monster gives each product its own folder (`/us/en/item/<code>/<slug>`) and has one
+sitemap per country, of which the probe happened to read Korea's. Reading the US sitemap
+and taking the deepest folder holding at least half its URLs gives `/us/en/item/` — 1,332
+of 1,395. Same rule found 1,333 products on Van Cleef, up from 200.
+Code: `learned.widen_to_the_biggest_url_family`.
+
+### 8. Prefer the priced Product over the ProductGroup — 2026-09-17
+Gentle Monster publishes both a ProductGroup (the style: name, colours, no price) and the
+Product on the page (price, stock, images). The extractor returned whichever came first,
+so 3 of every 5 products had a title and nothing else. Preferring a node that carries
+offers fixed it. This one is a genuine bug in the shared extractor, so unlike the others it
+was fixed in `connectors/structured.py` rather than kept here.
+
 ## Open
 
-- **Gentle Monster**: AWS WAF JS challenge. Next: a real browser, which runs the challenge
-  as any visitor's browser does. No forging of challenge tokens.
-- **Sizes are 0% on all three brands we got into.** JSON-LD on these sites carries no sizes
-  and the DOM fallback finds none.
+- **Sizes are 0% on all four brands.** The JSON-LD on these sites carries no sizes and the
+  DOM fallback finds none. On Gentle Monster the only size-like field is a frame
+  measurement (`47-23-154.8`), not a wearable size. Not yet investigated on the others.
+- **robots.txt disallows `/api/*` on Gentle Monster**, so their JSON API is off limits even
+  though the page calls it. Everything above comes from product pages and sitemaps.

@@ -82,6 +82,15 @@ def sizes_from_dom(html: str) -> list[dict]:
 
 
 def _find_product_node(html: str) -> dict | None:
+    """The product node, preferring one that states a price.
+
+    A page may publish both a ProductGroup (the style: name, description, the list of
+    colours) and the Product actually on the page (the price, the images, the stock).
+    Taking whichever came first gave a title and nothing else on the pages that put the
+    group first — Gentle Monster, where it cost us price, stock and images on 3 of every
+    5 products (2026-09-17).
+    """
+    candidates = []
     for block in _LD_BLOCK.findall(html):
         try:
             data = json.loads(block.strip())
@@ -91,8 +100,10 @@ def _find_product_node(html: str) -> dict | None:
             types = node.get("@type", "")
             types = types if isinstance(types, list) else [types]
             if "Product" in types or "ProductGroup" in types:
-                return node
-    return None
+                candidates.append(node)
+    if not candidates:
+        return None
+    return next((n for n in candidates if _offers_of(n)), candidates[0])
 
 
 def _iter_nodes(data):

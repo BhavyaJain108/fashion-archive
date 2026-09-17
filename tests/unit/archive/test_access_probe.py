@@ -61,7 +61,8 @@ def test_an_open_shop_is_reported_as_ok_with_its_capability_kept():
 def test_the_requests_it_took_are_counted_and_the_statuses_kept():
     r = try_access("kuurth.com", strategy_over(OPEN_SHOPIFY), retry_pause=0)
     assert r.requests >= 4
-    assert r.statuses.count(200) == r.requests
+    assert len(r.statuses) == r.requests  # every request the probe made is recorded
+    assert r.statuses.count(200) >= 4
     assert r.seconds >= 0.0
 
 

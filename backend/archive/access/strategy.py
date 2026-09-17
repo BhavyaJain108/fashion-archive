@@ -79,9 +79,12 @@ def _cffi(profile: str):
 
 def _browser(driver: str):
     def make():
-        from backend.archive.browser.transport import PlaywrightTransport
+        # The challenge-aware subclass rather than the bare transport: a browser that
+        # retries before a JS challenge has finished sees the challenge every time
+        # (Gentle Monster, 2026-09-17 — see LEARNINGS.md).
+        from backend.archive.access.browser import ChallengeAwareBrowser
 
-        return PlaywrightTransport(driver=driver)
+        return ChallengeAwareBrowser(driver=driver)
 
     return make
 

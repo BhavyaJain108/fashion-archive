@@ -227,3 +227,26 @@ def test_additional_properties_become_specifications():
     rec = parse_ldjson_product(html, "https://liniss.com/products/gale")
     assert rec.specifications == "Fit: Oversized; Length: Midi"
     assert rec.additional_tags == "outerwear, wool"
+
+
+@pytest.mark.unit
+def test_the_priced_product_wins_over_the_style_it_belongs_to():
+    """A page can publish the ProductGroup first — the style, with no price — and the
+    Product actually being viewed second. Taking the first gave a title and nothing else."""
+    from backend.archive.connectors.structured import _find_product_node
+
+    html = """<script type="application/ld+json">{"@context":"https://schema.org","@graph":[
+      {"@type":"ProductGroup","name":"Zen","productGroupID":"15000387"},
+      {"@type":"Product","name":"Jennie - Zen C1","image":["https://x/1.jpg"],
+       "offers":{"@type":"Offer","price":"330","priceCurrency":"USD",
+                 "availability":"https://schema.org/InStock"}}]}</script>"""
+    node = _find_product_node(html)
+    assert node["name"] == "Jennie - Zen C1"
+
+
+@pytest.mark.unit
+def test_a_lone_product_group_is_still_used_when_it_is_all_there_is():
+    from backend.archive.connectors.structured import _find_product_node
+
+    html = '<script type="application/ld+json">{"@type":"ProductGroup","name":"Zen"}</script>'
+    assert _find_product_node(html)["name"] == "Zen"
