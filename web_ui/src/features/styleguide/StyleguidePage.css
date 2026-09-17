@@ -42,7 +42,7 @@
 .sg-rules {
   padding-left: 24px;
   font-size: var(--ar-fs-body);
-  line-height: 20px;
+  line-height: var(--ar-lh-body);
   color: var(--ar-ink-2);
 }
 

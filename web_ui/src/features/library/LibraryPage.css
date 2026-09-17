@@ -24,13 +24,13 @@
 
 .lib-kind .name {
   display: block;
-  line-height: 16px;
+  line-height: var(--ar-lh-ui);
   letter-spacing: var(--ar-track-tight);
 }
 
 .lib-kind .count {
   font-size: var(--ar-fs-label);
-  color: var(--ar-ink-4);
+  color: var(--ar-ink-3);
   letter-spacing: var(--ar-track-tight);
 }
 
@@ -56,8 +56,8 @@
   width: 32px;
   flex-shrink: 0;
   font-size: var(--ar-fs-ui);
-  line-height: 16px;
-  color: var(--ar-ink-4);
+  line-height: var(--ar-lh-ui);
+  color: var(--ar-ink-3);
 }
 
 .fav-collection.selected .num {
@@ -71,7 +71,7 @@
 
 .fav-collection .name {
   display: block;
-  line-height: 16px;
+  line-height: var(--ar-lh-ui);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -80,8 +80,8 @@
 .fav-collection .sub {
   display: block;
   font-size: var(--ar-fs-label);
-  line-height: 13px;
-  color: var(--ar-ink-4);
+  line-height: var(--ar-lh-ui);
+  color: var(--ar-ink-3);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -181,7 +181,7 @@
 
 .fav-added {
   font-size: var(--ar-fs-label);
-  color: var(--ar-ink-4);
+  color: var(--ar-ink-3);
   letter-spacing: var(--ar-track-tight);
 }
 
@@ -348,7 +348,7 @@
   display: block;
   max-width: 44ch;
   margin-top: 8px;
-  line-height: 18px;
+  line-height: var(--ar-lh-body);
   text-align: center;
   color: var(--ar-ink-3);
 }
@@ -427,7 +427,7 @@
 
 .lib-show-name {
   display: block;
-  line-height: 16px;
+  line-height: var(--ar-lh-ui);
   letter-spacing: var(--ar-track-tight);
   white-space: nowrap;
   overflow: hidden;
@@ -437,8 +437,8 @@
 .lib-show-season {
   display: block;
   font-size: var(--ar-fs-label);
-  line-height: 13px;
-  color: var(--ar-ink-4);
+  line-height: var(--ar-lh-ui);
+  color: var(--ar-ink-3);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -485,7 +485,7 @@
 
 .lib-view-name {
   display: block;
-  line-height: 16px;
+  line-height: var(--ar-lh-ui);
   letter-spacing: var(--ar-track-tight);
 }
 
@@ -500,13 +500,13 @@
   gap: 4px;
   padding: 2px 6px;
   font-size: var(--ar-fs-label);
-  line-height: 14px;
+  line-height: var(--ar-lh-ui);
   background: var(--ar-wash);
   border: 1px solid var(--ar-line);
 }
 
 .lib-filter .k {
-  color: var(--ar-ink-4);
+  color: var(--ar-ink-3);
   letter-spacing: var(--ar-track-tight);
 }
 
@@ -538,7 +538,7 @@
 .lib-albums-empty {
   padding: 0 12px 10px;
   font-size: var(--ar-fs-ui);
-  color: var(--ar-ink-4);
+  color: var(--ar-ink-3);
 }
 
 .lib-album .body {
@@ -548,7 +548,7 @@
 
 .lib-album .name {
   display: block;
-  line-height: 16px;
+  line-height: var(--ar-lh-ui);
   letter-spacing: var(--ar-track-tight);
   white-space: nowrap;
   overflow: hidden;
@@ -557,7 +557,7 @@
 
 .lib-album .count {
   font-size: var(--ar-fs-label);
-  color: var(--ar-ink-4);
+  color: var(--ar-ink-3);
   letter-spacing: var(--ar-track-tight);
 }
 
@@ -664,7 +664,7 @@
 .lib-error-detail {
   margin-top: 4px;
   font-size: var(--ar-fs-label);
-  line-height: 14px;
+  line-height: var(--ar-lh-ui);
   color: var(--ar-ink-3);
 }
 

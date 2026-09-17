@@ -90,14 +90,14 @@ table.dev-table {
   letter-spacing: var(--ar-track-label);
   text-transform: uppercase;
   color: var(--ar-ink-3);
-  font-weight: 500;
+  font-weight: 600;
   padding: 0 12px 8px 0;
   border-bottom: 1px solid var(--ar-line);
   white-space: nowrap;
 }
 
 .dev-table td {
-  padding: 9px 12px 9px 0;
+  padding: 8px 12px 8px 0;
   border-bottom: 1px solid var(--ar-line-soft);
   vertical-align: baseline;
 }
@@ -109,7 +109,7 @@ table.dev-table {
   white-space: nowrap;
 }
 
-.dev-brand { font-weight: 500; }
+.dev-brand { font-weight: 600; }
 .dev-domain { color: var(--ar-ink-3); font-size: var(--ar-fs-micro); }
 .dev-why { color: var(--ar-ink-3); font-size: var(--ar-fs-micro); }
 
@@ -133,7 +133,7 @@ table.dev-table {
   color: var(--ar-ink-2);
   font: inherit;
   font-size: var(--ar-fs-micro);
-  padding: 2px 7px;
+  padding: 2px 8px;
   cursor: pointer;
 }
 
@@ -145,7 +145,7 @@ table.dev-table {
   font-size: var(--ar-fs-micro);
   color: var(--ar-ink-3);
   max-width: 62ch;
-  line-height: 1.6;
+  line-height: var(--ar-lh-body);
 }
 
 .dev-empty { padding: 48px 0; color: var(--ar-ink-3); font-size: var(--ar-fs-body); }

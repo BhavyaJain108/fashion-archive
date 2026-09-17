@@ -11,6 +11,7 @@
 //   - a font-size in px (use --ar-fs-*)
 //   - a letter-spacing in em (use --ar-track-*)
 //   - a duration in a transition (use --ar-fast / --ar-base / --ar-slow)
+//   - a line-height in px or unitless (use --ar-lh-*)
 //   - a font-weight other than 400, 600, 700
 //   - a border-radius other than 0
 //   - any box-shadow
@@ -40,6 +41,7 @@ const CHECKS = [
   ['px font-size', /font-size:\s*[0-9.]+px/],
   ['raw letter-spacing', /letter-spacing:\s*[0-9.]+em/],
   ['raw duration', /transition:[^;]*\b[0-9.]+m?s\b/],
+  ['raw line-height', /line-height:\s*[0-9.]+(px)?\s*;/],
   ['off-scale weight', /font-weight:\s*(?!400\b|600\b|700\b)[0-9]+/],
   ["radius", /border-radius:(?!\s*0\s*;)/],
   ['shadow', /box-shadow:/],

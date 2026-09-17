@@ -8,8 +8,10 @@
    RULES — read these before styling anything.
 
    1. Black means selected or active. Nothing else is black. Body text is
-      ink-2, labels and idle controls are ink-3, counts and disabled
-      things are ink-4. A page with two black things has two selections.
+      ink-2, everything else you are meant to read (labels, counts, idle
+      controls, placeholders) is ink-3. ink-4 is for disabled text and
+      glyph-only controls (arrows, stars, chevrons) and is never used for
+      a word. A page with two black things has two selections.
    2. Colour means destructive. --ar-danger is the only hue, and it is
       allowed on exactly one control: the confirmation of an irreversible
       delete. Never on a hover, never on a badge, never for emphasis.
@@ -33,6 +35,11 @@
    9. Motion is functional. --ar-fast for colour and hover, --ar-base for
       borders and opacity, --ar-slow for a panel sliding or resizing.
       Nothing bounces.
+  10. Readable text meets WCAG AA. ink-2 on white is 5.7:1, ink-3 is 4.5:1.
+      ink-4 is 3:1, which is the floor for a control's outline and for a
+      glyph, and below the floor for a word — so no word is ever ink-4.
+      Input borders are ink-4, not --ar-line, for the same reason. Every
+      focusable thing shows a 1px black outline under keyboard focus.
 
    Every token and primitive below is rendered live at /styleguide.
    --------------------------------------------------------------------- */
@@ -46,8 +53,8 @@
   --ar-line-soft: #ededed;   /* rules inside a grouped block */
   --ar-ink: #000000;         /* selected / active */
   --ar-ink-2: #666666;       /* body */
-  --ar-ink-3: #999999;       /* labels, idle controls */
-  --ar-ink-4: #cccccc;       /* empty states, counts, disabled, placeholders */
+  --ar-ink-3: #767676;       /* labels, idle controls, counts, placeholders — 4.5:1, AA */
+  --ar-ink-4: #949494;       /* disabled text and glyph-only controls — 3:1, never for readable text */
   --ar-danger: #cc0000;      /* destructive confirmation ONLY */
 
   --ar-wash: rgba(0, 0, 0, 0.02);         /* hover */
@@ -69,6 +76,10 @@
   --ar-track-ui: 0.1em;      /* buttons, chips, inputs, status */
   --ar-track-label: 0.15em;  /* section headers, placeholders, empty states */
   --ar-track-wide: 0.2em;    /* the wordmark */
+
+  --ar-lh-none: 1;        /* a glyph or a single-line control */
+  --ar-lh-ui: 16px;       /* rows, labels, anything 9–12px */
+  --ar-lh-body: 20px;     /* paragraphs, notes, the heading size */
 
   /* --- Size ----------------------------------------------------- */
   --ar-sidebar-w: 280px;
@@ -92,6 +103,16 @@
   margin: 0;
   padding: 0;
   box-sizing: border-box;
+}
+
+/* Keyboard focus, everywhere, the same. Mouse focus shows nothing. */
+:focus-visible {
+  outline: var(--ar-hairline) solid var(--ar-ink);
+  outline-offset: -1px;
+}
+
+:focus:not(:focus-visible) {
+  outline: none;
 }
 
 body {
@@ -166,7 +187,7 @@ body {
 }
 
 .ar-section-header .count {
-  color: var(--ar-ink-4);
+  color: var(--ar-ink-3);
 }
 
 /* --- List rows ----------------------------------------------------- */
@@ -202,7 +223,7 @@ body {
   background: transparent;
   font-family: inherit;
   font-size: var(--ar-fs-ui);
-  line-height: 20px;
+  line-height: var(--ar-lh-body);
   padding: 0 6px;
   color: var(--ar-ink-3);
   cursor: pointer;
@@ -319,7 +340,7 @@ body {
   width: 100%;
   box-sizing: border-box;
   padding: 8px 12px;
-  border: 1px solid var(--ar-line);
+  border: 1px solid var(--ar-ink-4);
   border-radius: 0;
   font-family: var(--ar-font);
   font-size: var(--ar-fs-ui);
@@ -335,7 +356,7 @@ body {
 }
 
 .ar-input::placeholder {
-  color: var(--ar-ink-4);
+  color: var(--ar-ink-3);
   text-transform: uppercase;
   letter-spacing: var(--ar-track-ui);
 }
@@ -399,7 +420,7 @@ body {
   padding: 24px 12px;
   text-align: center;
   font-size: var(--ar-fs-ui);
-  color: var(--ar-ink-4);
+  color: var(--ar-ink-3);
 }
 
 .ar-empty .headline,

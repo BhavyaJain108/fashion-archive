@@ -102,13 +102,13 @@
 .alp-album-count {
   flex-shrink: 0;
   font-size: var(--ar-fs-label);
-  color: var(--ar-ink-4);
+  color: var(--ar-ink-3);
 }
 
 .alp-empty {
   padding: 16px;
   font-size: var(--ar-fs-ui);
-  color: var(--ar-ink-4);
+  color: var(--ar-ink-3);
 }
 
 .alp-new {

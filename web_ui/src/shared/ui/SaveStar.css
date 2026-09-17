@@ -33,7 +33,7 @@
   background: transparent;
   font-family: inherit;
   font-size: var(--ar-star-glyph);
-  line-height: 1;
+  line-height: var(--ar-lh-none);
   color: var(--ar-ink-4);
   cursor: pointer;
   transition: color var(--ar-fast) ease;

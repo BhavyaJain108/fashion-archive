@@ -62,7 +62,7 @@
   background: var(--ar-bg);
   font-family: inherit;
   font-size: var(--ar-fs-body);
-  line-height: 1;
+  line-height: var(--ar-lh-none);
   color: var(--ar-ink-3);
   cursor: pointer;
   padding: 0;
@@ -145,7 +145,7 @@
 .hf2-nav-empty {
   font-size: var(--ar-fs-ui);
   padding: 10px 12px;
-  color: var(--ar-ink-4);
+  color: var(--ar-ink-3);
   font-style: italic;
 }
 
@@ -170,7 +170,7 @@
 }
 
 .hf2-collections-header .count {
-  color: var(--ar-ink-4);
+  color: var(--ar-ink-3);
 }
 
 .hf2-collections-scroll {
@@ -214,9 +214,9 @@
 
 .hf2-collection-item .num {
   width: 32px;
-  color: var(--ar-ink-4);
+  color: var(--ar-ink-3);
   font-size: var(--ar-fs-ui);
-  line-height: 16px;
+  line-height: var(--ar-lh-ui);
   flex-shrink: 0;
 }
 
@@ -227,7 +227,7 @@
 
 .hf2-collection-item .name {
   display: block;
-  line-height: 16px;
+  line-height: var(--ar-lh-ui);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -239,7 +239,7 @@
 .hf2-collection-item .sub {
   display: block;
   font-size: var(--ar-fs-label);
-  line-height: 13px;
+  line-height: var(--ar-lh-ui);
   color: var(--ar-ink-3);
   white-space: nowrap;
   overflow: hidden;
@@ -286,14 +286,14 @@
   padding: 10px 12px;
   border-bottom: 1px solid var(--ar-line);
   font-size: var(--ar-fs-ui);
-  line-height: 15px;
+  line-height: var(--ar-lh-ui);
   color: var(--ar-danger);
 }
 
 .hf2-saves-error .detail {
   color: var(--ar-ink-3);
   font-size: var(--ar-fs-label);
-  line-height: 14px;
+  line-height: var(--ar-lh-ui);
 }
 
 .hf2-saves-retry {
@@ -315,14 +315,14 @@
 .hf2-collections-error .detail {
   color: var(--ar-ink-3);
   font-size: var(--ar-fs-label);
-  line-height: 14px;
+  line-height: var(--ar-lh-ui);
 }
 
 .hf2-collections-empty,
 .hf2-collections-loading {
   padding: 24px 12px;
   text-align: center;
-  color: var(--ar-ink-4);
+  color: var(--ar-ink-3);
   font-size: var(--ar-fs-ui);
 }
 
@@ -402,13 +402,13 @@
 }
 
 .hf2-recents-head .count {
-  color: var(--ar-ink-4);
+  color: var(--ar-ink-3);
   letter-spacing: normal;
 }
 
 .hf2-recents-head .chev {
   font-size: var(--ar-fs-micro);
-  line-height: 1;
+  line-height: var(--ar-lh-none);
   color: var(--ar-ink-4);
 }
 
@@ -478,7 +478,7 @@
 .hf2-recent-item .meta {
   flex: 0 0 auto;
   font-size: var(--ar-fs-label);
-  color: var(--ar-ink-4);
+  color: var(--ar-ink-3);
 }
 
 .hf2-recent-item:hover .meta {
@@ -489,7 +489,7 @@
   padding: 16px 12px;
   text-align: center;
   font-size: var(--ar-fs-ui);
-  color: var(--ar-ink-4);
+  color: var(--ar-ink-3);
 }
 
 /* Main Area */
@@ -1149,13 +1149,13 @@
   background: transparent;
   font-family: inherit;
   font-size: var(--ar-fs-body);
-  line-height: 20px;
+  line-height: var(--ar-lh-body);
   color: var(--ar-ink);
   padding: 2px 18px 4px 0;
 }
 
 .hf2-search-input::placeholder {
-  color: var(--ar-ink-4);
+  color: var(--ar-ink-3);
 }
 
 .hf2-search-input:focus {
@@ -1177,8 +1177,8 @@
   background: transparent;
   font-family: inherit;
   font-size: var(--ar-fs-ui);
-  line-height: 20px;
-  color: var(--ar-ink-4);
+  line-height: var(--ar-lh-body);
+  color: var(--ar-ink-3);
   cursor: pointer;
   padding: 2px 0 4px;
 }
@@ -1205,7 +1205,7 @@
   font-size: var(--ar-fs-micro);
   letter-spacing: var(--ar-track-label);
   text-transform: uppercase;
-  color: var(--ar-ink-4);
+  color: var(--ar-ink-3);
   padding: 8px 10px 4px;
 }
 
@@ -1219,7 +1219,7 @@
   background: transparent;
   font-family: inherit;
   font-size: var(--ar-fs-body);
-  line-height: 18px;
+  line-height: var(--ar-lh-body);
   color: var(--ar-ink);
   text-align: left;
   padding: 4px 10px;
@@ -1249,7 +1249,7 @@
 .hf2-search-option .meta {
   flex-shrink: 0;
   font-size: var(--ar-fs-label);
-  color: var(--ar-ink-4);
+  color: var(--ar-ink-3);
 }
 
 .hf2-search-option.active .meta,
@@ -1266,7 +1266,7 @@
 
 .hf2-search-option.show .sub {
   font-size: var(--ar-fs-label);
-  line-height: 13px;
+  line-height: var(--ar-lh-ui);
   color: var(--ar-ink-3);
   white-space: nowrap;
   overflow: hidden;
@@ -1284,7 +1284,7 @@
 
 .hf2-search-empty {
   font-size: var(--ar-fs-ui);
-  color: var(--ar-ink-4);
+  color: var(--ar-ink-3);
   padding: 10px;
 }
 
@@ -1369,7 +1369,7 @@
   font-size: var(--ar-fs-label);
   letter-spacing: var(--ar-track-ui);
   text-transform: uppercase;
-  color: var(--ar-ink-4);
+  color: var(--ar-ink-3);
 }
 
 /* A native select: it is the shortest control that can hold 39 years, and
@@ -1385,7 +1385,7 @@
   background: transparent;
   font-family: inherit;
   font-size: var(--ar-fs-ui);
-  line-height: 20px;
+  line-height: var(--ar-lh-body);
   color: var(--ar-ink-3);
   cursor: pointer;
   padding: 0 14px 0 0;
@@ -1462,7 +1462,7 @@
   font-size: var(--ar-fs-label);
   letter-spacing: var(--ar-track-ui);
   text-transform: uppercase;
-  color: var(--ar-ink-4);
+  color: var(--ar-ink-3);
 }
 
 /* ---------------------------------------------------------------------
@@ -1564,7 +1564,7 @@
   top: 2px;
   right: 3px;
   font-size: var(--ar-fs-micro);
-  line-height: 1;
+  line-height: var(--ar-lh-none);
   color: var(--ar-bg);
   text-shadow: 0 0 2px var(--ar-shield);
   pointer-events: none;

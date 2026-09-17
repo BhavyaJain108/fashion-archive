@@ -11,7 +11,7 @@
 .alb-title {
   padding: 0 12px 12px;
   font-size: var(--ar-fs-heading);
-  line-height: 18px;
+  line-height: var(--ar-lh-body);
   letter-spacing: var(--ar-track-tight);
   color: var(--ar-ink);
   border-bottom: 1px solid var(--ar-line);
@@ -159,7 +159,7 @@
   left: 0;
   padding: 2px 6px;
   font-size: var(--ar-fs-micro);
-  line-height: 12px;
+  line-height: var(--ar-lh-ui);
   letter-spacing: var(--ar-track-ui);
   text-transform: uppercase;
   color: var(--ar-bg);
@@ -192,13 +192,13 @@
   max-width: 100%;
   padding: 2px 6px;
   font-size: var(--ar-fs-label);
-  line-height: 14px;
+  line-height: var(--ar-lh-ui);
   background: var(--ar-bg);
   border: 1px solid var(--ar-line);
 }
 
 .alb-filter .k {
-  color: var(--ar-ink-4);
+  color: var(--ar-ink-3);
   letter-spacing: var(--ar-track-tight);
 }
 
@@ -224,14 +224,14 @@
 }
 
 .alb-tile-name {
-  line-height: 16px;
+  line-height: var(--ar-lh-ui);
   letter-spacing: var(--ar-track-tight);
 }
 
 .alb-tile-sub {
   font-size: var(--ar-fs-label);
-  line-height: 13px;
-  color: var(--ar-ink-4);
+  line-height: var(--ar-lh-ui);
+  color: var(--ar-ink-3);
 }
 
 .alb-tile:hover .alb-tile-sub,
@@ -245,7 +245,7 @@
   display: block;
   max-width: 44ch;
   margin-top: 8px;
-  line-height: 18px;
+  line-height: var(--ar-lh-body);
   text-align: center;
   color: var(--ar-ink-3);
 }
@@ -266,7 +266,7 @@
 
 .alb-acts-note {
   font-size: var(--ar-fs-label);
-  line-height: 1.5;
-  color: var(--ar-ink-4);
+  line-height: var(--ar-lh-body);
+  color: var(--ar-ink-3);
 }
 .alb-share { padding: 6px 12px 10px; }
