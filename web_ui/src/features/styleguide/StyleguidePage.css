@@ -153,3 +153,82 @@
   padding: 4px 0 16px;
   color: var(--ar-ink-3);
 }
+
+.sg-right { margin-left: auto; }
+
+.sg-lh {
+  font-size: var(--ar-fs-body);
+  color: var(--ar-ink);
+  border-left: var(--ar-hairline) solid var(--ar-line);
+  padding-left: 8px;
+}
+
+.sg-glyph {
+  font-size: var(--ar-fs-heading);
+  color: var(--ar-ink);
+  letter-spacing: var(--ar-track-wide);
+}
+
+.sg-narrow { width: 160px; }
+
+/* A scaled drawing of the page frame, built from the same tokens. */
+.sg-frame {
+  width: 560px;
+  height: 320px;
+  display: flex;
+  flex-direction: column;
+  border: var(--ar-hairline) solid var(--ar-ink);
+  margin: 8px 0;
+  font-size: var(--ar-fs-label);
+  letter-spacing: var(--ar-track-label);
+  text-transform: uppercase;
+  color: var(--ar-ink-3);
+}
+
+.sg-frame i {
+  font-style: normal;
+  margin-left: auto;
+  color: var(--ar-ink-4);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.sg-frame-top,
+.sg-frame-status {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 12px;
+  flex-shrink: 0;
+}
+
+.sg-frame-top {
+  height: 24px;
+  border-bottom: var(--ar-hairline) solid var(--ar-line);
+  color: var(--ar-ink);
+  font-weight: 700;
+}
+
+.sg-frame-top span { font-weight: 400; color: var(--ar-ink-3); }
+
+.sg-frame-status {
+  height: 18px;
+  border-top: var(--ar-hairline) solid var(--ar-line);
+}
+
+.sg-frame-mid { display: flex; flex: 1; min-height: 0; }
+
+.sg-frame-side {
+  width: 140px;
+  background: var(--ar-bg-sub);
+  border-right: var(--ar-hairline) solid var(--ar-line);
+  padding: 12px;
+  line-height: var(--ar-lh-ui);
+}
+
+.sg-frame-main {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

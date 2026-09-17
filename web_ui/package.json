@@ -5,10 +5,11 @@
   "private": true,
   "scripts": {
     "start": "react-scripts start",
-    "build": "node scripts/check-tokens.js && react-scripts build",
+    "build": "node scripts/check-tokens.js && node scripts/export-tokens.js --check && react-scripts build",
     "test": "react-scripts test",
     "check:css": "node scripts/check-css-order.js",
-    "check:tokens": "node scripts/check-tokens.js"
+    "check:tokens": "node scripts/check-tokens.js",
+    "tokens:export": "node scripts/export-tokens.js"
   },
   "eslintConfig": {
     "extends": [

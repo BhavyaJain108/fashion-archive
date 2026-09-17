@@ -17,8 +17,8 @@ const COLOURS = [
   ['--ar-line-soft', 'rules inside a grouped block'],
   ['--ar-ink', 'selected / active'],
   ['--ar-ink-2', 'body'],
-  ['--ar-ink-3', 'labels, idle controls'],
-  ['--ar-ink-4', 'counts, disabled, placeholders'],
+  ['--ar-ink-3', 'labels, counts, idle controls, placeholders — 4.5:1'],
+  ['--ar-ink-4', 'disabled text, glyph-only controls, input borders — 3:1, never a word'],
   ['--ar-danger', 'destructive confirmation only'],
   ['--ar-wash', 'hover'],
   ['--ar-wash-strong', 'selected row'],
@@ -40,6 +40,21 @@ const TRACK = [
   ['--ar-track-ui', 'buttons, chips, inputs', 'SAVE TO ALBUM'],
   ['--ar-track-label', 'section headers, placeholders', 'RECENTLY SEEN'],
   ['--ar-track-wide', 'the wordmark', 'ARCHIVE'],
+];
+
+const LH = [
+  ['--ar-lh-none', 'a glyph or a single-line control'],
+  ['--ar-lh-ui', 'rows, labels, anything 9–12px'],
+  ['--ar-lh-body', 'paragraphs, notes, the heading size'],
+];
+
+const GLYPHS = [
+  ['→ ←', 'open / next, back / previous'],
+  ['…', 'loading, or more available'],
+  ['☆ ★', 'not saved / saved'],
+  ['▾ ▴ ▸', 'expand, collapse, disclosure'],
+  ['▶', 'play'],
+  ['✕', 'close, clear'],
 ];
 
 const SPACE = [2, 4, 6, 8, 10, 12, 16, 20, 24, 32, 48];
@@ -68,6 +83,7 @@ const RULES = [
   'Sizes come off the scales. A feature stylesheet never writes a literal.',
   'Weight: 400 text, 600 emphasis, 700 selected.',
   'Motion is functional. Nothing bounces.',
+  'Readable text meets WCAG AA. No word is ever ink-4. Keyboard focus is a 1px black outline.',
 ];
 
 function tokenValue(name) {
@@ -106,6 +122,7 @@ export default function StyleguidePage() {
         <header className="sg-head">
           <span className="sg-wordmark">ARCHIVE</span>
           <span className="sg-sub">DESIGN LANGUAGE</span>
+          <span className="sg-sub sg-right">docs/design-language.md · design/tokens.json</span>
         </header>
 
         <Section title="Rules">
@@ -138,6 +155,14 @@ export default function StyleguidePage() {
           ))}
         </Section>
 
+        <Section title="Line height">
+          {LH.map(([name, note]) => (
+            <Row key={name} name={name} note={note}>
+              <span className="sg-lh" style={{ lineHeight: `var(${name})` }}>Rick Owens<br />Spring 2025</span>
+            </Row>
+          ))}
+        </Section>
+
         <Section title="Space">
           <div className="sg-note sg-lead">Padding, gap and margin are even pixels off this scale. 1px is allowed for a hairline gap. No odd numbers.</div>
           {SPACE.map((n) => (
@@ -159,6 +184,39 @@ export default function StyleguidePage() {
             </Row>
           ))}
           <div className="sg-note sg-lead">Hover a square to see its duration.</div>
+        </Section>
+
+        <Section title="Layout">
+          <div className="sg-frame">
+            <div className="sg-frame-top">ARCHIVE <span>COLLECTIONS · LIBRARY · MY BRANDS</span><i>topbar-h</i></div>
+            <div className="sg-frame-mid">
+              <div className="sg-frame-side">sidebar-w<br />bg-sub</div>
+              <div className="sg-frame-main">content · bg</div>
+            </div>
+            <div className="sg-frame-status">status · where you are<i>statusbar-h</i></div>
+          </div>
+          <code className="sg-name">.ar-page &gt; .ar-content &gt; .ar-sidebar + main; .ar-status-bar — desktop only, body never scrolls</code>
+        </Section>
+
+        <Section title="Glyphs">
+          <div className="sg-note sg-lead">There is no icon set. Controls are words; these characters are the whole glyph vocabulary.</div>
+          {GLYPHS.map(([g, note]) => (
+            <div className="sg-row" key={g}>
+              <div className="sg-cell"><span className="sg-glyph">{g}</span></div>
+              <code className="sg-name">{g}</code>
+              <span className="sg-value" />
+              <span className="sg-note">{note}</span>
+            </div>
+          ))}
+        </Section>
+
+        <Section title="Focus">
+          <div className="sg-demo sg-inline">
+            <button className="ar-btn">Tab to me</button>
+            <input className="ar-input sg-narrow" placeholder="Then here" />
+            <button className="ar-star" aria-label="Save">☆</button>
+          </div>
+          <code className="sg-name">:focus-visible — 1px ink outline, inset, on everything; mouse focus shows nothing</code>
         </Section>
 
         <Section title="Section header">
@@ -248,6 +306,25 @@ export default function StyleguidePage() {
             <div className="ar-loading"><span className="headline">Loading archive</span></div>
           </div>
           <code className="sg-name">.ar-empty  .ar-loading  .headline</code>
+        </Section>
+
+        <Section title="Component map">
+          <div className="sg-note sg-lead">Each page owns a stylesheet and a prefix. Anything used on two pages becomes .ar-* and lands on this page.</div>
+          {[
+            ['hf2-', 'High Fashion', 'designer nav · collections · search · facets · recents drawer · viewer · grid · video · status'],
+            ['lib- fav-', 'Library', 'kinds · albums · saved looks · saved shows'],
+            ['alb-', 'Album', 'grid tiles · freeform canvas · layout toggle · filter'],
+            ['brand- product- detail-', 'My Brands', 'brand nav · product tiles · detail panel · carousel'],
+            ['shv-', 'Shared view', 'public album or look'],
+            ['topbar- alp- share-', 'Shared UI', 'top bar · album picker · share button'],
+          ].map(([prefix, page, parts]) => (
+            <div className="sg-row" key={prefix}>
+              <div className="sg-cell"><span className="sg-type">{page}</span></div>
+              <code className="sg-name">{prefix}</code>
+              <span className="sg-value" />
+              <span className="sg-note">{parts}</span>
+            </div>
+          ))}
         </Section>
 
         <Section title="Scrollbar">
