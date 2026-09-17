@@ -213,3 +213,29 @@ class TestSession:
 
     def test_logout_without_a_session_still_succeeds(self, client):
         assert client.post("/api/auth/logout").status_code == 200
+
+
+class TestLogoutOrigin:
+    """Logout is the one state-changing endpoint without a session in front of it."""
+
+    def test_our_own_page_can_sign_out(self, client):
+        response = client.post("/api/auth/logout", headers={"Origin": APP})
+        assert response.status_code == 200
+        assert response.get_json()["success"] is True
+
+    def test_another_site_cannot_sign_you_out(self, client):
+        response = client.post("/api/auth/logout", headers={"Origin": "https://evil.example"})
+        assert response.status_code == 403
+        assert response.get_json()["code"] == "BAD_ORIGIN"
+        assert session_cookie(response) is None
+
+    def test_a_request_with_no_origin_still_works(self, client):
+        # curl, a health check, a same-origin form: a browser always sends Origin
+        # cross-origin, so its absence is not the case being defended against.
+        assert client.post("/api/auth/logout").status_code == 200
+
+    def test_signing_out_really_ends_the_session(self, client, provider):
+        callback(client, start(client))
+        assert client.get("/api/auth/me").status_code == 200
+        client.post("/api/auth/logout", headers={"Origin": APP})
+        assert client.get("/api/auth/me").status_code == 401

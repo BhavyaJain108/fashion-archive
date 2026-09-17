@@ -141,9 +141,36 @@ def auth_oauth_callback(provider):
     return set_session_cookie(_finish(), token, config=current_app.config["APP_CONFIG"])
 
 
+def _from_our_site() -> bool:
+    """Whether this request was made by our own page.
+
+    CORS decides who may *read* a reply, not who may send a request: a form on
+    another site can still POST here, and the browser merely hides the response.
+    So a state-changing endpoint that does not require a session has to check the
+    origin itself. A browser always sends Origin on a cross-origin POST, so an
+    absent header means same-origin or a non-browser client, and the attack this
+    prevents cannot produce that.
+    """
+    origin = request.headers.get("Origin")
+    if not origin:
+        return True
+    allowed = {
+        current_app.config["APP_BASE_URL"].rstrip("/"),
+        current_app.config["API_BASE_URL"].rstrip("/"),
+    }
+    return origin.rstrip("/") in allowed
+
+
 def auth_logout():
     """POST /api/auth/logout — always succeeds, so an expired cookie does not
-    show the user an error on their way out."""
+    show the user an error on their way out.
+
+    Public, because signing out with a dead session should not be an error. That
+    makes it the one state-changing endpoint no session guards, so it checks the
+    origin: otherwise any page could sign a visitor out of this site.
+    """
+    if not _from_our_site():
+        return jsonify({"success": False, "error": "cross-site request", "code": "BAD_ORIGIN"}), 403
     token = request.cookies.get(SESSION_COOKIE_NAME)
     if token:
         with db.transaction() as conn:
