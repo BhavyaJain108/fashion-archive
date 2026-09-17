@@ -1,0 +1,151 @@
+/* The machine room. Deliberately plainer than the archive: this page is read at a
+   glance to answer "is it working", so state is carried by shape and colour rather
+   than by prose, and nothing here is decorative. */
+
+.dev {
+  padding: 24px 28px 64px;
+  max-width: 1180px;
+  margin: 0 auto;
+  color: var(--ar-ink);
+  font-family: var(--ar-font);
+}
+
+.dev-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--ar-line);
+  padding-bottom: 14px;
+}
+
+.dev-title {
+  font-size: var(--ar-fs-title);
+  letter-spacing: var(--ar-track-tight);
+  margin: 0;
+}
+
+.dev-stamp {
+  font-size: var(--ar-fs-micro);
+  letter-spacing: var(--ar-track-label);
+  text-transform: uppercase;
+  color: var(--ar-ink-3);
+}
+
+/* Totals: four numbers, equal weight, no card chrome — they are a readout, not
+   four separate objects. */
+.dev-totals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1px;
+  background: var(--ar-line-soft);
+  border: 1px solid var(--ar-line-soft);
+  margin: 20px 0 24px;
+}
+
+.dev-total {
+  background: var(--ar-bg);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dev-total-n {
+  font-size: var(--ar-fs-heading);
+  font-variant-numeric: tabular-nums;
+}
+
+.dev-total-k {
+  font-size: var(--ar-fs-micro);
+  letter-spacing: var(--ar-track-label);
+  text-transform: uppercase;
+  color: var(--ar-ink-3);
+}
+
+/* The banner only exists when something is wrong, so it never becomes furniture
+   the eye learns to skip. */
+.dev-alarm {
+  border-left: 2px solid var(--ar-danger);
+  background: var(--ar-bg-sub);
+  padding: 12px 14px;
+  margin-bottom: 20px;
+  font-size: var(--ar-fs-body);
+}
+
+.dev-alarm b { font-weight: 600; }
+
+.dev-scroll { overflow-x: auto; }
+
+table.dev-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--ar-fs-ui);
+}
+
+.dev-table th {
+  text-align: left;
+  font-size: var(--ar-fs-micro);
+  letter-spacing: var(--ar-track-label);
+  text-transform: uppercase;
+  color: var(--ar-ink-3);
+  font-weight: 500;
+  padding: 0 12px 8px 0;
+  border-bottom: 1px solid var(--ar-line);
+  white-space: nowrap;
+}
+
+.dev-table td {
+  padding: 9px 12px 9px 0;
+  border-bottom: 1px solid var(--ar-line-soft);
+  vertical-align: baseline;
+}
+
+.dev-table td.n {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  padding-right: 0;
+  white-space: nowrap;
+}
+
+.dev-brand { font-weight: 500; }
+.dev-domain { color: var(--ar-ink-3); font-size: var(--ar-fs-micro); }
+.dev-why { color: var(--ar-ink-3); font-size: var(--ar-fs-micro); }
+
+.dev-pill {
+  display: inline-block;
+  font-size: var(--ar-fs-micro);
+  letter-spacing: var(--ar-track-ui);
+  text-transform: uppercase;
+  padding: 2px 6px;
+  white-space: nowrap;
+  border: 1px solid currentColor;
+}
+
+.dev-pill.working { color: var(--ar-ink); }
+.dev-pill.stalled { color: var(--ar-danger); }
+.dev-pill.idle { color: var(--ar-ink-4); border-color: var(--ar-line); }
+
+.dev-count {
+  background: none;
+  border: 1px solid var(--ar-line);
+  color: var(--ar-ink-2);
+  font: inherit;
+  font-size: var(--ar-fs-micro);
+  padding: 2px 7px;
+  cursor: pointer;
+}
+
+.dev-count:hover { border-color: var(--ar-ink-3); }
+.dev-count:focus-visible { outline: 2px solid var(--ar-marker); outline-offset: 1px; }
+
+.dev-note {
+  margin-top: 20px;
+  font-size: var(--ar-fs-micro);
+  color: var(--ar-ink-3);
+  max-width: 62ch;
+  line-height: 1.6;
+}
+
+.dev-empty { padding: 48px 0; color: var(--ar-ink-3); font-size: var(--ar-fs-body); }

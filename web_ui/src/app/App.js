@@ -6,6 +6,7 @@ import BrandsPage from '../features/brands/BrandsPage';
 import AuthPanel, { authErrorMessage } from '../features/auth/AuthPanel';
 import HighFashionPage from '../features/high-fashion/HighFashionPage';
 import StyleguidePage from '../features/styleguide/StyleguidePage';
+import DevPage from '../features/dev/DevPage';
 import { FashionArchiveAPI } from '../shared/api';
 import { useRoute } from '../shared/hooks/useRoute';
 import {
@@ -195,6 +196,13 @@ function App() {
         </div>
       </div>
     );
+  }
+
+  // Needs a session, so it renders after the cookie check rather than beside the
+  // styleguide: the endpoints behind it are owner-only and a signed-out visitor
+  // should meet the sign-in screen, not an empty table.
+  if (route.page === 'dev') {
+    return <DevPage />;
   }
 
   // `navigate` is handed down rather than imported by the pages that use it.
