@@ -11,17 +11,31 @@ Ragamalak, Sicko Kittens, LINISS (all Shopify).
 
 ## Where each brand stands
 
-All four in scope now give up their catalogues (verified end to end 2026-09-17T17:49Z,
-53 requests, 70 seconds, $0):
+All four in scope give up their catalogues. Counts corrected 2026-09-17 — see learnings
+10 and 11; the earlier figures of 4,352 and 1,333 were both wrong.
 
-| Brand | Gets in with | Products found | Title / price / stock / images | Sizes |
-|---|---|---|---|---|
-| Vivienne Westwood | `cffi:chrome142` | 4,352 | 100% | 0% |
-| Van Cleef & Arpels | `cffi:chrome142` | 1,333 | 100% | 0% |
-| Gentle Monster | `playwright` (challenge-aware) | 1,332 | 100% | 0% |
-| XSAI | `cffi:chrome142` | 103 | 100% | 0% |
+| Brand | Gets in with | Products | Core fields | Sizes | Size availability |
+|---|---|---|---|---|---|
+| Vivienne Westwood | `cffi:chrome142` | 492 | 100% | 100% | 100% |
+| Van Cleef & Arpels | `cffi:chrome142` | 1,299 | 100% | 0% (jewellery) | — |
+| Gentle Monster | `playwright` (challenge-aware) | 1,332 | 100% | 0% (eyewear) | — |
+| XSAI | `cffi:chrome142` | 103 | 100% | 100% | 0% |
 
-Fill rates are measured on 5 sampled products per brand.
+Core fields = title, price, in_stock, main_image_url, all_images, description.
+Fill measured on 5 sampled products per brand.
+
+## How much of E0005 we actually get
+
+E0005 has 45 fields. We fill 9-13 of them. Measured 2026-09-17:
+
+Everywhere: itemurl, product_title, description, price, in_stock, main_image_url, all_images.
+Mostly: product_code (3 of 4), brand (3 of 4), additional_code_1 + type (2 of 4).
+Gentle Monster only: specifications, color_info, material_info, category1.
+Vivienne Westwood + XSAI only: size_info. Vivienne Westwood only: size_availability.
+
+Empty on all four: additional_code_2/3 (+types), size_stock_counts, variant_info,
+full_price, promotion_type, promotion_end_date, ppu, unit_type, package_desc, quantity,
+category2-10, additional_tags, delivery, additional_content.
 
 ## Learnings
 
@@ -77,10 +91,51 @@ so 3 of every 5 products had a title and nothing else. Preferring a node that ca
 offers fixed it. This one is a genuine bug in the shared extractor, so unlike the others it
 was fixed in `connectors/structured.py` rather than kept here.
 
+### 9. Sizes live in swatch attributes, under any name — 2026-09-17
+Why sizes were 0% everywhere: the shared DOM fallback looks only for `data-size` and
+`data-option-value`. Vivienne Westwood runs Salesforce Commerce Cloud and writes
+`data-tau-size-id="XXS" title="XXS (not available)"`, so every size on the site was
+invisible — and with it the per-size stock, which is the point of re-scraping fashion.
+Matching any attribute whose name contains "size", and reading the neighbouring
+title/aria-label for availability, gives Vivienne Westwood 100% sizes with 100%
+availability and XSAI 100% sizes. Code: `learned.sizes_from_swatches`.
+
+Van Cleef (necklaces) and Gentle Monster (eyewear) are still 0%, and that looks correct
+rather than missing: neither publishes a wearable size. Gentle Monster's only size-like
+value is a frame measurement, `47-23-154.8`. Worth re-checking on a Van Cleef ring.
+
+### 10. One product, not one per country — 2026-09-17
+Vivienne Westwood's product sitemap lists each product once per locale (/en-fr/, /en-de/,
+…). 4,352 URLs are 544 products. An inflated count is worse than a wrong one: it reads as
+success. Code: `learned.dedupe_locale_copies`.
+
+### 11. A landing page is not a product, and it is first in the sitemap — 2026-09-17
+Van Cleef's product family /us/en/collections/ also holds its collection landing pages.
+Those pages carry several Product blocks of their own, so the extractor read one and
+produced a product called "Jewelry collections" priced at whatever was featured. They sort
+first, so they were exactly the 5 that every sample measured — the earlier "100% on Van
+Cleef" was measured on category pages.
+
+Products in a family sit at one depth; 1,299 of its 1,333 URLs are at depth 8-10 and the 34
+landings at 6-7. Keeping everything at or deeper than the most common depth drops them, at
+no request cost, and changes nothing for brands whose products share one depth.
+Code: `learned.drop_landing_pages`.
+
 ## Open
 
-- **Sizes are 0% on all four brands.** The JSON-LD on these sites carries no sizes and the
-  DOM fallback finds none. On Gentle Monster the only size-like field is a frame
-  measurement (`47-23-154.8`), not a wearable size. Not yet investigated on the others.
+Next, in the order they look worth doing:
+
+1. **Categories (0 of 10 filled on three brands).** Van Cleef and Gentle Monster both
+   publish `BreadcrumbList` JSON-LD, which is the category path. One generic learning
+   should fill category1-N on every brand that has breadcrumbs.
+2. **color_info** — filled only on Gentle Monster. Vivienne Westwood carries colour in the
+   SKU and the URL (`--RED`), and has colour swatches beside the size swatches.
+3. **full_price / promotion fields** — empty everywhere, but these only exist on discounted
+   products and nothing sampled was on sale. Needs a sale item to test against, not a fix.
+4. **size_stock_counts** — none of the four publish per-size counts; only in/out. Probably
+   genuinely unavailable rather than missed.
+5. **variant_info** — the colour variants are on the page (Gentle Monster lists them in
+   `hasVariant`); nothing reads them into the field yet.
+
 - **robots.txt disallows `/api/*` on Gentle Monster**, so their JSON API is off limits even
   though the page calls it. Everything above comes from product pages and sitemaps.

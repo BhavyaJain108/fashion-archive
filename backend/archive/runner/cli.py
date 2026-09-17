@@ -88,6 +88,7 @@ def _products_over_winners(results) -> None:
                 Brand(domain=domain, homepage_url=f"https://{domain}"),
                 transport,
                 prober=learned.prober,
+                connector_factory=learned.connector_factory,
             )
         finally:
             if hasattr(transport, "close"):
