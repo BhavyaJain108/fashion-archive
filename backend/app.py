@@ -128,6 +128,18 @@ except Exception as e:
     import traceback
     traceback.print_exc()
 
+# 8. Dev API (the owner's view of the scrapers and what the services cost). Also
+# registered before install_auth, and additionally checks the caller against
+# ADMIN_EMAILS — a session is not the same thing as being the owner.
+try:
+    print("🔧 Registering Dev API...")
+    from backend.api.dev_routes import register_dev_routes
+    register_dev_routes(app)
+except Exception as e:
+    print(f"❌ Error registering Dev API: {e}")
+    import traceback
+    traceback.print_exc()
+
 # =============================================================================
 # AUTHENTICATION
 # =============================================================================
