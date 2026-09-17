@@ -15,6 +15,17 @@ const MESSAGES = {
 };
 
 const LABELS = { google: 'Continue with Google', apple: 'Continue with Apple' };
+const NAMES = { google: 'Google', apple: 'Apple' };
+
+// Name only what is actually on offer: promising Apple when Apple is not
+// configured reads as a button that failed to load.
+function subtitle(providers) {
+  const names = providers.map((p) => NAMES[p] || p);
+  const list = names.length > 1
+    ? `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`
+    : names[0];
+  return `Use your ${list} account to reach your archive.`;
+}
 
 /**
  * The signed-out screen: one button per configured provider.
@@ -66,7 +77,7 @@ export default function AuthPanel({ initialNotice }) {
   }
 
   return (
-    <AuthShell title="Sign in" subtitle="Use your Google or Apple account to reach your archive.">
+    <AuthShell title="Sign in" subtitle={subtitle(providers)}>
       <Notice kind="info">{initialNotice}</Notice>
       <Notice>{error}</Notice>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
