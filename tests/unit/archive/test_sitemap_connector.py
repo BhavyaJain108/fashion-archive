@@ -203,3 +203,31 @@ def test_a_limit_counts_products_after_filtering_not_urls_before_it():
     refs = conn.discover(Brand(domain="vw.com", homepage_url="https://vw.com"), t)
     assert len(refs) == 3
     assert len({r.url for r in refs}) == 3
+
+
+@pytest.mark.unit
+def test_a_small_limit_still_skips_the_landing_pages_that_sort_first():
+    """Van Cleef's collection pages head its sitemap and carry Product blocks of their
+    own, so a limit that stopped the walk at four URLs stored four category pages."""
+    landings = "".join(
+        f"<url><loc>https://vca.com/us/en/collections/c{i}.html</loc></url>" for i in range(4)
+    )
+    products = "".join(
+        f"<url><loc>https://vca.com/us/en/collections/jewelry/alhambra/vca{i}.html</loc></url>"
+        for i in range(40)
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            text='<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+            + landings
+            + products
+            + "</urlset>",
+        )
+
+    t = HttpxTransport(client=httpx.Client(transport=httpx.MockTransport(handler)))
+    conn = SitemapConnector("https://vca.com/sitemap.xml", url_prefix="/", limit=4)
+    refs = conn.discover(Brand(domain="vca.com", homepage_url="https://vca.com"), t)
+    assert len(refs) == 4
+    assert all("/alhambra/" in r.url for r in refs)

@@ -62,13 +62,22 @@ class SitemapConnector:
         self.limit = limit
 
     def discover(self, brand: Brand, transport: Transport) -> list[ProductRef]:
+        """Every product in the sitemap, filtered, then cut to the limit.
+
+        The limit stops the walk between files, never inside one. A file is already
+        downloaded by the time we read it, and stopping part-way through leaves the
+        landing-page filter below guessing at a depth distribution it has only seen the
+        head of — which is how Van Cleef's four collection pages, which sort first, were
+        stored as products under a small --max-products.
+        """
         refs: list[ProductRef] = []
         # Deduped while walking, not after: a limit has to count products, and Vivienne
         # Westwood lists each of them in eight countries. Filtering afterwards meant a
         # limit of 6 collected six URLs that were one product, and the run stored one item.
         self._seen: set[str] = set()
         self._collect(self.sitemap_url, transport, depth=0, refs=refs)
-        return drop_landing_pages(refs)
+        kept = drop_landing_pages(refs)
+        return kept[: self.limit] if self.limit is not None else kept
 
     def _collect(self, url: str, transport: Transport, depth: int, refs: list[ProductRef]) -> None:
         if depth > 2 or (self.limit is not None and len(refs) >= self.limit):
@@ -110,8 +119,6 @@ class SitemapConnector:
                     else None,
                 )
             )
-            if self.limit is not None and len(refs) >= self.limit:
-                return
 
     def _is_product(self, url: str) -> bool:
         if self.url_prefix:
