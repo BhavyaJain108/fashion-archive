@@ -70,7 +70,9 @@ Gentle Monster only: specifications, color_info, material_info, category1.
 Vivienne Westwood + XSAI only: size_info. Vivienne Westwood only: size_availability.
 Categories: 3 levels on Vivienne Westwood, 2 on Van Cleef, 1 on Gentle Monster.
 
-Empty on all four: additional_code_2/3 (+types), size_stock_counts, variant_info,
+Vivienne Westwood also: color_info (~51% of its catalogue) and variant_info (~59%).
+
+Empty on all four: additional_code_2/3 (+types), size_stock_counts,
 full_price, promotion_type, promotion_end_date, ppu, unit_type, package_desc, quantity,
 category4-10, additional_tags, delivery, additional_content.
 
@@ -175,18 +177,49 @@ Women/Clothing/Skirts, Women/Clothing/Knitwear, Jewelry/Alhambra - Jewelry.
 Only blank fields are filled, so a channel that names a category still wins.
 Code: `learned.categories_from_breadcrumbs`.
 
+### 11b. …and a limit must not stop the walk inside a file — 2026-09-20
+Learning 11 was verified without a limit; production runs with one. `--max-products 4`
+stopped the walk after four URLs, which on Van Cleef are its four collection landing
+pages, so the depth filter had no distribution to judge and four category pages were
+stored as products, `itemurl` and all. The limit now stops the walk between files, never
+inside one: the file is already downloaded, so reading the rest of it is free.
+
+The lesson generalises past the bug — **verify in the configuration that ships**, not the
+one that is convenient to test.
+
+### 13. A variant SKU names the variant, which is usually but not always a colour — 2026-09-20
+Vivienne Westwood publishes no `color` in its JSON-LD and the page's only colour markup is
+a swatch id. The SKU carries it: `1802002B-C00A1--RED`. Of 4,336 URLs, 2,560 name a
+variant (59%), and 2,232 of those (87%) are colours.
+
+The other 13% are why this fills `variant_info` first and reaches `color_info` only when a
+word in it is a colour. The Worlds End Swing Dress is `--SEX`, after the shop; others are
+prints (`PRIMAVERA CHERUBS`) or materials (`BLACK PU GRAIN`). Recording those as colours
+would be confidently wrong in a field shoppers filter on.
+
+The rule deliberately does *not* read `data-*color*` attributes — the shape that worked for
+sizes. Van Cleef's pages carry `data-affirm-color="black"` on a financing widget, so that
+rule would have called a gold necklace black, and scored as a win on the fill map doing it.
+Code: `structured.variant_from_sku`, `structured.color_from_variant`.
+
 ## Open
 
 Next, in the order they look worth doing:
 
-1. **color_info** — filled only on Gentle Monster. Vivienne Westwood carries colour in the
-   SKU and the URL (`--RED`), and has colour swatches beside the size swatches.
-3. **full_price / promotion fields** — empty everywhere, but these only exist on discounted
+1. **full_price / promotions** — empty everywhere, but these exist only on discounted
    products and nothing sampled was on sale. Needs a sale item to test against, not a fix.
-4. **size_stock_counts** — none of the four publish per-size counts; only in/out. Probably
-   genuinely unavailable rather than missed.
-5. **variant_info** — the colour variants are on the page (Gentle Monster lists them in
-   `hasVariant`); nothing reads them into the field yet.
+2. **material_info / specifications** — filled on Gentle Monster from its JSON-LD. Vivienne
+   Westwood states fabric in prose inside the description, which needs parsing rather than
+   reading, so the value is lower and the risk of inventing data higher.
+3. **variant_info beyond a SKU suffix** — Gentle Monster lists its colour variants in
+   `hasVariant` and nothing reads them into the field.
+4. **size_stock_counts** — none of the four publish per-size counts, only in or out of
+   stock. Probably genuinely unavailable rather than missed.
+5. **Categories on XSAI** — it publishes no category level at all. Its collection pages
+   might supply one, but that is discovery work rather than page reading.
 
-- **robots.txt disallows `/api/*` on Gentle Monster**, so their JSON API is off limits even
-  though the page calls it. Everything above comes from product pages and sitemaps.
+- **robots.txt disallows `/api/*` on Gentle Monster**, so its JSON API is off limits even
+  though the page calls it. Everything here comes from product pages and sitemaps.
+- **The browser lane is not in the scraper image.** Gentle Monster needs `--browser`, which
+  playwright provides locally and the deployed worker does not have. Turning it on means a
+  larger image and roughly 1.3 GB of egress per full pass at ~1 MB a page.

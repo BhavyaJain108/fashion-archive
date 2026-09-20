@@ -319,3 +319,62 @@ def test_a_page_without_breadcrumbs_yields_nothing():
     from backend.archive.connectors.structured import categories_from_breadcrumbs
 
     assert categories_from_breadcrumbs("<p>nothing</p>", "x") == []
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("sku", "expected"),
+    [
+        ("1802002B-C00A1--RED", "RED"),
+        ("1802002B-C00A1--LIME-GREEN", "LIME GREEN"),
+        ("54030004W-L0098--PEARL-WHITE", "PEARL WHITE"),
+        ("VCARPQZH00", None),  # no variant named
+        ("1802002B-C00A1", None),  # a plain sku is not a colour
+        ("ABC--C00A1", None),  # digits mean it is another sku segment, not a colour
+        (None, None),
+    ],
+)
+def test_a_variant_sku_names_its_variant_after_the_double_dash(sku, expected):
+    from backend.archive.connectors.structured import variant_from_sku
+
+    assert variant_from_sku(sku) == expected
+
+
+@pytest.mark.unit
+def test_a_colour_the_page_states_outright_beats_the_sku():
+    html = """<script type="application/ld+json">{"@type":"Product","name":"Zen",
+      "sku":"15680--BLACK","color":"Clear Acetate",
+      "offers":{"@type":"Offer","price":"330"}}</script>"""
+    from backend.archive.connectors.structured import parse_ldjson_product
+
+    assert parse_ldjson_product(html, "https://x/p").color_info == "Clear Acetate"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("variant", "expected"),
+    [
+        ("RED", "RED"),
+        ("PEARL WHITE", "PEARL WHITE"),
+        ("BLACK PU GRAIN", "BLACK PU GRAIN"),
+        ("SEX", None),  # a Vivienne Westwood print, not a colour
+        ("PRIMAVERA CHERUBS", None),
+        (None, None),
+    ],
+)
+def test_only_a_variant_that_names_a_colour_becomes_one(variant, expected):
+    from backend.archive.connectors.structured import color_from_variant
+
+    assert color_from_variant(variant) == expected
+
+
+@pytest.mark.unit
+def test_a_variant_that_is_not_a_colour_is_still_recorded_as_a_variant():
+    html = """<script type="application/ld+json">{"@type":"Product",
+      "name":"Worlds End Swing Dress","sku":"3101000H-C006D--SEX",
+      "offers":{"@type":"Offer","price":"975"}}</script>"""
+    from backend.archive.connectors.structured import parse_ldjson_product
+
+    rec = parse_ldjson_product(html, "https://x/p")
+    assert rec.variant_info == "SEX"
+    assert rec.color_info is None

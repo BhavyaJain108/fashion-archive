@@ -35,6 +35,19 @@ _DATA_SIZE = re.compile(r'data-(?:size|option-value)="([^"]{1,12})"', re.I)
 _SWATCH_SIZE = re.compile(r'data-[\w-]*size[\w-]*="([^"{}]{1,12})"(?=(.{0,160}))', re.I | re.S)
 _SWATCH_TITLE = re.compile(r'(?:title|aria-label)="([^"]{0,60})"', re.I)
 _SOLD_OUT = ("not available", "out of stock", "sold out", "unavailable")
+# A variant SKU says what the variant is after a double dash: 1802002B-C00A1--RED.
+# Letters and hyphens only, so a plain SKU segment cannot pass itself off as a colour.
+_VARIANT_SUFFIX = re.compile(r"--([A-Za-z][A-Za-z -]{1,23})$")
+# Colour words, so a variant that names a print or a material does not become a colour.
+# Deliberately a short list of plain words: the point is to recognise the common case and
+# abstain on the rest, not to catalogue every shade a fashion house invents.
+_COLOUR_WORDS = frozenset(
+    """
+black white red blue green navy gold silver platinum ivory cream beige brown grey gray
+pink purple violet yellow orange multi tan burgundy khaki olive lime teal charcoal bronze
+nude camel rose copper sand stone ecru taupe aubergine mustard turquoise
+""".split()
+)
 _PLACEHOLDER = re.compile(r"^\s*(select|choose|pick|please)\b|^\s*(size|sizes|--|-)?\s*$", re.I)
 
 
@@ -102,6 +115,39 @@ def sizes_from_swatches(html: str) -> list[dict]:
             available = not any(s in title.group(1).lower() for s in _SOLD_OUT)
         out[label] = {"size": label, "available": available}
     return list(out.values()) if len(out) > 1 else []
+
+
+def variant_from_sku(sku: str | None) -> str | None:
+    """What a variant SKU names after its double dash.
+
+    Vivienne Westwood publishes no `color` in its JSON-LD and the page's only other
+    colour markup is a swatch id, but its SKUs carry the variant: of 4,336 products,
+    2,576 end in a suffix like --BLACK, --LIME-GREEN, --PRIMAVERA-CHERUBS. The rest name
+    no variant and get nothing, which is the honest answer rather than a guess.
+
+    Deliberately not read from `data-*color*` attributes, the shape that worked for
+    sizes: Van Cleef's pages carry data-affirm-color="black" on a financing widget, and
+    that rule would have recorded a gold necklace as black.
+    """
+    if not sku:
+        return None
+    m = _VARIANT_SUFFIX.search(sku.strip())
+    return m.group(1).replace("-", " ").strip() if m else None
+
+
+def color_from_variant(variant: str | None) -> str | None:
+    """The variant, when it actually names a colour.
+
+    A variant is usually a colourway and sometimes not: Vivienne Westwood's Worlds End
+    Swing Dress is --SEX, after the shop, and others are prints (PRIMAVERA CHERUBS) or
+    materials (BLACK PU GRAIN). Recording those as colours would be confidently wrong in
+    a field a shopper filters on, so a variant reaches color_info only when one of its
+    words is a colour.
+    """
+    if not variant:
+        return None
+    words = {w.lower() for w in variant.replace("/", " ").split()}
+    return variant if words & _COLOUR_WORDS else None
 
 
 def categories_from_breadcrumbs(html: str, product_title: str | None = None) -> list[str]:
@@ -256,7 +302,8 @@ def _map_product_node(node: dict, url: str, html: str = "") -> ProductRecord:
     brand = node.get("brand")
     if isinstance(brand, dict):
         brand = brand.get("name")
-    color = node.get("color")
+    variant = variant_from_sku(node.get("sku"))
+    color = node.get("color") or color_from_variant(variant)
     material = node.get("material")
     if isinstance(material, dict):
         material = material.get("name")
@@ -276,6 +323,7 @@ def _map_product_node(node: dict, url: str, html: str = "") -> ProductRecord:
         currency=currency,
         in_stock=in_stock,
         color_info=str(color) if color else None,
+        variant_info=variant,
         material_info=str(material) if material else None,
         **pack_sizes(sizes),
         **pack_images(_images(node.get("image"))),
