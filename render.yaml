@@ -28,7 +28,8 @@ services:
     # No Chromium in this image, so it does not need the standard plan the API does.
     # The brands that refuse plain HTTP are reached over T1 instead, which is one request
     # with a browser's TLS handshake and no browser. The single brand that genuinely needs
-    # one (Gentle Monster) is not worth the plan step here — see Dockerfile.scraper.
+    # one (Gentle Monster) needs a browser for 2.5s per run to mint a cookie, and that
+    # spike is 500 MB — too close to this plan's 512 MB to risk. See Dockerfile.scraper.
     plan: starter
     dockerCommand: python -m backend.archive.runner.cli daemon start --workers 2
     envVars:
