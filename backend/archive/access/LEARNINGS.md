@@ -4,13 +4,61 @@ What each round of testing taught us about getting products out of brands that t
 pipeline could not reach. Research for a general shopping bot: nothing here is wired into
 the production scraper.
 
+## Adding a learning — the procedure
+
+Anyone can do this. It needs no credentials and touches no live data: every command below
+reads brands and writes nothing.
+
+**1. Find a gap.** This prints every E0005 field against every brand you name:
+
+```
+python -m backend.archive.runner.cli coverage --shown
+python -m backend.archive.runner.cli coverage www.example.com --sample 5
+```
+
+A row of zeros is either a field nobody publishes or a rule nobody has written. A column
+of zeros is a brand we cannot read at all — `capability` tells you why.
+
+**2. Open one real product page** on a brand with that gap and find the markup. Not a guess
+about why the field is empty: the page. Most rules here took one page view to find.
+
+**3. Write the narrowest rule that explains what you saw**, and put it where it belongs:
+
+| What the rule is about | Where it goes |
+|---|---|
+| reading a page — a field's markup | `connectors/structured.py` |
+| which URLs in a sitemap are products | `connectors/sitemap.py` |
+| which sitemap to read at all | `fingerprint.py` (`_sharpen_discovery`) |
+| getting in — a new transport or challenge | `transport.py`, `browser/`, and register it in `access/strategy.py` |
+| anything you are not yet sure of | `access/` — prove it there first |
+
+Never a branch on a brand name. "Any attribute whose name contains size" is a rule; "if
+Vivienne Westwood, then" is a note about one shop.
+
+**4. Verify on the brands that did not teach it.** Re-run `coverage` across several brands
+and check nothing else moved. A rule that helps its own brand and quietly damages another
+is worse than no rule. Add a unit test next to the code — they are hermetic, so no network:
+
+```
+venv/bin/python -m pytest tests/unit/archive -q
+```
+
+**5. Distrust the improvement.** Print the actual values, not just the fill rate. Two
+counts in this file were wrong in our favour and both looked like wins first: 4,352
+products were 544 locale copies, and 1,333 included the landing pages the samples were
+measuring. A third read a financing widget as a product's colour.
+
+**6. Write it down here** — a numbered section naming the brand, the date, the evidence and
+the code. That is what lets a rule be deleted when a site changes, instead of surviving as
+folklore nobody dares touch.
+
 ## The method
 
 Every learning below was found the same way, and the loop matters more than any single
 learning in it. Six steps:
 
 1. **Measure everything, not the summary.** The capability matrix prints 5 columns and they
-   all read 100%. E0005 has 45 fields and we filled 9. Sizes, categories and the two wrong
+   all read 100%. E0005 has 42 fields and we filled 9. Sizes, categories and the two wrong
    catalogue counts were all invisible until the whole field set was measured at once.
    A number that only covers what already works cannot tell you what to do next.
 
@@ -61,7 +109,7 @@ Fill measured on 5 sampled products per brand.
 
 ## How much of E0005 we actually get
 
-E0005 has 45 fields. We fill 9-13 of them. Measured 2026-09-17:
+E0005 has 42 fields. We fill 9-13 of them. Measured 2026-09-17:
 
 Everywhere: itemurl, product_title, description, price, in_stock, main_image_url, all_images,
 category1 (except XSAI, which publishes no category level).

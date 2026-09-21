@@ -1,9 +1,9 @@
 # Archive v2 — module map
 
 The scraping body. Spec: `docs/superpowers/specs/2026-08-27-archive-v2-design.md`.
-Front door: `python -m backend.archive.runner.cli plan | scrape | status | capability | access`
+Front door: `python -m backend.archive.runner.cli plan | scrape | status | capability | coverage | access`
 
-## The six stages
+## The seven stages
 
 Use these names when discussing the pipeline — every file belongs to exactly one.
 
@@ -16,6 +16,7 @@ Use these names when discussing the pipeline — every file belongs to exactly o
 | **S4b** | **FIND** | *The channel left a field empty — where is it on the page?* | `finder.py` (apply + validate), `finder_llm.py` (learn), `domain/recipe.py` |
 | **S5** | **STORE** | *What do we keep, and what changed?* | `store/catalog.py`, `store/objects.py`, `images.py` |
 | **S6** | **VERIFY** | *Did we get it all, and is it any good?* | `verify.py`, `capability.py`, `report.py` (field fill per brand) |
+| **S7** | **LEARN** | *Which of E0005's 42 fields are we still not getting, and why?* | `coverage.py`, `access/` (the bench), `access/LEARNINGS.md` (the record) |
 
 S3 and S4 share files because bulk-feed connectors answer both questions from one response
 (Shopify's `/products.json` is discovery *and* fetch); the sitemap+structured pair splits them.
@@ -58,8 +59,10 @@ run by hand.
 - All tests are hermetic (httpx.MockTransport, tmp_path). Live-site runs are announced first.
 - A rule learned on one brand lives in `access/` until it has been shown to hold on the
   brands that did *not* teach it; only then does it move into the connectors, where every
-  brand pays for it. `access/LEARNINGS.md` records the method and what each rule cost to
-  find — read it before adding another.
+  brand pays for it.
+- S7 is a loop, not a step: `coverage` shows what is still missing, `access/LEARNINGS.md`
+  holds the procedure for closing one gap and the record of every rule already closed —
+  brand, date, evidence. Read it before adding a rule, and add to it after.
 
 ## S4b — how a learned rule earns its place
 

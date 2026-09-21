@@ -99,6 +99,48 @@ def _products_over_winners(results) -> None:
         print(format_matrix(reports, show_gated=True))
 
 
+def _coverage(args, brands: list[Brand]) -> int:
+    """S7 — how much of E0005 each brand actually gives up. The loop starts here."""
+    from backend.archive.coverage import field_coverage, format_coverage
+    from backend.archive.domain.product import E0005_FIELDS
+    from backend.archive.roster import app_roster
+
+    if args.domain:
+        targets = [Brand(domain=d, homepage_url=f"https://{d}") for d in args.domain]
+    elif args.shown:
+        wanted = {e.domain for e in app_roster(args.brands)}
+        targets = [b for b in brands if b.domain in wanted]
+    elif args.all:
+        targets = brands
+    else:
+        print("say which brands: a domain, or --shown, or --all", file=sys.stderr)
+        return 2
+
+    def browser():
+        from backend.archive.browser.challenge import ChallengeAwareBrowser
+
+        return ChallengeAwareBrowser()
+
+    prober = escalating_prober(browser_factory=browser if args.browser else None)
+    rows = {}
+    for b in targets:
+        transport = HttpxTransport()
+        try:
+            rows[b.domain] = field_coverage(b, transport, sample=args.sample, prober=prober)
+        finally:
+            transport.close() if hasattr(transport, "close") else None
+        fill, size, note = rows[b.domain]
+        print(
+            f"  {b.domain:<28} {sum(1 for v in fill.values() if v > 0):>2}"
+            f"/{len(E0005_FIELDS)} fields"
+            f"  {size:>6} products  {note}",
+            flush=True,
+        )
+    print()
+    print(format_coverage(rows))
+    return 0
+
+
 def _access(args, store: ObjectStore, brands: list[Brand]) -> int:
     """Measure what it costs to get into each brand, and write the answer down."""
     from datetime import datetime, timezone
@@ -191,6 +233,7 @@ def main(argv: list[str] | None = None) -> int:
         "show",
         "images",
         "access",
+        "coverage",
     ):
         sp = sub.add_parser(name)
         sp.add_argument(
@@ -248,6 +291,18 @@ def main(argv: list[str] | None = None) -> int:
             )
             sp.add_argument("domain", nargs="?")
             sp.add_argument("--every", type=int, default=86400, help="cadence in seconds")
+        if name == "coverage":
+            sp.add_argument("domain", nargs="*")
+            sp.add_argument("--all", action="store_true", help="every brand in brands.yml")
+            sp.add_argument(
+                "--shown",
+                action="store_true",
+                help="only the brands the app shows (small and mid)",
+            )
+            sp.add_argument("--sample", type=int, default=5, help="products read per brand")
+            sp.add_argument(
+                "--browser", action="store_true", help="allow escalating to a real browser"
+            )
         if name == "access":
             sp.add_argument("domain", nargs="*")
             sp.add_argument("--all", action="store_true", help="every brand in brands.yml")
@@ -632,6 +687,9 @@ def main(argv: list[str] | None = None) -> int:
             print()
             print(format_matrix(reports, show_gated=args.show_gated))
             return 0
+
+        if args.cmd == "coverage":
+            return _coverage(args, brands)
 
         if args.cmd == "access":
             return _access(args, store, brands)
