@@ -758,6 +758,9 @@ def main(argv: list[str] | None = None) -> int:
                         mode="delta",
                         locks_dir=args.locks if hasattr(args, "locks") else Path("locks"),
                         log_dir=Path("backend/archive/data/logs"),
+                        # No browser factory: this image carries no Chromium, so the
+                        # daemon climbs T0 → T1 and stops. The one brand that needs a
+                        # browser is refreshed by hand — see Dockerfile.scraper.
                         prober=escalating_prober(),
                     )
                     # The photographs with the catalogue, the same as a hand-run

@@ -4,9 +4,14 @@
 # Pillow in an image that opens none of them — over 100 MB for nothing. This list was
 # derived from what backend/archive and backend/storage actually import.
 #
-# Deliberately absent: flask and psycopg (the scraper is not the API), and playwright
-# (27 of the 32 brands need only plain HTTP; the 4 that want a browser are the 4 that
-# produce nothing today). Adding the browser lane back means a second, larger image.
+# Deliberately absent: flask and psycopg (the scraper is not the API), and playwright.
+#
+# The old reason for leaving playwright out was that the four brands wanting a browser
+# were the four producing nothing, so a browser bought us nothing. That is no longer
+# true (2026-09-20): Vivienne Westwood and Van Cleef produce over T1 below, The Outnet
+# is Shopify, and Gentle Monster produces with a browser. The lane now has exactly one
+# brand behind it, and the question is whether one brand justifies a Chromium in an
+# always-on worker — see Dockerfile.scraper.
 #
 # curl_cffi is here for the opposite reason. It is browser-grade *access* — libcurl over
 # BoringSSL with real Chrome cipher ordering — without a browser: a ~5 MB wheel and no

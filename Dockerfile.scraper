@@ -1,9 +1,15 @@
 # The scraper's own image, not the API's.
 #
-# 27 of the 32 brands the app shows need only plain HTTP and a bulk-JSON endpoint; the
-# 4 that want a real browser are exactly the 4 that currently produce nothing. So this
-# carries no Chromium and is a few hundred MB rather than a gigabyte. The API's
-# Dockerfile keeps Playwright for the runway scraping, which genuinely needs it.
+# Most brands need only plain HTTP and a bulk-JSON endpoint, and several that refused it
+# are now reachable over T1 — a real browser's TLS handshake without a browser (curl_cffi,
+# ~5 MB). So this still carries no Chromium and is a few hundred MB rather than a gigabyte.
+#
+# One brand does need a browser: Gentle Monster sits behind an AWS WAF challenge that only
+# a page running its own script can pass. Putting Chromium here to serve it would cost this
+# worker its starter plan (see render.yaml) and roughly an hour and 1.3 GB of egress per
+# pass, permanently and always-on, for one brand. The API's Dockerfile already keeps
+# Playwright for runway scraping, so a scheduled job on that image is the cheaper home for
+# it. Until then Gentle Monster is refreshed by hand with `scrape --browser`.
 #
 # It stores nothing locally. The catalogue and the photographs both go to R2, so the
 # container is disposable and it does not matter whether it runs on a laptop, a VM or

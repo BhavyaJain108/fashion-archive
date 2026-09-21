@@ -26,7 +26,9 @@ services:
     dockerfilePath: ./Dockerfile.scraper
     region: oregon
     # No Chromium in this image, so it does not need the standard plan the API does.
-    # 27 of the 32 brands shown need only plain HTTP and a bulk-JSON endpoint.
+    # The brands that refuse plain HTTP are reached over T1 instead, which is one request
+    # with a browser's TLS handshake and no browser. The single brand that genuinely needs
+    # one (Gentle Monster) is not worth the plan step here — see Dockerfile.scraper.
     plan: starter
     dockerCommand: python -m backend.archive.runner.cli daemon start --workers 2
     envVars:
