@@ -202,6 +202,22 @@ sizes. Van Cleef's pages carry `data-affirm-color="black"` on a financing widget
 rule would have called a gold necklace black, and scored as a win on the fill map doing it.
 Code: `structured.variant_from_sku`, `structured.color_from_variant`.
 
+### 14. A challenge is solved once, not once a page — 2026-09-21
+Gentle Monster's challenge produces a cookie, and the site then answers ordinary HTTP that
+carries it. The first version drove all 1,332 product pages through the browser because
+that is what had solved the challenge, which is paying a browser's price for a cookie's
+problem: 3s a page instead of 0.3s, and 477 MB resident for the length of the run instead
+of 2.5 seconds.
+
+So the browser mints and is put away, and everything after it goes over plain HTTP with the
+token attached, re-minting when it expires. Measured: 18 requests in 34 seconds, same 1,332
+products, same 100% on titles, prices, stock and images.
+
+Worth generalising: when a defence produces a credential, the expensive tool is needed to
+*obtain* it, not to *use* it. Ask what the site actually checks on each request.
+Code: `browser/challenge.ChallengeAwareBrowser`, `render=True` to keep every request in the
+browser for a site whose products only exist after its JavaScript runs.
+
 ## Open
 
 Next, in the order they look worth doing:

@@ -12,6 +12,7 @@ from backend.archive.connectors.base import ChannelBlocked, SkipProduct
 from backend.archive.domain.brand import Brand, Capability, ScrapePlan
 from backend.archive.fingerprint import probe
 from backend.archive.planner import compose_plan
+from backend.archive.transport import for_level
 from backend.archive.verify import field_fill_rates
 
 CORE_FIELDS = ("product_title", "price", "in_stock", "all_images")
@@ -53,9 +54,17 @@ def probe_brand(
     prober=probe,
     composer=compose_plan,
     connector_factory=get_connector,
+    transport_factory=for_level,
 ) -> CapabilityReport:
-    """Fingerprint → plan → fetch `sample` products → measure. Writes nothing."""
+    """Fingerprint → plan → fetch `sample` products → measure. Writes nothing.
+
+    The plan's transport is used for the sampling, the same as a real run does. Reading a
+    brand with the transport that failed to fingerprint it would report every escalated
+    brand as blocked — which is what this said about Vivienne Westwood, Van Cleef and
+    Gentle Monster on 2026-09-21, while `scrape` was fetching all three.
+    """
     rep = CapabilityReport(domain=brand.domain)
+    work = transport
     try:
         cap: Capability = prober(brand.domain, transport)
         plan: ScrapePlan = composer(cap, browser=browser)
@@ -68,9 +77,12 @@ def probe_brand(
             rep.note = "no lane: " + ", ".join(f"{k}={v}" for k, v in cap.evidence.items())
             return rep
 
+        if plan.transport != getattr(transport, "level", plan.transport):
+            work = transport_factory(plan.transport)
+
         connector = connector_factory(plan)
         try:
-            refs = connector.discover(brand, transport)
+            refs = connector.discover(brand, work)
         except ChannelBlocked as e:
             rep.verdict, rep.note = "blocked", f"discover: {e}"
             return rep
@@ -79,7 +91,7 @@ def probe_brand(
         records, errs = [], []
         for r in refs[:sample]:
             try:
-                records.append(connector.fetch(r, transport))
+                records.append(connector.fetch(r, work))
             except SkipProduct as e:
                 errs.append(str(e))
             except Exception as e:  # noqa: BLE001 — a probe reports failures, never raises
@@ -94,7 +106,11 @@ def probe_brand(
     except Exception as e:  # noqa: BLE001
         rep.verdict, rep.note = "unreachable", f"{type(e).__name__}: {e}"[:100]
     finally:
-        rep.requests = len(getattr(transport, "ledger", []))
+        rep.requests = len(getattr(transport, "ledger", [])) + (
+            len(getattr(work, "ledger", [])) if work is not transport else 0
+        )
+        if work is not transport and hasattr(work, "close"):
+            work.close()
     return rep
 
 

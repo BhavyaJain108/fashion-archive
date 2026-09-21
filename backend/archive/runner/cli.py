@@ -606,16 +606,24 @@ def main(argv: list[str] | None = None) -> int:
             if not targets and args.domain:
                 targets = [Brand(domain=args.domain, homepage_url=f"https://{args.domain}")]
             reports = []
-            for b in targets:
-                t: Transport
-                if args.browser:
-                    from backend.archive.browser.transport import PlaywrightTransport
 
-                    t = PlaywrightTransport(headless=not args.headful)
-                else:
-                    t = HttpxTransport()
+            def _capability_browser():
+                from backend.archive.browser.challenge import ChallengeAwareBrowser
+
+                return ChallengeAwareBrowser(headless=not args.headful)
+
+            for b in targets:
+                t: Transport = _capability_browser() if args.browser else HttpxTransport()
                 try:
-                    rep = probe_brand(b, t, sample=args.sample, browser=args.browser)
+                    rep = probe_brand(
+                        b,
+                        t,
+                        sample=args.sample,
+                        browser=args.browser,
+                        prober=escalating_prober(
+                            browser_factory=_capability_browser if args.browser else None
+                        ),
+                    )
                 finally:
                     if hasattr(t, "close"):
                         t.close()
