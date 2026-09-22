@@ -52,7 +52,7 @@ services:
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: FINDER_DAILY_USD
-        value: "2"
+        value: "10"
 
   - type: web
     name: fashion-archive-api
@@ -127,7 +127,7 @@ services:
         sync: false
       # The same ceiling the scraper runs under, so the deck shows the right cap.
       - key: FINDER_DAILY_USD
-        value: "2"
+        value: "10"
       # The costs page reads each provider's own API. All optional: a missing key
       # shows that provider as "not connected" and nothing else on the page waits.
       - key: ANTHROPIC_ADMIN_KEY
