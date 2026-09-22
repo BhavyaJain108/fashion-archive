@@ -92,6 +92,7 @@ def archive_brand(
         # In batches rather than one submission of everything: 25,781 pending futures
         # is memory spent before any photograph has been fetched.
         pool_size = max(1, workers)
+        catalog.report_progress(domain, "photographs", 0, len(jobs), force=True)
         with ThreadPoolExecutor(max_workers=pool_size) as pool:
             for start in range(0, len(jobs), pool_size * 8):
                 batch = jobs[start : start + pool_size * 8]
@@ -104,6 +105,10 @@ def archive_brand(
                         out.fetched += 1
                     else:
                         out.failed += 1
+                    catalog.report_progress(
+                        domain, "photographs", out.fetched + out.failed, len(jobs)
+                    )
+        catalog.report_progress(domain, "done", len(jobs), len(jobs), force=True)
 
         requests.flush()
         out.outstanding = outstanding(catalog, domain)

@@ -263,6 +263,22 @@ def register_dev_routes(app: Flask) -> None:
             if b["claimed_by"]:
                 (running if b["worker_alive"] else stalled).append(domain)
 
+        # Where each running scrape is. Only the held brands, read together — a
+        # small object each, rewritten by the worker every twenty seconds.
+        held = [b for b in brands if b["claimed_by"]]
+        if held:
+            with ThreadPoolExecutor(max_workers=min(8, len(held))) as pool:
+                found_progress = list(pool.map(lambda b: catalog.load_progress(b["domain"]), held))
+            for b, p in zip(held, found_progress, strict=True):
+                # A progress object older than the claim belongs to an earlier run.
+                if p and (p.get("updated_at") or "") >= (b.get("claimed_at") or ""):
+                    b["progress"] = {
+                        "phase": p.get("phase"),
+                        "done": p.get("done"),
+                        "total": p.get("total"),
+                        "updated_at": p.get("updated_at"),
+                    }
+
         return {
             "success": True,
             "generated_at": datetime.now(timezone.utc).isoformat(),

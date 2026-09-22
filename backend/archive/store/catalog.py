@@ -25,6 +25,7 @@ import json
 import secrets
 import sys
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -104,6 +105,7 @@ class Catalog:
         self._flush_lock = threading.RLock()
         self._pending_observations: dict[tuple[str, str], list[dict]] = {}
         self._since_flush = 0
+        self._progress_last: dict[str, float] = {}
         # Read once per instance. Three fleet views were each fetching it, and a
         # round trip to the bucket is ~400ms — the sidebar paid for it three times.
         self._fleet: dict[str, dict] | None = None
@@ -583,6 +585,39 @@ class Catalog:
             field, source = pair.split("|", 1)
             out[(field, source)] = (row["examined"], row["found"])
         return out
+
+    def evidence_age_days(self, domain: str, field: str, source: str) -> float | None:
+        """How long ago this field was last searched at this source, or None if never."""
+        row = self._read(f"evidence/{domain}.json", {}).get(f"{field}|{source}")
+        if not row or not row.get("searched_at"):
+            return None
+        try:
+            then = datetime.fromisoformat(row["searched_at"])
+        except ValueError:
+            return None
+        return (datetime.now(timezone.utc) - then).total_seconds() / 86400
+
+    # --- progress ---
+    # Where a run is right now, for the deck. One small object per brand, rewritten
+    # no more than every PROGRESS_EVERY seconds: a bar that moves is worth a write
+    # every twenty seconds and not one per product.
+    PROGRESS_EVERY = 20.0
+
+    def report_progress(
+        self, domain: str, phase: str, done: int, total: int | None, force: bool = False
+    ) -> None:
+        now = time.monotonic()
+        last = self._progress_last.get(domain, 0.0)
+        if not force and now - last < self.PROGRESS_EVERY:
+            return
+        self._progress_last[domain] = now
+        self._write(
+            f"progress/{domain}.json",
+            {"domain": domain, "phase": phase, "done": done, "total": total, "updated_at": _now()},
+        )
+
+    def load_progress(self, domain: str) -> dict | None:
+        return self._read(f"progress/{domain}.json")
 
     # --- images ---
     def _images(self, domain: str) -> dict[str, list[dict]]:

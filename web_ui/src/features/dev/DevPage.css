@@ -176,7 +176,14 @@
   color: var(--ar-ink-3);
 }
 
-.dev-now-item { color: var(--ar-ink); }
+.dev-now-item { color: var(--ar-ink); display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+
+/* A running scrape's place: phase, a short bar, done / total. Inline, so it sits
+   in a table cell or the strip without either growing. */
+.dev-progress { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; font-size: var(--ar-fs-micro); }
+.dev-progress-k { letter-spacing: var(--ar-track-ui); text-transform: uppercase; color: var(--ar-ink); }
+.dev-progress-track { width: 72px; }
+.dev-progress-v { color: var(--ar-ink-3); font-variant-numeric: tabular-nums; }
 
 .dev-note {
   margin-top: 20px;

@@ -976,6 +976,10 @@ def main(argv: list[str] | None = None) -> int:
                             browser_transport_factory=_browser_factory,
                             prober=escalating_prober(browser_factory=_browser_factory),
                             field_finder=_field_finder if finder_cap_usd > 0 else None,
+                            # Ask about everything the run can, not ten pages' worth:
+                            # the daily ceiling is the throttle, and what a page did
+                            # not yield is asked again on a later product or run.
+                            learn_budget=60,
                             transport_factory=lambda level: for_level(level, sink=requests_log),
                         )
                     finally:

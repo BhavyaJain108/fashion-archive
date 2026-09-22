@@ -222,6 +222,22 @@ def test_an_unchanged_answer_is_a_304_and_a_command_makes_it_new_again(client, m
 
 
 @pytest.mark.unit
+def test_a_held_brand_shows_where_its_scrape_is(client, tmp_path):
+    from backend.archive.scheduler import Scheduler
+
+    c, mp = client
+    store = DirectoryObjectStore(tmp_path)
+    assert Scheduler(store, worker_id="w1").claim_next() is not None
+    Catalog(store).report_progress("kuurth.com", "fetching", 120, 332, force=True)
+    mp.setenv("ADMIN_EMAILS", "owner@example.com")
+    _as(mp, "owner@example.com")
+    b = json.loads(c.get("/api/dev/overview").data)["brands"][0]
+    assert b["claimed_by"] == "w1"
+    assert b["progress"]["phase"] == "fetching" and b["progress"]["done"] == 120
+    assert b["progress"]["total"] == 332
+
+
+@pytest.mark.unit
 def test_a_batch_answers_for_every_brand_on_its_own(client, tmp_path):
     from backend.archive.scheduler import Scheduler
 

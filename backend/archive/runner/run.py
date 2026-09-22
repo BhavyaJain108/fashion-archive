@@ -202,6 +202,7 @@ def run_brand(
         first_run = not hints
         to_fetch = refs if (mode == "full" or first_run) else select_delta(refs, hints)
         log("selected", mode=mode, to_fetch=len(to_fetch), total=len(refs))
+        catalog.report_progress(brand.domain, "fetching", 0, len(to_fetch), force=True)
 
         book = catalog.load_recipe_book(brand.domain)
         recipes = book.recipes if book else []
@@ -237,12 +238,18 @@ def run_brand(
         # The search record is not only a report: a field the model has already been
         # given a page for, and found nothing, is not worth paying for again every run.
         # Clearing this brand's field_evidence rows is what forces a fresh attempt.
+        # A field asked for and not found is left alone for a while, not for ever: a
+        # shop redesigns, a rule that failed on one page's layout can work on the
+        # next season's, and "tried once, gave up for good" was the wrong shape.
+        # After RETRY_AFTER_DAYS it is worth one more look.
         prior = catalog.load_evidence(brand.domain)
         exhausted = set()
         for f in learnable:
             asked, found = prior.get((f, "page_llm"), (0, 0))
             if asked and not found:
-                exhausted.add(f)
+                age = catalog.evidence_age_days(brand.domain, f, "page_llm")
+                if age is None or age < RETRY_AFTER_DAYS:
+                    exhausted.add(f)
         if exhausted:
             log("already-searched", fields=sorted(exhausted))
         learnable -= exhausted
@@ -256,6 +263,7 @@ def run_brand(
                 unreached = len(to_fetch) - index
                 log("time-budget-spent", budget=time_budget, unreached=unreached)
                 break
+            catalog.report_progress(brand.domain, "fetching", index, len(to_fetch))
             try:
                 rec = connector.fetch(r, work_transport)
             except SkipProduct as e:
@@ -401,6 +409,9 @@ def run_brand(
             book.recipes.sort(key=lambda r: -r.hits)
             catalog.save_recipe_book(book)
 
+        catalog.report_progress(
+            brand.domain, "finalising", len(to_fetch) - unreached, len(to_fetch), force=True
+        )
         catalog.set_extraction_version(brand.domain, current_version)
         catalog.record_evidence(brand.domain, run_id, search.rows())
         log("evidence-recorded", entries=len(search))
@@ -441,6 +452,14 @@ def run_brand(
 
 # Failed attempts at one field before a run stops asking about it.
 _FIELD_STRIKES = 3
+
+# Days before a field the model was shown a page for, and found nothing, is asked
+# about again. Everything is tried; what does not work is tried again later, not never.
+RETRY_AFTER_DAYS = 14
+
+# How often a running scrape says where it is. Time-based, so a fast brand and a slow
+# one both move the bar without either writing an object per product.
+PROGRESS_EVERY_SECONDS = 20.0
 
 _AUTH_MARKERS = ("AuthenticationError", "authentication_error", "invalid x-api-key", "401")
 

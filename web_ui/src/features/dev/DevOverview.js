@@ -6,12 +6,31 @@ import { ago, due, n, pct, secs, usd } from './format';
 
 const MINUTE = 60 * 1000;
 
+// Where a running scrape is: the phase, and a bar when the phase has a length.
+// Discovery and finalising have none — the bar only claims to know what it knows.
+function Progress({ p }) {
+  if (!p) return <span className="dev-muted">starting</span>;
+  const known = p.total != null && p.total > 0 && p.done != null;
+  const share = known ? Math.min(100, Math.round((p.done / p.total) * 100)) : null;
+  return (
+    <span className="dev-progress" title={p.updated_at ? `as of ${ago(p.updated_at)}` : ''}>
+      <span className="dev-progress-k">{p.phase}</span>
+      {known && (
+        <>
+          <span className="dev-bar-track dev-progress-track"><span className="dev-bar" style={{ width: `${share}%` }} /></span>
+          <span className="dev-progress-v">{n(p.done)} / {n(p.total)}</span>
+        </>
+      )}
+    </span>
+  );
+}
+
 // A claimed brand whose worker has stopped beating is the one state that used to
 // be invisible: it looks identical to work in progress from the outside.
 function statusPill(b) {
   if (b.claimed_by) {
     return b.worker_alive
-      ? <span className="dev-pill working">scraping</span>
+      ? <Progress p={b.progress} />
       : <span className="dev-pill stalled">worker dead</span>;
   }
   if (!b.enabled) return <span className="dev-pill idle">paused</span>;
@@ -167,10 +186,11 @@ export default function DevOverview({ go }) {
             <div className="dev-now">
               <span className="dev-now-k">Scraping now</span>
               {data.brands.filter((b) => b.claimed_by && b.worker_alive).map((b) => (
-                <button type="button" key={b.domain} className="dev-link dev-now-item" onClick={() => go({ brandId: b.domain })}>
-                  {b.name}
-                  <span className="dev-muted"> · {b.claimed_by} · since {ago(b.claimed_at)} · beat {b.heartbeat_minutes == null ? '—' : `${Math.round(b.heartbeat_minutes)}m ago`}</span>
-                </button>
+                <span key={b.domain} className="dev-now-item">
+                  <button type="button" className="dev-link" onClick={() => go({ brandId: b.domain })}>{b.name}</button>
+                  <span className="dev-muted"> · {b.claimed_by} · since {ago(b.claimed_at)} · </span>
+                  <Progress p={b.progress} />
+                </span>
               ))}
             </div>
           )}

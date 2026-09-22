@@ -247,6 +247,33 @@ def test_a_refused_key_stops_the_finder_for_the_run_after_one_answer(tmp_path):
     assert cat.latest_run("kuurth.com")["coverage"]["verdict"] == "degraded"
 
 
+@pytest.mark.unit
+def test_progress_is_written_no_more_than_every_twenty_seconds_unless_forced(tmp_path):
+    cat = Catalog(DirectoryObjectStore(tmp_path))
+    cat.report_progress("x.com", "fetching", 0, 100, force=True)
+    cat.report_progress("x.com", "fetching", 50, 100)  # too soon: dropped
+    assert cat.load_progress("x.com")["done"] == 0
+    cat.report_progress("x.com", "finalising", 100, 100, force=True)
+    p = cat.load_progress("x.com")
+    assert p["phase"] == "finalising" and p["done"] == 100 and p["updated_at"]
+
+
+@pytest.mark.unit
+def test_a_field_given_up_on_is_asked_about_again_after_a_fortnight(tmp_path):
+    from backend.archive.runner.run import RETRY_AFTER_DAYS
+
+    cat = Catalog(DirectoryObjectStore(tmp_path))
+    cat.record_evidence("x.com", "r1", [("material_info", "page_llm", 3, 0)])
+    assert cat.evidence_age_days("x.com", "material_info", "page_llm") < 1
+    assert cat.evidence_age_days("x.com", "material_info", "channel") is None
+    # Age the record by hand: the store keeps the timestamp, the runner reads it.
+    held = cat._read("evidence/x.com.json")
+    old = datetime.now(timezone.utc) - timedelta(days=RETRY_AFTER_DAYS + 1)
+    held["material_info|page_llm"]["searched_at"] = old.isoformat()
+    cat._write("evidence/x.com.json", held)
+    assert cat.evidence_age_days("x.com", "material_info", "page_llm") > RETRY_AFTER_DAYS
+
+
 # --- run now is an edit to the schedule, and only when nobody holds the brand ---------
 
 
