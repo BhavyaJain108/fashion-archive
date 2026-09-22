@@ -47,58 +47,42 @@ export default function DevProducts({ domain }) {
               {n(data.total)} product{data.total === 1 ? '' : 's'}
               {q ? ` matching “${q}”` : ''} · showing {data.total === 0 ? 0 : offset + 1}–{Math.min(offset + PAGE, data.total)}
             </div>
-            <div className="dev-scroll">
-              <table className="dev-table dev-products">
-                <thead>
-                  <tr>
-                    <th>Photographs</th>
-                    <th>Product</th>
-                    <th>Code</th>
-                    <th className="n">Price</th>
-                    <th>Stock</th>
-                    <th>Sizes</th>
-                    <th>Colour</th>
-                    <th>Category</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.products.map((p) => (
-                    <tr key={p.itemurl}>
-                      <td className="dev-gallery-cell">
-                        {(p.images && p.images.length ? p.images : [p.main_image_url].filter(Boolean)).length === 0 ? (
-                          <span className="dev-thumb dev-thumb-none" aria-hidden="true" />
-                        ) : (
-                          <div className="dev-gallery">
-                            {(p.images && p.images.length ? p.images : [p.main_image_url]).map((u, i) => (
-                              <a key={u + i} href={u} target="_blank" rel="noreferrer">
-                                <img className="dev-thumb" src={u} alt="" loading="lazy" />
-                              </a>
-                            ))}
-                          </div>
-                        )}
-                      </td>
-                      <td>
-                        <a className="dev-product-title" href={p.itemurl} target="_blank" rel="noreferrer">
-                          {p.product_title || <span className="dev-muted">untitled</span>}
-                        </a>
-                        {p.brand && <div className="dev-domain">{p.brand}</div>}
-                      </td>
-                      <td className="dev-mono">{p.product_code || '—'}</td>
-                      <td className="n">
-                        {p.price == null ? '—' : `${p.price}${p.currency ? ` ${p.currency}` : ''}`}
-                        {p.full_price != null && p.full_price !== p.price && (
-                          <div className="dev-muted">was {p.full_price}</div>
-                        )}
-                      </td>
-                      <td>{p.in_stock == null ? '—' : p.in_stock ? 'in' : 'out'}</td>
-                      <td className="dev-wrap">{p.size_info || '—'}</td>
-                      <td className="dev-wrap">{p.color_info || '—'}</td>
-                      <td className="dev-wrap">{[p.category1, p.category2].filter(Boolean).join(' / ') || '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <ol className="dev-products">
+              {data.products.map((p) => {
+                const images = p.images && p.images.length ? p.images : [p.main_image_url].filter(Boolean);
+                const price = p.price == null ? null : `${p.price}${p.currency ? ` ${p.currency}` : ''}`;
+                const facts = [
+                  p.product_code,
+                  price && (p.full_price != null && p.full_price !== p.price ? `${price} (was ${p.full_price})` : price),
+                  p.in_stock == null ? null : p.in_stock ? 'in stock' : 'out of stock',
+                  [p.category1, p.category2].filter(Boolean).join(' / ') || null,
+                ].filter(Boolean);
+                return (
+                  <li className="dev-product" key={p.itemurl}>
+                    <div className="dev-product-facts">
+                      <a className="dev-product-title" href={p.itemurl} target="_blank" rel="noreferrer">
+                        {p.product_title || <span className="dev-muted">untitled</span>}
+                      </a>
+                      <div className="dev-domain">{facts.join(' · ')}</div>
+                      {p.size_info && <div className="dev-domain">sizes {p.size_info}</div>}
+                      {p.color_info && <div className="dev-domain">colour {p.color_info}</div>}
+                      <div className="dev-domain">{images.length} photograph{images.length === 1 ? '' : 's'}</div>
+                    </div>
+                    {images.length === 0 ? (
+                      <div className="dev-strip dev-strip-none" aria-hidden="true" />
+                    ) : (
+                      <div className="dev-strip">
+                        {images.map((u, i) => (
+                          <a key={u + i} href={u} target="_blank" rel="noreferrer">
+                            <img src={u} alt="" loading="lazy" />
+                          </a>
+                        ))}
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ol>
             <div className="dev-pager">
               <button type="button" className="dev-act" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE))}>
                 ← previous

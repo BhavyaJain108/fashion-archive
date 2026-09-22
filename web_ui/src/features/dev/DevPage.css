@@ -363,6 +363,43 @@ table.dev-table {
 .dev-search { display: flex; gap: 4px; align-items: center; }
 .dev-search .ar-input { width: 220px; }
 
+/* --- The catalogue --------------------------------------------------------------- */
+
+/* Not a table: a gallery is content, and the photographs are what the archive is
+   for. One product per row — its facts in a fixed column on the left, then every
+   photograph in a single strip that scrolls sideways when there are many. The
+   strip never wraps, so a product with twelve photographs is as tall as one with
+   two, and the eye moves along a row the way it does in the archive itself. */
+.dev-products { list-style: none; margin: 12px 0 0; padding: 0; }
+
+.dev-product {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--ar-line-soft);
+  align-items: start;
+}
+
+.dev-product-facts { min-width: 0; font-size: var(--ar-fs-ui); line-height: var(--ar-lh-ui); }
+.dev-product-facts > div { margin-top: 2px; overflow-wrap: anywhere; }
+
+.dev-product-title { color: var(--ar-ink); text-decoration: none; overflow-wrap: anywhere; }
+.dev-product-title:hover { text-decoration: underline; }
+
+.dev-strip {
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  min-height: 120px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.dev-strip a { display: flex; flex: none; }
+.dev-strip img { display: block; height: 120px; width: auto; background: var(--ar-bg-sunk); }
+.dev-strip-none { width: 90px; border: 1px solid var(--ar-line-soft); }
+
 .dev-thumb {
   display: block;
   width: 40px;
@@ -372,15 +409,6 @@ table.dev-table {
 }
 
 .dev-thumb-none { border: 1px solid var(--ar-line-soft); }
-
-/* Every photograph of a product, in a row that wraps. The cell is the one place a
-   table cell may be wide: a gallery is the point of the catalogue. */
-.dev-table td.dev-gallery-cell { max-width: none; overflow: visible; white-space: normal; }
-.dev-gallery { display: flex; flex-wrap: wrap; gap: 2px; max-width: 336px; }
-.dev-gallery a { display: flex; }
-
-.dev-product-title { color: var(--ar-ink-2); text-decoration: none; }
-.dev-product-title:hover { color: var(--ar-ink); text-decoration: underline; }
 
 .dev-pager { display: flex; gap: 4px; justify-content: flex-end; margin-top: 12px; }
 
@@ -397,4 +425,7 @@ table.dev-table {
   .dev-table td.wrap { max-width: 36ch; }
   .dev-table-sub { width: 100%; }
   .dev-search .ar-input { width: 100%; }
+  .dev-product { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .dev-strip { min-height: 96px; }
+  .dev-strip img { height: 96px; }
 }
