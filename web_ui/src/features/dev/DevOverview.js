@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 
 import DevEndpoints from '../../shared/api/dev';
-import useDevLoad, { Gate } from './useDevLoad';
+import useDevLoad, { Gate, Stamp } from './useDevLoad';
 import DevGlossary from './DevGlossary';
 import LiveState from './LiveState';
 import { ago, due, n, pct, secs, usd } from './format';
@@ -22,6 +22,47 @@ function statusPill(b) {
 function pauseLabel(b) {
   if (!b.enabled) return 'resume';
   return b.claimed_by ? 'pause after run' : 'pause';
+}
+
+// What is being scraped this minute, drawn as one tile per brand: the name, the
+// phase in words, the bar, and how long the worker has had it. Above it, which
+// workers have polled in the last two minutes — a thread that died used to be
+// invisible until its claim went stale.
+function ScrapingNow({ data, go }) {
+  const running = data.brands.filter((b) => b.claimed_by && b.worker_alive);
+  const seen = Object.entries(data.workers.seen || {});
+  if (!running.length && !seen.length) return null;
+  return (
+    <section className="dev-now" aria-label="Scraping now">
+      <div className="dev-now-head">
+        <span className="dev-now-k">Scraping now</span>
+        {seen.length > 0 && (
+          <span className="dev-now-workers">
+            {seen.map(([id, w]) => (
+              <span key={id} className={w.alive ? 'dev-pill working' : 'dev-pill stalled'}>
+                {id} · {w.alive ? 'polling' : `last seen ${ago(w.seen_at)}`}
+              </span>
+            ))}
+          </span>
+        )}
+      </div>
+      {running.length === 0 ? (
+        <div className="dev-now-idle">nothing held · the workers are polling for the next due brand</div>
+      ) : (
+        <div className="dev-now-grid">
+          {running.map((b) => (
+            <div key={b.domain} className="dev-now-tile">
+              <button type="button" className="dev-link dev-now-name" onClick={() => go({ brandId: b.domain })}>{b.name}</button>
+              <LiveState brand={b} size="tile" />
+              <div className="dev-now-meta">
+                {b.claimed_by} · started {ago(b.claimed_since || b.claimed_at)}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
 }
 
 function gateCell(b) {
@@ -126,7 +167,7 @@ function AddBrand({ onAdded }) {
 }
 
 export default function DevOverview({ go }) {
-  const { data, state, refreshing, reload } = useDevLoad(() => DevEndpoints.getOverview(), [], MINUTE, 'overview');
+  const { data, state, refreshing, checkedAt, reload } = useDevLoad(() => DevEndpoints.getOverview(), [], MINUTE, 'overview');
   const [busy, setBusy] = useState({});
   const [note, setNote] = useState({});
   const [sort, setSort] = useState(readSort);
@@ -186,10 +227,7 @@ export default function DevOverview({ go }) {
         <>
           <div className="dev-head">
             <h1 className="dev-title">Brands</h1>
-            <div className="dev-stamp">
-              {refreshing ? 'checking for changes…' : `read ${ago(data.generated_at)} · checks every minute`}
-              {data.__error ? ` · last check failed: ${data.__error}` : ''}
-            </div>
+            <Stamp data={data} refreshing={refreshing} checkedAt={checkedAt} every="checks every minute" />
           </div>
 
           <div className="dev-totals">
@@ -199,7 +237,7 @@ export default function DevOverview({ go }) {
             </div>
             <div className="dev-total">
               <span className="dev-total-n">{data.totals.showing}/{data.totals.brands}</span>
-              <span className="dev-total-k">brands showing</span>
+              <span className="dev-total-k">brands with products</span>
             </div>
             <div className="dev-total">
               <span className="dev-total-n">{(data.workers.running || []).length}</span>
@@ -215,32 +253,22 @@ export default function DevOverview({ go }) {
             </div>
             <div className="dev-total">
               <span className="dev-total-n">
-                {usd(data.finder.usd)} <span className="dev-muted">/ {usd(data.finder.cap_usd, 0)}</span>
+                {usd(data.finder.usd)}
+                {data.finder.cap_usd > 0 && <span className="dev-muted"> / {usd(data.finder.cap_usd, 0)}</span>}
               </span>
-              <span className="dev-total-k">finder spent today</span>
+              <span className="dev-total-k">{data.finder.cap_usd > 0 ? 'finder spent today' : 'finder off · no daily cap'}</span>
             </div>
           </div>
 
-          {data.workers.running.length > 0 && (
-            <div className="dev-now">
-              <span className="dev-now-k">Scraping now</span>
-              {data.brands.filter((b) => b.claimed_by && b.worker_alive).map((b) => (
-                <span key={b.domain} className="dev-now-item">
-                  <button type="button" className="dev-link" onClick={() => go({ brandId: b.domain })}>{b.name}</button>
-                  <span className="dev-muted"> · {b.claimed_by} · since {ago(b.claimed_at)} · </span>
-                  <LiveState brand={b} size="row" />
-                </span>
-              ))}
-            </div>
-          )}
+          <ScrapingNow data={data} go={go} />
 
           {data.workers.stalled.length > 0 && (
             <div className="dev-alarm">
-              <b>{data.workers.stalled.length === 1 ? 'A worker has stopped' : `${data.workers.stalled.length} workers have stopped`}:</b>{' '}
-              {data.workers.stalled.join(', ')}. Usually a deploy replaced the container mid-run. The
-              brand frees itself fifteen minutes after the last heartbeat, or press{' '}
-              <b>release</b> on its row to hand it back now; the run is re-run from the start,
-              never resumed, and nothing half-written is kept.
+              <b>{data.workers.stalled.length === 1 ? 'A claim with no heartbeat' : `${data.workers.stalled.length} claims with no heartbeat`}:</b>{' '}
+              {data.workers.stalled.join(', ')}. No beat for twelve minutes; the schedule frees the
+              brand itself at fifteen. Usually a deploy replaced the container mid-run. Press{' '}
+              <b>release</b> on the row to hand it back now; the run starts again from the
+              beginning, and a run that did not finish wrote no catalogue.
             </div>
           )}
 
@@ -292,7 +320,9 @@ export default function DevOverview({ go }) {
                         </div>
                       )}
                       {!b.attention_streak && b.empty_because && <div className="dev-why">{b.empty_because}</div>}
-                      {!b.attention_streak && b.next_action && <div className="dev-why">next: {b.next_action}</div>}
+                      {!b.attention_streak && b.next_action && (
+                        <div className="dev-why">next{b.next_at ? ` (${ago(b.next_at)})` : ''}: {b.next_action}</div>
+                      )}
                       {note[b.domain] && <div className="dev-why dev-strong">{note[b.domain]}</div>}
                     </td>
                     <td>{statusPill(b)}</td>

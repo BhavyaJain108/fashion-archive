@@ -41,5 +41,12 @@ COPY config config
 # Unbuffered, or a long pass's progress sits in a pipe until it finishes.
 ENV PYTHONUNBUFFERED=1
 
+# Not root: the pages are other people's and the environment holds the bucket's
+# keys. pwuser ships with the Playwright image and owns its browsers; the two
+# directories a run writes on disk are handed to it.
+RUN mkdir -p backend/archive/data/logs backend/archive/data/locks locks \
+    && chown -R pwuser:pwuser /app
+USER pwuser
+
 ENTRYPOINT ["python", "-m", "backend.archive.runner.cli"]
 CMD ["status"]

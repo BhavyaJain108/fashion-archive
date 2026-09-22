@@ -12,6 +12,7 @@ psylos1 has 7,339 products and theoutnet 80,048 — one call covers all of them.
 import os
 import pathlib
 import re
+import time
 from datetime import datetime, timezone
 from typing import Any, cast
 
@@ -118,14 +119,21 @@ def learn_recipes(
     )
     proposed = _to_recipes(client.propose(prompt))
 
-    kept = [
-        r
-        for r in proposed
-        if r.field in missing_fields
-        and verify_recipe(r, html)
-        and is_plausible(r.field, apply_recipes(html, [r]).get(r.field, ""))
-    ]
+    kept = [r for r in proposed if r.field in missing_fields and _holds_up(r, html)]
     return RecipeBook(domain=domain, learned_at=now, learned_from_url=url, recipes=kept)
+
+
+# A rule that takes longer than this on the page it was learned from will take as
+# long on every product page of the brand, every run. Not worth keeping.
+MAX_RULE_SECONDS = 0.25
+
+
+def _holds_up(r: Recipe, html: str) -> bool:
+    """Replay the proposal on its own page: it must reproduce the value it predicted,
+    the value must look like the field, and it must do so quickly."""
+    started = time.monotonic()
+    ok = verify_recipe(r, html) and is_plausible(r.field, apply_recipes(html, [r]).get(r.field, ""))
+    return ok and (time.monotonic() - started) <= MAX_RULE_SECONDS
 
 
 def _to_recipes(payload) -> list[Recipe]:

@@ -112,9 +112,9 @@ class TestNormaliseFilters:
     def test_an_unknown_key_is_dropped(self):
         """A page number or an auth token arriving beside the filters would
         otherwise be part of the view's identity."""
-        assert favourites.normalise_filters(
-            {"city": "Paris", "page": 3, "token": "abc"}
-        ) == {"city": "Paris"}
+        assert favourites.normalise_filters({"city": "Paris", "page": 3, "token": "abc"}) == {
+            "city": "Paris"
+        }
 
     def test_an_empty_value_is_dropped(self):
         """The client's own rule is `value !== ''` — an unset filter is not a

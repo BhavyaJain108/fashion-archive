@@ -100,6 +100,7 @@ def build_query(designer: str, season: Optional[str], gender: Optional[str]) -> 
 # Quota accounting
 # ---------------------------------------------------------------------------
 
+
 def units_used_today(conn) -> int:
     row = conn.execute(
         "SELECT units_used FROM youtube_quota WHERE quota_date = %s", (date.today(),)
@@ -138,6 +139,7 @@ def quota_status(conn) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Cache
 # ---------------------------------------------------------------------------
+
 
 def cached(conn, key: str) -> Optional[dict[str, Any]]:
     """A previous lookup, hit or miss, or None if never searched."""
@@ -200,6 +202,7 @@ def remember(conn, key: str, query_text: str, result: Optional[dict[str, Any]]) 
 # The one call that costs quota
 # ---------------------------------------------------------------------------
 
+
 def search(conn, query_text: str) -> list[VideoCandidate]:
     """Ask YouTube for candidates. Spends SEARCH_COST_UNITS.
 
@@ -224,7 +227,7 @@ def search(conn, query_text: str) -> list[VideoCandidate]:
         "part": "snippet",
         "q": query_text,
         "type": "video",
-        "videoEmbeddable": "true",   # the player embeds it, so filter early
+        "videoEmbeddable": "true",  # the player embeds it, so filter early
         "maxResults": MAX_RESULTS,
         "key": key,
     }
@@ -244,13 +247,15 @@ def search(conn, query_text: str) -> list[VideoCandidate]:
             continue
         snip = item.get("snippet") or {}
         thumbs = snip.get("thumbnails") or {}
-        thumb = (thumbs.get("high") or thumbs.get("medium") or thumbs.get("default") or {})
-        out.append(VideoCandidate(
-            title=snip.get("title", ""),
-            url=f"https://www.youtube.com/watch?v={vid}",
-            thumbnail_url=thumb.get("url", f"https://img.youtube.com/vi/{vid}/hqdefault.jpg"),
-            video_id=vid,
-            channel=snip.get("channelTitle", ""),
-            published_at=snip.get("publishedAt", ""),
-        ))
+        thumb = thumbs.get("high") or thumbs.get("medium") or thumbs.get("default") or {}
+        out.append(
+            VideoCandidate(
+                title=snip.get("title", ""),
+                url=f"https://www.youtube.com/watch?v={vid}",
+                thumbnail_url=thumb.get("url", f"https://img.youtube.com/vi/{vid}/hqdefault.jpg"),
+                video_id=vid,
+                channel=snip.get("channelTitle", ""),
+                published_at=snip.get("publishedAt", ""),
+            )
+        )
     return out

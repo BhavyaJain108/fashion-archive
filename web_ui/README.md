@@ -8,7 +8,7 @@ The backend must be running first (see `scripts/test_db.sh` and `backend/app.py`
 
 ```bash
 npm install
-REACT_APP_API_URL=http://localhost:8099 npm start
+REACT_APP_API_URL=http://localhost:8081 npm start
 ```
 
 `REACT_APP_API_URL` is baked in at compile time, so changing it needs a restart
@@ -21,7 +21,7 @@ Run the frontend and the API on the same hostname — `localhost` for both, or
 
 The session cookie is `SameSite=Lax`. The browser treats `localhost` and
 `127.0.0.1` as different sites, so a frontend on `localhost:3000` talking to an
-API on `127.0.0.1:8099` is a cross-site request and the cookie is never sent
+API on `127.0.0.1:8081` is a cross-site request and the cookie is never sent
 back. Login returns 200 and every request after it is a 401, which looks like a
 broken session rather than a configuration mistake.
 

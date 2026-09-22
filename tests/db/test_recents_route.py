@@ -124,13 +124,24 @@ from backend.high_fashion import firstview as fv  # noqa: E402
 
 # One show, in the shape the index holds and the shape the list renders.
 SHOW = {
-    "c": "5678", "d": "Balenciaga", "s": "Spring / Summer", "y": 2019,
-    "g": "Women", "n": "Ready-to-Wear", "t": "Runway Collection", "p": "Paris",
+    "c": "5678",
+    "d": "Balenciaga",
+    "s": "Spring / Summer",
+    "y": 2019,
+    "g": "Women",
+    "n": "Ready-to-Wear",
+    "t": "Runway Collection",
+    "p": "Paris",
 }
 INDEX_ROW = {
-    "collection_id": SHOW["c"], "designer": SHOW["d"], "season": SHOW["s"],
-    "year": SHOW["y"], "gender": SHOW["g"], "category": SHOW["n"],
-    "shoot_type": SHOW["t"], "city": SHOW["p"],
+    "collection_id": SHOW["c"],
+    "designer": SHOW["d"],
+    "season": SHOW["s"],
+    "year": SHOW["y"],
+    "gender": SHOW["g"],
+    "category": SHOW["n"],
+    "shoot_type": SHOW["t"],
+    "city": SHOW["p"],
 }
 
 
@@ -149,8 +160,14 @@ def _seed_cached_images(conn):
         conn,
         collection_id=SHOW["c"],
         quality=fv.QUALITY_FULL,
-        images=[{"index": 1, "filename": "001.jpg", "key": "runway/001.jpg",
-                 "path": "https://images.example.com/runway/001.jpg"}],
+        images=[
+            {
+                "index": 1,
+                "filename": "001.jpg",
+                "key": "runway/001.jpg",
+                "path": "https://images.example.com/runway/001.jpg",
+            }
+        ],
         designer=SHOW["d"],
         season=SHOW["s"],
         gender=SHOW["g"],
@@ -162,10 +179,9 @@ def _open_the_show(client):
     """What the app does when a reader clicks a row: open it."""
     response = client.post(
         "/api/download-images/stream",
-        json={"collectionUrl": fv.collection_url(SHOW["c"]),
-              "designerName": SHOW["d"]},
+        json={"collectionUrl": fv.collection_url(SHOW["c"]), "designerName": SHOW["d"]},
     )
-    response.get_data()          # drain the stream so the generator finishes
+    response.get_data()  # drain the stream so the generator finishes
     return response
 
 
@@ -233,8 +249,12 @@ def test_a_row_stored_the_old_way_is_still_served_normalised(client, conn, user)
             (user_id, collection_id, designer, collection_url)
         VALUES (%s, %s, %s, %s)
         """,
-        (user.id, SHOW["c"], SHOW["d"],
-         "https://www.firstview.com/collection_images.php?id=" + SHOW["c"]),
+        (
+            user.id,
+            SHOW["c"],
+            SHOW["d"],
+            "https://www.firstview.com/collection_images.php?id=" + SHOW["c"],
+        ),
     )
 
     row = client.get("/api/recents").get_json()["recents"][0]
@@ -327,8 +347,7 @@ def test_the_backfill_leaves_a_row_it_cannot_name_alone(conn, user):
             (user_id, collection_id, designer, collection_url)
         VALUES (%s, %s, %s, %s)
         """,
-        (user.id, "https://elsewhere.example/show", "Someone",
-         "https://elsewhere.example/show"),
+        (user.id, "https://elsewhere.example/show", "Someone", "https://elsewhere.example/show"),
     )
 
     apply_schema(conn)

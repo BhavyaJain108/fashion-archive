@@ -121,9 +121,7 @@ def register_brand_following_routes(app):
     allowlist, and none of these are in it.
     """
     app.add_url_rule("/api/brands/follow", "follow_brand", follow_brand, methods=["POST"])
-    app.add_url_rule(
-        "/api/brands/unfollow", "unfollow_brand", unfollow_brand, methods=["POST"]
-    )
+    app.add_url_rule("/api/brands/unfollow", "unfollow_brand", unfollow_brand, methods=["POST"])
     app.add_url_rule(
         "/api/brands/check-following", "check_following", check_following, methods=["POST"]
     )

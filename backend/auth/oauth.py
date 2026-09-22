@@ -74,8 +74,9 @@ class Provider:
     def client_secret(self) -> str:
         raise NotImplementedError
 
-    def authorize_url(self, *, redirect_uri: str, state: str, nonce: str,
-                      code_verifier: str | None) -> str:
+    def authorize_url(
+        self, *, redirect_uri: str, state: str, nonce: str, code_verifier: str | None
+    ) -> str:
         params = {
             "client_id": self.client_id,
             "redirect_uri": redirect_uri,
@@ -92,8 +93,7 @@ class Provider:
             params["code_challenge_method"] = "S256"
         return f"{self.authorize_endpoint}?{urlencode(params)}"
 
-    def exchange_code(self, *, code: str, redirect_uri: str,
-                      code_verifier: str | None) -> str:
+    def exchange_code(self, *, code: str, redirect_uri: str, code_verifier: str | None) -> str:
         """Trade the one-time code for an ID token."""
         data = {
             "grant_type": "authorization_code",
@@ -116,8 +116,11 @@ class Provider:
         try:
             key = self._jwks.get_signing_key_from_jwt(id_token).key
             claims = jwt.decode(
-                id_token, key, algorithms=["RS256", "ES256"],
-                audience=self.client_id, leeway=60,
+                id_token,
+                key,
+                algorithms=["RS256", "ES256"],
+                audience=self.client_id,
+                leeway=60,
                 options={"require": ["iss", "aud", "exp", "sub"]},
             )
         except jwt.PyJWTError as exc:
@@ -170,8 +173,9 @@ class AppleProvider(Provider):
     use_pkce = False
     response_mode = "form_post"
 
-    def __init__(self, client_id: str, team_id: str, key_id: str, private_key: str,
-                 jwk_client=None):
+    def __init__(
+        self, client_id: str, team_id: str, key_id: str, private_key: str, jwk_client=None
+    ):
         self.client_id = client_id  # the Services ID, not the App ID
         self._team_id = team_id
         self._key_id = key_id
@@ -183,9 +187,16 @@ class AppleProvider(Provider):
         """Apple has no static secret: it is a JWT we sign with the .p8 key."""
         now = int(time.time())
         return jwt.encode(
-            {"iss": self._team_id, "iat": now, "exp": now + 300,
-             "aud": "https://appleid.apple.com", "sub": self.client_id},
-            self._private_key, algorithm="ES256", headers={"kid": self._key_id},
+            {
+                "iss": self._team_id,
+                "iat": now,
+                "exp": now + 300,
+                "aud": "https://appleid.apple.com",
+                "sub": self.client_id,
+            },
+            self._private_key,
+            algorithm="ES256",
+            headers={"kid": self._key_id},
         )
 
 
@@ -194,10 +205,20 @@ def providers_from_config(config) -> dict[str, Provider]:
     found: dict[str, Provider] = {}
     if config.GOOGLE_CLIENT_ID and config.GOOGLE_CLIENT_SECRET:
         found["google"] = GoogleProvider(config.GOOGLE_CLIENT_ID, config.GOOGLE_CLIENT_SECRET)
-    if all((config.APPLE_CLIENT_ID, config.APPLE_TEAM_ID, config.APPLE_KEY_ID,
-            config.APPLE_PRIVATE_KEY)):
-        found["apple"] = AppleProvider(config.APPLE_CLIENT_ID, config.APPLE_TEAM_ID,
-                                       config.APPLE_KEY_ID, config.APPLE_PRIVATE_KEY)
+    if all(
+        (
+            config.APPLE_CLIENT_ID,
+            config.APPLE_TEAM_ID,
+            config.APPLE_KEY_ID,
+            config.APPLE_PRIVATE_KEY,
+        )
+    ):
+        found["apple"] = AppleProvider(
+            config.APPLE_CLIENT_ID,
+            config.APPLE_TEAM_ID,
+            config.APPLE_KEY_ID,
+            config.APPLE_PRIVATE_KEY,
+        )
     return found
 
 
@@ -215,22 +236,41 @@ def begin(conn, provider: Provider, *, api_base_url: str) -> tuple[str, str]:
     state = new_token()
     nonce = new_token()
     verifier = new_token() if provider.use_pkce else None
-    repo.create_oauth_state(conn, state=state, provider=provider.name, nonce=nonce,
-                            code_verifier=verifier, ttl=STATE_TTL)
-    url = provider.authorize_url(redirect_uri=redirect_uri(api_base_url, provider.name),
-                                 state=state, nonce=nonce, code_verifier=verifier)
+    repo.create_oauth_state(
+        conn,
+        state=state,
+        provider=provider.name,
+        nonce=nonce,
+        code_verifier=verifier,
+        ttl=STATE_TTL,
+    )
+    url = provider.authorize_url(
+        redirect_uri=redirect_uri(api_base_url, provider.name),
+        state=state,
+        nonce=nonce,
+        code_verifier=verifier,
+    )
     return url, state
 
 
-def complete(conn, provider: Provider, *, state: str, code: str, api_base_url: str,
-             apple_name: str | None = None) -> Identity:
+def complete(
+    conn,
+    provider: Provider,
+    *,
+    state: str,
+    code: str,
+    api_base_url: str,
+    apple_name: str | None = None,
+) -> Identity:
     """Check state, redeem the code, verify the token. Returns who signed in."""
     saved = repo.consume_oauth_state(conn, state, provider=provider.name)
     if saved is None:
         raise OAuthError("INVALID_STATE", "unknown, used or expired state")
-    id_token = provider.exchange_code(code=code,
-                                      redirect_uri=redirect_uri(api_base_url, provider.name),
-                                      code_verifier=saved["code_verifier"])
+    id_token = provider.exchange_code(
+        code=code,
+        redirect_uri=redirect_uri(api_base_url, provider.name),
+        code_verifier=saved["code_verifier"],
+    )
     claims = provider.verify_id_token(id_token, nonce=saved["nonce"])
     return provider.identity(claims, extra_name=apple_name)
 
@@ -245,14 +285,20 @@ def sign_in(conn, identity: Identity) -> repo.User:
         if user is None:
             try:
                 user = repo.create_user(
-                    conn, email=identity.email,
+                    conn,
+                    email=identity.email,
                     display_name=(identity.name or identity.email.split("@")[0]).strip(),
                 )
             except repo.EmailAlreadyExists as exc:
                 # Exists but deactivated: do not hand the address to someone new.
                 raise OAuthError("ACCOUNT_DISABLED") from exc
-        repo.link_identity(conn, user_id=user.id, provider=identity.provider,
-                           subject=identity.subject, email=identity.email)
+        repo.link_identity(
+            conn,
+            user_id=user.id,
+            provider=identity.provider,
+            subject=identity.subject,
+            email=identity.email,
+        )
         if not user.is_verified:
             repo.mark_email_verified(conn, user.id)
     repo.update_last_login(conn, user.id)

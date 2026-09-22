@@ -100,7 +100,8 @@ def run_brand(
         catalog.save_plan(plan)
         catalog.set_brand_state(brand.domain, "needs_attention")
         catalog.record_attention(brand.domain, f"{plan.composition}: {reason}")
-        catalog.finalize_run(run_id, 1, None)
+        catalog.finalize_run(run_id, 1, None, domain=brand.domain)
+        catalog.annotate_run(brand.domain, run_id, reason=f"plan failed: {reason}")
         log("plan-failed", reason=reason, composition=plan.composition)
         return 1
 
@@ -118,14 +119,16 @@ def run_brand(
         if plan.status == "skip_gated":
             catalog.set_brand_state(brand.domain, "gated")
             catalog.record_attention(brand.domain, "password-gated: no transport opens one")
-            catalog.finalize_run(run_id, 0, None)
+            catalog.finalize_run(run_id, 0, None, domain=brand.domain)
+            catalog.annotate_run(brand.domain, run_id, reason="password-gated")
             log("skipped-gated")
             return 0
         if plan.status == "needs_attention":
             catalog.set_brand_state(brand.domain, "needs_attention")
             last = plan.tried[-1].reason if plan.tried else "nothing readable at any transport"
             catalog.record_attention(brand.domain, f"no lane: {last}")
-            catalog.finalize_run(run_id, 1, None)
+            catalog.finalize_run(run_id, 1, None, domain=brand.domain)
+            catalog.annotate_run(brand.domain, run_id, reason=f"no lane: {last}")
             log("needs-attention", tried=[a.composition for a in plan.tried])
             return 1
 
@@ -158,10 +161,13 @@ def run_brand(
         try:
             refs = connector.discover(brand, work_transport)
         except ChannelBusy as e:
-            # Rate limiting says nothing about the brand, so the plan is left alone.
-            catalog.finalize_run(run_id, 1, None)
+            # Rate limiting says nothing about the brand, so the plan is left alone —
+            # and the daemon is told, so it defers the brand instead of counting this
+            # as its turn for the day.
+            catalog.finalize_run(run_id, 1, None, domain=brand.domain)
+            catalog.annotate_run(brand.domain, run_id, reason=f"host asked us to wait: {e}")
             log("channel-busy", reason=str(e))
-            return 1
+            raise
         except ChannelBlocked as e:
             return fail_plan(plan, f"discover blocked: {e}")
         log("discovered", refs=len(refs))
@@ -176,11 +182,11 @@ def run_brand(
         # behind is the recipe book and the evidence, which the next real run uses.
         learning = mode == "learn"
         if learning and field_finder is None:
-            catalog.finalize_run(run_id, 1, None)
+            catalog.finalize_run(run_id, 1, None, domain=brand.domain)
             log("learn-without-finder")
             return 1
 
-        calibrating = catalog.get_brand_state(brand.domain) != "active"
+        calibrating = not learning and catalog.get_brand_state(brand.domain) != "active"
         # The sample tells the finder which fields this channel never provides. An
         # already-active brand with no rules yet still pays for one, or a brand
         # promoted before the finder existed could never learn any (xsai.vision).
@@ -242,9 +248,11 @@ def run_brand(
         deadline = clock() + time_budget if time_budget else None
         unreached = 0
         records, errors = [], 0
+        failed: set[str] = set()  # products this run tried to read and could not
         imaged_products = 0
         learned_this_run = 0
         finder_failures: list[str] = []
+        finder_misses_in_a_row = 0
         # What this run actually looked at, so an empty field can be believed.
         search = SearchLog()
         # Which rule actually produced each value, so a narrow one shows up.
@@ -291,6 +299,7 @@ def run_brand(
                 continue
             except Exception as e:
                 errors += 1
+                failed.add(r.url)
                 log("fetch-error", url=r.url, error=str(e))
                 continue
             search.searched(
@@ -347,6 +356,19 @@ def run_brand(
                     and _is_auth_error(finder_failures[-1])
                 ):
                     log("finder-unauthorised", error=finder_failures[-1][:160])
+                    field_finder = None
+                # An outage that is not a 401 used to be retried on every remaining
+                # product, each retry launching a browser. Three misses in a row is
+                # the whole answer for this run.
+                finder_misses_in_a_row = (
+                    finder_misses_in_a_row + 1 if len(finder_failures) > failures_before else 0
+                )
+                if field_finder is not None and finder_misses_in_a_row >= _FINDER_MISSES:
+                    log(
+                        "finder-unavailable-stop",
+                        misses=finder_misses_in_a_row,
+                        last=finder_failures[-1][:160],
+                    )
                     field_finder = None
                 fresh = [x for x in (extra.recipes if extra else []) if x.field in gaps]
                 won = {x.field for x in fresh}
@@ -412,7 +434,7 @@ def run_brand(
             )
             if finder_failures and learned_this_run and not (book and book.recipes):
                 log("finder-unavailable", attempts=len(finder_failures), last=finder_failures[-1])
-            catalog.finalize_run(run_id, 0, None)
+            catalog.finalize_run(run_id, 0, None, domain=brand.domain)
             log(
                 "learned",
                 pages=len(records),
@@ -435,8 +457,16 @@ def run_brand(
 
         # untouched (unchanged) products still count as seen this run
         touched = {r.itemurl for r in records}
+        # A product this run could not read was not seen by it; stamping it covered
+        # would keep a stale record listed for as long as the host keeps failing.
         catalog.mark_seen(
-            brand.domain, run_id, [r.url for r in refs if r.url not in touched and r.url in hints]
+            brand.domain,
+            run_id,
+            [
+                r.url
+                for r in refs
+                if r.url not in touched and r.url not in failed and r.url in hints
+            ],
         )
 
         if field_finder is not None and learned_this_run >= learn_budget:
@@ -467,7 +497,7 @@ def run_brand(
         log("evidence-recorded", entries=len(search))
 
         coverage = assess(
-            len(refs) - unreached, {connector.kind: len(refs)}, field_fill_rates(records)
+            len(refs) - unreached - errors, {connector.kind: len(refs)}, field_fill_rates(records)
         )
         if finder_failures and not rules_added and coverage.verdict == "ok":
             coverage.verdict = "degraded"
@@ -480,10 +510,13 @@ def run_brand(
         catalog.finalize_run(run_id, exit_status, coverage)
         log("finalized", verdict=coverage.verdict, errors=errors, extracted=len(records))
         return exit_status
+    except ChannelBusy:
+        raise
     except Exception as e:  # containment: one hostile site must never kill the fleet
         catalog.set_brand_state(brand.domain, "unreachable")
         catalog.record_attention(brand.domain, f"crashed: {type(e).__name__}: {e}"[:200])
-        catalog.finalize_run(run_id, 2, None)
+        catalog.finalize_run(run_id, 2, None, domain=brand.domain)
+        catalog.annotate_run(brand.domain, run_id, reason=f"crashed: {type(e).__name__}: {e}"[:200])
         log("run-crashed", error=f"{type(e).__name__}: {e}")
         return 2
     finally:
@@ -497,11 +530,18 @@ def run_brand(
                 catalog.save_run_log(brand.domain, run_id, log_path.read_text())
         except Exception:  # noqa: BLE001
             pass
+        try:
+            catalog.report_progress(brand.domain, "done", 0, 0, force=True)
+        except Exception:  # noqa: BLE001
+            pass
         lock.unlink(missing_ok=True)
 
 
 # Failed attempts at one field before a run stops asking about it.
 _FIELD_STRIKES = 3
+# Finder calls that failed in a row (not the page's fault: the model, the network)
+# before a run stops asking altogether.
+_FINDER_MISSES = 3
 
 
 def _spread(refs: list, n: int) -> list:
@@ -510,6 +550,7 @@ def _spread(refs: list, n: int) -> list:
         return list(refs)
     step = (len(refs) - 1) / (n - 1) if n > 1 else 0
     return [refs[round(i * step)] for i in range(n)]
+
 
 # Days before a field the model was shown a page for, and found nothing, is asked
 # about again. Everything is tried; what does not work is tried again later, not never.

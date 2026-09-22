@@ -21,7 +21,7 @@ from backend.archive.escalate import escalating_prober
 from backend.archive.planner import compose_plan
 from backend.archive.transport import for_level
 
-EMPTY = (None, "", [], {})
+EMPTY: tuple[object, ...] = (None, "", [], {})
 
 
 def field_coverage(

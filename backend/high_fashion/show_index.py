@@ -118,11 +118,20 @@ def seed(conn, shows) -> int:
             cid = r.get("c")
             if not cid:
                 continue
-            copy.write_row((
-                cid, r.get("d"), r.get("s"), r.get("y"), r.get("g"),
-                r.get("n"), r.get("t"), r.get("p"),
-                search_text(r), sort_rank(r),
-            ))
+            copy.write_row(
+                (
+                    cid,
+                    r.get("d"),
+                    r.get("s"),
+                    r.get("y"),
+                    r.get("g"),
+                    r.get("n"),
+                    r.get("t"),
+                    r.get("p"),
+                    search_text(r),
+                    sort_rank(r),
+                )
+            )
             written += 1
     return written
 
@@ -146,8 +155,18 @@ def upsert(conn, shows) -> int:
                 city = EXCLUDED.city, search_text = EXCLUDED.search_text,
                 sort_rank = EXCLUDED.sort_rank
             """,
-            (cid, r.get("d"), r.get("s"), r.get("y"), r.get("g"), r.get("n"),
-             r.get("t"), r.get("p"), search_text(r), sort_rank(r)),
+            (
+                cid,
+                r.get("d"),
+                r.get("s"),
+                r.get("y"),
+                r.get("g"),
+                r.get("n"),
+                r.get("t"),
+                r.get("p"),
+                search_text(r),
+                sort_rank(r),
+            ),
         )
         written += 1
     return written
@@ -221,7 +240,7 @@ def _where(filters: dict, query: Optional[str]):
     # Every term must appear somewhere. "chanel fw25" is two terms, and a
     # show matches only if it answers both — which is what makes a two-word
     # query narrow rather than widen the result.
-    for term in (normalise(query or "").split() if query else []):
+    for term in normalise(query or "").split() if query else []:
         clauses.append("search_text LIKE %s")
         params.append(f"%{term}%")
 
@@ -230,8 +249,14 @@ def _where(filters: dict, query: Optional[str]):
 
 def _row(r) -> dict[str, Any]:
     return {
-        "collection_id": r[0], "designer": r[1], "season": r[2], "year": r[3],
-        "gender": r[4], "category": r[5], "shoot_type": r[6], "city": r[7],
+        "collection_id": r[0],
+        "designer": r[1],
+        "season": r[2],
+        "year": r[3],
+        "gender": r[4],
+        "category": r[5],
+        "shoot_type": r[6],
+        "city": r[7],
     }
 
 
@@ -239,9 +264,7 @@ def query(conn, *, filters=None, text=None, limit=100, offset=0) -> dict:
     """Shows matching a filter set and/or a text query, newest first."""
     where, params = _where(filters or {}, text)
 
-    total = conn.execute(
-        f"SELECT count(*) FROM show_index WHERE {where}", params
-    ).fetchone()[0]
+    total = conn.execute(f"SELECT count(*) FROM show_index WHERE {where}", params).fetchone()[0]
 
     rows = conn.execute(
         f"""
@@ -255,8 +278,7 @@ def query(conn, *, filters=None, text=None, limit=100, offset=0) -> dict:
         params + [limit, offset],
     ).fetchall()
 
-    return {"rows": [_row(r) for r in rows], "total": total,
-            "hasMore": offset + len(rows) < total}
+    return {"rows": [_row(r) for r in rows], "total": total, "hasMore": offset + len(rows) < total}
 
 
 def facets(conn, *, filters=None, text=None) -> dict:
@@ -267,9 +289,14 @@ def facets(conn, *, filters=None, text=None) -> dict:
     counts are exact rather than capped at one results page.
     """
     out = {}
-    for key, column in (("year", "year"), ("season", "season"),
-                        ("category", "category"), ("shootType", "shoot_type"),
-                        ("gender", "gender"), ("city", "city")):
+    for key, column in (
+        ("year", "year"),
+        ("season", "season"),
+        ("category", "category"),
+        ("shootType", "shoot_type"),
+        ("gender", "gender"),
+        ("city", "city"),
+    ):
         # A facet's own value is dropped from the filters before counting it,
         # so choosing 2020 does not reduce the year list to just 2020.
         others = {k: v for k, v in (filters or {}).items() if k != key}

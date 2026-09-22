@@ -5,7 +5,7 @@
 -r requirements.txt
 
 # Scraper transitive deps. The scraper-specific requirements file
-# (backend/scraper/requirements.txt) lists these separately; tests need
+# (requirements-scraper.txt) lists these separately; tests need
 # the Python packages importable, but do NOT need `playwright install`
 # browser binaries — unit tests never launch a browser.
 playwright>=1.40.0

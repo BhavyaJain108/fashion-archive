@@ -114,7 +114,7 @@ class HttpxTransport(LedgeredTransport):
 
     The headers say Chrome; Python's TLS stack says otherwise, and a WAF hashes the
     handshake before it reads a header. That mismatch is why several brands refuse this
-    lane — see access/cffi.py for the one that does not have it.
+    lane — CurlCffiTransport below is the one that does not have it.
     """
 
     def __init__(
@@ -130,7 +130,24 @@ class HttpxTransport(LedgeredTransport):
         )
 
     def _fetch(self, url: str) -> httpx.Response:
-        return self._client.get(url)
+        # Streamed, so a body larger than any page or photograph we want is dropped
+        # before it is in memory; a whole read of a hostile or broken response could
+        # take the worker with it.
+        resp = self._client.send(self._client.build_request("GET", url), stream=True)
+        try:
+            declared = resp.headers.get("content-length")
+            if declared and declared.isdigit() and int(declared) > MAX_BODY_BYTES:
+                raise ResponseTooLarge(f"{url}: {declared} bytes declared")
+            body = bytearray()
+            for chunk in resp.iter_bytes():
+                body.extend(chunk)
+                if len(body) > MAX_BODY_BYTES:
+                    raise ResponseTooLarge(f"{url}: over {MAX_BODY_BYTES} bytes")
+        finally:
+            resp.close()
+        return httpx.Response(
+            resp.status_code, headers=resp.headers, content=bytes(body), request=resp.request
+        )
 
 
 def _retry_after(resp) -> int | None:
@@ -148,6 +165,29 @@ def _retry_after(resp) -> int | None:
 
 DEFAULT_IMPERSONATE = "chrome142"
 TIMEOUT = 15.0
+
+# The largest response worth reading: a product page is under a megabyte, a
+# photograph under a few. Anything past this is not ours to keep.
+MAX_BODY_BYTES = 20 * 1024 * 1024
+
+
+class ResponseTooLarge(Exception):
+    """A response bigger than any page or photograph we want."""
+
+
+class _Body:
+    """A curl_cffi response read to a cap: the same attributes the rest reads."""
+
+    def __init__(self, resp, content: bytes):
+        self.status_code = resp.status_code
+        self.headers = resp.headers
+        self.url = getattr(resp, "url", None)
+        self.content = content
+        encoding = getattr(resp, "encoding", None) or "utf-8"
+        try:
+            self.text = content.decode(encoding, errors="replace")
+        except LookupError:
+            self.text = content.decode("utf-8", errors="replace")
 
 
 class CurlCffiTransport(LedgeredTransport):
@@ -175,7 +215,19 @@ class CurlCffiTransport(LedgeredTransport):
         return self._session
 
     def _fetch(self, url: str):
-        return self._ensure_session().get(url, allow_redirects=True)
+        resp = self._ensure_session().get(url, allow_redirects=True, stream=True)
+        try:
+            declared = resp.headers.get("content-length")
+            if declared and str(declared).isdigit() and int(declared) > MAX_BODY_BYTES:
+                raise ResponseTooLarge(f"{url}: {declared} bytes declared")
+            body = bytearray()
+            for chunk in resp.iter_content():
+                body.extend(chunk)
+                if len(body) > MAX_BODY_BYTES:
+                    raise ResponseTooLarge(f"{url}: over {MAX_BODY_BYTES} bytes")
+        finally:
+            resp.close()
+        return _Body(resp, bytes(body))
 
     def close(self) -> None:
         if self._session is not None:

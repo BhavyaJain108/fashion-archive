@@ -51,10 +51,15 @@ def google(rsa_key):
 def make_token(rsa_key, **overrides):
     now = int(time.time())
     claims = {
-        "iss": ISSUER, "aud": CLIENT_ID, "sub": "1234567890",
-        "email": "person@example.test", "email_verified": True,
-        "name": "A Person", "nonce": "the-nonce",
-        "iat": now, "exp": now + 600,
+        "iss": ISSUER,
+        "aud": CLIENT_ID,
+        "sub": "1234567890",
+        "email": "person@example.test",
+        "email_verified": True,
+        "name": "A Person",
+        "nonce": "the-nonce",
+        "iat": now,
+        "exp": now + 600,
     }
     claims.update(overrides)
     return jwt.encode(claims, rsa_key, algorithm="RS256")
@@ -95,9 +100,17 @@ class TestVerifyIdToken:
 
     def test_rejects_an_unsigned_token(self, google, rsa_key):
         """alg=none is the oldest trick against a JWT verifier."""
-        forged = jwt.encode({"iss": ISSUER, "aud": CLIENT_ID, "sub": "1",
-                             "nonce": "the-nonce", "exp": int(time.time()) + 600},
-                            key="", algorithm="none")
+        forged = jwt.encode(
+            {
+                "iss": ISSUER,
+                "aud": CLIENT_ID,
+                "sub": "1",
+                "nonce": "the-nonce",
+                "exp": int(time.time()) + 600,
+            },
+            key="",
+            algorithm="none",
+        )
         with pytest.raises(OAuthError):
             google.verify_id_token(forged, nonce="the-nonce")
 
@@ -126,8 +139,12 @@ class TestIdentity:
 
 class TestAuthorizeUrl:
     def test_google_sends_a_pkce_challenge(self, google):
-        url = google.authorize_url(redirect_uri="https://api.example.test/cb",
-                                   state="st", nonce="no", code_verifier="verifier")
+        url = google.authorize_url(
+            redirect_uri="https://api.example.test/cb",
+            state="st",
+            nonce="no",
+            code_verifier="verifier",
+        )
         q = parse_qs(urlparse(url).query)
         assert q["code_challenge_method"] == ["S256"]
         assert "verifier" not in url  # the challenge is a hash, never the verifier
@@ -135,11 +152,19 @@ class TestAuthorizeUrl:
 
     def test_apple_asks_for_a_form_post(self, ec_key):
         """Apple only returns the person's name and email by form_post."""
-        apple = AppleProvider("studio.example.web", "TEAMID", "KEYID",
-                              _pem(ec_key), jwk_client=FakeJwks(ec_key))
-        q = parse_qs(urlparse(apple.authorize_url(
-            redirect_uri="https://api.example.test/cb", state="st", nonce="no",
-            code_verifier=None)).query)
+        apple = AppleProvider(
+            "studio.example.web", "TEAMID", "KEYID", _pem(ec_key), jwk_client=FakeJwks(ec_key)
+        )
+        q = parse_qs(
+            urlparse(
+                apple.authorize_url(
+                    redirect_uri="https://api.example.test/cb",
+                    state="st",
+                    nonce="no",
+                    code_verifier=None,
+                )
+            ).query
+        )
         assert q["response_mode"] == ["form_post"]
         assert q["scope"] == ["name email"]
         assert "code_challenge" not in q
@@ -151,16 +176,18 @@ class TestAppleClientSecret:
         secret = apple.client_secret()
 
         assert jwt.get_unverified_header(secret)["kid"] == "KEYID"
-        claims = jwt.decode(secret, ec_key.public_key(), algorithms=["ES256"],
-                            audience="https://appleid.apple.com")
+        claims = jwt.decode(
+            secret, ec_key.public_key(), algorithms=["ES256"], audience="https://appleid.apple.com"
+        )
         assert claims["iss"] == "TEAMID"
         assert claims["sub"] == "studio.example.web"
         assert claims["exp"] > time.time()
 
     def test_accepts_a_key_whose_newlines_were_flattened(self, ec_key):
         """Render stores multi-line values with literal \\n in them."""
-        apple = AppleProvider("studio.example.web", "TEAMID", "KEYID",
-                              _pem(ec_key).replace("\n", "\\n"))
+        apple = AppleProvider(
+            "studio.example.web", "TEAMID", "KEYID", _pem(ec_key).replace("\n", "\\n")
+        )
         assert apple.client_secret()
 
 

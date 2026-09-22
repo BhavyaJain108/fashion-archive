@@ -1,9 +1,10 @@
 # Deploying
 
-Three pieces: the API on Render, the frontend on Cloudflare Pages, images in R2.
+Four pieces: the API and the scraper daemon on Render, the frontend on Cloudflare Workers, the archive and its images in R2.
 
 ```
-premiumpropogandafashion.studio        Cloudflare Pages   React build
+premiumpropogandafashion.studio        Cloudflare Workers React build, static assets
+(no address)                           Render worker      fashion-archive-scraper: the daemon
 api.premiumpropogandafashion.studio    Render             Flask + Postgres
 images.premiumpropogandafashion.studio Cloudflare R2      bucket, public
 ```
@@ -16,10 +17,11 @@ cookie being sent cross-site.
 ## 1. API on Render
 
 Render dashboard -> New -> Blueprint -> pick this repo. It reads `render.yaml`
-and creates a Postgres database plus the API service, with `DATABASE_URL` wired
-between them.
+and creates a Postgres database, the API service, and the scraper worker
+(`fashion-archive-scraper`, standard plan, Chromium image, `cli daemon start --workers 2`),
+with `DATABASE_URL` wired to the API.
 
-It will prompt for five secrets, which never enter the repo:
+It will prompt for the secrets, which never enter the repo:
 
 | Variable | From |
 |---|---|
@@ -33,6 +35,12 @@ It will prompt for five secrets, which never enter the repo:
 | `R2_ACCOUNT_ID` | in the R2 endpoint URL |
 | `R2_ACCESS_KEY_ID` | R2 -> Manage R2 API Tokens |
 | `R2_SECRET_ACCESS_KEY` | same token, shown once |
+| `YOUTUBE_API_KEY` | Google Cloud, YouTube Data API |
+| `ADMIN_EMAILS` | who may open `/dev`, comma-separated |
+| `FINDER_DAILY_USD` | the finder's daily cap; set the same on both services |
+| `ANTHROPIC_ADMIN_KEY` | Anthropic console, an admin key, for the costs page |
+| `CLOUDFLARE_API_TOKEN` | Cloudflare, read access to R2 analytics, for the costs page |
+| `RENDER_API_KEY` | Render account settings, for the costs page |
 
 First build takes 5-15 minutes; the image contains Chromium.
 
@@ -83,10 +91,13 @@ Open the site and register. Confirm, in order:
 
 ## Things that will bite
 
-**One worker, on purpose.** `backend/api/routes.py` keeps scrape job state in a
-module-level dict. A second worker would not see it, and half of a client's
-status polls would hit a process that never heard of the job. Concurrency comes
-from `--threads`.
+**One API process, on purpose.** The deck's ten-second overview cache and the
+provider caches are module-level. A second gunicorn worker would answer half the
+polls from a cold cache. Concurrency comes from `--threads`.
+
+**Every push replaces the scraper's container.** A run in flight is lost; the
+brand shows "worker dead" on the deck for up to fifteen minutes, or press
+*release*. Batch pushes.
 
 **`DEBUG` must stay false.** It serves the Werkzeug debugger, an interactive
 Python console, to anyone who can trigger a traceback.

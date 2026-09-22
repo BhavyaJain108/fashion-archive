@@ -70,7 +70,7 @@ def _httpx():
 
 def _cffi(profile: str):
     def make():
-        from backend.archive.access.cffi import CurlCffiTransport
+        from backend.archive.transport import CurlCffiTransport
 
         return CurlCffiTransport(impersonate=profile)
 

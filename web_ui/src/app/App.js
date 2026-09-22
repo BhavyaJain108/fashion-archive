@@ -198,13 +198,6 @@ function App() {
     );
   }
 
-  // Needs a session, so it renders after the cookie check rather than beside the
-  // styleguide: the endpoints behind it are owner-only and a signed-out visitor
-  // should meet the sign-in screen, not an empty table.
-  if (route.page === 'dev') {
-    return <DevPage route={route} navigate={go} />;
-  }
-
   // `navigate` is handed down rather than imported by the pages that use it.
   // It is `go` — useRoute's navigate — and it is here for the same reason
   // `onPageSwitch` is: a page that reaches into app/router for it is a page
@@ -230,6 +223,13 @@ function App() {
         <AuthPanel initialNotice={authNotice} />
       </div>
     );
+  }
+
+  // Needs a session, so it renders after the cookie check rather than beside the
+  // styleguide: the endpoints behind it are owner-only and a signed-out visitor
+  // should meet the sign-in screen above, not an empty table.
+  if (route.page === 'dev') {
+    return <DevPage route={route} navigate={go} />;
   }
 
   return (

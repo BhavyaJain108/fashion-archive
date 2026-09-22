@@ -117,7 +117,16 @@ def sizes_from_swatches(html: str) -> list[dict]:
     return list(out.values()) if len(out) > 1 else []
 
 
-def variant_from_sku(sku: str | None) -> str | None:
+def _text_or_none(value) -> str | None:
+    """A JSON-LD scalar as text, or None when the shop left it out. Numbers are
+    kept as their digits; an empty string is an absence, not a code."""
+    if value is None or isinstance(value, (list, dict)):
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def variant_from_sku(sku: str | int | None) -> str | None:
     """What a variant SKU names after its double dash.
 
     Vivienne Westwood publishes no `color` in its JSON-LD and the page's only other
@@ -129,9 +138,11 @@ def variant_from_sku(sku: str | None) -> str | None:
     sizes: Van Cleef's pages carry data-affirm-color="black" on a financing widget, and
     that rule would have recorded a gold necklace as black.
     """
-    if not sku:
+    if sku is None or sku == "":
         return None
-    m = _VARIANT_SUFFIX.search(sku.strip())
+    # JSON-LD carries whatever the shop's template printed: WIA Collections
+    # publishes its SKUs as bare numbers, and a number has nothing to strip.
+    m = _VARIANT_SUFFIX.search(str(sku).strip())
     return m.group(1).replace("-", " ").strip() if m else None
 
 
@@ -313,7 +324,7 @@ def _map_product_node(node: dict, url: str, html: str = "") -> ProductRecord:
         product_title=node["name"],
         # E0005 separates the brand's own SKU from barcode-style identifiers, so an
         # mpn belongs in additional_code, never in product_code.
-        product_code=node.get("sku") or None,
+        product_code=_text_or_none(node.get("sku")),
         **_codes(node),
         specifications=_specifications(node) or None,
         additional_tags=_keywords(node) or None,

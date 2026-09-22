@@ -78,7 +78,11 @@ class PlaywrightTransport:
             from playwright.sync_api import sync_playwright
 
         self._pw = sync_playwright().start()
-        self._browser = self._pw.chromium.launch(headless=self._headless, args=stealth_args())
+        # Sandboxed: the pages are other people's, and the container holds the
+        # bucket's keys. Needs a non-root user (Dockerfile.scraper runs as pwuser).
+        self._browser = self._pw.chromium.launch(
+            headless=self._headless, args=stealth_args(), chromium_sandbox=True
+        )
         self._context = self._browser.new_context(user_agent=STEALTH_USER_AGENT)
         for script in stealth_scripts(self.driver):
             self._context.add_init_script(script)
@@ -123,7 +127,12 @@ class PlaywrightTransport:
             page.close()
 
     def close(self) -> None:
-        if self._browser is not None:
-            self._browser.close()
+        # The driver is stopped even when the browser refuses to close (a crashed
+        # Chromium): otherwise the node process outlives the run.
+        try:
+            if self._browser is not None:
+                self._browser.close()
+        except Exception:  # noqa: BLE001
+            pass
         if self._pw is not None:
             self._pw.stop()

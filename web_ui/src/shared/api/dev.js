@@ -26,10 +26,17 @@ async function read(path, fallback) {
   const headers = {};
   const known = versions.get(path);
   if (known) headers['If-None-Match'] = known;
-  const response = await fetch(`${ApiClient.BASE_URL}/api/dev/${path}`, {
-    credentials: 'include',
-    headers,
-  });
+  let response;
+  try {
+    response = await fetch(`${ApiClient.BASE_URL}/api/dev/${path}`, {
+      credentials: 'include',
+      headers,
+    });
+  } catch (e) {
+    // The network, not the API: without this the page sat on "checking for
+    // changes…" for ever over numbers of unknown age.
+    return { error: `could not reach the API (${e.message})` };
+  }
   if (response.status === 304) return { notModified: true };
   const tag = response.headers.get('ETag');
   if (tag && response.ok) versions.set(path, tag);
@@ -37,11 +44,16 @@ async function read(path, fallback) {
 }
 
 async function command(path, fallback, body) {
-  const response = await fetch(`${ApiClient.BASE_URL}/api/dev/${path}`, {
-    method: 'POST',
-    credentials: 'include',
-    ...(body ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}),
-  });
+  let response;
+  try {
+    response = await fetch(`${ApiClient.BASE_URL}/api/dev/${path}`, {
+      method: 'POST',
+      credentials: 'include',
+      ...(body ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}),
+    });
+  } catch (e) {
+    return { error: `could not reach the API (${e.message})` };
+  }
   return envelope(response, fallback);
 }
 

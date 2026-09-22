@@ -85,7 +85,7 @@ def _fleet_check(args, catalog: Catalog, brands: list[Brand]) -> int:
 
         return ChallengeAwareBrowser()
 
-    rows = []
+    rows: list[dict[str, Any]] = []
     for b in targets:
         t: Transport = HttpxTransport()
         try:
@@ -151,6 +151,55 @@ def _fleet_check(args, catalog: Catalog, brands: list[Brand]) -> int:
         f"{len(rows)} brands: {sum(1 for r in rows if r['live'] in ('full', 'partial'))} "
         f"readable now, {len(failing)} failed their last gate, "
         f"{len(needing)} need a human"
+    )
+    return 0
+
+
+# What a run's recorded reason looks like when our own code broke, as against the
+# site refusing us, a password wall or a host asking us to wait.
+_CODE_FAULT = (
+    "object has no attribute",
+    "Error:",
+    "Error ",
+    "Exception",
+    "KeyError",
+    "TypeError",
+    "ValueError",
+    "IndexError",
+    "AttributeError",
+    "NoneType",
+    "crashed:",
+)
+
+
+def _failures(args, catalog: Catalog, brands: list[Brand]) -> int:
+    """Runs from the last N hours that ended on our own code, with the line from the
+    log that says so. What a bug-fixer reads first; `--all` shows every failed run."""
+    from datetime import datetime, timedelta, timezone
+
+    since = (datetime.now(timezone.utc) - timedelta(hours=args.hours)).isoformat()
+    found = 0
+    for b in brands:
+        for run in catalog.recent_runs(b.domain, limit=10):
+            if (run.get("started_at") or "") < since or run.get("exit_status") in (None, 0):
+                continue
+            reason = str(run.get("reason") or "")
+            ours = any(m in reason for m in _CODE_FAULT)
+            if not ours and not args.all:
+                continue
+            found += 1
+            print(
+                f"{b.domain}  run {run['id']}  exit {run['exit_status']}  {'CODE' if ours else 'site'}"
+            )
+            print(f"    {reason[:300] or '(no reason recorded)'}")
+            text = catalog.load_run_log(b.domain, run["id"]) or ""
+            for line in text.splitlines():
+                if any(k in line for k in ('"plan-failed"', '"run-crashed"', '"fetch-error"')):
+                    print(f"    {line[:300]}")
+                    break
+    print(
+        f"\n{found} failed run(s) in the last {args.hours}h"
+        + ("" if args.all else " on our own code")
     )
     return 0
 
@@ -334,6 +383,7 @@ def main(argv: list[str] | None = None) -> int:
         "coverage",
         "fleet-check",
         "notes",
+        "failures",
     ):
         sp = sub.add_parser(name)
         sp.add_argument(
@@ -385,6 +435,9 @@ def main(argv: list[str] | None = None) -> int:
             )
             sp.add_argument("--gap", type=float, default=0.0)
             sp.add_argument("--images-dir", type=Path, default=Path("backend/archive/data/images"))
+        if name == "failures":
+            sp.add_argument("--hours", type=int, default=24)
+            sp.add_argument("--all", action="store_true", help="every failed run, not only ours")
         if name == "brands":
             sp.add_argument(
                 "action", choices=["add", "drop", "pause", "resume", "cadence", "seed", "list"]
@@ -829,6 +882,9 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"[{'x' if done else ' '}] {n['at'][:16]}  {n['id']}\n    {n['text']}")
             return 0
 
+        if args.cmd == "failures":
+            return _failures(args, catalog, brands)
+
         if args.cmd == "coverage":
             return _coverage(args, brands)
 
@@ -955,6 +1011,7 @@ def main(argv: list[str] | None = None) -> int:
             sched.request_stop(False)  # a fresh start clears a previous stop
             catalog.close()
             budget = HostBudget(gap=args.gap)
+            budget.seed_from(catalog)  # hosts that refused us recently stay stood down
             # What the finder may spend across the fleet today. Zero keeps it off, which
             # is what the daemon did unconditionally until 2026-09-22.
             finder_cap_usd = float(os.getenv("FINDER_DAILY_USD", "0") or 0)
@@ -976,7 +1033,9 @@ def main(argv: list[str] | None = None) -> int:
                 def _field_finder(domain, url, missing, page_transport):
                     from backend.archive.finder_llm import learn_recipes
 
-                    cap.check(estimate_usd=0.02)  # raises FinderBudgetSpent
+                    # A page is up to ~55k tokens; the old 0.02 was a tenth of a real
+                    # call and let the day overshoot by a call per worker.
+                    cap.check(estimate_usd=0.2)  # raises FinderBudgetSpent
                     before = spend.usd
                     resp = page_transport.get(url)
                     if resp.status_code != 200:
@@ -999,7 +1058,10 @@ def main(argv: list[str] | None = None) -> int:
                         run_brand(
                             brand,
                             cat,
-                            HttpxTransport(sink=requests_log),
+                            # Paced and stood down like the hand-run scrape: without
+                            # the budget a 429 mid-run was followed by the next
+                            # request at once, for every product left.
+                            HttpxTransport(sink=requests_log, budget=budget),
                             mode=mode,
                             retry_searched=retry_searched,
                             locks_dir=args.locks if hasattr(args, "locks") else Path("locks"),
@@ -1011,8 +1073,17 @@ def main(argv: list[str] | None = None) -> int:
                             # Ask about everything the run can, not ten pages' worth:
                             # the daily ceiling is the throttle, and what a page did
                             # not yield is asked again on a later product or run.
-                            learn_budget=60,
-                            transport_factory=lambda level: for_level(level, sink=requests_log),
+                            # Fifteen pages at ~$0.17 is $2.50 — one brand cannot spend
+                            # the fleet's day; what a page did not yield is asked again
+                            # on a later run.
+                            learn_budget=15,
+                            transport_factory=lambda level: for_level(
+                                level, sink=requests_log, budget=budget
+                            ),
+                            # A brand cannot hold a worker for a day: 20,000 products,
+                            # six hours, then the rest is reported as missing coverage.
+                            max_products=20_000,
+                            time_budget=6 * 3600,
                         )
                     finally:
                         requests_log.flush()
@@ -1033,6 +1104,7 @@ def main(argv: list[str] | None = None) -> int:
                             object_store(args.objects),
                             image_sink(args.images_dir),
                             budget,
+                            limit=5000,  # products per pass; the rest next time
                         )
                     rows = cat.current_products(brand.domain)
                     return [ProductRecord(**cast(Any, r)) for r in rows], spend.usd - spent_before

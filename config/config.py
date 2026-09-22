@@ -40,7 +40,12 @@ class Config:
     COOKIE_DOMAIN = os.getenv('COOKIE_DOMAIN', '')
     # Secure cookies are not sent over plain http, so local development needs
     # this off. It must be on anywhere real.
-    COOKIE_SECURE = os.getenv('COOKIE_SECURE', 'false').lower() == 'true'
+    # Defaults to on wherever the app is served over https, so an unset variable
+    # on the host never sends the session cookie in the clear.
+    COOKIE_SECURE = (
+        os.getenv('COOKIE_SECURE', 'true' if os.getenv('APP_BASE_URL', '').startswith('https') else 'false').lower()
+        == 'true'
+    )
 
     # Sign in with Google: OAuth client from Google Cloud Console. The
     # authorised redirect URI is {API_BASE_URL}/api/auth/oauth/google/callback.

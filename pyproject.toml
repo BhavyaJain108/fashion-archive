@@ -31,7 +31,7 @@ ignore = [
 quote-style = "double"
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.12"
 # Start extremely permissive — we're adding typing to an existing untyped codebase.
 # Ratchet `strict = true` on a per-module basis as we clean things up.
 ignore_missing_imports = true

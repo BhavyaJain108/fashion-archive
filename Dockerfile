@@ -20,8 +20,8 @@ ENV PYTHONUNBUFFERED=1
 
 # One worker, eight threads — deliberately.
 #
-# backend/api/routes.py keeps scrape job state in a module-level dict behind a
-# threading.Lock. With two workers, half of a client's status polls reach a
+# backend/api/dev_routes.py keeps the deck's overview cache in a module-level dict
+# behind a threading.Lock. With two workers, half of the deck's polls reach a
 # process that has never heard of the job. Concurrency comes from threads here,
 # not from workers.
 #

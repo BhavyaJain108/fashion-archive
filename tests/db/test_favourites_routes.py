@@ -132,9 +132,7 @@ class TestALookIsUnchanged:
             "collection_url": COLLECTION["url"],
             "look_number": 12,
         }
-        assert client.post("/api/favourites/check", json=body).get_json() == {
-            "is_favourite": True
-        }
+        assert client.post("/api/favourites/check", json=body).get_json() == {"is_favourite": True}
 
 
 class TestAShow:
@@ -539,7 +537,7 @@ class TestPagingTheList:
 
         seen = []
         cursor = None
-        for _ in range(10):                      # a bound, so a bug cannot hang
+        for _ in range(10):  # a bound, so a bug cannot hang
             url = "/api/favourites?limit=3"
             if cursor:
                 url += f"&cursor={cursor}"
@@ -558,9 +556,7 @@ class TestPagingTheList:
         self._save_many(client, 4)
 
         first = client.get("/api/favourites?limit=2").get_json()
-        second = client.get(
-            f"/api/favourites?limit=2&cursor={first['nextCursor']}"
-        ).get_json()
+        second = client.get(f"/api/favourites?limit=2&cursor={first['nextCursor']}").get_json()
 
         assert self._numbers(second) == [2, 1]
         # Four rows, two pages of two. `len(rows) == limit` would claim a third
@@ -591,9 +587,7 @@ class TestPagingTheList:
             )
         assert rows(conn) == 4
 
-        second = client.get(
-            f"/api/favourites?limit=3&cursor={first['nextCursor']}"
-        ).get_json()
+        second = client.get(f"/api/favourites?limit=3&cursor={first['nextCursor']}").get_json()
 
         # The rest of the list, all of it. Not [2, 1] with 3 skipped.
         assert self._numbers(second) == [3, 2, 1]
@@ -639,9 +633,9 @@ class TestPagingTheList:
     @pytest.mark.parametrize(
         "payload",
         [
-            b"yesterday|12",              # the timestamp is not one
-            b"2026-09-14T00:00:00+00:00|twelve",   # the id is not one
-            b"2026-09-14T00:00:00+00:00",          # no pair at all
+            b"yesterday|12",  # the timestamp is not one
+            b"2026-09-14T00:00:00+00:00|twelve",  # the id is not one
+            b"2026-09-14T00:00:00+00:00",  # no pair at all
         ],
     )
     def test_a_cursor_whose_halves_are_junk_is_refused(self, client, payload):

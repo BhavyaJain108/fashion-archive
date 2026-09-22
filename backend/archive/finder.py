@@ -19,6 +19,9 @@ from backend.archive.domain.recipe import Recipe
 _MAX_VALUE_LEN = 2000
 
 
+MAX_RULE_HTML = 600_000  # characters; the largest product page seen is ~400k
+
+
 def apply_recipes(
     html: str, recipes: list[Recipe], context: dict | None = None, hits: dict | None = None
 ) -> dict[str, str]:
@@ -28,6 +31,9 @@ def apply_recipes(
     field out differently across its catalogue — a sneaker page's size buttons are not
     a dress page's dropdown. The rules are strategies to try in order, not one answer.
     """
+    # A rule is replayed on every product page of a brand; a page past this is cut,
+    # so a regex the model wrote cannot spend minutes on a megabyte of markup.
+    html = html[:MAX_RULE_HTML]
     soup = BeautifulSoup(html, "lxml")
     out: dict[str, str] = {}
     for r in recipes:

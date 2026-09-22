@@ -1,7 +1,7 @@
 import React from 'react';
 
 import DevEndpoints from '../../shared/api/dev';
-import useDevLoad, { Gate } from './useDevLoad';
+import useDevLoad, { Gate, Stamp } from './useDevLoad';
 import { ago, gb, n, secs, usd } from './format';
 
 const TEN_MINUTES = 10 * 60 * 1000;
@@ -41,7 +41,7 @@ function Series({ rows, max }) {
 }
 
 export default function DevCosts() {
-  const { data, state } = useDevLoad(() => DevEndpoints.getCosts(), [], TEN_MINUTES, 'costs');
+  const { data, state, refreshing, checkedAt } = useDevLoad(() => DevEndpoints.getCosts(), [], TEN_MINUTES, 'costs');
 
   return (
     <Gate state={state}>
@@ -49,7 +49,7 @@ export default function DevCosts() {
         <>
           <div className="dev-head">
             <h1 className="dev-title">Costs</h1>
-            <div className="dev-stamp">read {ago(data.generated_at)} &middot; providers cached ten minutes</div>
+            <Stamp data={data} refreshing={refreshing} checkedAt={checkedAt} every="providers cached ten minutes" />
           </div>
 
           <div className="dev-totals">
@@ -172,7 +172,13 @@ export default function DevCosts() {
                   <td className="key">bandwidth</td>
                   <td className="wrap">
                     {data.providers.render.bandwidth_gb_per_day} GB a day over the last week
-                    <span className="dev-muted"> · {data.providers.render.bandwidth_gb_month} GB this month · billed at ${data.providers.render.bandwidth_usd_per_gb}/GB above the plan&rsquo;s allowance</span>
+                    <span className="dev-muted">
+                      {' '}· {data.providers.render.bandwidth_gb_month} GB this month
+                      {data.providers.render.unmetered_services > 0 && (
+                        <span className="dev-strong"> · {data.providers.render.unmetered_services} service(s) unmetered, so this is low</span>
+                      )}
+                      {' '}· Render&rsquo;s published rate is ${data.providers.render.bandwidth_usd_per_gb}/GB above the plan&rsquo;s allowance; the invoice is the only bill
+                    </span>
                   </td>
                 </tr>
               </tbody>

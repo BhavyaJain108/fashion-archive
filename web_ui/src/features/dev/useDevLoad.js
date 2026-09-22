@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+
+import { ago } from './format';
 
 // One loading shape for every machine-room view: a fetcher, an optional refresh
 // interval, and the four states a read can be in. Pages render the state, never
@@ -36,6 +38,10 @@ export default function useDevLoad(fetcher, deps, refreshMs = 0, key = null) {
   const [data, setData] = useState(first);
   const [state, setState] = useState(first ? 'ready' : 'loading');
   const [refreshing, setRefreshing] = useState(!!first);
+  // When the server last confirmed what is on screen, whether by a fresh answer or
+  // by a 304. The numbers' own age is `generated_at`; this is how recently that
+  // age was verified.
+  const [checkedAt, setCheckedAt] = useState(null);
   const alive = useRef(true);
 
   const load = useCallback(async () => {
@@ -46,6 +52,7 @@ export default function useDevLoad(fetcher, deps, refreshMs = 0, key = null) {
     if (body.notModified) {
       // The server confirmed what is on screen is current. Nothing to replace.
       setState('ready');
+      setCheckedAt(Date.now());
       setData((d) => (d && d.__error ? { ...d, __error: undefined } : d));
       return;
     }
@@ -62,6 +69,7 @@ export default function useDevLoad(fetcher, deps, refreshMs = 0, key = null) {
     }
     setData(body);
     setState('ready');
+    setCheckedAt(Date.now());
     remember(key, body);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
@@ -77,7 +85,7 @@ export default function useDevLoad(fetcher, deps, refreshMs = 0, key = null) {
     };
   }, [load, refreshMs]);
 
-  return { data, state, refreshing, reload: load };
+  return { data, state, refreshing, checkedAt, reload: load };
 }
 
 export function Gate({ state, children }) {
@@ -91,4 +99,22 @@ export function Gate({ state, children }) {
   if (state === 'loading') return <div className="dev-empty">Reading the archive&hellip;</div>;
   if (state !== 'ready') return <div className="dev-empty">{state}</div>;
   return children;
+}
+
+// The line under every title: how old the numbers are, when that was last
+// confirmed, and whether the last check failed. One component so the four views
+// cannot drift into four wordings — and so no view can show old numbers as fresh.
+export function Stamp({ data, refreshing, checkedAt, every }) {
+  if (!data) return null;
+  const parts = [];
+  if (data.generated_at) parts.push(`numbers from ${ago(data.generated_at)}`);
+  if (refreshing) parts.push('checking…');
+  else if (checkedAt) parts.push(`confirmed ${ago(new Date(checkedAt).toISOString())}`);
+  if (every) parts.push(every);
+  return (
+    <div className={data.__error ? 'dev-stamp dev-stamp-failed' : 'dev-stamp'}>
+      {parts.join(' · ')}
+      {data.__error ? ` · last check failed: ${data.__error}` : ''}
+    </div>
+  );
 }

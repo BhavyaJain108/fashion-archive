@@ -18,8 +18,6 @@ Images are fetched from firstVIEW once, stored in R2, and replayed from
 there afterwards.
 """
 
-from flask import jsonify, request, Response
-
 import gzip
 import json
 import re
@@ -28,11 +26,13 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from backend.storage import images
+from flask import Response, jsonify, request
+
 from backend.auth import db
 from backend.auth.middleware import current_user
 from backend.auth.ratelimit import limited
 from backend.high_fashion import collection_cache
+from backend.storage import images
 from backend.userdata import recents
 
 # Which year/season/gender/category combinations actually have shows.
@@ -56,7 +56,7 @@ def get_seasons():
         from backend.high_fashion import firstview as fv
 
         coverage = fv.load_coverage(COVERAGE_PATH) or {}
-        combos = coverage.get('combos', {})
+        combos = coverage.get("combos", {})
 
         seasons = []
         for year in range(fv.YEAR_MAX, fv.YEAR_MIN - 1, -1):
@@ -70,37 +70,41 @@ def get_seasons():
                     if entry is None:
                         available, categories = True, None
                     else:
-                        available = bool(entry.get('hint'))
-                        categories = entry.get('categories') or {}
+                        available = bool(entry.get("hint"))
+                        categories = entry.get("categories") or {}
 
-                    seasons.append({
-                        'name': f'{label} {year} - {gender}',
-                        'url': url,
-                        'href': url.replace(fv.BASE_URL, ''),
-                        # structured — preferred over parsing `name`
-                        'year': year,
-                        'season': label,
-                        'season_id': sid,
-                        'gender': gender,
-                        'available': available,
-                        'categories': categories,
-                    })
+                    seasons.append(
+                        {
+                            "name": f"{label} {year} - {gender}",
+                            "url": url,
+                            "href": url.replace(fv.BASE_URL, ""),
+                            # structured — preferred over parsing `name`
+                            "year": year,
+                            "season": label,
+                            "season_id": sid,
+                            "gender": gender,
+                            "available": available,
+                            "categories": categories,
+                        }
+                    )
 
-        return jsonify({
-            'seasons': seasons,
-            'coverage_built_on': coverage.get('built_on'),
-            'success': True,
-        })
+        return jsonify(
+            {
+                "seasons": seasons,
+                "coverage_built_on": coverage.get("built_on"),
+                "success": True,
+            }
+        )
 
     except Exception as e:
-        return jsonify({'error': str(e), 'success': False}), 500
+        return jsonify({"error": str(e), "success": False}), 500
 
 
 # Season names are long and the subtitle carries five other fields; the
 # abbreviations are the ones the industry already uses.
 _SEASON_SHORT = {
-    'Fall / Winter': 'F/W',
-    'Spring / Summer': 'S/S',
+    "Fall / Winter": "F/W",
+    "Spring / Summer": "S/S",
 }
 
 # The subtitle carries six fields in one line of a 320px column, so the
@@ -108,15 +112,15 @@ _SEASON_SHORT = {
 # the city — often the only thing separating two rows — was the field that
 # got ellipsised off the end.
 _CATEGORY_SHORT = {
-    'Ready-to-Wear': 'RTW',
-    'Haute Couture': 'Couture',
+    "Ready-to-Wear": "RTW",
+    "Haute Couture": "Couture",
 }
 
 _SHOOT_SHORT = {
-    'Runway Details': 'Details',
-    'Runway Atmosphere': 'Atmosphere',
-    'Backstage Beauty and Fashion': 'Backstage',
-    'Bridal Collection': 'Bridal',
+    "Runway Details": "Details",
+    "Runway Atmosphere": "Atmosphere",
+    "Backstage Beauty and Fashion": "Backstage",
+    "Bridal Collection": "Bridal",
 }
 
 
@@ -128,13 +132,13 @@ def _season_url(gender, year, season):
     return the wrong shows.
     """
     if not (gender and year and season):
-        return ''
+        return ""
     from backend.high_fashion import firstview as fv
 
     try:
         return fv.build_search_url(gender=gender, year=int(year), season=season)
     except Exception:  # noqa: BLE001 — an unknown season is not worth failing a row over
-        return ''
+        return ""
 
 
 def _row_to_dict(r):
@@ -152,7 +156,7 @@ def _row_to_dict(r):
     # before you can see it, so a row has to say for itself which show it is.
     bits = []
     if r.season and r.year:
-        bits.append(f'{_SEASON_SHORT.get(r.season, r.season)} {r.year}')
+        bits.append(f"{_SEASON_SHORT.get(r.season, r.season)} {r.year}")
     elif r.year:
         bits.append(str(r.year))
     if r.gender:
@@ -161,42 +165,43 @@ def _row_to_dict(r):
         bits.append(_CATEGORY_SHORT.get(r.category, r.category))
     # Runway Collection is the plain case and is left unsaid; naming it on
     # nine rows in ten would push the fields that differ off the line.
-    if r.shoot_type and r.shoot_type != 'Runway Collection':
+    if r.shoot_type and r.shoot_type != "Runway Collection":
         bits.append(_SHOOT_SHORT.get(r.shoot_type, r.shoot_type))
     if r.city:
         bits.append(r.city)
     if r.look_count:
-        bits.append(f'{r.look_count} looks')
+        bits.append(f"{r.look_count} looks")
 
     # The brand stands alone; the qualifier goes underneath it in the list,
     # so a narrow column doesn't truncate away the very thing that tells
     # two rows of the same brand apart.
     return {
-        'designer': name,
-        'subtitle': ' · '.join(bits),
-        'url': r.url,
-        'text': r.title,
-        'photos': '', 'date': '',
-        'collection_id': r.collection_id,
-        'season': r.season,
-        'year': r.year,
-        'gender': r.gender,
-        'category': r.category,
-        'shoot_type': r.shoot_type,
-        'city': r.city,
-        'look_count': r.look_count,
-        'designer_name': r.designer,
+        "designer": name,
+        "subtitle": " · ".join(bits),
+        "url": r.url,
+        "text": r.title,
+        "photos": "",
+        "date": "",
+        "collection_id": r.collection_id,
+        "season": r.season,
+        "year": r.year,
+        "gender": r.gender,
+        "category": r.category,
+        "shoot_type": r.shoot_type,
+        "city": r.city,
+        "look_count": r.look_count,
+        "designer_name": r.designer,
         # The season this show sits in, as a real query against the site.
         # Favourites key off it, and building it here keeps firstVIEW's season
         # ids (1, 2, 3, 5) in the one module that already knows them.
-        'season_url': _season_url(r.gender, r.year, r.season),
+        "season_url": _season_url(r.gender, r.year, r.season),
     }
 
 
 def extract_look_number(img):
     """Look number from a filename like '...-0007.jpg'. Runway images are
     meaningless out of order, and the source sorts by name, not by look."""
-    match = re.search(r'-(\d+)\.', img['filename'])
+    match = re.search(r"-(\d+)\.", img["filename"])
     return int(match.group(1)) if match else 0
 
 
@@ -209,25 +214,27 @@ def _upload_images(store, designer_name, entries):
     uploaded = []
     for entry in entries:
         try:
-            data = Path(entry['local_path']).read_bytes()
+            data = Path(entry["local_path"]).read_bytes()
         except OSError as exc:
             print(f"Failed to read {entry['local_path']}: {exc}")
             continue
 
-        key = images.runway_key(designer_name, entry['filename'])
-        uploaded.append({
-            # A URL now, not a filesystem path. It used to be an absolute path
-            # the client handed back to /api/image?path= for the server to read
-            # off disk — meaningless on another machine, and that endpoint read
-            # whatever path it was given.
-            'path': store.save(key, data),
-            # Kept so cache eviction can delete the object, not just the row.
-            'key': key,
-            'source_url': entry['source_url'],
-            'index': entry['index'],
-            'filename': entry['filename'],
-            'success': True,
-        })
+        key = images.runway_key(designer_name, entry["filename"])
+        uploaded.append(
+            {
+                # A URL now, not a filesystem path. It used to be an absolute path
+                # the client handed back to /api/image?path= for the server to read
+                # off disk — meaningless on another machine, and that endpoint read
+                # whatever path it was given.
+                "path": store.save(key, data),
+                # Kept so cache eviction can delete the object, not just the row.
+                "key": key,
+                "source_url": entry["source_url"],
+                "index": entry["index"],
+                "filename": entry["filename"],
+                "success": True,
+            }
+        )
     return uploaded
 
 
@@ -245,12 +252,12 @@ def _upload_one(store, designer_name, entry):
     must not take down the show around it.
     """
     try:
-        data = Path(entry['local_path']).read_bytes()
+        data = Path(entry["local_path"]).read_bytes()
     except OSError as exc:
         print(f"Failed to read {entry['local_path']}: {exc}")
         return None
 
-    key = images.runway_key(designer_name, entry['filename'])
+    key = images.runway_key(designer_name, entry["filename"])
     try:
         url = store.save(key, data)
     except Exception as exc:  # noqa: BLE001 — one lost look, not a lost show
@@ -258,16 +265,16 @@ def _upload_one(store, designer_name, entry):
         return None
 
     return {
-        'path': url,
-        'key': key,
-        'source_url': entry['source_url'],
-        'index': entry['index'],
-        'filename': entry['filename'],
-        'success': True,
+        "path": url,
+        "key": key,
+        "source_url": entry["source_url"],
+        "index": entry["index"],
+        "filename": entry["filename"],
+        "success": True,
     }
 
 
-def _show_collection_url(collection_id, fallback=''):
+def _show_collection_url(collection_id, fallback=""):
     """The one URL a show has, whichever way it was reached.
 
     A favourite is keyed on (season_url, collection_url, look_number), so the
@@ -289,7 +296,7 @@ def _show_collection_url(collection_id, fallback=''):
     """
     from backend.high_fashion import firstview as fv
 
-    cid = str(collection_id or '')
+    cid = str(collection_id or "")
     return fv.collection_url(cid) if cid.isdigit() else (fallback or cid)
 
 
@@ -316,9 +323,10 @@ def _record_recent(collection_id, payload, images_list=None):
             return
         thumb = None
         if images_list:
-            first = min(images_list, key=lambda i: i.get('index', 0))
-            thumb = first.get('path')
+            first = min(images_list, key=lambda i: i.get("index", 0))
+            thumb = first.get("path")
         from backend.high_fashion import show_index
+
         with db.transaction() as conn:
             try:
                 indexed = show_index.get(conn, str(collection_id)) or {}
@@ -329,15 +337,13 @@ def _record_recent(collection_id, payload, images_list=None):
                 conn,
                 user_id=user.id,
                 collection_id=collection_id,
-                designer=(indexed.get('designer') or payload.get('designer')
-                          or 'Unknown'),
-                collection_url=_show_collection_url(
-                    collection_id, payload.get('source_url') or ''),
-                season=indexed.get('season') or payload.get('season'),
-                year=indexed.get('year'),
-                gender=indexed.get('gender') or payload.get('gender'),
+                designer=(indexed.get("designer") or payload.get("designer") or "Unknown"),
+                collection_url=_show_collection_url(collection_id, payload.get("source_url") or ""),
+                season=indexed.get("season") or payload.get("season"),
+                year=indexed.get("year"),
+                gender=indexed.get("gender") or payload.get("gender"),
                 thumbnail_url=thumb,
-                look_count=payload.get('count') or payload.get('look_count'),
+                look_count=payload.get("count") or payload.get("look_count"),
             )
     except Exception as exc:  # noqa: BLE001
         print(f"recents: could not record {collection_id}: {exc}")
@@ -356,7 +362,7 @@ def _cache_lookup(collection_id, quality):
     try:
         with db.transaction() as conn:
             hit = collection_cache.get(conn, collection_id=collection_id, quality=quality)
-            if hit and not hit.get('images'):
+            if hit and not hit.get("images"):
                 print(f"cache: dropping empty entry for {collection_id}")
                 collection_cache.forget(conn, collection_id=collection_id)
                 return None
@@ -385,11 +391,11 @@ def _cache_store(collection_id, quality, uploaded, meta, store):
                 collection_id=collection_id,
                 quality=quality,
                 images=uploaded,
-                designer=meta.get('designer'),
-                season=meta.get('season'),
-                gender=meta.get('gender'),
-                category=meta.get('category'),
-                shoot_type=meta.get('shoot_type'),
+                designer=meta.get("designer"),
+                season=meta.get("season"),
+                gender=meta.get("gender"),
+                category=meta.get("category"),
+                shoot_type=meta.get("shoot_type"),
             )
             evicted = collection_cache.evict(conn, store)
             if evicted:
@@ -411,15 +417,15 @@ def serve_stored_image(key):
     """
     store = images.get_store()
     if not isinstance(store, images.LocalImageStore):
-        return jsonify({'error': 'images are served from the CDN'}), 404
+        return jsonify({"error": "images are served from the CDN"}), 404
 
     try:
         data = store.read(key)
     except ValueError:
-        return jsonify({'error': 'invalid image key'}), 400
+        return jsonify({"error": "invalid image key"}), 400
 
     if data is None:
-        return jsonify({'error': 'image not found'}), 404
+        return jsonify({"error": "image not found"}), 404
 
     return Response(data, mimetype=images.guess_content_type(key))
 
@@ -427,6 +433,7 @@ def serve_stored_image(key):
 def _sse(payload: dict) -> str:
     """One Server-Sent Event frame."""
     import json as _json
+
     return f"data: {_json.dumps(payload)}\n\n"
 
 
@@ -445,13 +452,13 @@ def _number_ties(rows):
 
     groups = defaultdict(list)
     for row in rows:
-        groups[(row['designer'], row['subtitle'])].append(row)
+        groups[(row["designer"], row["subtitle"])].append(row)
 
     for group in groups.values():
         if len(group) < 2:
             continue
         for n, row in enumerate(group, 1):
-            row['subtitle'] = f"{row['subtitle']} · set {n}"
+            row["subtitle"] = f"{row['subtitle']} · set {n}"
 
 
 def stream_catalog():
@@ -480,18 +487,18 @@ def stream_catalog():
     data = request.get_json() or {}
 
     filters = dict(
-        gender=data.get('gender') or 'Women',
-        year=int(data['year']) if data.get('year') else None,
-        season=data.get('season') or None,
-        category=data.get('category') or None,
-        shoot_type=data.get('shootType') or None,
-        city_id=data.get('cityId') or None,
-        letter=data.get('letter') or None,
+        gender=data.get("gender") or "Women",
+        year=int(data["year"]) if data.get("year") else None,
+        season=data.get("season") or None,
+        category=data.get("category") or None,
+        shoot_type=data.get("shootType") or None,
+        city_id=data.get("cityId") or None,
+        letter=data.get("letter") or None,
     )
-    start_page = max(0, int(data.get('startPage', 0)))
+    start_page = max(0, int(data.get("startPage", 0)))
     # Five pages is 100 rows: enough to fill the list and a screen of scroll
     # past it, without holding the connection open for a crawl.
-    pages = max(1, min(int(data.get('pages', 5)), 25))
+    pages = max(1, min(int(data.get("pages", 5)), 25))
 
     def generate():
         total = 0
@@ -500,21 +507,21 @@ def stream_catalog():
         try:
             window = []
             sent = {}
-            for chunk in fv.iter_search_pages(
-                start_page=start_page, pages=pages, **filters
-            ):
-                window.extend(chunk['rows'])
-                rows = [_row_to_dict(r) for r in chunk['rows']]
-                sent.update({row['collection_id']: row['subtitle'] for row in rows})
+            for chunk in fv.iter_search_pages(start_page=start_page, pages=pages, **filters):
+                window.extend(chunk["rows"])
+                rows = [_row_to_dict(r) for r in chunk["rows"]]
+                sent.update({row["collection_id"]: row["subtitle"] for row in rows})
                 total += len(rows)
-                next_page = chunk['page'] + 1
-                has_more = not chunk['last']
-                yield _sse({
-                    'type': 'collections',
-                    'collections': rows,
-                    'total': total,
-                    'page': chunk['page'],
-                })
+                next_page = chunk["page"] + 1
+                has_more = not chunk["last"]
+                yield _sse(
+                    {
+                        "type": "collections",
+                        "collections": rows,
+                        "total": total,
+                        "page": chunk["page"],
+                    }
+                )
 
             # Telling near-identical rows apart costs a request each, so it
             # runs once the window is already on screen rather than holding
@@ -522,18 +529,31 @@ def stream_catalog():
             fv.fill_look_counts(window)
             final = [_row_to_dict(r) for r in window]
             _number_ties(final)
-            relabelled = {row['collection_id']: row['subtitle'] for row in final
-                          if row['subtitle'] != sent.get(row['collection_id'])}
+            relabelled = {
+                row["collection_id"]: row["subtitle"]
+                for row in final
+                if row["subtitle"] != sent.get(row["collection_id"])
+            }
             if relabelled:
-                yield _sse({'type': 'relabel', 'labels': relabelled})
+                yield _sse({"type": "relabel", "labels": relabelled})
 
-            yield _sse({'type': 'done', 'total': total, 'nextPage': next_page,
-                        'hasMore': has_more, 'success': True})
+            yield _sse(
+                {
+                    "type": "done",
+                    "total": total,
+                    "nextPage": next_page,
+                    "hasMore": has_more,
+                    "success": True,
+                }
+            )
         except Exception as e:
-            yield _sse({'type': 'error', 'error': str(e), 'success': False})
+            yield _sse({"type": "error", "error": str(e), "success": False})
 
-    return Response(generate(), mimetype='text/event-stream',
-                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+    return Response(
+        generate(),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 # The designer index, committed alongside the coverage catalog and for the
@@ -570,16 +590,17 @@ def _designer_index_payload():
             with db.transaction() as conn:
                 if show_index.count(conn) > 0:
                     counts = show_index.designer_counts(
-                        conn, [d['name'] for d in data['designers']])
-                    for d in data['designers']:
-                        n = counts.get(d['name'].lower())
+                        conn, [d["name"] for d in data["designers"]]
+                    )
+                    for d in data["designers"]:
+                        n = counts.get(d["name"].lower())
                         if n:
-                            d['entries'] = n
+                            d["entries"] = n
                             indexed += 1
         except Exception as exc:  # noqa: BLE001 — counts are a nicety
             print(f"designer counts unavailable: {exc}")
 
-        raw = json.dumps(data, ensure_ascii=False).encode('utf-8')
+        raw = json.dumps(data, ensure_ascii=False).encode("utf-8")
         etag = f'W/"designers-{data.get("built_on")}-{data.get("count")}-{indexed}"'
         _designers_payload = (raw, gzip.compress(raw, 6), etag)
     return _designers_payload
@@ -598,21 +619,23 @@ def get_designers():
     if payload is None:
         # Absent rather than empty: the search box should say it cannot search
         # rather than silently behave as though the archive had no designers.
-        return jsonify({
-            'error': 'designer index is not built',
-            'success': False,
-        }), 503
+        return jsonify(
+            {
+                "error": "designer index is not built",
+                "success": False,
+            }
+        ), 503
 
     raw, gzipped, etag = payload
 
-    if request.headers.get('If-None-Match') == etag:
-        return Response(status=304, headers={'ETag': etag})
+    if request.headers.get("If-None-Match") == etag:
+        return Response(status=304, headers={"ETag": etag})
 
-    accepts_gzip = 'gzip' in (request.headers.get('Accept-Encoding') or '')
+    accepts_gzip = "gzip" in (request.headers.get("Accept-Encoding") or "")
     body = gzipped if accepts_gzip else raw
     headers = {
-        'Content-Type': 'application/json; charset=utf-8',
-        'ETag': etag,
+        "Content-Type": "application/json; charset=utf-8",
+        "ETag": etag,
         # no-cache means "revalidate", not "do not store": the browser still
         # keeps it and still gets a 304 with no body, but it asks first.
         #
@@ -620,10 +643,10 @@ def get_designers():
         # rebuilt — that is what puts the entry counts in it — and a day of
         # not asking meant clients ranking search results by a copy that had
         # no counts at all, which is exactly the bug this caused.
-        'Cache-Control': 'no-cache',
+        "Cache-Control": "no-cache",
     }
     if accepts_gzip:
-        headers['Content-Encoding'] = 'gzip'
+        headers["Content-Encoding"] = "gzip"
     return Response(body, headers=headers)
 
 
@@ -641,9 +664,9 @@ def stream_designer_collections():
     from backend.high_fashion import firstview as fv
 
     data = request.get_json() or {}
-    designer_id = str(data.get('designerId') or '').strip()
+    designer_id = str(data.get("designerId") or "").strip()
     if not designer_id:
-        return jsonify({'error': 'designerId is required', 'success': False}), 400
+        return jsonify({"error": "designerId is required", "success": False}), 400
 
     def generate():
         total = 0
@@ -651,28 +674,39 @@ def stream_designer_collections():
             window = []
             sent = {}
             for chunk in fv.iter_designer_collections(designer_id):
-                window.extend(chunk['rows'])
-                rows = [_row_to_dict(r) for r in chunk['rows']]
-                sent.update({row['collection_id']: row['subtitle'] for row in rows})
+                window.extend(chunk["rows"])
+                rows = [_row_to_dict(r) for r in chunk["rows"]]
+                sent.update({row["collection_id"]: row["subtitle"] for row in rows})
                 total += len(rows)
-                yield _sse({'type': 'collections', 'collections': rows,
-                            'total': total, 'page': chunk['page']})
+                yield _sse(
+                    {
+                        "type": "collections",
+                        "collections": rows,
+                        "total": total,
+                        "page": chunk["page"],
+                    }
+                )
 
             fv.fill_look_counts(window)
             final = [_row_to_dict(r) for r in window]
             _number_ties(final)
-            relabelled = {row['collection_id']: row['subtitle'] for row in final
-                          if row['subtitle'] != sent.get(row['collection_id'])}
+            relabelled = {
+                row["collection_id"]: row["subtitle"]
+                for row in final
+                if row["subtitle"] != sent.get(row["collection_id"])
+            }
             if relabelled:
-                yield _sse({'type': 'relabel', 'labels': relabelled})
+                yield _sse({"type": "relabel", "labels": relabelled})
 
-            yield _sse({'type': 'done', 'total': total, 'hasMore': False,
-                        'success': True})
+            yield _sse({"type": "done", "total": total, "hasMore": False, "success": True})
         except Exception as e:
-            yield _sse({'type': 'error', 'error': str(e), 'success': False})
+            yield _sse({"type": "error", "error": str(e), "success": False})
 
-    return Response(generate(), mimetype='text/event-stream',
-                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+    return Response(
+        generate(),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 def _index_row_to_dict(row):
@@ -680,34 +714,36 @@ def _index_row_to_dict(row):
     from backend.high_fashion import firstview as fv
 
     bits = []
-    if row.get('season') and row.get('year'):
+    if row.get("season") and row.get("year"):
         bits.append(f"{_SEASON_SHORT.get(row['season'], row['season'])} {row['year']}")
-    elif row.get('year'):
-        bits.append(str(row['year']))
-    if row.get('gender'):
-        bits.append(row['gender'])
-    if row.get('category'):
-        bits.append(_CATEGORY_SHORT.get(row['category'], row['category']))
-    if row.get('shoot_type') and row['shoot_type'] != 'Runway Collection':
-        bits.append(_SHOOT_SHORT.get(row['shoot_type'], row['shoot_type']))
-    if row.get('city'):
-        bits.append(row['city'])
+    elif row.get("year"):
+        bits.append(str(row["year"]))
+    if row.get("gender"):
+        bits.append(row["gender"])
+    if row.get("category"):
+        bits.append(_CATEGORY_SHORT.get(row["category"], row["category"]))
+    if row.get("shoot_type") and row["shoot_type"] != "Runway Collection":
+        bits.append(_SHOOT_SHORT.get(row["shoot_type"], row["shoot_type"]))
+    if row.get("city"):
+        bits.append(row["city"])
 
     return {
-        'designer': row.get('designer') or '',
-        'designer_name': row.get('designer'),
-        'subtitle': ' · '.join(bits),
-        'url': fv.collection_url(row['collection_id']),
-        'collection_id': row['collection_id'],
-        'season': row.get('season'),
-        'year': row.get('year'),
-        'gender': row.get('gender'),
-        'category': row.get('category'),
-        'shoot_type': row.get('shoot_type'),
-        'city': row.get('city'),
-        'season_url': _season_url(row.get('gender'), row.get('year'), row.get('season')),
-        'look_count': None,
-        'text': '', 'photos': '', 'date': '',
+        "designer": row.get("designer") or "",
+        "designer_name": row.get("designer"),
+        "subtitle": " · ".join(bits),
+        "url": fv.collection_url(row["collection_id"]),
+        "collection_id": row["collection_id"],
+        "season": row.get("season"),
+        "year": row.get("year"),
+        "gender": row.get("gender"),
+        "category": row.get("category"),
+        "shoot_type": row.get("shoot_type"),
+        "city": row.get("city"),
+        "season_url": _season_url(row.get("gender"), row.get("year"), row.get("season")),
+        "look_count": None,
+        "text": "",
+        "photos": "",
+        "date": "",
     }
 
 
@@ -719,6 +755,7 @@ def _index_available():
     """
     try:
         from backend.high_fashion import show_index
+
         with db.transaction() as conn:
             return show_index.count(conn) > 0
     except Exception as exc:  # noqa: BLE001
@@ -740,38 +777,40 @@ def browse_catalog():
     from backend.high_fashion import show_index
 
     data = request.get_json() or {}
-    filters = {k: data.get(k) for k in
-               ('gender', 'year', 'season', 'category', 'shootType', 'city',
-                'designer', 'letter')}
-    filters = {k: v for k, v in filters.items() if v not in (None, '')}
+    filters = {
+        k: data.get(k)
+        for k in ("gender", "year", "season", "category", "shootType", "city", "designer", "letter")
+    }
+    filters = {k: v for k, v in filters.items() if v not in (None, "")}
     # A deep link carries the show's id and nothing else. Named separately
     # from the loop above because the wire name and the column differ, and
     # because it is not a filter anyone picks — it is how a URL is resolved.
-    if data.get('collectionId'):
-        filters['collection_id'] = str(data['collectionId'])
-    text = (data.get('text') or '').strip()
-    limit = max(1, min(int(data.get('limit', 200)), 500))
-    offset = max(0, int(data.get('offset', 0)))
+    if data.get("collectionId"):
+        filters["collection_id"] = str(data["collectionId"])
+    text = (data.get("text") or "").strip()
+    limit = max(1, min(int(data.get("limit", 200)), 500))
+    offset = max(0, int(data.get("offset", 0)))
 
     try:
         with db.transaction() as conn:
-            result = show_index.query(conn, filters=filters, text=text or None,
-                                      limit=limit, offset=offset)
+            result = show_index.query(
+                conn, filters=filters, text=text or None, limit=limit, offset=offset
+            )
             payload = {
-                'collections': [_index_row_to_dict(r) for r in result['rows']],
-                'total': result['total'],
-                'hasMore': result['hasMore'],
-                'offset': offset,
-                'success': True,
+                "collections": [_index_row_to_dict(r) for r in result["rows"]],
+                "total": result["total"],
+                "hasMore": result["hasMore"],
+                "offset": offset,
+                "success": True,
             }
-            if data.get('facets'):
-                payload['facets'] = show_index.facets(
-                    conn, filters=filters, text=text or None)
+            if data.get("facets"):
+                payload["facets"] = show_index.facets(conn, filters=filters, text=text or None)
             return jsonify(payload)
     except Exception as e:
         import traceback
+
         print(f"ERROR browse_catalog: {traceback.format_exc()}")
-        return jsonify({'error': str(e), 'success': False}), 500
+        return jsonify({"error": str(e), "success": False}), 500
 
 
 def search_shows():
@@ -791,27 +830,30 @@ def search_shows():
     from backend.high_fashion import show_index
 
     data = request.get_json() or {}
-    text = (data.get('text') or '').strip()
-    limit = max(1, min(int(data.get('limit', 60)), 200))
+    text = (data.get("text") or "").strip()
+    limit = max(1, min(int(data.get("limit", 60)), 200))
 
     if not text:
-        return jsonify({'shows': [], 'designers': [], 'total': 0, 'success': True})
+        return jsonify({"shows": [], "designers": [], "total": 0, "success": True})
 
     try:
         with db.transaction() as conn:
             result = show_index.query(conn, text=text, limit=limit)
             designers = show_index.top_designers(conn, text=text, limit=8)
-        return jsonify({
-            'shows': [_index_row_to_dict(r) for r in result['rows']],
-            'total': result['total'],
-            'hasMore': result['hasMore'],
-            'designers': designers,
-            'success': True,
-        })
+        return jsonify(
+            {
+                "shows": [_index_row_to_dict(r) for r in result["rows"]],
+                "total": result["total"],
+                "hasMore": result["hasMore"],
+                "designers": designers,
+                "success": True,
+            }
+        )
     except Exception as e:
         import traceback
+
         print(f"ERROR search_shows: {traceback.format_exc()}")
-        return jsonify({'error': str(e), 'success': False}), 500
+        return jsonify({"error": str(e), "success": False}), 500
 
 
 def get_index_status():
@@ -820,9 +862,9 @@ def get_index_status():
 
     try:
         with db.transaction() as conn:
-            return jsonify({'shows': show_index.count(conn), 'success': True})
+            return jsonify({"shows": show_index.count(conn), "success": True})
     except Exception as e:
-        return jsonify({'error': str(e), 'shows': 0, 'success': False}), 500
+        return jsonify({"error": str(e), "shows": 0, "success": False}), 500
 
 
 def refresh_index():
@@ -843,12 +885,12 @@ def refresh_index():
         if fresh:
             with db.transaction() as conn:
                 added = show_index.upsert(conn, fresh)
-        return jsonify({'added': added, 'checked_against': len(known),
-                        'success': True})
+        return jsonify({"added": added, "checked_against": len(known), "success": True})
     except Exception as e:
         import traceback
+
         print(f"ERROR refresh_index: {traceback.format_exc()}")
-        return jsonify({'error': str(e), 'success': False}), 500
+        return jsonify({"error": str(e), "success": False}), 500
 
 
 def stream_download_images():
@@ -861,11 +903,11 @@ def stream_download_images():
     from backend.high_fashion import firstview as fv
 
     data = request.get_json() or {}
-    collection_url = data.get('collectionUrl', '')
+    collection_url = data.get("collectionUrl", "")
     if not collection_url:
-        return jsonify({'error': 'collectionUrl is required', 'success': False}), 400
-    quality = data.get('quality', fv.QUALITY_FULL)
-    designer_hint = data.get('designerName')
+        return jsonify({"error": "collectionUrl is required", "success": False}), 400
+    quality = data.get("quality", fv.QUALITY_FULL)
+    designer_hint = data.get("designerName")
     collection_id = fv.collection_id_from_url(collection_url) or collection_url
 
     # A stored show replays instantly: the same meta/image/done events, but
@@ -873,35 +915,41 @@ def stream_download_images():
     # generator so a hit does not open a temp directory it will not use.
     cached = _cache_lookup(collection_id, quality)
     if cached:
-        _record_recent(collection_id, cached, cached['images'])
+        _record_recent(collection_id, cached, cached["images"])
 
         def replay():
-            yield _sse({
-                'type': 'meta',
-                'designer': cached.get('designer'),
-                'season': cached.get('season'),
-                'gender': cached.get('gender'),
-                'category': cached.get('category'),
-                'collection_id': collection_id,
-                'count': len(cached['images']),
-                'cached': True,
-                'looks': [],
-            })
-            for img in sorted(cached['images'], key=lambda i: i.get('index', 0)):
-                yield _sse({'type': 'image', **img})
-            yield _sse({
-                'type': 'done',
-                'count': len(cached['images']),
-                'failed': [],
-                'designer': cached.get('designer'),
-                'season': cached.get('season'),
-                'success': True,
-                'cached': True,
-            })
+            yield _sse(
+                {
+                    "type": "meta",
+                    "designer": cached.get("designer"),
+                    "season": cached.get("season"),
+                    "gender": cached.get("gender"),
+                    "category": cached.get("category"),
+                    "collection_id": collection_id,
+                    "count": len(cached["images"]),
+                    "cached": True,
+                    "looks": [],
+                }
+            )
+            for img in sorted(cached["images"], key=lambda i: i.get("index", 0)):
+                yield _sse({"type": "image", **img})
+            yield _sse(
+                {
+                    "type": "done",
+                    "count": len(cached["images"]),
+                    "failed": [],
+                    "designer": cached.get("designer"),
+                    "season": cached.get("season"),
+                    "success": True,
+                    "cached": True,
+                }
+            )
 
-        return Response(replay(), mimetype='text/event-stream',
-                        headers={'Cache-Control': 'no-cache',
-                                 'X-Accel-Buffering': 'no'})
+        return Response(
+            replay(),
+            mimetype="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     def generate():
         # Same store-and-temp-dir contract as download_images: each look is
@@ -914,8 +962,8 @@ def stream_download_images():
         # which 41.6s was this one step waiting on R2. The fetch was never the
         # slow part, and hurrying firstVIEW would have bought almost nothing.
         store = images.get_store()
-        temp_dir = tempfile.mkdtemp(prefix='runway_')
-        designer = designer_hint or 'unknown'
+        temp_dir = tempfile.mkdtemp(prefix="runway_")
+        designer = designer_hint or "unknown"
         uploaded_all = []
         pending = []
         done_payload = None
@@ -923,29 +971,36 @@ def stream_download_images():
         def deliver(futures):
             """Emit an SSE frame for each finished upload in `futures`."""
             for fut in futures:
-                up = fut.result()          # _upload_one swallows its own errors
+                up = fut.result()  # _upload_one swallows its own errors
                 if up is None:
                     continue
                 uploaded_all.append(up)
-                yield _sse({'type': 'image', **up})
+                yield _sse({"type": "image", **up})
 
         try:
             with ThreadPoolExecutor(max_workers=UPLOAD_WORKERS) as pool:
                 for kind, payload in fv.iter_download_collection(
                     collection_url, out_root=temp_dir, quality=quality
                 ):
-                    if kind == 'meta':
-                        designer = designer_hint or payload.get('designer') or 'unknown'
-                        payload = {k: v for k, v in payload.items() if k != 'cache_dir'}
-                        yield _sse({'type': 'meta', **payload})
+                    if kind == "meta":
+                        designer = designer_hint or payload.get("designer") or "unknown"
+                        payload = {k: v for k, v in payload.items() if k != "cache_dir"}
+                        yield _sse({"type": "meta", **payload})
 
-                    elif kind == 'image':
-                        pending.append(pool.submit(_upload_one, store, designer, {
-                            'local_path': payload['path'],
-                            'source_url': payload['url'],
-                            'index': payload['index'],
-                            'filename': payload['filename'],
-                        }))
+                    elif kind == "image":
+                        pending.append(
+                            pool.submit(
+                                _upload_one,
+                                store,
+                                designer,
+                                {
+                                    "local_path": payload["path"],
+                                    "source_url": payload["url"],
+                                    "index": payload["index"],
+                                    "filename": payload["filename"],
+                                },
+                            )
+                        )
                         # Hand back whatever has already landed without
                         # blocking on the rest, so looks keep appearing while
                         # later ones are still uploading.
@@ -953,14 +1008,14 @@ def stream_download_images():
                         pending = [f for f in pending if not f.done()]
                         yield from deliver(ready)
 
-                    elif kind == 'error':
+                    elif kind == "error":
                         # One look that would not download. Named apart from a
                         # stream error: the client aborts the whole show on
                         # `error`, so a single missing image used to end the
                         # download of every image after it.
-                        yield _sse({'type': 'image_error', **payload})
+                        yield _sse({"type": "image_error", **payload})
 
-                    elif kind == 'done':
+                    elif kind == "done":
                         done_payload = payload
 
                 # Every look has been fetched; wait out the uploads still going.
@@ -970,25 +1025,32 @@ def stream_download_images():
                 # `images` in done_payload still hold local paths; the client
                 # has already received each one as a URL above. Store the
                 # uploaded set so the next open skips firstVIEW entirely.
-                uploaded_all.sort(key=lambda i: i.get('index', 0))
-                _cache_store(collection_id, quality, uploaded_all,
-                             {**done_payload, 'designer': designer}, store)
-                _record_recent(collection_id,
-                               {**done_payload, 'designer': designer},
-                               uploaded_all)
-                done_payload = {k: v for k, v in done_payload.items()
-                                if k not in ('images', 'cache_dir')}
-                yield _sse({'type': 'done', **done_payload,
-                            'count': len(uploaded_all)})
+                uploaded_all.sort(key=lambda i: i.get("index", 0))
+                _cache_store(
+                    collection_id,
+                    quality,
+                    uploaded_all,
+                    {**done_payload, "designer": designer},
+                    store,
+                )
+                _record_recent(collection_id, {**done_payload, "designer": designer}, uploaded_all)
+                done_payload = {
+                    k: v for k, v in done_payload.items() if k not in ("images", "cache_dir")
+                }
+                yield _sse({"type": "done", **done_payload, "count": len(uploaded_all)})
         except Exception as e:
             import traceback
+
             print(f"ERROR stream_download_images: {traceback.format_exc()}")
-            yield _sse({'type': 'error', 'error': str(e), 'success': False})
+            yield _sse({"type": "error", "error": str(e), "success": False})
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
-    return Response(generate(), mimetype='text/event-stream',
-                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+    return Response(
+        generate(),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 def download_video():
@@ -1004,12 +1066,12 @@ def download_video():
         from backend.high_fashion.tools.claude_video_verifier import ClaudeVideoVerifier
 
         data = request.get_json() or {}
-        designer_name = (data.get('designerName') or '').strip()
-        season_name = (data.get('seasonName') or '').strip()
-        gender = (data.get('gender') or '').strip()
+        designer_name = (data.get("designerName") or "").strip()
+        season_name = (data.get("seasonName") or "").strip()
+        gender = (data.get("gender") or "").strip()
 
         if not designer_name:
-            return jsonify({'error': 'designerName is required', 'success': False}), 400
+            return jsonify({"error": "designerName is required", "success": False}), 400
 
         key = vs.query_key(designer_name, season_name, gender)
         query_text = vs.build_query(designer_name, season_name, gender)
@@ -1018,29 +1080,34 @@ def download_video():
             hit = vs.cached(conn, key)
 
         if hit is not None:
-            if not hit['found']:
-                return jsonify({'success': False, 'cached': True,
-                                'error': 'No runway video found for this show'})
-            return jsonify({
-                'success': True,
-                'videoId': hit['video_id'],
-                'youtubeUrl': hit['youtube_url'],
-                'embedUrl': hit['embed_url'],
-                'title': hit['title'],
-                'thumbnail': hit['thumbnail'],
-                'cached': True,
-            })
+            if not hit["found"]:
+                return jsonify(
+                    {
+                        "success": False,
+                        "cached": True,
+                        "error": "No runway video found for this show",
+                    }
+                )
+            return jsonify(
+                {
+                    "success": True,
+                    "videoId": hit["video_id"],
+                    "youtubeUrl": hit["youtube_url"],
+                    "embedUrl": hit["embed_url"],
+                    "title": hit["title"],
+                    "thumbnail": hit["thumbnail"],
+                    "cached": True,
+                }
+            )
 
         # Never looked up: this is the request that costs quota.
         try:
             with db.transaction() as conn:
                 candidates = vs.search(conn, query_text)
         except vs.QuotaExhausted as exc:
-            return jsonify({'success': False, 'error': str(exc),
-                            'quotaExhausted': True}), 429
-        except RuntimeError as exc:          # no API key configured
-            return jsonify({'success': False, 'error': str(exc),
-                            'notConfigured': True}), 503
+            return jsonify({"success": False, "error": str(exc), "quotaExhausted": True}), 429
+        except RuntimeError as exc:  # no API key configured
+            return jsonify({"success": False, "error": str(exc), "notConfigured": True}), 503
 
         chosen = None
         if candidates:
@@ -1050,12 +1117,11 @@ def download_video():
             # was already specific.
             try:
                 verdict = ClaudeVideoVerifier().verify_video_matches(query_text, candidates)
-                if not getattr(verdict, 'available', True):
+                if not getattr(verdict, "available", True):
                     # The verifier could not run. That is not the same as "no
                     # video matched" — reading it that way is what made every
                     # lookup fail while a retired model id went unnoticed.
-                    print(f"video verifier unavailable ({verdict.reasoning}); "
-                          f"taking top result")
+                    print(f"video verifier unavailable ({verdict.reasoning}); taking top result")
                     chosen = candidates[0]
                 elif verdict.is_match:
                     idx = verdict.best_match_index
@@ -1067,43 +1133,48 @@ def download_video():
         result = None
         if chosen is not None:
             result = {
-                'video_id': chosen.video_id,
-                'title': chosen.title,
-                'thumbnail': chosen.thumbnail_url,
-                'youtube_url': chosen.url,
+                "video_id": chosen.video_id,
+                "title": chosen.title,
+                "thumbnail": chosen.thumbnail_url,
+                "youtube_url": chosen.url,
             }
 
         with db.transaction() as conn:
             vs.remember(conn, key, query_text, result)
 
         if result is None:
-            return jsonify({'success': False, 'cached': False,
-                            'error': 'No runway video found for this show'})
+            return jsonify(
+                {"success": False, "cached": False, "error": "No runway video found for this show"}
+            )
 
-        return jsonify({
-            'success': True,
-            'videoId': result['video_id'],
-            'youtubeUrl': result['youtube_url'],
-            'embedUrl': f"https://www.youtube.com/embed/{result['video_id']}",
-            'title': result['title'],
-            'thumbnail': result['thumbnail'],
-            'cached': False,
-        })
+        return jsonify(
+            {
+                "success": True,
+                "videoId": result["video_id"],
+                "youtubeUrl": result["youtube_url"],
+                "embedUrl": f"https://www.youtube.com/embed/{result['video_id']}",
+                "title": result["title"],
+                "thumbnail": result["thumbnail"],
+                "cached": False,
+            }
+        )
 
     except Exception as e:
         import traceback
+
         print(f"ERROR download_video: {traceback.format_exc()}")
-        return jsonify({'error': str(e), 'success': False}), 500
+        return jsonify({"error": str(e), "success": False}), 500
 
 
 def get_video_quota():
     """GET /api/video/quota - how much YouTube allowance is left today."""
     try:
         from backend.high_fashion import video_search as vs
+
         with db.transaction() as conn:
-            return jsonify({'quota': vs.quota_status(conn), 'success': True})
+            return jsonify({"quota": vs.quota_status(conn), "success": True})
     except Exception as e:
-        return jsonify({'error': str(e), 'success': False}), 500
+        return jsonify({"error": str(e), "success": False}), 500
 
 
 def get_recents():
@@ -1120,9 +1191,7 @@ def get_recents():
         # carry season_url '' one way and a real URL the other, land as two
         # rows, and removing one would leave the other behind.
         for row in rows:
-            row['season_url'] = _season_url(
-                row.get('gender'), row.get('year'), row.get('season')
-            )
+            row["season_url"] = _season_url(row.get("gender"), row.get("year"), row.get("season"))
             # And the same for the collection url. It IS stored, and is now
             # stored normalised — but a row written before that was, and
             # before schema.sql's backfill has run against this database,
@@ -1130,13 +1199,11 @@ def get_recents():
             # Two strings, two favourites, one show. Derived from the id the
             # row already carries, so this costs nothing and cannot be out of
             # step with what `fv.collection_url` produces for the list.
-            row['url'] = _show_collection_url(
-                row.get('collection_id'), row.get('url') or ''
-            )
+            row["url"] = _show_collection_url(row.get("collection_id"), row.get("url") or "")
 
-        return jsonify({'recents': rows, 'success': True})
+        return jsonify({"recents": rows, "success": True})
     except Exception as e:
-        return jsonify({'error': str(e), 'success': False}), 500
+        return jsonify({"error": str(e), "success": False}), 500
 
 
 def clear_recents():
@@ -1144,37 +1211,48 @@ def clear_recents():
     try:
         with db.transaction() as conn:
             removed = recents.clear(conn, user_id=current_user().id)
-        return jsonify({'removed': removed, 'success': True})
+        return jsonify({"removed": removed, "success": True})
     except Exception as e:
-        return jsonify({'error': str(e), 'success': False}), 500
+        return jsonify({"error": str(e), "success": False}), 500
 
 
 def get_cache_stats():
     """GET /api/cache/stats - how full the shared show cache is."""
     try:
         with db.transaction() as conn:
-            return jsonify({'cache': collection_cache.stats(conn), 'success': True})
+            return jsonify({"cache": collection_cache.stats(conn), "success": True})
     except Exception as e:
-        return jsonify({'error': str(e), 'success': False}), 500
+        return jsonify({"error": str(e), "success": False}), 500
 
 
 def register_high_fashion_routes(app):
     """Register all high fashion routes"""
 
-    app.add_url_rule('/api/seasons', 'get_seasons', get_seasons, methods=['POST'])
-    app.add_url_rule('/api/recents', 'get_recents', get_recents, methods=['GET'])
-    app.add_url_rule('/api/recents', 'clear_recents', clear_recents, methods=['DELETE'])
-    app.add_url_rule('/api/cache/stats', 'get_cache_stats', get_cache_stats, methods=['GET'])
-    app.add_url_rule('/api/video/quota', 'get_video_quota', get_video_quota, methods=['GET'])
-    app.add_url_rule('/api/catalog/stream', 'stream_catalog_sse', stream_catalog, methods=['POST'])
-    app.add_url_rule('/api/designers', 'get_designers', get_designers, methods=['GET'])
-    app.add_url_rule('/api/designer/stream', 'stream_designer_sse', stream_designer_collections, methods=['POST'])
-    app.add_url_rule('/api/browse', 'browse_catalog', browse_catalog, methods=['POST'])
-    app.add_url_rule('/api/search', 'search_shows', search_shows, methods=['POST'])
-    app.add_url_rule('/api/index/status', 'get_index_status', get_index_status, methods=['GET'])
-    app.add_url_rule('/api/index/refresh', 'refresh_index', refresh_index, methods=['POST'])
-    app.add_url_rule('/api/download-images/stream', 'stream_download_images', stream_download_images, methods=['POST'])
-    app.add_url_rule('/api/download-video', 'download_video_fashion', download_video, methods=['POST'])
-    app.add_url_rule('/api/images/<path:key>', 'serve_stored_image', serve_stored_image, methods=['GET'])
+    app.add_url_rule("/api/seasons", "get_seasons", get_seasons, methods=["POST"])
+    app.add_url_rule("/api/recents", "get_recents", get_recents, methods=["GET"])
+    app.add_url_rule("/api/recents", "clear_recents", clear_recents, methods=["DELETE"])
+    app.add_url_rule("/api/cache/stats", "get_cache_stats", get_cache_stats, methods=["GET"])
+    app.add_url_rule("/api/video/quota", "get_video_quota", get_video_quota, methods=["GET"])
+    app.add_url_rule("/api/catalog/stream", "stream_catalog_sse", stream_catalog, methods=["POST"])
+    app.add_url_rule("/api/designers", "get_designers", get_designers, methods=["GET"])
+    app.add_url_rule(
+        "/api/designer/stream", "stream_designer_sse", stream_designer_collections, methods=["POST"]
+    )
+    app.add_url_rule("/api/browse", "browse_catalog", browse_catalog, methods=["POST"])
+    app.add_url_rule("/api/search", "search_shows", search_shows, methods=["POST"])
+    app.add_url_rule("/api/index/status", "get_index_status", get_index_status, methods=["GET"])
+    app.add_url_rule("/api/index/refresh", "refresh_index", refresh_index, methods=["POST"])
+    app.add_url_rule(
+        "/api/download-images/stream",
+        "stream_download_images",
+        stream_download_images,
+        methods=["POST"],
+    )
+    app.add_url_rule(
+        "/api/download-video", "download_video_fashion", download_video, methods=["POST"]
+    )
+    app.add_url_rule(
+        "/api/images/<path:key>", "serve_stored_image", serve_stored_image, methods=["GET"]
+    )
 
     print("✅ High Fashion API routes registered (15 endpoints)")

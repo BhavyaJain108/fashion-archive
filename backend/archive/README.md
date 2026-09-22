@@ -15,7 +15,7 @@ Use these names when discussing the pipeline — every file belongs to exactly o
 | **S4** | **FETCH** | *What are this product's fields?* (`connector.fetch`) | `connectors/shopify.py`, `connectors/woocommerce.py`, `connectors/structured.py` |
 | **S4b** | **FIND** | *The channel left a field empty — where is it on the page?* | `finder.py` (apply + validate), `finder_llm.py` (learn), `domain/recipe.py` |
 | **S5** | **STORE** | *What do we keep, and what changed?* | `store/catalog.py`, `store/objects.py`, `images.py` |
-| **S6** | **VERIFY** | *Did we get it all, and is it any good?* | `verify.py`, `capability.py`, `report.py` (field fill per brand) |
+| **S6** | **VERIFY** | *Did we get it all, and is it any good?* | `verify.py`, `capability.py`, `score.py` (the scorecard per run) |
 | **S7** | **LEARN** | *Which of E0005's 42 fields are we still not getting, and why?* | `coverage.py`, `access/` (the bench), `access/LEARNINGS.md` (the record) |
 
 S3 and S4 share files because bulk-feed connectors answer both questions from one response
@@ -36,9 +36,9 @@ transport and `transport.for_level` builds it at scrape time.
 A timeout counts as a refusal: a WAF that drops the connection without answering looks
 exactly like a host being down until something asks in another voice.
 
-**T2 is not in the deployed scraper image** — `requirements-scraper.txt` leaves playwright
-out on purpose — so the daemon climbs T0 → T1 only, and a browser brand needs `--browser`
-run by hand.
+**T2 is in the deployed scraper image** since 2026-09-22: `Dockerfile.scraper` builds on
+the Playwright base and the worker runs on a plan that fits Chromium, so the daemon climbs
+T0 → T1 → T2 on its own. `--browser` is only needed for a hand-run scrape.
 
 ## Support layers (not stages)
 

@@ -53,7 +53,7 @@ run, when, and who holds them.
 control/schedule/<domain>.json   one row per brand: enabled, cadence, next_due, claimed_by
 fleet.json                       one line per brand: state, last scorecard, next action
 plans/<domain>.json              how to get in: transport × discovery × fetch × change signal
-recipes/<domain>.json            learned rules for fields the channel does not carry
+rules/<domain>.json              learned rules for fields the channel does not carry
 catalogue/<domain>.json          the products, one entry per URL, stamped with run ids
 images/<sha256>                  photographs, content-addressed — nothing is stored twice
 runs/ scores/ evidence/ logs/    what each run did, how it scored, where it searched
@@ -107,7 +107,7 @@ Buttons and what they do:
 | release | worker dead (no beat for 12 min) | hands the brand back; the run starts over |
 | learn fields | idle | a finder-only run: a spread of product pages is read, rules are written, nothing is stored, the scheduled turn is kept; *retry searched fields* asks again about fields given up on |
 
-From the terminal the same run is `cli scrape --domain X --learn [--retry-searched]`.
+From the terminal the same run is `cli scrape X --learn [--retry-searched]`.
 
 ## Running the scraper by hand
 
@@ -129,11 +129,11 @@ claim the same brands.
 ## Tests
 
 ```bash
-venv/bin/pytest -m unit && venv/bin/ruff check tests/ backend/archive/ && venv/bin/mypy
+venv/bin/pytest -m unit && venv/bin/ruff check tests/ backend/archive/ && venv/bin/ruff format --check tests/ backend/archive/ && venv/bin/mypy
 ```
 
 ```bash
-cd web_ui && CI=true npx react-scripts test --watchAll=false && npm run check:tokens
+cd web_ui && CI=true npx react-scripts test --watchAll=false && npm run check:tokens && npm run check:css
 ```
 
 `check:tokens` refuses raw hex colours, pixel font sizes, and ad-hoc radii or
@@ -142,7 +142,7 @@ shadows in the deck's CSS: everything comes from the `--ar-*` tokens in
 
 ## Deploying
 
-See [DEPLOYMENT.md](DEPLOYMENT.md). `render.yaml` declares three services: the
+See [DEPLOYMENT.md](DEPLOYMENT.md). `render.yaml` declares a database and two services: the
 Postgres database, the API (`fashion-archive-api`), and the scraper daemon
 (`fashion-archive-scraper`, standard plan, Chromium image). A push to `master`
 rebuilds both images and replaces the daemon's container mid-run, so batch
@@ -167,7 +167,7 @@ backend/auth/            accounts and sessions, on Postgres
 backend/high_fashion/    runway seasons and collections
 web_ui/src/features/dev/ the control deck
 docs/superpowers/        design specs and implementation plans
-LEARNINGS.md             what each brand taught us, and the rules that came of it
+backend/archive/access/LEARNINGS.md  what each brand taught us, and the rules that came of it
 ```
 
 MIT licensed.

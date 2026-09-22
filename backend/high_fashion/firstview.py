@@ -57,7 +57,7 @@ BASE_URL = "https://www.firstview.com"
 USER_AGENT = "fashion-archive/1.0 (personal archive; +local)"
 
 # Politeness knobs.
-REQUEST_DELAY = 0.5   # seconds between results-page requests, per worker
+REQUEST_DELAY = 0.5  # seconds between results-page requests, per worker
 
 # Fetching a show's looks is the one place where the pace is visible to the
 # person waiting, and images are static files rather than rendered pages —
@@ -65,8 +65,8 @@ REQUEST_DELAY = 0.5   # seconds between results-page requests, per worker
 # second apart is a ceiling of ~21 images a second, which is roughly what a
 # browser does when it opens a gallery page of the same size. Lower these two
 # if firstVIEW ever objects; nothing else depends on the rate.
-IMAGE_DELAY = 0.25    # seconds between image requests, per worker
-MAX_WORKERS = 6       # concurrent image downloads
+IMAGE_DELAY = 0.25  # seconds between image requests, per worker
+MAX_WORKERS = 6  # concurrent image downloads
 TIMEOUT = 30
 
 QUALITY_THUMBNAIL = "thumbnail"
@@ -143,18 +143,19 @@ _TITLE_RE = re.compile(
 # Model
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class Look:
     """One image within a collection."""
 
     image_id: str
-    index: int                       # `of=` — the look's position, 0-based
+    index: int  # `of=` — the look's position, 0-based
     thumbnail_url: str
-    full_url: str                    # largest size served without an account
-    scheme: str = SCHEME_LEGACY      # SCHEME_LEGACY | SCHEME_HASHED
+    full_url: str  # largest size served without an account
+    scheme: str = SCHEME_LEGACY  # SCHEME_LEGACY | SCHEME_HASHED
     closeup_url: Optional[str] = None
     designer: Optional[str] = None
-    category: Optional[str] = None   # e.g. "Ready-to-Wear - Runway Collection"
+    category: Optional[str] = None  # e.g. "Ready-to-Wear - Runway Collection"
     gender: Optional[str] = None
     season: Optional[str] = None
 
@@ -179,6 +180,7 @@ class Collection:
 # ---------------------------------------------------------------------------
 # Parsing
 # ---------------------------------------------------------------------------
+
 
 def collection_id_from_url(url: str) -> Optional[str]:
     """Pull the `id` query param out of a collection_images.php URL."""
@@ -304,21 +306,26 @@ def parse_collection_page(html: bytes | str, source_url: str) -> Collection:
                 break
 
         meta: Dict[str, Optional[str]] = {
-            "designer": None, "category": None, "gender": None, "season": None,
+            "designer": None,
+            "category": None,
+            "gender": None,
+            "season": None,
         }
         info = block.find(class_="pictureinfo")
         if info and info.get("data-content"):
             meta = _parse_popover(info["data-content"])
 
-        looks.append(Look(
-            image_id=image_id,
-            index=index,
-            thumbnail_url=urljoin(BASE_URL, src),
-            full_url=urljoin(BASE_URL, full_src),
-            scheme=scheme,
-            closeup_url=closeup,
-            **meta,
-        ))
+        looks.append(
+            Look(
+                image_id=image_id,
+                index=index,
+                thumbnail_url=urljoin(BASE_URL, src),
+                full_url=urljoin(BASE_URL, full_src),
+                scheme=scheme,
+                closeup_url=closeup,
+                **meta,
+            )
+        )
 
     looks.sort(key=lambda l: l.index)
 
@@ -344,12 +351,15 @@ def parse_collection_page(html: bytes | str, source_url: str) -> Collection:
 # Fetching
 # ---------------------------------------------------------------------------
 
+
 def _session(user_agent: str = USER_AGENT) -> requests.Session:
     s = requests.Session()
-    s.headers.update({
-        "User-Agent": user_agent,
-        "Accept": "text/html,application/xhtml+xml,image/webp,*/*;q=0.8",
-    })
+    s.headers.update(
+        {
+            "User-Agent": user_agent,
+            "Accept": "text/html,application/xhtml+xml,image/webp,*/*;q=0.8",
+        }
+    )
     return s
 
 
@@ -398,16 +408,19 @@ def iter_download_collection(
     out_dir = Path(out_root) / _collection_slug(coll)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    yield "meta", {
-        "designer": coll.designer,
-        "season": coll.season,
-        "gender": coll.gender,
-        "category": coll.category,
-        "collection_id": coll.collection_id,
-        "count": coll.count,
-        "cache_dir": str(out_dir.resolve()),
-        "looks": [asdict(l) for l in coll.looks],
-    }
+    yield (
+        "meta",
+        {
+            "designer": coll.designer,
+            "season": coll.season,
+            "gender": coll.gender,
+            "category": coll.category,
+            "collection_id": coll.collection_id,
+            "count": coll.count,
+            "cache_dir": str(out_dir.resolve()),
+            "looks": [asdict(l) for l in coll.looks],
+        },
+    )
 
     results: List[Dict] = []
     failures: List[Dict] = []
@@ -418,14 +431,26 @@ def iter_download_collection(
         path = out_dir / filename
         try:
             if path.exists() and path.stat().st_size > 0:
-                return {"ok": True, "path": str(path.resolve()), "url": url,
-                        "index": look.index, "filename": filename, "cached": True}
+                return {
+                    "ok": True,
+                    "path": str(path.resolve()),
+                    "url": url,
+                    "index": look.index,
+                    "filename": filename,
+                    "cached": True,
+                }
             time.sleep(delay)
             r = sess.get(url, timeout=TIMEOUT)
             r.raise_for_status()
             path.write_bytes(r.content)
-            return {"ok": True, "path": str(path.resolve()), "url": url,
-                    "index": look.index, "filename": filename, "cached": False}
+            return {
+                "ok": True,
+                "path": str(path.resolve()),
+                "url": url,
+                "index": look.index,
+                "filename": filename,
+                "cached": False,
+            }
         except Exception as e:  # noqa: BLE001 — report per image, keep going
             return {"ok": False, "url": url, "index": look.index, "error": str(e)}
 
@@ -446,15 +471,18 @@ def iter_download_collection(
     results.sort(key=lambda r: r["index"])
     _write_manifest(out_dir, coll, quality)
 
-    yield "done", {
-        "images": results,
-        "count": len(results),
-        "failed": failures,
-        "cache_dir": str(out_dir.resolve()),
-        "designer": coll.designer,
-        "season": coll.season,
-        "success": len(results) > 0,
-    }
+    yield (
+        "done",
+        {
+            "images": results,
+            "count": len(results),
+            "failed": failures,
+            "cache_dir": str(out_dir.resolve()),
+            "designer": coll.designer,
+            "season": coll.season,
+            "success": len(results) > 0,
+        },
+    )
 
 
 def download_collection(
@@ -471,8 +499,12 @@ def download_collection(
     final: Dict = {}
     done = 0
     for kind, payload in iter_download_collection(
-        collection, out_root, quality=quality, session=session,
-        max_workers=max_workers, delay=delay,
+        collection,
+        out_root,
+        quality=quality,
+        session=session,
+        max_workers=max_workers,
+        delay=delay,
     ):
         if kind == "image":
             done += 1
@@ -511,6 +543,7 @@ def _write_manifest(out_dir: Path, coll: Collection, quality: str) -> None:
 # Browse / search
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class CollectionSummary:
     """One row of a results page — a show, without its looks."""
@@ -524,10 +557,10 @@ class CollectionSummary:
     gender: Optional[str] = None
     # From p.collecInfo on the row: category, shoot type and city are all
     # printed per row, so none of them need a separate filtered crawl.
-    category: Optional[str] = None      # span.nature — Ready-to-Wear, ...
-    shoot_type: Optional[str] = None    # span.type   — Runway Collection, ...
-    city: Optional[str] = None          # span.place  — Milan, ...
-    look_count: Optional[int] = None    # filled in only to break ties
+    category: Optional[str] = None  # span.nature — Ready-to-Wear, ...
+    shoot_type: Optional[str] = None  # span.type   — Runway Collection, ...
+    city: Optional[str] = None  # span.place  — Milan, ...
+    look_count: Optional[int] = None  # filled in only to break ties
 
 
 def build_search_url(
@@ -546,6 +579,7 @@ def build_search_url(
     `season`, `category` and `shoot_type` accept either the human label
     ("Fall / Winter") or the site's raw id ("1").
     """
+
     def code(value, table):
         if value is None:
             return None
@@ -608,16 +642,18 @@ def parse_results_page(html: bytes | str) -> List[CollectionSummary]:
         if row:
             info = row.find(class_="collecInfo")
             if info:
-                for attr, cls in (("category", "nature"),
-                                  ("shoot_type", "type"),
-                                  ("city", "place")):
+                for attr, cls in (
+                    ("category", "nature"),
+                    ("shoot_type", "type"),
+                    ("city", "place"),
+                ):
                     el = info.find(class_=cls)
                     if el:
                         setattr(summary, attr, el.get_text(strip=True) or None)
         m = _TITLE_RE.match(title)
         if m:
             summary.designer = m.group("designer").strip()
-            season = m.group("season")          # optional — absent on some shows
+            season = m.group("season")  # optional — absent on some shows
             summary.season = season.strip() if season else None
             summary.year = int(m.group("year"))
             summary.gender = m.group("gender").strip()
@@ -821,8 +857,7 @@ def fill_look_counts(
 
     groups = defaultdict(list)
     for r in rows:
-        groups[(r.designer, r.season, r.year, r.gender,
-                r.category, r.shoot_type, r.city)].append(r)
+        groups[(r.designer, r.season, r.year, r.gender, r.category, r.shoot_type, r.city)].append(r)
 
     sess = session or _session()
     for group in groups.values():
@@ -859,9 +894,7 @@ def category_map(
 
     out: Dict[str, str] = {}
     for label in ("Haute Couture", "Swim"):
-        for r in search_collections(
-            session=sess, max_pages=max_pages, category=label, **filters
-        ):
+        for r in search_collections(session=sess, max_pages=max_pages, category=label, **filters):
             out[r.collection_id] = label
     return out
 
@@ -888,8 +921,16 @@ def _index_record(r: CollectionSummary) -> Dict:
 
     Short keys: at 55,700 rows the field names are a third of the file.
     """
-    return {"c": r.collection_id, "d": r.designer, "s": r.season, "y": r.year,
-            "g": r.gender, "n": r.category, "t": r.shoot_type, "p": r.city}
+    return {
+        "c": r.collection_id,
+        "d": r.designer,
+        "s": r.season,
+        "y": r.year,
+        "g": r.gender,
+        "n": r.category,
+        "t": r.shoot_type,
+        "p": r.city,
+    }
 
 
 def last_results_page(
@@ -962,8 +1003,7 @@ def build_show_index(
             for attempt in (1, 2):
                 try:
                     time.sleep(delay)
-                    resp = sess.get(build_search_url(gender=_gender, page=page),
-                                    timeout=TIMEOUT)
+                    resp = sess.get(build_search_url(gender=_gender, page=page), timeout=TIMEOUT)
                     resp.raise_for_status()
                     rows = parse_results_page(resp.content)
                     with lock:
@@ -998,6 +1038,7 @@ def build_show_index(
         payload = json.dumps(data, ensure_ascii=False).encode("utf-8")
         if path.suffix == ".gz":
             import gzip as _gzip
+
             path.write_bytes(_gzip.compress(payload, 6))
         else:
             path.write_bytes(payload)
@@ -1011,6 +1052,7 @@ def load_show_index(path: "str | Path") -> Optional[Dict]:
         blob = p.read_bytes()
         if p.suffix == ".gz":
             import gzip as _gzip
+
             blob = _gzip.decompress(blob)
         data = json.loads(blob)
     except Exception:  # noqa: BLE001
@@ -1039,8 +1081,9 @@ def refresh_show_index(
             resp = sess.get(build_search_url(gender=gender, page=page), timeout=TIMEOUT)
             resp.raise_for_status()
             rows = parse_results_page(resp.content)
-            new = [r for r in rows if r.collection_id not in known_ids
-                   and r.collection_id not in fresh]
+            new = [
+                r for r in rows if r.collection_id not in known_ids and r.collection_id not in fresh
+            ]
             for r in new:
                 fresh[r.collection_id] = _index_record(r)
             # A full page of shows we already have means we have caught up.
@@ -1094,8 +1137,11 @@ def build_designer_index(
         time.sleep(delay)
 
     designers = sorted(
-        ({"id": did, "name": name} for did, name in found.items()
-         if not _JUNK_DESIGNER_RE.match(name.strip())),
+        (
+            {"id": did, "name": name}
+            for did, name in found.items()
+            if not _JUNK_DESIGNER_RE.match(name.strip())
+        ),
         key=lambda d: d["name"].lower(),
     )
 
@@ -1190,16 +1236,17 @@ def build_coverage(
     sess = session or _session()
     combos: Dict[str, Dict] = {}
 
-    todo = [(y, s, g)
-            for y in range(YEAR_MAX, YEAR_MIN - 1, -1)
-            for s in SEASONS
-            for g in GENDERS]
+    todo = [(y, s, g) for y in range(YEAR_MAX, YEAR_MIN - 1, -1) for s in SEASONS for g in GENDERS]
 
     for i, (year, season, gender) in enumerate(todo):
         try:
             rows = search_collections(
-                session=sess, max_pages=1, gender=gender, year=year,
-                season=season, shoot_type=shoot_type,
+                session=sess,
+                max_pages=1,
+                gender=gender,
+                year=year,
+                season=season,
+                shoot_type=shoot_type,
             )
         except Exception:  # noqa: BLE001 — a failed probe is "unknown", not "empty"
             rows = None
@@ -1214,8 +1261,13 @@ def build_coverage(
                 time.sleep(delay)
                 try:
                     got = search_collections(
-                        session=sess, max_pages=1, gender=gender, year=year,
-                        season=season, shoot_type=shoot_type, category=label,
+                        session=sess,
+                        max_pages=1,
+                        gender=gender,
+                        year=year,
+                        season=season,
+                        shoot_type=shoot_type,
+                        category=label,
                     )
                     entry["categories"][label] = len(got)
                 except Exception:  # noqa: BLE001

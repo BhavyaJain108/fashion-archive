@@ -210,6 +210,23 @@ def test_the_brands_sku_and_the_barcodes_go_to_different_fields():
 
 
 @pytest.mark.unit
+def test_a_numeric_sku_is_kept_as_its_digits():
+    """WIA Collections' JSON-LD prints "sku": 10442 — a number. The whole run died on
+    it ('int' object has no attribute 'strip') and the brand was marked needs_attention
+    for a template choice, not a fault of the site (2026-09-22)."""
+    html = _ldjson(
+        {
+            "@type": "Product",
+            "name": "Sable Dress",
+            "sku": 10442,
+            "offers": {"price": "180.00", "priceCurrency": "USD"},
+        }
+    )
+    rec = parse_ldjson_product(html, "https://wiacollections.com/products/sable")
+    assert rec.product_code == "10442" and rec.color_info is None
+
+
+@pytest.mark.unit
 def test_additional_properties_become_specifications():
     html = _ldjson(
         {
@@ -332,6 +349,7 @@ def test_a_page_without_breadcrumbs_yields_nothing():
         ("1802002B-C00A1", None),  # a plain sku is not a colour
         ("ABC--C00A1", None),  # digits mean it is another sku segment, not a colour
         (None, None),
+        (10442, None),  # WIA Collections prints its SKUs as numbers (2026-09-22)
     ],
 )
 def test_a_variant_sku_names_its_variant_after_the_double_dash(sku, expected):

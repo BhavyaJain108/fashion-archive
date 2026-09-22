@@ -557,7 +557,9 @@ def test_a_learn_run_writes_rules_and_evidence_and_stores_no_products(tmp_path):
         return RecipeBook(
             domain=domain,
             learned_at="now",
-            recipes=[Recipe(field="material_info", kind="css_text", expression="p.m", expected="cotton")],
+            recipes=[
+                Recipe(field="material_info", kind="css_text", expression="p.m", expected="cotton")
+            ],
         )
 
     cat = Catalog(DirectoryObjectStore(tmp_path))
@@ -617,7 +619,9 @@ def test_a_learn_run_may_ask_again_about_a_field_given_up_on(tmp_path):
 
     cat = Catalog(DirectoryObjectStore(tmp_path))
     cat.upsert_brand(brand)
-    cat.record_evidence("kuurth.com", "r0", [("material_info", "page_llm", 3, 0)])  # searched, not found
+    cat.record_evidence(
+        "kuurth.com", "r0", [("material_info", "page_llm", 3, 0)]
+    )  # searched, not found
     common = dict(
         transport=None,
         locks_dir=tmp_path / "locks",

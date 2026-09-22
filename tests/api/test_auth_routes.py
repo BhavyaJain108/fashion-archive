@@ -30,11 +30,16 @@ class StubProvider(oauth.Provider):
     issuers = ("https://accounts.example.test",)
     scope = "openid email profile"
 
-    def __init__(self, *, sub="google-sub-1", email="signup@example.test",
-                 email_verified=True, name="Signup Person"):
+    def __init__(
+        self,
+        *,
+        sub="google-sub-1",
+        email="signup@example.test",
+        email_verified=True,
+        name="Signup Person",
+    ):
         self.client_id = "client-id"
-        self.claims = {"sub": sub, "email": email, "email_verified": email_verified,
-                       "name": name}
+        self.claims = {"sub": sub, "email": email, "email_verified": email_verified, "name": name}
         self.exchanged = []
         # Deliberately skips Provider.__init__: no JWKS client is needed.
 
@@ -42,8 +47,9 @@ class StubProvider(oauth.Provider):
         return "secret"
 
     def exchange_code(self, *, code, redirect_uri, code_verifier):
-        self.exchanged.append({"code": code, "redirect_uri": redirect_uri,
-                               "code_verifier": code_verifier})
+        self.exchanged.append(
+            {"code": code, "redirect_uri": redirect_uri, "code_verifier": code_verifier}
+        )
         return "stub-id-token"
 
     def verify_id_token(self, id_token, *, nonce):
@@ -68,8 +74,10 @@ def start(client):
 
 
 def callback(client, state, **extra):
-    return client.get("/api/auth/oauth/google/callback",
-                      query_string={"state": state, "code": "auth-code", **extra})
+    return client.get(
+        "/api/auth/oauth/google/callback",
+        query_string={"state": state, "code": "auth-code", **extra},
+    )
 
 
 def bind(client, state):
@@ -183,8 +191,9 @@ class TestCallback:
 
     def test_the_binding_cookie_is_dropped_once_the_attempt_is_over(self, client, provider):
         response = callback(client, start(client))
-        cleared = [h for h in response.headers.getlist("Set-Cookie")
-                   if h.startswith("fa_oauth_state=")]
+        cleared = [
+            h for h in response.headers.getlist("Set-Cookie") if h.startswith("fa_oauth_state=")
+        ]
         assert cleared and ("Expires=Thu, 01 Jan 1970" in cleared[0] or "Max-Age=0" in cleared[0])
 
     def test_a_cancelled_sign_in_says_so(self, client, provider):
@@ -193,9 +202,7 @@ class TestCallback:
 
     def test_an_unverified_email_is_refused(self, client, flask_app):
         """Linking on an unverified address would let anyone claim it."""
-        flask_app.extensions["oauth_providers"] = {
-            "google": StubProvider(email_verified=False)
-        }
+        flask_app.extensions["oauth_providers"] = {"google": StubProvider(email_verified=False)}
         response = callback(client, start(client))
         assert "auth_error=EMAIL_NOT_VERIFIED" in response.headers["Location"]
         assert session_cookie(response) is None

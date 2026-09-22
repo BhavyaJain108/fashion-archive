@@ -107,8 +107,15 @@ def put(
             last_accessed_at = now()
         """,
         (
-            collection_id, designer, season, gender, category, shoot_type,
-            json.dumps(images), len(images), quality,
+            collection_id,
+            designer,
+            season,
+            gender,
+            category,
+            shoot_type,
+            json.dumps(images),
+            len(images),
+            quality,
         ),
     )
 

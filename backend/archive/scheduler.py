@@ -93,7 +93,8 @@ class Scheduler:
         row.update(
             {
                 "domain": domain,
-                "enabled": 1,
+                # Adding a brand that is already here keeps its pause.
+                "enabled": row.get("enabled", 1) if row else 1,
                 "cadence_seconds": cadence_seconds,
                 "next_due": row.get("next_due") or _iso(now or _now()),
                 "claimed_by": row.get("claimed_by"),
@@ -216,6 +217,30 @@ class Scheduler:
 
     # --- claiming -------------------------------------------------------------------
 
+    # --- workers ------------------------------------------------------------------
+
+    def beat_worker(self, worker_id: str, now: datetime | None = None) -> None:
+        """A worker says it is alive, once per poll. Unconditional: the last word wins
+        and nobody else writes this object."""
+        self._store.put(
+            f"control/workers/{worker_id}.json",
+            dumps({"worker": worker_id, "seen_at": _iso(now or _now())}),
+        )
+
+    def workers_seen(self, within_seconds: int = 120, now: datetime | None = None) -> dict:
+        """Which workers have polled recently, and when each was last seen."""
+        now = now or _now()
+        cutoff = _iso(now - timedelta(seconds=within_seconds))
+        seen = {}
+        for key in self._store.list("control/workers/"):
+            row, _ = self._read(key)
+            if row.get("worker"):
+                seen[row["worker"]] = {
+                    "seen_at": row.get("seen_at"),
+                    "alive": (row.get("seen_at") or "") >= cutoff,
+                }
+        return seen
+
     def held_domains(self, now: datetime | None = None) -> set[str]:
         """Brands a worker is scraping right now.
 
@@ -265,6 +290,8 @@ class Scheduler:
         for _due, key, row, etag in sorted(candidates):
             row["claimed_by"] = self.worker_id
             row["claimed_at"] = _iso(now)
+            # claimed_at moves with every heartbeat; this one says when the run began.
+            row["claimed_since"] = _iso(now)
             row["run_once"] = 0  # the one run asked for is this one
             mode = row.get("next_mode") or "delta"
             retry = bool(row.get("retry_searched"))
@@ -287,15 +314,19 @@ class Scheduler:
         then write the same catalogue.
         """
         key = self._key(domain)
-        row, etag = self._read(key)
-        if not row or row.get("claimed_by") != self.worker_id:
-            return False
-        row["claimed_at"] = _iso(now or _now())
-        try:
-            self._write(key, row, etag)
-        except Conflict:
-            return False
-        return True
+        # Retried: the owner pausing the brand at the moment of a beat used to lose
+        # the beat, and two lost beats read as a dead worker on the deck.
+        for _ in range(3):
+            row, etag = self._read(key)
+            if not row or row.get("claimed_by") != self.worker_id:
+                return False
+            row["claimed_at"] = _iso(now or _now())
+            try:
+                self._write(key, row, etag)
+                return True
+            except Conflict:
+                continue
+        return False
 
     def force_release(self, domain: str) -> bool:
         """Take a claim off a brand without waiting for it to go stale — the owner's
@@ -304,7 +335,7 @@ class Scheduler:
         row, _ = self._read(self._key(domain))
         if not row or row.get("claimed_by") is None:
             return False
-        self._amend(domain, claimed_by=None, claimed_at=None)
+        self._amend(domain, claimed_by=None, claimed_at=None, claimed_since=None)
         return True
 
     def release(self, domain: str, cadence_seconds: int, now: datetime | None = None) -> None:
@@ -314,23 +345,31 @@ class Scheduler:
             domain,
             claimed_by=None,
             claimed_at=None,
+            claimed_since=None,
             next_due=_iso(now + timedelta(seconds=cadence_seconds)),
         )
 
-    def release_after_learn(self, domain: str, now: datetime | None = None) -> None:
+    def release_after_learn(
+        self, domain: str, now: datetime | None = None, not_before: int = 0
+    ) -> None:
         """Hand the brand back after a learn run, restoring the turn it had before
-        the learn run was asked for. A turn already in the past stays due now."""
+        the learn run was asked for. A turn already in the past stays due now,
+        unless the host asked us to wait (`not_before` seconds)."""
         now = now or _now()
         row, _ = self._read(self._key(domain))
         if not row:
             return
         kept = row.get("due_after_learn")
+        if not_before:
+            kept = max(kept or "", _iso(now + timedelta(seconds=not_before)))
         self._amend(
             domain,
             claimed_by=None,
             claimed_at=None,
+            claimed_since=None,
             due_after_learn=None,
-            next_due=kept or _iso(now + timedelta(seconds=row.get("cadence_seconds") or DEFAULT_CADENCE)),
+            next_due=kept
+            or _iso(now + timedelta(seconds=row.get("cadence_seconds") or DEFAULT_CADENCE)),
         )
 
     def defer(self, domain: str, seconds: int, now: datetime | None = None) -> None:
@@ -340,5 +379,6 @@ class Scheduler:
             domain,
             claimed_by=None,
             claimed_at=None,
+            claimed_since=None,
             next_due=_iso(now + timedelta(seconds=seconds)),
         )

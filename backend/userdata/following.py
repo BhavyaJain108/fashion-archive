@@ -18,9 +18,7 @@ from uuid import UUID
 from psycopg.rows import dict_row
 
 
-def follow(
-    conn, *, user_id: UUID, brand_id: str, brand_name: str, notes: str = ""
-) -> bool:
+def follow(conn, *, user_id: UUID, brand_id: str, brand_name: str, notes: str = "") -> bool:
     """Follow a brand. Returns False if already following."""
     cur = conn.execute(
         """
@@ -80,9 +78,7 @@ def list_following(conn, *, user_id: UUID) -> list[dict[str, Any]]:
 
 
 def count(conn, *, user_id: UUID) -> int:
-    cur = conn.execute(
-        "SELECT count(*) FROM brand_following WHERE user_id = %s", (user_id,)
-    )
+    cur = conn.execute("SELECT count(*) FROM brand_following WHERE user_id = %s", (user_id,))
     return cur.fetchone()[0]
 
 

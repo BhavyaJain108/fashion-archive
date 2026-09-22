@@ -24,6 +24,29 @@ _EXT = {
 }
 
 
+# A photograph is a few megabytes at most; a "photograph" of 40 MB is something else.
+MAX_IMAGE_BYTES = 15 * 1024 * 1024
+
+_IMAGE_MAGIC = (
+    b"\xff\xd8\xff",  # JPEG
+    b"\x89PNG\r\n\x1a\n",  # PNG
+    b"GIF87a",
+    b"GIF89a",
+    b"BM",  # BMP
+)
+
+
+def looks_like_image(data: bytes) -> bool:
+    """Whether the bytes start the way an image file does. WebP and AVIF/HEIC carry
+    their signature a few bytes in; SVG is text and is not accepted — it can script."""
+    head = data[:16]
+    if any(head.startswith(m) for m in _IMAGE_MAGIC):
+        return True
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return True
+    return head[4:8] == b"ftyp"  # AVIF / HEIC
+
+
 class ImageStore:
     def __init__(self, sink: Sink, width: int | None = None):
         self.sink = sink
@@ -87,6 +110,10 @@ class ImageStore:
             return None  # a missing image never fails a run
         ctype = resp.headers.get("content-type", "").split(";")[0].strip()
         if resp.status_code != 200 or not ctype.startswith("image/"):
+            return None
+        # The header is the host's claim; the first bytes are the fact. Anything else
+        # would be mirrored under our own domain with an image's name.
+        if len(resp.content) > MAX_IMAGE_BYTES or not looks_like_image(resp.content):
             return None
         return resp.content, ctype
 

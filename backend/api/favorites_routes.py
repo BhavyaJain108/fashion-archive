@@ -317,12 +317,8 @@ def register_favorites_routes(app):
         methods=["GET"],
     )
     app.add_url_rule("/api/favourites", "add_favourite", add_favourite, methods=["POST"])
-    app.add_url_rule(
-        "/api/favourites", "remove_favourite", remove_favourite, methods=["DELETE"]
-    )
-    app.add_url_rule(
-        "/api/favourites/check", "check_favourite", check_favourite, methods=["POST"]
-    )
+    app.add_url_rule("/api/favourites", "remove_favourite", remove_favourite, methods=["DELETE"])
+    app.add_url_rule("/api/favourites/check", "check_favourite", check_favourite, methods=["POST"])
     app.add_url_rule(
         "/api/favourites/stats",
         "get_favourites_stats",

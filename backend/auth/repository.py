@@ -64,9 +64,7 @@ def _to_user(row: dict | None) -> User | None:
 # --------------------------------------------------------------------------
 
 
-def create_user(
-    conn, *, email: str, display_name: str, password_hash: str | None = None
-) -> User:
+def create_user(conn, *, email: str, display_name: str, password_hash: str | None = None) -> User:
     """Insert a new, unverified account.
 
     password_hash is optional: accounts made through Google or Apple have none.
@@ -177,9 +175,7 @@ def touch_session(conn, token: str, *, ttl: timedelta) -> None:
     )
 
 
-def refresh_session_if_stale(
-    conn, token: str, *, ttl: timedelta, refresh_after: timedelta
-) -> None:
+def refresh_session_if_stale(conn, token: str, *, ttl: timedelta, refresh_after: timedelta) -> None:
     """Roll a session's expiry forward, but only once it has gone stale.
 
     Rolling expiry is what keeps an active user signed in indefinitely while

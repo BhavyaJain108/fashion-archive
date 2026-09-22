@@ -6,6 +6,7 @@ room both fail to yield products, and they need opposite fixes.
 
 import socket
 import ssl
+from typing import Any
 
 import httpx
 import pytest
@@ -16,7 +17,7 @@ from backend.archive.domain.brand import Capability, TransportLevel
 
 def cap(**kw) -> Capability:
     """A Capability that reached the site and found a readable Shopify feed."""
-    base = dict(
+    base: dict[str, Any] = dict(
         domain="example.com",
         transport=TransportLevel.T0,
         bulk_json=True,

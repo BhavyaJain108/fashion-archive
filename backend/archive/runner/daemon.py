@@ -53,7 +53,9 @@ def backoff(cadence_seconds: int, attention_streak: int) -> int:
 
 
 def code_version() -> str:
-    """The commit the worker is running, so a deploy is visible to it."""
+    """The commit the worker is running, for the record. Render replaces the
+    container on every deploy, so nothing stands down on a version change; the
+    check used to fork git every ten seconds and a failed fork read as a change."""
     try:
         return subprocess.run(
             ["git", "rev-parse", "HEAD"], capture_output=True, text=True, timeout=5
@@ -91,7 +93,7 @@ def run_once(catalog: Catalog, scheduler: Scheduler, do_brand, log=print) -> boo
         log(f"{due.domain} busy: {e}")
         beat_off.set()
         if learning:
-            scheduler.release_after_learn(due.domain)
+            scheduler.release_after_learn(due.domain, not_before=BUSY_BACKOFF)
         else:
             scheduler.defer(due.domain, BUSY_BACKOFF)
         return True
@@ -111,7 +113,21 @@ def run_once(catalog: Catalog, scheduler: Scheduler, do_brand, log=print) -> boo
         # says what was learned; the brand's turn is restored, not consumed.
         log(f"{due.domain} learn run done, ${cost:.3f}")
         scheduler.release_after_learn(due.domain)
+        catalog.release_products(due.domain)
         return True
+    try:
+        _score_and_release(catalog, scheduler, due, records, cost, started, log)
+    finally:
+        # The parsed catalogue of a 35 MB brand must not sit in this worker until its
+        # next flush, and the brand must never stay claimed because scoring failed.
+        catalog.release_products(due.domain)
+        row = scheduler.row(due.domain) or {}
+        if row.get("claimed_by") == scheduler.worker_id:
+            scheduler.release(due.domain, due.cadence_seconds)
+    return True
+
+
+def _score_and_release(catalog, scheduler, due, records, cost, started, log) -> None:
     card = score(records, seconds=time.monotonic() - started, cost_usd=cost)
     run = catalog.latest_run(due.domain)
     if run:
@@ -133,7 +149,6 @@ def run_once(catalog: Catalog, scheduler: Scheduler, do_brand, log=print) -> boo
     if wait != due.cadence_seconds:
         log(f"{due.domain} needs a human ({streak} runs: {reason}); next look in {wait // 3600}h")
     scheduler.release(due.domain, wait)
-    return True
 
 
 def worker(store_factory, worker_id: str, do_brand_factory, version: str, log=print) -> None:
@@ -146,12 +161,20 @@ def worker(store_factory, worker_id: str, do_brand_factory, version: str, log=pr
     scheduler = Scheduler(store, worker_id=worker_id)
     do_brand = do_brand_factory(catalog)
     try:
-        while not scheduler.should_stop():
-            if code_version() != version:
-                log(f"{worker_id}: code changed, standing down for the new version")
-                return
-            if not run_once(catalog, scheduler, do_brand, log=log):
-                time.sleep(POLL_SECONDS)
+        while True:
+            try:
+                if scheduler.should_stop():
+                    return
+                # Seen recently, by the deck: a thread that died used to be invisible.
+                scheduler.beat_worker(worker_id)
+                if not run_once(catalog, scheduler, do_brand, log=log):
+                    time.sleep(POLL_SECONDS)
+            except Exception as e:  # noqa: BLE001 — a transient must not end the worker
+                # Before this, any store error outside do_brand (a 503 from the
+                # bucket, a timeout) ended the thread for good, and one dead worker
+                # halved the fleet with nothing on the deck to say so.
+                log(f"{worker_id}: {type(e).__name__}: {e}; carrying on in 30s")
+                time.sleep(30)
     finally:
         catalog.close()
 

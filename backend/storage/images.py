@@ -185,7 +185,7 @@ class LocalImageStore:
             if parent == self._root or not parent.is_relative_to(self._root):
                 break
             try:
-                parent.rmdir()          # only succeeds while it is empty
+                parent.rmdir()  # only succeeds while it is empty
             except OSError:
                 break
 

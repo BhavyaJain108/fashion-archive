@@ -192,8 +192,6 @@ class TestSessions:
         assert conn.execute("SELECT count(*) FROM sessions").fetchone()[0] == 0
 
 
-
-
 class TestLastLogin:
     def test_starts_null(self, conn):
         assert make_user(conn).last_login_at is None

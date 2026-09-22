@@ -582,7 +582,9 @@ def test_a_learn_run_is_queued_from_the_deck_and_refused_while_held(client, tmp_
     c, mp = client
     mp.setenv("ADMIN_EMAILS", "owner@example.com")
     _as(mp, "owner@example.com")
-    body = json.loads(c.post("/api/dev/brands/kuurth.com/learn", json={"retry_searched": True}).data)
+    body = json.loads(
+        c.post("/api/dev/brands/kuurth.com/learn", json={"retry_searched": True}).data
+    )
     assert body["outcome"] == "queued" and body["mode"] == "learn"
     row = Scheduler(DirectoryObjectStore(tmp_path)).row("kuurth.com")
     assert row["next_mode"] == "learn" and row["retry_searched"] == 1

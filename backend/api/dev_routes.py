@@ -385,6 +385,8 @@ def _brand_row(domain: str, row: dict, meta: dict, name: str, catalog: Catalog) 
         "cadence_seconds": row.get("cadence_seconds"),
         "claimed_by": claimed,
         "claimed_at": row.get("claimed_at"),
+        # When the run began; claimed_at moves with every heartbeat.
+        "claimed_since": row.get("claimed_since") or row.get("claimed_at"),
         "heartbeat_minutes": None if age is None else round(age, 1),
         "worker_alive": alive,
         "empty_because": _why_empty(domain, catalog) if not live else None,
@@ -394,6 +396,7 @@ def _brand_row(domain: str, row: dict, meta: dict, name: str, catalog: Catalog) 
         # The top line of what recommend() ranked after the last run.
         "next_action": meta.get("next_action"),
         "next_priority": meta.get("next_priority"),
+        "next_at": meta.get("next_at"),
         "open_findings": meta.get("open_findings"),
         # The last scorecard's headline numbers, folded into fleet.json by the daemon.
         "gate": card.get("required_ok"),
@@ -413,10 +416,15 @@ def register_dev_routes(app: Flask) -> None:
         with ThreadPoolExecutor(max_workers=3) as pool:
             fleet_f = pool.submit(store.get, "fleet.json")
             rows_f = pool.submit(Scheduler(store).rows)
+            workers_f = pool.submit(Scheduler(store).workers_seen)
             finder_f = pool.submit(DailyCap(store, finder_cap).summary)
             found = fleet_f.result()
             rows = {r["domain"]: r for r in rows_f.result()}
             finder = finder_f.result()
+            try:
+                workers_seen = workers_f.result()
+            except Exception:  # noqa: BLE001 — liveness is a bonus, never a blocker
+                workers_seen = {}
         fleet = loads(found[0]) if found else {}
         # _brand_row asks the catalogue for state and plan only when a brand shows
         # nothing; hand it the fleet it already has so those reads are the exception.
@@ -442,7 +450,7 @@ def register_dev_routes(app: Flask) -> None:
                 found_progress = list(pool.map(lambda b: catalog.load_progress(b["domain"]), held))
             for b, p in zip(held, found_progress, strict=True):
                 # A progress object older than the claim belongs to an earlier run.
-                if p and (p.get("updated_at") or "") >= (b.get("claimed_at") or ""):
+                if p and (p.get("updated_at") or "") >= (b.get("claimed_since") or ""):
                     b["progress"] = {
                         "phase": p.get("phase"),
                         "done": p.get("done"),
@@ -461,7 +469,7 @@ def register_dev_routes(app: Flask) -> None:
                 "need_a_human": sum(1 for b in brands if b["attention_streak"]),
                 "failed_gate": sum(1 for b in brands if b["gate"] is False),
             },
-            "workers": {"running": running, "stalled": stalled},
+            "workers": {"running": running, "stalled": stalled, "seen": workers_seen},
             "finder": finder,
             "brands": brands,
         }
@@ -521,7 +529,7 @@ def register_dev_routes(app: Flask) -> None:
         summary = _brand_row(brand_id, row or {}, meta, _names().get(brand_id, brand_id), catalog)
         if summary["claimed_by"]:
             p = catalog.load_progress(brand_id)
-            if p and (p.get("updated_at") or "") >= (summary.get("claimed_at") or ""):
+            if p and (p.get("updated_at") or "") >= (summary.get("claimed_since") or ""):
                 summary["progress"] = {
                     "phase": p.get("phase"),
                     "done": p.get("done"),
@@ -553,6 +561,16 @@ def register_dev_routes(app: Flask) -> None:
         # scorecard but still says what happened, and that is the one worth reading.
         by_run = {c["run_id"]: c for c in cards}
         runs = [{**r, "card": by_run.get(r["id"])} for r in run_rows]
+        # A run row still open from before the current claim (or with no claim at all)
+        # belongs to a worker that is gone; the row itself is closed by the next run.
+        since = summary.get("claimed_since") or ""
+        for r in runs:
+            if r.get("exit_status") is None and (
+                not summary["claimed_by"] or r["started_at"] < since
+            ):
+                r["abandoned"] = (
+                    r.get("abandoned") or "the worker was replaced before this run finished"
+                )
         latest_fill = (cards[0].get("field_fill") if cards else None) or {}
 
         # What happened last time, in words: the newest run that left a log.

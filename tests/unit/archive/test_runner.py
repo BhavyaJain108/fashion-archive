@@ -2,7 +2,7 @@ import os
 
 import pytest
 
-from backend.archive.connectors.base import ChannelBlocked
+from backend.archive.connectors.base import ChannelBlocked, ChannelBusy
 from backend.archive.domain.brand import Brand, Capability, TransportLevel
 from backend.archive.domain.product import ProductRecord, ProductRef
 from backend.archive.planner import compose_plan
@@ -882,7 +882,6 @@ def test_the_brand_is_filled_from_the_brand_we_chose_to_scrape(env):
 @pytest.mark.unit
 def test_a_busy_channel_does_not_rewrite_the_plan(env):
     """Rate limiting says nothing about a brand's shape."""
-    from backend.archive.connectors.base import ChannelBusy
 
     cat, locks, logs = env
 
@@ -897,7 +896,10 @@ def test_a_busy_channel_does_not_rewrite_the_plan(env):
         composer=compose_plan,
         connector_factory=lambda plan, sitemap_url=None, limit=None: Busy([]),
     )
-    run_brand(BRAND, cat, None, mode="full", **kwargs)  # establishes the plan, then 429s
+    # Establishes the plan, then 429s. The busy signal reaches the caller — the
+    # daemon defers the brand rather than counting this as its turn.
+    with pytest.raises(ChannelBusy):
+        run_brand(BRAND, cat, None, mode="full", **kwargs)
     plan = cat.load_plan("kuurth.com")
     assert plan.stale is False
     assert plan.tried == []

@@ -69,12 +69,13 @@ user_auth = UserAuth()
 # Login
 success, user, session, message = user_auth.get_or_create_user(username, password)
 
+
 # Protect route
-@app.route('/api/protected')
+@app.route("/api/protected")
 @require_auth
 def protected_route():
     user = get_current_user()
-    return jsonify({'user_id': user.id})
+    return jsonify({"user_id": user.id})
 ```
 
 ### Cache Directory (`cache/`)

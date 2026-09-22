@@ -209,17 +209,24 @@
 
 .dev-alarm b { font-weight: 600; }
 
-/* What is being scraped this minute. Short, and the first thing to read. */
+/* What is being scraped this minute: one tile per held brand, and which workers
+   have polled lately. The first thing to read, and the only block on the page
+   with a raised ground. */
 .dev-now {
+  margin-bottom: 24px;
+  padding: 14px 16px 16px;
+  background: var(--ar-bg-sub);
+  border: 1px solid var(--ar-line-soft);
+  border-left: 2px solid var(--ar-ink);
+}
+
+.dev-now-head {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 8px 20px;
-  padding: 10px 12px;
-  margin-bottom: 20px;
-  background: var(--ar-bg-sub);
-  border-left: 2px solid var(--ar-ink);
-  font-size: var(--ar-fs-ui);
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin-bottom: 12px;
 }
 
 .dev-now-k {
@@ -229,7 +236,40 @@
   color: var(--ar-ink-3);
 }
 
-.dev-now-item { color: var(--ar-ink); display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+.dev-now-workers { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+
+.dev-now-idle { font-size: var(--ar-fs-ui); color: var(--ar-ink-3); }
+
+.dev-now-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.dev-now-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px 14px;
+  background: var(--ar-bg);
+  border: 1px solid var(--ar-line-soft);
+}
+
+.dev-now-name {
+  font-size: var(--ar-fs-body);
+  font-weight: 600;
+  color: var(--ar-ink);
+  text-align: left;
+}
+
+.dev-now-meta {
+  font-size: var(--ar-fs-micro);
+  color: var(--ar-ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.dev-stamp-failed { color: var(--ar-danger); }
 
 /* A running scrape, drawn. The fill is silver — a moving sheen over the ink greys,
    the one motion on the deck, there to be seen from across the room. A phase
@@ -238,6 +278,8 @@
    back. Durations are the design's slow beat multiplied, never a raw number. */
 .dev-live { display: inline-flex; flex-direction: column; gap: 4px; min-width: 0; }
 .dev-live-row { width: 160px; font-size: var(--ar-fs-micro); }
+.dev-live-tile { display: flex; width: 100%; font-size: var(--ar-fs-micro); }
+.dev-live-tile .dev-live-track { height: 8px; }
 .dev-live-hero { display: flex; width: 100%; margin: 16px 0 4px; font-size: var(--ar-fs-ui); }
 
 .dev-live-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; white-space: nowrap; }

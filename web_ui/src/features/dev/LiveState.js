@@ -21,7 +21,7 @@ const PHASE_WORDS = {
 export default function LiveState({ brand, size = 'row' }) {
   if (!brand || !brand.claimed_by) return null;
   if (!brand.worker_alive) {
-    return <span className="dev-pill stalled">worker dead</span>;
+    return <span className="dev-pill stalled">no heartbeat {ago(brand.claimed_at)}</span>;
   }
   const p = brand.progress;
   const known = p && p.total != null && p.total > 0 && p.done != null;
@@ -36,7 +36,8 @@ export default function LiveState({ brand, size = 'row' }) {
         {known && <span className="dev-live-v">{n(p.done)} / {n(p.total)} · {share}%</span>}
         {size === 'hero' && (
           <span className="dev-muted">
-            {' '}· {brand.claimed_by} · since {ago(brand.claimed_at)}{stale ? ` · position as of ${stale}` : ''}
+            {' '}· {brand.claimed_by} · started {ago(brand.claimed_since || brand.claimed_at)}
+            {' '}· last beat {ago(brand.claimed_at)}{stale ? ` · position as of ${stale}` : ''}
           </span>
         )}
       </div>

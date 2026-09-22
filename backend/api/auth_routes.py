@@ -67,9 +67,7 @@ def _back_to_site(code: str | None = None):
 def _finish(code: str | None = None):
     """Back to the site, and the pending attempt is over either way — a binding
     cookie left behind is one someone else could still finish."""
-    return clear_oauth_state_cookie(
-        _back_to_site(code), config=current_app.config["APP_CONFIG"]
-    )
+    return clear_oauth_state_cookie(_back_to_site(code), config=current_app.config["APP_CONFIG"])
 
 
 def auth_providers():
@@ -128,8 +126,12 @@ def auth_oauth_callback(provider):
     try:
         with db.transaction() as conn:
             identity = oauth.complete(
-                conn, p, state=state, code=args.get("code", ""),
-                api_base_url=current_app.config["API_BASE_URL"], apple_name=apple_name,
+                conn,
+                p,
+                state=state,
+                code=args.get("code", ""),
+                api_base_url=current_app.config["API_BASE_URL"],
+                apple_name=apple_name,
             )
             user = oauth.sign_in(conn, identity)
             token = new_token()
@@ -175,8 +177,7 @@ def auth_logout():
     if token:
         with db.transaction() as conn:
             repo.delete_session(conn, token)
-    return clear_session_cookie(jsonify({"success": True}),
-                                config=current_app.config["APP_CONFIG"])
+    return clear_session_cookie(jsonify({"success": True}), config=current_app.config["APP_CONFIG"])
 
 
 def auth_me():
@@ -187,9 +188,14 @@ def auth_me():
 def register_auth_routes(app):
     """Register the authentication endpoints."""
     app.add_url_rule("/api/auth/providers", "auth_providers", auth_providers, methods=["GET"])
-    app.add_url_rule("/api/auth/oauth/<provider>/start", "auth_oauth_start",
-                     auth_oauth_start, methods=["GET"])
-    app.add_url_rule("/api/auth/oauth/<provider>/callback", "auth_oauth_callback",
-                     auth_oauth_callback, methods=["GET", "POST"])
+    app.add_url_rule(
+        "/api/auth/oauth/<provider>/start", "auth_oauth_start", auth_oauth_start, methods=["GET"]
+    )
+    app.add_url_rule(
+        "/api/auth/oauth/<provider>/callback",
+        "auth_oauth_callback",
+        auth_oauth_callback,
+        methods=["GET", "POST"],
+    )
     app.add_url_rule("/api/auth/logout", "auth_logout", auth_logout, methods=["POST"])
     app.add_url_rule("/api/auth/me", "auth_me", auth_me, methods=["GET"])

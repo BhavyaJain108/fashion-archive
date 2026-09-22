@@ -58,15 +58,20 @@ def record(
             viewed_at      = now()
         """,
         (
-            user_id, collection_id, designer, season, year, gender,
-            collection_url, thumbnail_url, look_count,
+            user_id,
+            collection_id,
+            designer,
+            season,
+            year,
+            gender,
+            collection_url,
+            thumbnail_url,
+            look_count,
         ),
     )
 
 
-def list_recent(
-    conn, *, user_id: UUID, limit: int = DEFAULT_LIMIT
-) -> list[dict[str, Any]]:
+def list_recent(conn, *, user_id: UUID, limit: int = DEFAULT_LIMIT) -> list[dict[str, Any]]:
     """A user's recently opened shows, newest first."""
     rows = conn.execute(
         """
@@ -98,7 +103,5 @@ def list_recent(
 
 def clear(conn, *, user_id: UUID) -> int:
     """Forget a user's history. Returns how many entries went."""
-    cur = conn.execute(
-        "DELETE FROM recent_collections WHERE user_id = %s", (user_id,)
-    )
+    cur = conn.execute("DELETE FROM recent_collections WHERE user_id = %s", (user_id,))
     return cur.rowcount or 0

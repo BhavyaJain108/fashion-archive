@@ -309,7 +309,7 @@ class TestAllThreeKinds:
         """`?limit=` comes off a query string, so it is somebody's input."""
         add_look(conn, user)
 
-        assert len(favourites.list_all(conn, user_id=user.id, limit=10 ** 9)) == 1
+        assert len(favourites.list_all(conn, user_id=user.id, limit=10**9)) == 1
         assert favourites.list_all(conn, user_id=user.id, limit=0) == []
         assert favourites.list_all(conn, user_id=user.id, limit=-4) == []
 
@@ -446,7 +446,10 @@ class TestCollectionId:
         the empty string the NOT NULL column needs, and the empty string names
         no show — so the id is null rather than '' or a stand-in."""
         favourites.add(
-            conn, user_id=user.id, kind="view", view_filters={"city": "Paris"},
+            conn,
+            user_id=user.id,
+            kind="view",
+            view_filters={"city": "Paris"},
             view_name="Paris",
         )
         assert self.ids(conn, user) == {("", None)}
@@ -507,9 +510,7 @@ class TestCollectionId:
         """The check forbids disagreement, not change."""
         self.look_at(conn, user, LIST_URL)
         other = "https://www.firstview.com/collection_images.php?id=999&list=all"
-        conn.execute(
-            "UPDATE favourites SET collection_url = %s, collection_id = '999'", (other,)
-        )
+        conn.execute("UPDATE favourites SET collection_url = %s, collection_id = '999'", (other,))
         assert self.ids(conn, user) == {(other, "999")}
 
     # ------------------------------------------ one rule, in two languages ---
@@ -541,9 +542,7 @@ class TestCollectionId:
         including the two places they deliberately part company, where Python
         would return something that is not a firstVIEW id at all.
         """
-        got = conn.execute(
-            "SELECT favourites_collection_id(%s)", (url,)
-        ).fetchone()[0]
+        got = conn.execute("SELECT favourites_collection_id(%s)", (url,)).fetchone()[0]
         assert got == expected
 
         python = fv.collection_id_from_url(url)
@@ -588,8 +587,7 @@ class TestCollectionId:
         self.legacy_row(conn, user, "https://example.com/not-a-show", 3)
         self.legacy_row(conn, user, "", 4)
         before = conn.execute(
-            "SELECT id, collection_url, season_url, look_number, notes "
-            "FROM favourites ORDER BY id"
+            "SELECT id, collection_url, season_url, look_number, notes FROM favourites ORDER BY id"
         ).fetchall()
 
         conn.execute(USERDATA_SCHEMA)

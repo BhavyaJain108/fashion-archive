@@ -4,7 +4,7 @@
 # Pillow in an image that opens none of them — over 100 MB for nothing. This list was
 # derived from what backend/archive and backend/storage actually import.
 #
-# Deliberately absent: flask and psycopg (the scraper is not the API), and playwright.
+# Deliberately absent: flask and psycopg (the scraper is not the API).
 #
 # The old reason for leaving playwright out was that the four brands wanting a browser
 # were the four producing nothing, so a browser bought us nothing. That is no longer

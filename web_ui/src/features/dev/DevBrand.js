@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 
 import DevEndpoints from '../../shared/api/dev';
-import useDevLoad, { Gate } from './useDevLoad';
+import useDevLoad, { Gate, Stamp } from './useDevLoad';
 import DevGlossary from './DevGlossary';
 import LiveState from './LiveState';
 import { ago, dateShort, due, hours, n, pct, secs, usd } from './format';
@@ -53,7 +53,7 @@ export default function DevBrand({ domain, go }) {
   // Every minute when idle; every fifteen seconds while a worker holds the brand,
   // so the bar moves at the pace the worker writes it.
   const [held, setHeld] = React.useState(false);
-  const { data, state, reload } = useDevLoad(
+  const { data, state, refreshing, checkedAt, reload } = useDevLoad(
     () => DevEndpoints.getBrand(domain), [domain], held ? 15000 : MINUTE, `brand:${domain}`,
   );
   React.useEffect(() => {
@@ -130,6 +130,7 @@ export default function DevBrand({ domain, go }) {
             </div>
           </div>
           {note && <div className="dev-alarm">{note}</div>}
+          <Stamp data={data} refreshing={refreshing} checkedAt={checkedAt} every={held ? 'checks every 15 s while held' : 'checks every minute'} />
           <LiveState brand={data.brand} size="hero" />
           <DevGlossary />
 
@@ -391,7 +392,7 @@ function Changes({ domain, go }) {
 }
 
 function took(run) {
-  if (!run.started_at || !run.finished_at) return run.finished_at ? '—' : 'running';
+  if (!run.started_at || !run.finished_at) return run.finished_at || run.abandoned ? '—' : 'running';
   const s = (new Date(run.finished_at) - new Date(run.started_at)) / 1000;
   if (Number.isNaN(s)) return '—';
   if (s < 90) return `${Math.round(s)}s`;
@@ -412,8 +413,9 @@ function RunRow({ domain, run }) {
       const gained = (run.fields_gained || []).length;
       verdict = `learned · ${n(run.rules || 0)} rules from ${n(run.pages || 0)} pages`
         + (gained ? ` · ${gained} new field${gained === 1 ? '' : 's'}` : ' · no new fields');
-    } else if (run.abandoned) verdict = 'lost · worker replaced';
+    } else if (run.abandoned) verdict = 'lost · worker gone';
     else if (run.exit_status == null) verdict = 'running';
+    else if (run.reason) verdict = `no verdict · ${run.reason}`;
     else verdict = `${EXIT[run.exit_status] || run.exit_status} · no catalogue`;
   }
   return (

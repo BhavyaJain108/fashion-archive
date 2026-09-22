@@ -538,6 +538,7 @@ def list_all(
 # the same millisecond are one value. `id` breaks the tie, and it is in the
 # ORDER BY for exactly that reason, so the row comparison below is total.
 
+
 class BadCursor(ValueError):
     """A cursor this server did not mint. A 400, not a silent first page.
 

@@ -22,6 +22,11 @@ services:
   # A machine that stays awake is the fix, not a longer timeout.
   - type: worker
     name: fashion-archive-scraper
+    # Deployed on purpose, not on every push: a new container drops whatever the
+    # daemon was scraping and the brand starts over. The API still auto-deploys;
+    # the worker is deployed from the dashboard or `POST /v1/services/<id>/deploys`
+    # once a batch of changes is ready and the fleet is quiet.
+    autoDeploy: false
     runtime: docker
     dockerfilePath: ./Dockerfile.scraper
     region: oregon

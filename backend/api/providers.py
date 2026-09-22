@@ -92,6 +92,13 @@ def anthropic_costs(days: int = 30) -> dict:
                     pass
             rows.append({"date": bucket["starting_at"][:10], "usd": round(usd, 4)})
         month = date.today().strftime("%Y-%m")
+        if not rows:
+            # An empty report is not a zero bill: a key without the billing scope, a
+            # report still catching up, or the wrong organisation all answer this way.
+            return {
+                "ok": False,
+                "error": "the cost report returned no days (lag, or the key's scope)",
+            }
         return {
             "ok": True,
             "days": rows,
@@ -227,9 +234,14 @@ def render_services(prefix: str = "fashion-archive") -> dict:
         priced = [r["list_usd_month"] for r in rows if r["list_usd_month"] is not None]
         month_gb = sum(r.get("bandwidth_gb_month") or 0 for r in rows)
         week_gb = sum(r.get("bandwidth_gb_week") or 0 for r in rows)
+        # A service whose metrics could not be read is not a service that used
+        # nothing; the page says how many are missing rather than showing a low sum.
+        unmetered = sum(1 for r in rows if r.get("bandwidth_gb_month") is None)
         return {
             "ok": True,
             "services": rows,
+            "unmetered_services": unmetered,
+            "unpriced_services": len(rows) - len(priced),
             "list_usd_month": round(sum(priced), 2),
             "bandwidth_gb_month": round(month_gb, 2),
             "bandwidth_gb_week": round(week_gb, 2),

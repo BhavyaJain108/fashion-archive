@@ -220,6 +220,12 @@ class Catalog:
                 old["exit_status"] = 2
                 old["abandoned"] = "the worker was replaced before this run finished"
                 self._write(f"runs/{domain}/{old_id}.json", old)
+        # A run starts from the store, never from a copy this handle kept from an
+        # earlier run of the same brand: the other worker may have written since, and
+        # a stale copy flushed at the end of this run would put its products back.
+        if domain not in self._dirty:
+            self._open.pop(domain, None)
+        self._open_images.pop(domain, None)
         run_id = new_run_id()
         self._write(
             f"runs/{domain}/{run_id}.json",
@@ -259,8 +265,16 @@ class Catalog:
                 return key.split("/")[1]
         return None
 
-    def finalize_run(self, run_id: str, exit_status: int, coverage: Coverage | None) -> None:
-        domain = self._domain_of_run(run_id)
+    def finalize_run(
+        self,
+        run_id: str,
+        exit_status: int,
+        coverage: Coverage | None,
+        domain: str | None = None,
+    ) -> None:
+        # The caller nearly always knows the domain; finding it meant listing every
+        # run of every brand, on every finish.
+        domain = domain or self._domain_of_run(run_id)
         if domain is None:
             return
         # The run row first, then the stamps into the buffer, then one flush. This
@@ -274,6 +288,8 @@ class Catalog:
         row["exit_status"] = exit_status
         row["coverage"] = json.loads(coverage.model_dump_json()) if coverage else None
         self._write(f"runs/{domain}/{run_id}.json", row)
+        if row.get("mode") == "learn":
+            return  # nothing in the catalogue moved; the fleet line stays the last real run's
 
         # Membership is stamped here, not in record_product, and only by a run that
         # earned coverage. psylos1 recorded 4,740 products and then died when the
@@ -461,6 +477,10 @@ class Catalog:
             "verdict": coverage.get("verdict"),
         }
         self._write(f"catalogue/{domain}.meta.json", meta)
+        # Merge over what the fleet already says, never replace it: the attention
+        # streak, the last scorecard and the next action are written by other paths,
+        # and every unscored run (crashed, gated, busy) used to wipe them here — so
+        # the deck said "nothing needs a human" and the backoff never fired.
         self._merge_into_fleet(domain, meta)
 
     def _merge_into_fleet(self, domain: str, meta: dict, attempts: int = 10) -> None:
@@ -479,7 +499,10 @@ class Catalog:
             found = self._store.get(FLEET)
             fleet = loads(found[0]) if found else {}
             etag = found[1] if found else None
-            fleet[domain] = meta
+            # Merge into the entry as it is in the store, never replace it: the streak,
+            # the last scorecard and the next action are written by other paths, and
+            # a whole-entry write from any of them wiped the others'.
+            fleet[domain] = {**(fleet.get(domain) or {}), **meta}
             try:
                 self._store.put(FLEET, dumps(fleet), if_match=etag)
                 self._fleet = fleet
@@ -549,6 +572,30 @@ class Catalog:
             for url, row in products.items()
         }
 
+    def _covered_stamps(self, domain: str, products: dict) -> list[str]:
+        """The run ids the stamps refer to, restricted to runs that earned coverage.
+
+        A run that stored a few products and then died stamps their first_seen_run
+        but never covers anything; treating it as a point in time made the Changes
+        table say the whole catalogue was removed at that run and put back at the
+        next. Only a covered run is a moment the shop was actually read.
+        """
+        covered = {
+            rid
+            for rid in self.run_ids(domain)
+            if (row := self._run(domain, rid))
+            and row.get("exit_status") in (0, 1)
+            and row.get("coverage") is not None
+        }
+        return sorted(
+            {
+                r
+                for row in products.values()
+                for r in (row.get("first_seen_run"), row.get("last_covered_run"))
+                if r and r in covered
+            }
+        )
+
     def products_at_run(self, domain: str, run_id: str, status: str = "live") -> list[dict]:
         """The catalogue as of one run, derived from the stamps rather than stored.
 
@@ -560,14 +607,7 @@ class Catalog:
         not worth a snapshot per run.
         """
         products = self._catalogue(domain)["products"]
-        stamps = sorted(
-            {
-                r
-                for row in products.values()
-                for r in (row.get("first_seen_run"), row.get("last_covered_run"))
-                if r
-            }
-        )
+        stamps = self._covered_stamps(domain, products)
         earlier = [s for s in stamps if s < run_id]
         prev = earlier[-1] if earlier else None
 
@@ -592,14 +632,7 @@ class Catalog:
         its last_covered_run. Runs that changed nothing do not appear.
         """
         products = self._catalogue(domain)["products"]
-        stamps = sorted(
-            {
-                r
-                for row in products.values()
-                for r in (row.get("first_seen_run"), row.get("last_covered_run"))
-                if r
-            }
-        )
+        stamps = self._covered_stamps(domain, products)
 
         def name(row: dict) -> str:
             rec = row.get("record") or {}
@@ -917,6 +950,7 @@ class Catalog:
         entry["next_action"] = rows[0]["headline"] if rows else None
         entry["next_priority"] = rows[0]["priority"] if rows else None
         entry["open_findings"] = len(rows)
+        entry["next_at"] = _now()  # so the deck can say how old the advice is
         self._merge_into_fleet(domain, entry)
 
     @property
