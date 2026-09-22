@@ -1,35 +1,83 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 // One loading shape for every machine-room view: a fetcher, an optional refresh
 // interval, and the four states a read can be in. Pages render the state, never
 // the promise.
-export default function useDevLoad(fetcher, deps, refreshMs = 0) {
-  const [data, setData] = useState(null);
-  const [state, setState] = useState('loading');
+//
+// A view paints from the last answer it got before it asks again. The API sits
+// on another continent from the person reading it and every answer is a handful
+// of bucket reads, so a page that was empty for two seconds on every visit read as
+// broken. The last answer is kept per view in session storage — this browser tab
+// only, gone when it closes — shown at once and marked as being refreshed, then
+// replaced. Nothing is trusted longer than the tab.
+const PREFIX = 'dev:';
+
+function remembered(key) {
+  if (!key) return null;
+  try {
+    const raw = window.sessionStorage.getItem(PREFIX + key);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function remember(key, body) {
+  if (!key) return;
+  try {
+    window.sessionStorage.setItem(PREFIX + key, JSON.stringify(body));
+  } catch {
+    // Quota or a private window: the next visit is simply not instant.
+  }
+}
+
+export default function useDevLoad(fetcher, deps, refreshMs = 0, key = null) {
+  const first = remembered(key);
+  const [data, setData] = useState(first);
+  const [state, setState] = useState(first ? 'ready' : 'loading');
+  const [refreshing, setRefreshing] = useState(!!first);
+  const alive = useRef(true);
 
   const load = useCallback(async () => {
+    setRefreshing(true);
     const body = await fetcher();
+    if (!alive.current) return;
+    setRefreshing(false);
+    if (body.notModified) {
+      // The server confirmed what is on screen is current. Nothing to replace.
+      setState('ready');
+      setData((d) => (d && d.__error ? { ...d, __error: undefined } : d));
+      return;
+    }
     if (body.forbidden) {
       setState('forbidden');
       return;
     }
     if (body.error) {
-      setState(body.error);
+      // A failed refresh keeps the last answer on screen rather than replacing
+      // it with an error the reader cannot act on; the error rides beside it.
+      setState((s) => (s === 'ready' ? 'ready' : body.error));
+      setData((d) => (d ? { ...d, __error: body.error } : d));
       return;
     }
     setData(body);
     setState('ready');
+    remember(key, body);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
 
   useEffect(() => {
+    alive.current = true;
     load();
-    if (!refreshMs) return undefined;
-    const timer = setInterval(load, refreshMs);
-    return () => clearInterval(timer);
+    let timer;
+    if (refreshMs) timer = setInterval(load, refreshMs);
+    return () => {
+      alive.current = false;
+      if (timer) clearInterval(timer);
+    };
   }, [load, refreshMs]);
 
-  return { data, state, reload: load };
+  return { data, state, refreshing, reload: load };
 }
 
 export function Gate({ state, children }) {

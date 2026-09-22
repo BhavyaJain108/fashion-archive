@@ -37,7 +37,11 @@ CORS(app,
      # PATCH: album rename, sort and layout. It was missing, and the browser
      # blocked every one of those at the preflight without the server seeing it.
      methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-     allow_headers=['Content-Type'],
+     # If-None-Match: the machine room asks "anything new?" with the version it
+     # holds and gets 304 and no body when there is not. The browser has to be
+     # allowed to send it, and to read the ETag that makes the next ask possible.
+     allow_headers=['Content-Type', 'If-None-Match'],
+     expose_headers=['ETag'],
      supports_credentials=True)
 
 # Made available to request handlers that need cookie flags.

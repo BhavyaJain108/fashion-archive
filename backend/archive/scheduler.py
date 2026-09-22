@@ -128,6 +128,11 @@ class Scheduler:
     def set_cadence(self, domain: str, cadence_seconds: int) -> None:
         self._amend(domain, cadence_seconds=cadence_seconds)
 
+    def row(self, domain: str) -> dict | None:
+        """One brand's row, one read. rows() lists every brand to find one."""
+        found, _ = self._read(self._key(domain))
+        return found or None
+
     def rows(self) -> list[dict]:
         # Read together, for the same reason claim_next does: 36 brands read one at
         # a time is 36 round trips to the bucket, which the deck paid on every load.

@@ -51,7 +51,7 @@ export default function DevProducts({ domain }) {
               <table className="dev-table dev-products">
                 <thead>
                   <tr>
-                    <th></th>
+                    <th>Photographs</th>
                     <th>Product</th>
                     <th>Code</th>
                     <th className="n">Price</th>
@@ -64,11 +64,17 @@ export default function DevProducts({ domain }) {
                 <tbody>
                   {data.products.map((p) => (
                     <tr key={p.itemurl}>
-                      <td>
-                        {p.main_image_url ? (
-                          <img className="dev-thumb" src={p.main_image_url} alt="" loading="lazy" />
-                        ) : (
+                      <td className="dev-gallery-cell">
+                        {(p.images && p.images.length ? p.images : [p.main_image_url].filter(Boolean)).length === 0 ? (
                           <span className="dev-thumb dev-thumb-none" aria-hidden="true" />
+                        ) : (
+                          <div className="dev-gallery">
+                            {(p.images && p.images.length ? p.images : [p.main_image_url]).map((u, i) => (
+                              <a key={u + i} href={u} target="_blank" rel="noreferrer">
+                                <img className="dev-thumb" src={u} alt="" loading="lazy" />
+                              </a>
+                            ))}
+                          </div>
                         )}
                       </td>
                       <td>

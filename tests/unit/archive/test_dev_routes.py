@@ -30,6 +30,13 @@ def client(tmp_path, monkeypatch):
     cat.close()
 
     monkeypatch.setenv("ARCHIVE_OBJECTS", str(tmp_path))
+    # The overview is cached for ten seconds per process; each test has its own
+    # store, so none may inherit the previous test's answer.
+    import backend.api.dev_routes as dr
+    import backend.api.providers as pv
+
+    dr._forget_overview()
+    pv._cache.clear()  # provider answers are cached ten minutes per process too
     app = Flask(__name__)
     register_dev_routes(app)
     return app.test_client(), monkeypatch
@@ -189,6 +196,29 @@ def test_a_runs_log_is_kept_with_the_run_and_served_as_events(client, tmp_path):
     # And the brand page lists the run itself, scored or not.
     page = json.loads(c.get("/api/dev/brands/kuurth.com").data)
     assert page["runs"][0]["id"] == run_id and page["runs"][0]["card"] is None
+
+
+@pytest.mark.unit
+def test_an_unchanged_answer_is_a_304_and_a_command_makes_it_new_again(client, monkeypatch):
+    import backend.api.dev_routes as dr
+
+    dr._forget_overview()
+    c, mp = client
+    mp.setenv("ADMIN_EMAILS", "owner@example.com")
+    _as(mp, "owner@example.com")
+    first = c.get("/api/dev/overview")
+    tag = first.headers["ETag"]
+    assert first.status_code == 200 and tag
+    again = c.get("/api/dev/overview", headers={"If-None-Match": tag})
+    assert again.status_code == 304 and not again.data
+    # Pausing changes the schedule, which the overview shows: the tag must move.
+    assert c.post("/api/dev/brands/kuurth.com/pause").status_code == 200
+    changed = c.get("/api/dev/overview", headers={"If-None-Match": tag})
+    assert changed.status_code == 200 and changed.headers["ETag"] != tag
+    assert json.loads(changed.data)["brands"][0]["enabled"] is False
+    # The brand page and costs carry a tag too.
+    assert c.get("/api/dev/brands/kuurth.com").headers.get("ETag")
+    assert c.get("/api/dev/costs").headers.get("ETag")
 
 
 @pytest.mark.unit

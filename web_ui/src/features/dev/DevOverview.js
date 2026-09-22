@@ -25,7 +25,7 @@ function gateCell(b) {
 }
 
 export default function DevOverview({ go }) {
-  const { data, state, reload } = useDevLoad(() => DevEndpoints.getOverview(), [], MINUTE);
+  const { data, state, refreshing, reload } = useDevLoad(() => DevEndpoints.getOverview(), [], MINUTE, 'overview');
   const [busy, setBusy] = useState({});
   const [note, setNote] = useState({});
 
@@ -44,7 +44,10 @@ export default function DevOverview({ go }) {
         <>
           <div className="dev-head">
             <h1 className="dev-title">Brands</h1>
-            <div className="dev-stamp">read {ago(data.generated_at)} &middot; refreshes every minute</div>
+            <div className="dev-stamp">
+              {refreshing ? 'checking for changes…' : `read ${ago(data.generated_at)} · checks every minute`}
+              {data.__error ? ` · last check failed: ${data.__error}` : ''}
+            </div>
           </div>
 
           <div className="dev-totals">

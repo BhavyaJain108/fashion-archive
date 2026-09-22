@@ -17,10 +17,22 @@ async function envelope(response, fallback) {
   return data;
 }
 
+// The version of each answer this tab last received, by path. Sent back with the
+// next request for the same path; the server answers 304 and no body when nothing
+// has changed, which is most minutes. Held in memory only — a new tab asks fresh.
+const versions = new Map();
+
 async function read(path, fallback) {
+  const headers = {};
+  const known = versions.get(path);
+  if (known) headers['If-None-Match'] = known;
   const response = await fetch(`${ApiClient.BASE_URL}/api/dev/${path}`, {
     credentials: 'include',
+    headers,
   });
+  if (response.status === 304) return { notModified: true };
+  const tag = response.headers.get('ETag');
+  if (tag && response.ok) versions.set(path, tag);
   return envelope(response, fallback);
 }
 
