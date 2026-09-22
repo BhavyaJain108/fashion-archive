@@ -153,14 +153,17 @@ def cloudflare_r2(bucket: str | None = None) -> dict:
 
 
 # Bandwidth is the one line on Render's bill that is not a plan price, and the one
-# that once cost $80 in a week. Render meters it per service, hourly, in MB; what
-# is shown is this month's total and the overage at Render's published rate above
-# the allowance a paid workspace gets. The allowance is stated, not fetched.
-RENDER_BANDWIDTH_INCLUDED_GB = 100.0
+# that once cost $80 in a week. Render meters it per service, hourly, in MB. What
+# is shown is this month's total and the last seven days as a daily rate — the
+# rate is the number that says whether the fix is holding, and the month total
+# carries whatever happened before it. Overage is billed at Render's published
+# per-GB rate above an allowance that only the invoice states, so no overage is
+# computed here: a guessed allowance would be a guessed bill.
 RENDER_BANDWIDTH_PER_GB = 0.15
 
 
-def _bandwidth_gb_month(service_id: str, headers: dict) -> float | None:
+def _bandwidth(service_id: str, headers: dict) -> tuple[float | None, float | None]:
+    """(this month's GB, last seven days' GB) for one service."""
     start = date.today().replace(day=1).isoformat() + "T00:00:00Z"
     try:
         body = _call(
@@ -168,12 +171,16 @@ def _bandwidth_gb_month(service_id: str, headers: dict) -> float | None:
             headers,
         )
     except RuntimeError:
-        return None
-    mb = 0.0
+        return None, None
+    week_from = (date.today() - timedelta(days=7)).isoformat()
+    month_mb = week_mb = 0.0
     for series in body if isinstance(body, list) else []:
         for point in series.get("values", []):
-            mb += float(point.get("value") or 0)
-    return round(mb / 1024, 3)
+            mb = float(point.get("value") or 0)
+            month_mb += mb
+            if point.get("timestamp", "")[:10] >= week_from:
+                week_mb += mb
+    return round(month_mb / 1024, 3), round(week_mb / 1024, 3)
 
 
 def render_services(prefix: str = "fashion-archive") -> dict:
@@ -191,6 +198,7 @@ def render_services(prefix: str = "fashion-archive") -> dict:
             if not s["name"].startswith(prefix):
                 continue
             plan = (s.get("serviceDetails") or {}).get("plan") or "?"
+            month_gb, week_gb = _bandwidth(s["id"], headers)
             rows.append(
                 {
                     "name": s["name"],
@@ -198,7 +206,8 @@ def render_services(prefix: str = "fashion-archive") -> dict:
                     "plan": plan,
                     "list_usd_month": RENDER_LIST_PRICES.get(plan),
                     "suspended": s.get("suspended") == "suspended",
-                    "bandwidth_gb_month": _bandwidth_gb_month(s["id"], headers),
+                    "bandwidth_gb_month": month_gb,
+                    "bandwidth_gb_week": week_gb,
                 }
             )
         for item in _call("https://api.render.com/v1/postgres?limit=20", headers):
@@ -216,16 +225,16 @@ def render_services(prefix: str = "fashion-archive") -> dict:
                 }
             )
         priced = [r["list_usd_month"] for r in rows if r["list_usd_month"] is not None]
-        gb = sum(r.get("bandwidth_gb_month") or 0 for r in rows)
+        month_gb = sum(r.get("bandwidth_gb_month") or 0 for r in rows)
+        week_gb = sum(r.get("bandwidth_gb_week") or 0 for r in rows)
         return {
             "ok": True,
             "services": rows,
             "list_usd_month": round(sum(priced), 2),
-            "bandwidth_gb_month": round(gb, 2),
-            "bandwidth_included_gb": RENDER_BANDWIDTH_INCLUDED_GB,
-            "bandwidth_overage_usd": round(
-                max(0.0, gb - RENDER_BANDWIDTH_INCLUDED_GB) * RENDER_BANDWIDTH_PER_GB, 2
-            ),
+            "bandwidth_gb_month": round(month_gb, 2),
+            "bandwidth_gb_week": round(week_gb, 2),
+            "bandwidth_gb_per_day": round(week_gb / 7, 2),
+            "bandwidth_usd_per_gb": RENDER_BANDWIDTH_PER_GB,
         }
 
     return _cached("render", compute)

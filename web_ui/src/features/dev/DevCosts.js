@@ -72,8 +72,8 @@ export default function DevCosts() {
               <span className="dev-total-k">render plans, list / month</span>
             </div>
             <div className="dev-total">
-              <span className="dev-total-n">{data.providers.render.ok ? `${data.providers.render.bandwidth_gb_month} GB` : '—'}</span>
-              <span className="dev-total-k">render bandwidth this month</span>
+              <span className="dev-total-n">{data.providers.render.ok ? `${data.providers.render.bandwidth_gb_per_day} GB` : '—'}</span>
+              <span className="dev-total-k">render bandwidth a day, last week</span>
             </div>
           </div>
 
@@ -171,16 +171,18 @@ export default function DevCosts() {
                 <tr>
                   <td className="key">bandwidth</td>
                   <td className="wrap">
-                    {data.providers.render.bandwidth_gb_month} GB this month · {usd(data.providers.render.bandwidth_overage_usd)} overage
-                    <span className="dev-muted"> at $0.15/GB above {data.providers.render.bandwidth_included_gb} GB included</span>
+                    {data.providers.render.bandwidth_gb_per_day} GB a day over the last week
+                    <span className="dev-muted"> · {data.providers.render.bandwidth_gb_month} GB this month · billed at ${data.providers.render.bandwidth_usd_per_gb}/GB above the plan&rsquo;s allowance</span>
                   </td>
                 </tr>
               </tbody>
             </table>
             <p className="dev-note">
               Render publishes no billing endpoint. Plan prices are list; bandwidth is metered per
-              service by Render&rsquo;s own API. The scraper writes each object once because this
-              line once reached 312 GB in a week.
+              service by Render&rsquo;s own API. Bandwidth here is what leaves Render: every
+              photograph the scraper archives is uploaded to the bucket once, so a brand&rsquo;s
+              first run costs its gallery&rsquo;s size and later runs cost only what is new. The
+              300 GB of 14–15 September was the rewrite loop, since fixed.
             </p>
           </Provider>
         </>
