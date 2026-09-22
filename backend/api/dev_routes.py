@@ -647,11 +647,22 @@ def register_dev_routes(app: Flask) -> None:
         except ValueError:
             return jsonify({"success": False, "error": "offset and limit are integers"}), 400
         q = (request.args.get("q") or "").strip().lower()
+        # live: on the site now. gone: was on the site and is not any more. all: both.
+        status = request.args.get("status", "live")
+        if status not in ("live", "gone", "all"):
+            return jsonify({"success": False, "error": "status is live, gone or all"}), 400
         catalog = Catalog(_store())
-        rows = catalog.current_products(brand_id)
+        history = catalog.product_history(brand_id)
+        rows = catalog.current_products(brand_id, live_only=(status == "live"))
         catalog.release_products(brand_id)
+        if status == "gone":
+            rows = [r for r in rows if not history.get(r.get("itemurl"), {}).get("live")]
         if q:
             rows = [r for r in rows if q in str(r.get("product_title") or "").lower()]
+        # Most recently scraped first, so a fresh run's products lead.
+        rows.sort(
+            key=lambda r: history.get(r.get("itemurl"), {}).get("last_seen") or "", reverse=True
+        )
         keep = (
             "itemurl",
             "product_title",
@@ -677,6 +688,7 @@ def register_dev_routes(app: Flask) -> None:
             except ValueError:
                 images = []
             row["images"] = [u for u in images if isinstance(u, str)][:24]
+            row.update(history.get(r.get("itemurl"), {}))
             page.append(row)
         return jsonify(
             {
@@ -687,6 +699,19 @@ def register_dev_routes(app: Flask) -> None:
                 "products": page,
             }
         )
+
+    @app.route("/api/dev/brands/<brand_id>/changes", methods=["GET"])
+    def dev_brand_changes(brand_id):
+        """What each run added and removed, newest first. Reads the catalogue, so it
+        is its own request and lets the catalogue go as soon as it has counted."""
+        if not _is_owner():
+            return _forbidden()
+        if bad := _bad_domain(brand_id):
+            return bad
+        catalog = Catalog(_store())
+        changes = catalog.catalogue_changes(brand_id)
+        catalog.release_products(brand_id)
+        return jsonify({"success": True, "domain": brand_id, "changes": changes})
 
     @app.route("/api/dev/brands/<brand_id>/photographs", methods=["GET"])
     def dev_brand_photographs(brand_id):

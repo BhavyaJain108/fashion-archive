@@ -285,10 +285,64 @@ export default function DevBrand({ domain, go }) {
             </p>
           </section>
 
+          <Changes domain={domain} go={go} />
           <Hosts domain={domain} />
         </>
       )}
     </Gate>
+  );
+}
+
+// What each run added and removed — how the catalogue has moved over time. Its
+// own request: it reads the catalogue, and nothing above waits for it.
+function Changes({ domain, go }) {
+  const { data, state } = useDevLoad(() => DevEndpoints.getChanges(domain), [domain]);
+  return (
+    <section className="dev-section">
+      <h2 className="dev-section-h">
+        Changes — what came and went
+        <span className="dev-count-k">
+          {' '}·{' '}
+          <button type="button" className="dev-link" onClick={() => go({ brandId: domain, category: 'products' })}>
+            open the catalogue →
+          </button>
+        </span>
+      </h2>
+      {state === 'loading' && <div className="dev-muted">counting…</div>}
+      {state !== 'loading' && state !== 'ready' && <div className="dev-muted">{state}</div>}
+      {data && data.changes.length === 0 && <div className="dev-muted">nothing stored yet</div>}
+      {data && data.changes.length > 0 && (
+        <div className="dev-scroll">
+          <table className="dev-table">
+            <thead>
+              <tr>
+                <th>Run</th>
+                <th className="n">Added</th>
+                <th className="n">Removed</th>
+                <th>Which</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.changes.map((c) => (
+                <tr key={c.run_id}>
+                  <td>{dateShort(c.at)} <span className="dev-muted">{ago(c.at)}</span></td>
+                  <td className="n">{c.added ? `+${n(c.added)}` : '—'}</td>
+                  <td className="n">{c.removed ? `−${n(c.removed)}` : '—'}</td>
+                  <td className="wrap dev-muted">
+                    {c.added_names.length > 0 && <div>+ {c.added_names.join(', ')}{c.added > c.added_names.length ? ` … and ${c.added - c.added_names.length} more` : ''}</div>}
+                    {c.removed_names.length > 0 && <div>− {c.removed_names.join(', ')}{c.removed > c.removed_names.length ? ` … and ${c.removed - c.removed_names.length} more` : ''}</div>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="dev-note">
+        A product is added at the run that first saw it and removed at the first run that read
+        the catalogue and did not. A run that failed before reading anything removes nothing.
+      </p>
+    </section>
   );
 }
 

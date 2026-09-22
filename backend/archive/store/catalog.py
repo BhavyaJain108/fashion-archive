@@ -516,6 +516,74 @@ class Catalog:
             return []
         return [row["record"] for row in products.values() if row.get("last_covered_run") == live]
 
+    # --- history: what came and went ---
+    # Every product carries the run it first appeared in, the run it was last read in,
+    # and the last run that earned coverage and saw it. Run ids are timestamps, so
+    # those three stamps are three dates: added on, last scraped, last on the site.
+
+    @staticmethod
+    def _run_when(run_id: str | None) -> str | None:
+        return run_id.rsplit("-", 1)[0] if run_id else None
+
+    def product_history(self, domain: str) -> dict[str, dict]:
+        """Per product url: when it was added, last scraped, last on the site, and
+        whether it is on the site now."""
+        products = self._catalogue(domain)["products"]
+        live = self._latest_covered_run(domain)
+        return {
+            url: {
+                "first_seen": self._run_when(row.get("first_seen_run")),
+                "last_seen": self._run_when(row.get("last_seen_run")),
+                "last_on_site": self._run_when(row.get("last_covered_run")),
+                "live": live is not None and row.get("last_covered_run") == live,
+            }
+            for url, row in products.items()
+        }
+
+    def catalogue_changes(self, domain: str, limit: int = 30) -> list[dict]:
+        """What each run added and removed, newest first.
+
+        A product is added at the run it was first seen in, and removed at the first
+        covered run that did not see it — which is the run after the one stamped as
+        its last_covered_run. Runs that changed nothing do not appear.
+        """
+        products = self._catalogue(domain)["products"]
+        stamps = sorted(
+            {
+                r
+                for row in products.values()
+                for r in (row.get("first_seen_run"), row.get("last_covered_run"))
+                if r
+            }
+        )
+
+        def name(row: dict) -> str:
+            rec = row.get("record") or {}
+            return rec.get("product_title") or row.get("product_code") or "untitled"
+
+        out: list[dict] = []
+        prev: str | None = None
+        for run in stamps:
+            added = [row for row in products.values() if row.get("first_seen_run") == run]
+            removed = (
+                [row for row in products.values() if row.get("last_covered_run") == prev]
+                if prev
+                else []
+            )
+            if added or removed:
+                out.append(
+                    {
+                        "run_id": run,
+                        "at": self._run_when(run),
+                        "added": len(added),
+                        "removed": len(removed),
+                        "added_names": [name(r) for r in added[:8]],
+                        "removed_names": [name(r) for r in removed[:8]],
+                    }
+                )
+            prev = run
+        return list(reversed(out))[:limit]
+
     def rewrite_field(self, domain: str, field: str, value) -> int:
         """Set one field to one value across a brand's products.
 

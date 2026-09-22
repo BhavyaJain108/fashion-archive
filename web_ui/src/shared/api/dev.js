@@ -72,10 +72,15 @@ export class DevEndpoints {
     return read(`${brand(domain)}/runs/${encodeURIComponent(runId)}/log`, 'No log for this run');
   }
 
-  static getProducts(domain, { offset = 0, limit = 100, q = '' } = {}) {
-    const params = new URLSearchParams({ offset, limit });
+  static getProducts(domain, { offset = 0, limit = 100, q = '', status = 'live' } = {}) {
+    const params = new URLSearchParams({ offset, limit, status });
     if (q) params.set('q', q);
     return read(`${brand(domain)}/products?${params}`);
+  }
+
+  // What each run added and removed. Reads the catalogue, so asked on its own.
+  static getChanges(domain) {
+    return read(`${brand(domain)}/changes`);
   }
 
   static getCosts() {

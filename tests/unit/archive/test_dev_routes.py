@@ -349,6 +349,40 @@ def test_the_brand_page_carries_last_actions_when_a_log_exists(client, tmp_path)
 
 
 @pytest.mark.unit
+def test_the_catalogue_can_show_what_has_gone_and_what_each_run_changed(client, tmp_path):
+    from backend.archive.domain.product import ProductRecord
+
+    c, mp = client
+    cat = Catalog(DirectoryObjectStore(tmp_path))
+    cov = Coverage(extracted=1, coverage_pct=1.0, verdict="ok")
+    r1 = cat.open_run("kuurth.com", "full")
+    cat.record_product(
+        "kuurth.com", r1, ProductRecord(itemurl="https://kuurth.com/p/a", product_title="A"), None
+    )
+    cat.record_product(
+        "kuurth.com", r1, ProductRecord(itemurl="https://kuurth.com/p/b", product_title="B"), None
+    )
+    cat.finalize_run(r1, 0, cov)
+    r2 = cat.open_run("kuurth.com", "delta")
+    cat.mark_seen("kuurth.com", r2, ["https://kuurth.com/p/a"])
+    cat.finalize_run(r2, 0, cov)
+    cat.close()
+
+    mp.setenv("ADMIN_EMAILS", "owner@example.com")
+    _as(mp, "owner@example.com")
+    live = json.loads(c.get("/api/dev/brands/kuurth.com/products").data)
+    assert [p["product_title"] for p in live["products"]] == ["A"]
+    assert live["products"][0]["live"] is True and live["products"][0]["first_seen"]
+    gone = json.loads(c.get("/api/dev/brands/kuurth.com/products?status=gone").data)
+    assert [p["product_title"] for p in gone["products"]] == ["B"]
+    assert gone["products"][0]["live"] is False and gone["products"][0]["last_on_site"]
+    assert json.loads(c.get("/api/dev/brands/kuurth.com/products?status=all").data)["total"] == 2
+    changes = json.loads(c.get("/api/dev/brands/kuurth.com/changes").data)["changes"]
+    assert changes[0]["removed"] == 1 and changes[0]["removed_names"] == ["B"]
+    assert changes[1]["added"] == 2
+
+
+@pytest.mark.unit
 def test_notes_are_kept_ticked_and_removed(client):
     c, mp = client
     mp.setenv("ADMIN_EMAILS", "owner@example.com")

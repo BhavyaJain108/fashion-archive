@@ -274,6 +274,47 @@ def test_a_field_given_up_on_is_asked_about_again_after_a_fortnight(tmp_path):
     assert cat.evidence_age_days("x.com", "material_info", "page_llm") > RETRY_AFTER_DAYS
 
 
+# --- what came and went ---------------------------------------------------------------
+
+
+def _p(i: int) -> ProductRecord:
+    return ProductRecord(
+        itemurl=f"https://x.com/products/{i}", product_title=f"Item {i}", price=10.0, in_stock=True
+    )
+
+
+@pytest.mark.unit
+def test_every_product_carries_when_it_came_was_read_and_left(tmp_path):
+    from backend.archive.domain.run import Coverage
+
+    cat = Catalog(DirectoryObjectStore(tmp_path))
+    cat.upsert_brand(Brand(domain="x.com", homepage_url="https://x.com"))
+    cov = Coverage(extracted=1, coverage_pct=1.0, verdict="ok")
+
+    r1 = cat.open_run("x.com", "full")
+    for i in (1, 2, 3):
+        cat.record_product("x.com", r1, _p(i), None)
+    cat.finalize_run(r1, 0, cov)
+
+    r2 = cat.open_run("x.com", "delta")  # 2 gone, 4 new, 1 and 3 unchanged
+    cat.record_product("x.com", r2, _p(4), None)
+    cat.mark_seen("x.com", r2, ["https://x.com/products/1", "https://x.com/products/3"])
+    cat.finalize_run(r2, 0, cov)
+
+    h = cat.product_history("x.com")
+    assert h["https://x.com/products/2"]["live"] is False
+    assert h["https://x.com/products/2"]["last_on_site"] == r1.rsplit("-", 1)[0]
+    assert h["https://x.com/products/4"]["live"] is True
+    assert h["https://x.com/products/4"]["first_seen"] == r2.rsplit("-", 1)[0]
+    assert h["https://x.com/products/1"]["last_seen"] == r2.rsplit("-", 1)[0]
+
+    changes = cat.catalogue_changes("x.com")
+    assert [(c["added"], c["removed"]) for c in changes] == [(1, 1), (3, 0)]
+    assert changes[0]["added_names"] == ["Item 4"] and changes[0]["removed_names"] == ["Item 2"]
+    assert len(cat.current_products("x.com")) == 3
+    assert len(cat.current_products("x.com", live_only=False)) == 4
+
+
 # --- run now is an edit to the schedule, and only when nobody holds the brand ---------
 
 

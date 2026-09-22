@@ -378,6 +378,7 @@ table.dev-table {
 .dev-act:hover:not(:disabled),
 .dev-count:hover { border-color: var(--ar-ink); color: var(--ar-ink); }
 .dev-act:disabled { color: var(--ar-ink-4); cursor: default; }
+.dev-act.selected { background: var(--ar-ink); border-color: var(--ar-ink); color: var(--ar-bg); }
 .dev-act:focus-visible,
 .dev-count:focus-visible { outline: 1px solid var(--ar-ink); outline-offset: 2px; }
 
