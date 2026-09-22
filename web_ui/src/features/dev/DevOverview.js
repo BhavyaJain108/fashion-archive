@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 
 import DevEndpoints from '../../shared/api/dev';
 import useDevLoad, { Gate } from './useDevLoad';
+import DevGlossary from './DevGlossary';
 import { ago, due, n, pct, secs, usd } from './format';
 
 const MINUTE = 60 * 1000;
@@ -255,6 +256,7 @@ export default function DevOverview({ go }) {
             </div>
           )}
 
+          <DevGlossary />
           <AddBrand onAdded={reload} />
 
           <div className="dev-bulk" role="group" aria-label="Selected brands">

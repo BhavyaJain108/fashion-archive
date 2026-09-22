@@ -2,7 +2,45 @@ import React, { useState } from 'react';
 
 import DevEndpoints from '../../shared/api/dev';
 import useDevLoad, { Gate } from './useDevLoad';
+import DevGlossary from './DevGlossary';
 import { ago, dateShort, due, hours, n, pct, secs, usd } from './format';
+
+// The newest run with a log, told as sentences: what it decided, found, read,
+// learned and how it ended. Time is offset from the run's start.
+function LastActions({ la }) {
+  if (!la) {
+    return (
+      <section className="dev-section dev-last">
+        <h2 className="dev-section-h">Last actions</h2>
+        <div className="dev-muted">no run has left a log yet — the next one will</div>
+      </section>
+    );
+  }
+  const t0 = la.started_at ? new Date(la.started_at).getTime() : null;
+  const offset = (at) => {
+    if (!at || t0 == null) return '';
+    const s = Math.max(0, (new Date(at).getTime() - t0) / 1000);
+    return s < 60 ? `+${s.toFixed(0)}s` : s < 3600 ? `+${(s / 60).toFixed(0)}m` : `+${(s / 3600).toFixed(1)}h`;
+  };
+  return (
+    <section className="dev-section dev-last">
+      <h2 className="dev-section-h">
+        Last actions
+        <span className="dev-count-k"> · run of {dateShort(la.started_at)} ({ago(la.started_at)}) · {la.mode}{la.finished_at ? '' : ' · still running'}</span>
+      </h2>
+      <table className="dev-table">
+        <tbody>
+          {la.lines.map((l, i) => (
+            <tr key={i}>
+              <td className="n dev-muted">{offset(l.at)}</td>
+              <td className="wrap">{l.text}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
+}
 
 const MINUTE = 60 * 1000;
 
@@ -54,6 +92,9 @@ export default function DevBrand({ domain, go }) {
             </div>
           </div>
           {note && <div className="dev-alarm">{note}</div>}
+          <DevGlossary />
+
+          <LastActions la={data.last_actions} />
 
           <div className="dev-totals">
             <div className="dev-total">

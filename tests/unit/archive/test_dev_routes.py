@@ -275,6 +275,80 @@ def test_a_brand_added_from_the_deck_is_on_the_roster_the_schedule_and_the_overv
 
 
 @pytest.mark.unit
+def test_the_last_run_is_told_in_sentences():
+    from backend.api.dev_routes import _narrate
+
+    lines = _narrate(
+        [
+            {
+                "t": "2026-09-22T05:00:00+00:00",
+                "event": "planned",
+                "composition": "t1×sitemap×structured_data×per_item",
+                "status": "ready",
+            },
+            {"t": "2026-09-22T05:00:02+00:00", "event": "discovered", "refs": 1299},
+            {
+                "t": "2026-09-22T05:00:02+00:00",
+                "event": "selected",
+                "mode": "delta",
+                "to_fetch": 40,
+                "total": 1299,
+            },
+            {
+                "t": "2026-09-22T05:00:03+00:00",
+                "event": "already-searched",
+                "fields": ["ppu", "unit_type"],
+            },
+            {"t": "2026-09-22T05:01:00+00:00", "event": "fetch-error", "url": "x", "error": "boom"},
+            {"t": "2026-09-22T05:01:00+00:00", "event": "fetch-error", "url": "y", "error": "boom"},
+            {
+                "t": "2026-09-22T05:02:00+00:00",
+                "event": "finder-added",
+                "url": "u",
+                "fields": ["size_info"],
+            },
+            {"t": "2026-09-22T05:03:00+00:00", "event": "images-archived", "url": "u", "count": 4},
+            {
+                "t": "2026-09-22T05:09:00+00:00",
+                "event": "finalized",
+                "verdict": "ok",
+                "errors": 2,
+                "extracted": 38,
+            },
+        ]
+    )
+    texts = [x["text"] for x in lines]
+    assert (
+        texts[0].startswith("Decided how to get in: t1×sitemap")
+        and "browser's handshake" in texts[0]
+    )
+    assert "Found 1,299 product links" in texts
+    assert "40 of 1,299 products looked new or changed; reading those" in texts
+    assert any(t.startswith("Skipped 2 fields") for t in texts)
+    assert "Learned a rule for size_info from one product page" in texts
+    assert "Finished — the run went well: 38 products stored, 2 errors" in texts
+    assert "2 product pages failed to load" in texts
+    assert "Archived photographs for 1 products" in texts
+
+
+@pytest.mark.unit
+def test_the_brand_page_carries_last_actions_when_a_log_exists(client, tmp_path):
+    c, mp = client
+    cat = Catalog(DirectoryObjectStore(tmp_path))
+    run_id = cat.run_ids("kuurth.com")[-1]
+    cat.save_run_log(
+        "kuurth.com",
+        run_id,
+        '{"t": "2026-09-22T05:00:00+00:00", "event": "discovered", "refs": 3}\n',
+    )
+    mp.setenv("ADMIN_EMAILS", "owner@example.com")
+    _as(mp, "owner@example.com")
+    body = json.loads(c.get("/api/dev/brands/kuurth.com").data)
+    assert body["last_actions"]["run_id"] == run_id
+    assert body["last_actions"]["lines"][0]["text"] == "Found 3 product links"
+
+
+@pytest.mark.unit
 def test_notes_are_kept_ticked_and_removed(client):
     c, mp = client
     mp.setenv("ADMIN_EMAILS", "owner@example.com")

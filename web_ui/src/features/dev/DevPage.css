@@ -70,6 +70,13 @@
 .dev-note-x { color: var(--ar-ink-4); }
 .dev-note-x:hover { color: var(--ar-ink); text-decoration: none; }
 
+/* The glossary folds away under the header; the last actions sit first and are
+   the one section with a rule above, so the eye lands there. */
+.dev-glossary { margin: 8px 0 4px; }
+.dev-glossary .dev-table { margin-top: 8px; }
+.dev-last { margin-top: 16px; }
+.dev-last .dev-table td:first-child { width: 1%; white-space: nowrap; }
+
 /* Adding a brand: a button that opens one short row of fields. */
 .dev-add { margin-bottom: 12px; }
 .dev-add-form { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 8px; }

@@ -190,6 +190,134 @@ def _why_empty(domain: str, catalog: Catalog) -> str | None:
     return None
 
 
+# --- last actions --------------------------------------------------------------------
+# A run's event log, told as sentences. The log is exact and terse; this is the same
+# facts in the order they happened, in words, so the top of a brand page reads as
+# "what happened last time" rather than a list of event names.
+
+_TRANSPORT_WORDS = {
+    "t0": "plain HTTP",
+    "t1": "a browser's handshake, no browser",
+    "t2": "a real browser",
+    "t4": "nothing — the shop is password-gated",
+}
+
+
+def _narrate(events: list[dict]) -> list[dict]:
+    out: list[dict] = []
+    fetch_errors = 0
+    imaged = 0
+    skipped = 0
+    started = None
+    for e in events:
+        kind = e.get("event")
+        at = e.get("t")
+        if started is None and at:
+            started = at
+
+        def say(text: str, when: str | None = at) -> None:
+            out.append({"at": when, "text": text})
+
+        if kind == "planned":
+            comp = e.get("composition") or ""
+            t = comp.split("×")[0] if comp else ""
+            way = _TRANSPORT_WORDS.get(t, t)
+            if e.get("status") == "ready":
+                say(f"Decided how to get in: {comp} — reading over {way}")
+            elif e.get("status") == "skip_gated":
+                say("Probed the shop: it is behind a password, so nothing was read")
+            else:
+                say("Probed the shop and found no way to read it at any transport")
+        elif kind == "transport":
+            say(f"Connecting over {_TRANSPORT_WORDS.get(e.get('level'), e.get('level'))}")
+        elif kind == "relearned-through-browser":
+            say(f"The browser found where products live: {e.get('prefix')}")
+        elif kind == "discovered":
+            say(f"Found {e.get('refs', 0):,} product links")
+        elif kind == "capped":
+            say(
+                f"Kept the first {e.get('kept', 0):,} of {e.get('found', 0):,} (a cap for this run)"
+            )
+        elif kind == "selected":
+            total, to_fetch = e.get("total", 0), e.get("to_fetch", 0)
+            if e.get("mode") == "full" or to_fetch == total:
+                say(f"Reading all {total:,} products")
+            else:
+                say(f"{to_fetch:,} of {total:,} products looked new or changed; reading those")
+        elif kind == "calibrated":
+            say(f"Checked a first sample of {e.get('sample')} products — every one had a title")
+        elif kind == "extraction-changed":
+            say("Our own extractor changed since the last run, so everything is read again")
+        elif kind == "already-searched":
+            skipped = len(e.get("fields") or [])
+        elif kind == "recipes-need-rendering":
+            say("The learned rules need a browser and none was available; skipped them")
+        elif kind == "escalated-to-rendered":
+            say("Switched to a browser because the learned rules need a rendered page")
+        elif kind == "finder-added":
+            fields = ", ".join(e.get("fields") or [])
+            say(f"Learned a rule for {fields} from one product page")
+        elif kind == "finder-retry-rendered":
+            say("A page yielded nothing static; trying it rendered in a browser")
+        elif kind == "finder-failed":
+            say(f"A finder call failed: {str(e.get('error', ''))[:120]}")
+        elif kind == "finder-unauthorised":
+            say("The Anthropic key was refused — the finder stopped for this run")
+        elif kind == "finder-budget-spent":
+            say(f"The finder's daily allowance was spent ({e.get('detail', '')}); stopped asking")
+        elif kind == "learn-budget-spent":
+            say(f"Asked the model about {e.get('budget')} pages, this run's limit")
+        elif kind == "finder-unavailable":
+            say(f"The finder could not run at all this time ({e.get('attempts')} attempts)")
+        elif kind == "fetch-error":
+            fetch_errors += 1
+        elif kind == "skip-product":
+            pass
+        elif kind == "images-archived":
+            imaged += 1
+        elif kind == "brand-field-repaired":
+            say(
+                f"Repaired the brand field on {e.get('applied_to', 0):,} products ({e.get('reason')})"
+            )
+        elif kind == "time-budget-spent":
+            say(f"Ran out of time with {e.get('unreached', 0):,} products unread")
+        elif kind == "channel-busy":
+            say("The shop asked us to slow down; standing down for half an hour")
+        elif kind == "plan-failed":
+            say(f"The plan {e.get('composition')} failed: {e.get('reason')}")
+        elif kind == "needs-attention":
+            say("No plan works for this shop right now — a person needs to look")
+        elif kind == "skipped-gated":
+            say("The shop is password-gated; nothing to read until it opens")
+        elif kind == "evidence-recorded":
+            pass
+        elif kind == "finalized":
+            v = e.get("verdict")
+            word = {
+                "ok": "went well",
+                "degraded": "went well enough, with reservations",
+                "failed": "failed",
+            }.get(v, v)
+            say(
+                f"Finished — the run {word}: {e.get('extracted', 0):,} products stored, {e.get('errors', 0)} errors"
+            )
+        elif kind == "run-crashed":
+            say(f"The run crashed: {str(e.get('error', ''))[:120]}")
+    if skipped:
+        out.insert(
+            min(2, len(out)),
+            {
+                "at": started,
+                "text": f"Skipped {skipped} fields asked about within the last 14 days",
+            },
+        )
+    if fetch_errors:
+        out.append({"at": None, "text": f"{fetch_errors:,} product pages failed to load"})
+    if imaged:
+        out.append({"at": None, "text": f"Archived photographs for {imaged:,} products"})
+    return out
+
+
 def _names() -> dict[str, str]:
     # Every brand the archive follows, not only the ones the app shows: the deck
     # lists large houses too, and they have names.
@@ -397,6 +525,27 @@ def register_dev_routes(app: Flask) -> None:
         by_run = {c["run_id"]: c for c in cards}
         runs = [{**r, "card": by_run.get(r["id"])} for r in run_rows]
         latest_fill = (cards[0].get("field_fill") if cards else None) or {}
+
+        # What happened last time, in words: the newest run that left a log.
+        last_actions = None
+        for r in runs[:3]:
+            text = catalog.load_run_log(brand_id, r["id"])
+            if not text:
+                continue
+            events = []
+            for line in text.splitlines():
+                try:
+                    events.append(json.loads(line))
+                except ValueError:
+                    continue
+            last_actions = {
+                "run_id": r["id"],
+                "started_at": r.get("started_at"),
+                "finished_at": r.get("finished_at"),
+                "mode": r.get("mode"),
+                "lines": _narrate(events),
+            }
+            break
         rules: dict[str, list[dict]] = {}
         for r in book.recipes if book else []:
             rules.setdefault(r.field, []).append(
@@ -431,6 +580,7 @@ def register_dev_routes(app: Flask) -> None:
                 if book
                 else None,
                 "recommendations": recommendations,
+                "last_actions": last_actions,
             }
         )
 
