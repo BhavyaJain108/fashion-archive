@@ -2,6 +2,19 @@
    glance to answer "is it working", so state is carried by shape and colour rather
    than by prose, and nothing here is decorative. */
 
+/* The body never scrolls in this app — every page is a fixed frame whose regions
+   scroll inside it. The deck is one long column, so the frame is the scroller and
+   the column sits centred within it. Text is selectable here, unlike the archive:
+   numbers on this page get copied into messages. */
+.dev-frame {
+  height: 100vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: var(--ar-bg);
+  user-select: text;
+  -webkit-overflow-scrolling: touch;
+}
+
 .dev {
   padding: 24px 28px 64px;
   max-width: 1180px;

@@ -22,6 +22,7 @@ export default function DevPage({ route, navigate }) {
   else if (route.category === 'costs') view = 'costs';
 
   return (
+    <div className="dev-frame ar-scroll">
     <div className="dev">
       <nav className="dev-nav" aria-label="Machine room">
         <span className="dev-wordmark">Machine room</span>
@@ -62,6 +63,7 @@ export default function DevPage({ route, navigate }) {
       {view === 'costs' && <DevCosts />}
       {view === 'brand' && <DevBrand domain={route.brandId} go={go} />}
       {view === 'products' && <DevProducts domain={route.brandId} />}
+    </div>
     </div>
   );
 }
