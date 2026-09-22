@@ -97,7 +97,8 @@ def _fleet_check(args, catalog: Catalog, brands: list[Brand]) -> int:
                 prober=escalating_prober(browser_factory=_browser if args.browser else None),
             )
         finally:
-            t.close()
+            if hasattr(t, "close"):
+                t.close()
         cards = catalog.scorecards(b.domain, limit=1)
         card = cards[0] if cards else None
         streak, reason = catalog.attention(b.domain)
