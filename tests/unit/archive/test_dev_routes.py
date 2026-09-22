@@ -380,6 +380,17 @@ def test_the_catalogue_can_show_what_has_gone_and_what_each_run_changed(client, 
     changes = json.loads(c.get("/api/dev/brands/kuurth.com/changes").data)["changes"]
     assert changes[0]["removed"] == 1 and changes[0]["removed_names"] == ["B"]
     assert changes[1]["added"] == 2
+    # As of the first run, both were present; as of the second, B had gone.
+    from urllib.parse import quote
+
+    first = json.loads(c.get(f"/api/dev/brands/kuurth.com/products?run={quote(r1)}").data)
+    assert sorted(p["product_title"] for p in first["products"]) == ["A", "B"]
+    assert [r["id"] for r in first["runs"]][:2] == [r2, r1]
+    second = json.loads(
+        c.get(f"/api/dev/brands/kuurth.com/products?run={quote(r2)}&status=gone").data
+    )
+    assert [p["product_title"] for p in second["products"]] == ["B"]
+    assert c.get("/api/dev/brands/kuurth.com/products?status=added").status_code == 400
 
 
 @pytest.mark.unit

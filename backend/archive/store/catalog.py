@@ -540,6 +540,41 @@ class Catalog:
             for url, row in products.items()
         }
 
+    def products_at_run(self, domain: str, run_id: str, status: str = "live") -> list[dict]:
+        """The catalogue as of one run, derived from the stamps rather than stored.
+
+        live: present at that run — first seen no later than it, last on the site no
+        earlier. added: first seen in it. gone: last on the site in the covered run
+        before it. all: first seen no later than it. Stamps are run ids, which sort
+        by time. A product that left and came back between two runs keeps only its
+        outer dates; that is the one thing this cannot tell, and the reason it is
+        not worth a snapshot per run.
+        """
+        products = self._catalogue(domain)["products"]
+        stamps = sorted(
+            {
+                r
+                for row in products.values()
+                for r in (row.get("first_seen_run"), row.get("last_covered_run"))
+                if r
+            }
+        )
+        earlier = [s for s in stamps if s < run_id]
+        prev = earlier[-1] if earlier else None
+
+        def keep(row: dict) -> bool:
+            first = row.get("first_seen_run") or ""
+            last = row.get("last_covered_run") or ""
+            if status == "added":
+                return first == run_id
+            if status == "gone":
+                return prev is not None and last == prev
+            if status == "all":
+                return bool(first) and first <= run_id
+            return bool(first) and first <= run_id and last >= run_id
+
+        return [row["record"] for row in products.values() if keep(row)]
+
     def catalogue_changes(self, domain: str, limit: int = 30) -> list[dict]:
         """What each run added and removed, newest first.
 

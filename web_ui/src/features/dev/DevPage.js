@@ -65,7 +65,7 @@ export default function DevPage({ route, navigate }) {
           {view === 'overview' && <DevOverview go={go} />}
           {view === 'costs' && <DevCosts />}
           {view === 'brand' && <DevBrand domain={route.brandId} go={go} />}
-          {view === 'products' && <DevProducts domain={route.brandId} />}
+          {view === 'products' && <DevProducts domain={route.brandId} run={route.token} go={go} />}
         </main>
         <DevNotes />
       </div>

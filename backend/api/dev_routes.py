@@ -648,15 +648,29 @@ def register_dev_routes(app: Flask) -> None:
             return jsonify({"success": False, "error": "offset and limit are integers"}), 400
         q = (request.args.get("q") or "").strip().lower()
         # live: on the site now. gone: was on the site and is not any more. all: both.
+        # With `run`, the same three as of that run, plus added: first seen in it.
         status = request.args.get("status", "live")
-        if status not in ("live", "gone", "all"):
-            return jsonify({"success": False, "error": "status is live, gone or all"}), 400
+        # A run id carries "+00:00"; a client that did not encode the plus sends a space.
+        run = (request.args.get("run") or "").strip().replace(" ", "+") or None
+        if status not in ("live", "gone", "all", "added") or (status == "added" and not run):
+            return jsonify({"success": False, "error": "status is live, gone, all or added"}), 400
+        if run and not _RUN_ID.match(run):
+            return jsonify({"success": False, "error": "not a run id", "code": "BAD_RUN"}), 400
         catalog = Catalog(_store())
         history = catalog.product_history(brand_id)
-        rows = catalog.current_products(brand_id, live_only=(status == "live"))
+        if run:
+            rows = catalog.products_at_run(brand_id, run, status)
+        else:
+            rows = catalog.current_products(brand_id, live_only=(status == "live"))
+            if status == "gone":
+                rows = [r for r in rows if not history.get(r.get("itemurl"), {}).get("live")]
         catalog.release_products(brand_id)
-        if status == "gone":
-            rows = [r for r in rows if not history.get(r.get("itemurl"), {}).get("live")]
+        # The runs a reader may pick from, newest first: id, when, mode.
+        runs = [
+            {"id": r["id"], "at": r["id"].rsplit("-", 1)[0], "mode": r.get("mode")}
+            for r in catalog.recent_runs(brand_id, 40)
+            if r.get("exit_status") in (0, 1) and r.get("coverage") is not None
+        ]
         if q:
             rows = [r for r in rows if q in str(r.get("product_title") or "").lower()]
         # Most recently scraped first, so a fresh run's products lead.
@@ -696,6 +710,9 @@ def register_dev_routes(app: Flask) -> None:
                 "domain": brand_id,
                 "total": len(rows),
                 "offset": offset,
+                "run": run,
+                "status": status,
+                "runs": runs,
                 "products": page,
             }
         )

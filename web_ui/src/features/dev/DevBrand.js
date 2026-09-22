@@ -325,7 +325,12 @@ function Changes({ domain, go }) {
             <tbody>
               {data.changes.map((c) => (
                 <tr key={c.run_id}>
-                  <td>{dateShort(c.at)} <span className="dev-muted">{ago(c.at)}</span></td>
+                  <td>
+                    <button type="button" className="dev-link" onClick={() => go({ brandId: domain, category: 'products', token: c.run_id })}>
+                      {dateShort(c.at)}
+                    </button>{' '}
+                    <span className="dev-muted">{ago(c.at)}</span>
+                  </td>
                   <td className="n">{c.added ? `+${n(c.added)}` : '—'}</td>
                   <td className="n">{c.removed ? `−${n(c.removed)}` : '—'}</td>
                   <td className="wrap dev-muted">

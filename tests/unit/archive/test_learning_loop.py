@@ -308,6 +308,16 @@ def test_every_product_carries_when_it_came_was_read_and_left(tmp_path):
     assert h["https://x.com/products/4"]["first_seen"] == r2.rsplit("-", 1)[0]
     assert h["https://x.com/products/1"]["last_seen"] == r2.rsplit("-", 1)[0]
 
+    # The catalogue as of each run, derived from the stamps rather than stored.
+    def at(run, status):
+        return sorted(r["itemurl"][-1] for r in cat.products_at_run("x.com", run, status))
+
+    assert at(r1, "live") == ["1", "2", "3"] and at(r1, "added") == ["1", "2", "3"]
+    assert (
+        at(r2, "live") == ["1", "3", "4"] and at(r2, "added") == ["4"] and at(r2, "gone") == ["2"]
+    )
+    assert at(r2, "all") == ["1", "2", "3", "4"] and at(r1, "gone") == []
+
     changes = cat.catalogue_changes("x.com")
     assert [(c["added"], c["removed"]) for c in changes] == [(1, 1), (3, 0)]
     assert changes[0]["added_names"] == ["Item 4"] and changes[0]["removed_names"] == ["Item 2"]

@@ -6,21 +6,33 @@ import { ago, dateShort, n } from './format';
 
 const PAGE = 100;
 const STATUSES = [['live', 'on the site'], ['gone', 'removed'], ['all', 'everything']];
+const RUN_STATUSES = [['live', 'present then'], ['added', 'added in it'], ['gone', 'removed at it'], ['all', 'seen by then']];
 
 // The catalogue as stored, a page at a time. This is the one large read in the
 // machine room — the server cuts the page and lets the catalogue go — so it is
 // its own view rather than a panel on the brand page. Every product carries when
 // it was added, when it was last scraped, and — if it has gone — when it was last
 // on the site; the filter chooses between what is there now and what has left.
-export default function DevProducts({ domain }) {
+//
+// "As of a run" is the same catalogue read through those stamps — nothing is
+// stored per run. Present at run R: first seen no later than R, last on the site
+// no earlier. Added: first seen in R. Removed: last on the site in the run before.
+export default function DevProducts({ domain, run = null, go }) {
   const [offset, setOffset] = useState(0);
   const [q, setQ] = useState('');
   const [typed, setTyped] = useState('');
   const [status, setStatus] = useState('live');
   const { data, state } = useDevLoad(
-    () => DevEndpoints.getProducts(domain, { offset, limit: PAGE, q, status }),
-    [domain, offset, q, status],
+    () => DevEndpoints.getProducts(domain, { offset, limit: PAGE, q, status, run }),
+    [domain, offset, q, status, run],
   );
+  const choices = run ? RUN_STATUSES : STATUSES;
+
+  const pickRun = (id) => {
+    setOffset(0);
+    if (status === 'added' && !id) setStatus('live');
+    go({ brandId: domain, category: 'products', token: id || null });
+  };
 
   const search = (e) => {
     e.preventDefault();
@@ -33,7 +45,18 @@ export default function DevProducts({ domain }) {
       <div className="dev-head">
         <h1 className="dev-title">Catalogue</h1>
         <div className="dev-head-actions" role="group" aria-label="Which products">
-          {STATUSES.map(([key, label]) => (
+          <select
+            className="ar-select"
+            aria-label="As of which run"
+            value={run || ''}
+            onChange={(e) => pickRun(e.target.value)}
+          >
+            <option value="">as of now</option>
+            {(data ? data.runs : []).map((r) => (
+              <option key={r.id} value={r.id}>as of {dateShort(r.at)} {r.at.slice(11, 16)} · {r.mode}</option>
+            ))}
+          </select>
+          {choices.map(([key, label]) => (
             <button
               type="button"
               key={key}
@@ -62,6 +85,7 @@ export default function DevProducts({ domain }) {
           <>
             <div className="dev-stamp">
               {n(data.total)} product{data.total === 1 ? '' : 's'}
+              {run ? ` as of the run of ${dateShort(run)}` : ''}
               {q ? ` matching “${q}”` : ''} · showing {data.total === 0 ? 0 : offset + 1}–{Math.min(offset + PAGE, data.total)}
             </div>
             <ol className="dev-products">

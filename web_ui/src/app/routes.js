@@ -138,12 +138,15 @@ export function parseRoute(pathname, search) {
   if (head === 'dev') {
     if (rest[0] === 'costs') return { ...EMPTY, filters, page: 'dev', category: 'costs' };
     if (rest[0] === 'brands' && rest[1]) {
+      // A run id after /products opens the catalogue as of that run. It rides in
+      // `token`, the slot share links use — the two never appear on one route.
       return {
         ...EMPTY,
         filters,
         page: 'dev',
         brandId: rest[1],
         category: rest[2] === 'products' ? 'products' : null,
+        token: rest[2] === 'products' && rest[3] ? rest[3] : null,
       };
     }
     return { ...EMPTY, filters, page: 'dev' };
@@ -185,7 +188,8 @@ export function buildRoute(route) {
   if (r.page === 'styleguide') return '/styleguide';
   if (r.page === 'dev') {
     if (r.brandId) {
-      const tail = r.category === 'products' ? '/products' : '';
+      let tail = r.category === 'products' ? '/products' : '';
+      if (tail && r.token) tail += `/${encodeURIComponent(r.token)}`;
       return `/dev/brands/${encodeURIComponent(r.brandId)}${tail}`;
     }
     return r.category === 'costs' ? '/dev/costs' : '/dev';

@@ -72,9 +72,10 @@ export class DevEndpoints {
     return read(`${brand(domain)}/runs/${encodeURIComponent(runId)}/log`, 'No log for this run');
   }
 
-  static getProducts(domain, { offset = 0, limit = 100, q = '', status = 'live' } = {}) {
+  static getProducts(domain, { offset = 0, limit = 100, q = '', status = 'live', run = null } = {}) {
     const params = new URLSearchParams({ offset, limit, status });
     if (q) params.set('q', q);
+    if (run) params.set('run', run);
     return read(`${brand(domain)}/products?${params}`);
   }
 
