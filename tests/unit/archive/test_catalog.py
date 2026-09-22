@@ -287,12 +287,32 @@ def test_search_reads_the_slim_index_and_finds_by_any_field(cat):
 
 @pytest.mark.unit
 def test_request_ledger_aggregates_by_host(cat):
-    cat.record_requests([("cdn.x", 200, 120, None, "2026-09-12T10:00:00+00:00")])
-    cat.record_requests([("cdn.x", 429, 90, 30, "2026-09-12T11:00:00+00:00")])
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+    hour_ago = (now - timedelta(hours=1)).isoformat()
+    cat.record_requests([("cdn.x", 200, 120, None, hour_ago)])
+    cat.record_requests([("cdn.x", 429, 90, 30, now.isoformat())])
     row = next(r for r in cat.host_stats() if r["host"] == "cdn.x")
     assert (row["requests"], row["ok"], row["busy"]) == (2, 1, 1)
     assert row["max_retry_after"] == 30
     assert row["avg_ms"] == 105
+
+
+@pytest.mark.unit
+def test_request_ledger_reads_only_the_window(cat):
+    """863 batches read one at a time was six minutes, paid by every brand page. The
+    window is applied to the batch's key, so old batches are never fetched."""
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+    cat.record_requests([("cdn.x", 200, 100, None, now.isoformat())])
+    # A batch written under an old key, as the ledger did before today.
+    old = (now - timedelta(days=30)).isoformat()
+    cat._write(f"requests/{old}-abc123.json", {"rows": [["old.host", 200, 5, None, old]]})
+    hosts = {r["host"] for r in cat.host_stats()}
+    assert hosts == {"cdn.x"}
+    assert {r["host"] for r in cat.host_stats(days=60)} == {"cdn.x", "old.host"}
     assert cat.host_stats(since="2026-09-12T10:30:00+00:00")[0]["requests"] == 1
 
 

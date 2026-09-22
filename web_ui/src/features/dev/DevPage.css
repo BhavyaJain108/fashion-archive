@@ -149,3 +149,239 @@ table.dev-table {
 }
 
 .dev-empty { padding: 48px 0; color: var(--ar-ink-3); font-size: var(--ar-fs-body); }
+
+/* The deck's own chrome: a wordmark, two views, a crumb. Uppercase and tracked
+   because it is interface; the selected view is the one black thing on the row. */
+.dev-nav {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--ar-line);
+  font-size: var(--ar-fs-ui);
+  letter-spacing: var(--ar-track-ui);
+  text-transform: uppercase;
+  color: var(--ar-ink-3);
+}
+
+.dev-wordmark {
+  font-weight: 700;
+  letter-spacing: var(--ar-track-wide);
+  color: var(--ar-ink);
+  margin-right: 8px;
+}
+
+.dev-nav-item {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: var(--ar-ink-3);
+  cursor: pointer;
+}
+
+.dev-nav-item:hover { color: var(--ar-ink); }
+.dev-nav-item.selected { color: var(--ar-ink); font-weight: 700; }
+.dev-nav-item:focus-visible { outline: 1px solid var(--ar-ink); outline-offset: 2px; }
+
+.dev-crumb { text-transform: none; letter-spacing: 0; color: var(--ar-ink-3); }
+
+/* A name that opens something. Text, not a button: the row is the control. */
+.dev-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dev-link:hover { color: var(--ar-ink); text-decoration: underline; }
+.dev-link:focus-visible { outline: 1px solid var(--ar-ink); outline-offset: 2px; }
+
+/* An action on a row: the same bordered uppercase text every other control is. */
+.dev-act {
+  background: none;
+  border: 1px solid var(--ar-line);
+  color: var(--ar-ink-2);
+  font: inherit;
+  font-size: var(--ar-fs-micro);
+  letter-spacing: var(--ar-track-ui);
+  text-transform: uppercase;
+  padding: 4px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.dev-act:hover:not(:disabled) { border-color: var(--ar-ink); color: var(--ar-ink); }
+.dev-act:disabled { color: var(--ar-ink-4); cursor: default; }
+.dev-act:focus-visible { outline: 1px solid var(--ar-ink); outline-offset: 2px; }
+
+.dev-actions { white-space: nowrap; }
+.dev-actions .dev-act + .dev-act { margin-left: 4px; }
+.dev-head-actions { display: flex; gap: 4px; align-items: center; }
+
+.dev-strong { color: var(--ar-ink); font-weight: 600; }
+.dev-muted { color: var(--ar-ink-3); }
+.dev-mono { font-variant-ligatures: none; }
+.dev-wrap { white-space: normal; max-width: 44ch; }
+
+.dev-section { margin-top: 32px; }
+
+.dev-section-h {
+  font-size: var(--ar-fs-label);
+  letter-spacing: var(--ar-track-label);
+  text-transform: uppercase;
+  font-weight: 400;
+  color: var(--ar-ink-3);
+  margin: 0 0 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--ar-line);
+}
+
+.dev-count-k { text-transform: none; letter-spacing: 0; }
+
+.dev-table-sub { width: auto; min-width: 50%; }
+
+.dev-row-empty td { color: var(--ar-ink-4); }
+.dev-row-empty td.dev-mono { color: var(--ar-ink-3); }
+
+.dev-rule { font-size: var(--ar-fs-micro); color: var(--ar-ink-2); }
+.dev-rule + .dev-rule { margin-top: 2px; }
+
+/* Key / value pairs, aligned on a hairline grid. */
+.dev-kv {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 16px;
+  margin: 0;
+  font-size: var(--ar-fs-ui);
+}
+
+.dev-kv dt {
+  font-size: var(--ar-fs-micro);
+  letter-spacing: var(--ar-track-label);
+  text-transform: uppercase;
+  color: var(--ar-ink-3);
+  line-height: var(--ar-lh-ui);
+}
+
+.dev-kv dd { margin: 0; color: var(--ar-ink-2); line-height: var(--ar-lh-ui); word-break: break-all; }
+
+/* Findings: the priority is a rank, so it sits in its own column and nothing
+   else is numbered. */
+.dev-findings { list-style: none; margin: 0; padding: 0; font-size: var(--ar-fs-ui); }
+
+.dev-findings li {
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  gap: 2px 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--ar-line-soft);
+}
+
+.dev-priority {
+  grid-row: span 2;
+  font-size: var(--ar-fs-micro);
+  color: var(--ar-ink-3);
+  border: 1px solid var(--ar-line);
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dev-finding-h { color: var(--ar-ink); }
+.dev-finding-a { color: var(--ar-ink-3); font-size: var(--ar-fs-micro); }
+
+/* Bars: a measurement drawn as a length, on the same hairline grey as the rules.
+   Nothing is coloured; the number sits beside the bar. */
+.dev-bars { display: flex; flex-direction: column; gap: 2px; font-size: var(--ar-fs-micro); }
+.dev-bar-row { display: grid; grid-template-columns: 80px 1fr 64px; align-items: center; gap: 8px; }
+.dev-bar-k { color: var(--ar-ink-3); font-variant-numeric: tabular-nums; }
+.dev-bar-track { display: block; height: 8px; background: var(--ar-bg-sunk); }
+.dev-bar { display: block; height: 100%; background: var(--ar-ink-4); }
+.dev-bar-v { text-align: right; font-variant-numeric: tabular-nums; color: var(--ar-ink-2); }
+
+/* The catalogue. */
+.dev-search { display: flex; gap: 4px; align-items: center; }
+.dev-search .ar-input { width: 220px; }
+
+.dev-products td { vertical-align: middle; }
+
+.dev-thumb {
+  display: block;
+  width: 40px;
+  height: 52px;
+  object-fit: cover;
+  background: var(--ar-bg-sunk);
+}
+
+.dev-thumb-none { border: 1px solid var(--ar-line-soft); }
+
+.dev-product-title { color: var(--ar-ink-2); text-decoration: none; }
+.dev-product-title:hover { color: var(--ar-ink); text-decoration: underline; }
+
+.dev-pager { display: flex; gap: 4px; justify-content: flex-end; margin-top: 12px; }
+
+/* What is being scraped this minute, as a strip rather than a table: it is the
+   first thing to read and it is usually short. */
+.dev-now {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 20px;
+  padding: 10px 12px;
+  margin-bottom: 20px;
+  background: var(--ar-bg-sub);
+  border-left: 2px solid var(--ar-ink);
+  font-size: var(--ar-fs-ui);
+}
+
+.dev-now-k {
+  font-size: var(--ar-fs-micro);
+  letter-spacing: var(--ar-track-label);
+  text-transform: uppercase;
+  color: var(--ar-ink-3);
+}
+
+.dev-now-item { color: var(--ar-ink); }
+
+/* A run's log, opened under its row: time offset, event, then the rest. */
+.dev-log-row td { padding: 8px 0 12px; background: var(--ar-bg-sub); }
+.dev-events { list-style: none; margin: 0; padding: 0 12px; font-size: var(--ar-fs-micro); }
+.dev-events li { display: grid; grid-template-columns: 56px 160px 1fr; gap: 12px; padding: 2px 0; line-height: var(--ar-lh-ui); }
+.dev-event-t { color: var(--ar-ink-3); font-variant-numeric: tabular-nums; text-align: right; }
+.dev-event-k { color: var(--ar-ink); }
+.dev-event-v { color: var(--ar-ink-2); word-break: break-word; }
+
+/* Narrow screens. The design language is desktop-only; the deck is the one page
+   that is read from a phone, because it is read when something has gone wrong.
+   Tables keep their columns and scroll sideways, with the brand pinned so a row
+   never loses its name; everything else stacks. */
+.dev-table th:first-child,
+.dev-table td:first-child {
+  position: sticky;
+  left: 0;
+  background: var(--ar-bg);
+  z-index: 1;
+}
+
+@media (max-width: 720px) {
+  .dev { padding: 16px 16px 48px; }
+  .dev-head { flex-direction: column; align-items: flex-start; }
+  .dev-totals { grid-template-columns: repeat(2, 1fr); }
+  .dev-nav { flex-wrap: wrap; row-gap: 6px; }
+  .dev-kv { grid-template-columns: 1fr; gap: 2px 0; }
+  .dev-kv dt { margin-top: 6px; }
+  .dev-events li { grid-template-columns: 48px 1fr; }
+  .dev-event-v { grid-column: 1 / -1; padding-left: 60px; }
+  .dev-table-sub { width: 100%; }
+  .dev-search .ar-input { width: 100%; }
+  .dev-wrap { max-width: 28ch; }
+}

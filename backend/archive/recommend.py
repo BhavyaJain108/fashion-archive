@@ -103,7 +103,9 @@ def recommend(catalog: Catalog, domain: str) -> list[tuple[int, str, str]]:
         out.append((2, f"{field} looks wrong", problem))
 
     # 3 — how the host is answering
-    for host in catalog.host_stats():
+    # Two days: how the host is answering now, and a bounded read — the ledger is one
+    # object per batch, hundreds a week, and this runs after every scrape.
+    for host in catalog.host_stats(days=2):
         if not any(host["host"].endswith(d) for d in (domain, domain.removeprefix("www."))):
             continue
         if host["refused"]:

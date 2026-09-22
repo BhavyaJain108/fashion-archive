@@ -127,7 +127,25 @@ export function parseRoute(pathname, search) {
 
   // The machine room. Not linked from anywhere in the app: the server refuses it
   // to anyone who is not the owner, so the URL is the whole entry point.
+  //
+  //   /dev                         the overview
+  //   /dev/costs                   what it costs
+  //   /dev/brands/<domain>         one brand, field by field
+  //   /dev/brands/<domain>/products  its catalogue
+  //
+  // The brand rides in `brandId` and the sub-view in `category`, the same two
+  // slots My Brands uses, so no page needs a route shape of its own.
   if (head === 'dev') {
+    if (rest[0] === 'costs') return { ...EMPTY, filters, page: 'dev', category: 'costs' };
+    if (rest[0] === 'brands' && rest[1]) {
+      return {
+        ...EMPTY,
+        filters,
+        page: 'dev',
+        brandId: rest[1],
+        category: rest[2] === 'products' ? 'products' : null,
+      };
+    }
     return { ...EMPTY, filters, page: 'dev' };
   }
 
@@ -165,7 +183,13 @@ export function buildRoute(route) {
   if (r.page === 'library') return `/library${q}`;
 
   if (r.page === 'styleguide') return '/styleguide';
-  if (r.page === 'dev') return '/dev';
+  if (r.page === 'dev') {
+    if (r.brandId) {
+      const tail = r.category === 'products' ? '/products' : '';
+      return `/dev/brands/${encodeURIComponent(r.brandId)}${tail}`;
+    }
+    return r.category === 'costs' ? '/dev/costs' : '/dev';
+  }
 
   if (r.page === 'shared' && r.token) {
     return `/s/${encodeURIComponent(r.token)}${q}`;

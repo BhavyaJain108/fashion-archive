@@ -114,11 +114,28 @@ class Scheduler:
     def set_enabled(self, domain: str, enabled: bool) -> None:
         self._amend(domain, enabled=1 if enabled else 0)
 
+    def run_now(self, domain: str, now: datetime | None = None) -> bool:
+        """Ask for this brand on the next poll. False when it is held by a worker
+        already — there is nothing to bring forward, it is being scraped."""
+        row, _ = self._read(self._key(domain))
+        if not row:
+            return False
+        if row.get("claimed_by") is not None:
+            return False
+        self._amend(domain, next_due=_iso(now or _now()), enabled=1)
+        return True
+
     def set_cadence(self, domain: str, cadence_seconds: int) -> None:
         self._amend(domain, cadence_seconds=cadence_seconds)
 
     def rows(self) -> list[dict]:
-        out = [self._read(key)[0] for key in self._store.list(_SCHEDULE)]
+        # Read together, for the same reason claim_next does: 36 brands read one at
+        # a time is 36 round trips to the bucket, which the deck paid on every load.
+        keys = list(self._store.list(_SCHEDULE))
+        if not keys:
+            return []
+        with ThreadPoolExecutor(max_workers=min(16, len(keys))) as pool:
+            out = [row for row, _ in pool.map(self._read, keys)]
         return sorted((r for r in out if r), key=lambda r: r["domain"])
 
     # --- stopping -------------------------------------------------------------------

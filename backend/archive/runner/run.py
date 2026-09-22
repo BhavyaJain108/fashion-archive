@@ -309,6 +309,17 @@ def run_brand(
                     budget_stopped = True
                 else:
                     budget_stopped = False
+                # A refused key will be refused on every page. One 401 is the whole
+                # answer for this run: say so once and stop asking, rather than paying
+                # a round trip per product to be told again (Gentle Monster, 2026-09-22:
+                # ten refusals, one run, verdict degraded either way).
+                if (
+                    len(finder_failures) > failures_before
+                    and field_finder is not None
+                    and _is_auth_error(finder_failures[-1])
+                ):
+                    log("finder-unauthorised", error=finder_failures[-1][:160])
+                    field_finder = None
                 fresh = [x for x in (extra.recipes if extra else []) if x.field in gaps]
                 won = {x.field for x in fresh}
                 # A call that never reached the model is not a search. Recording one
@@ -417,11 +428,28 @@ def run_brand(
     finally:
         if work_transport is not transport and hasattr(work_transport, "close"):
             work_transport.close()  # tear down a browser we launched for this brand
+        # The run's own account of itself goes to the store with the run row; the
+        # worker's disk is gone at the next deploy. Best effort — a log that cannot be
+        # kept must not turn a finished run into a failed one.
+        try:
+            if log_path.exists():
+                catalog.save_run_log(brand.domain, run_id, log_path.read_text())
+        except Exception:  # noqa: BLE001
+            pass
         lock.unlink(missing_ok=True)
 
 
 # Failed attempts at one field before a run stops asking about it.
 _FIELD_STRIKES = 3
+
+_AUTH_MARKERS = ("AuthenticationError", "authentication_error", "invalid x-api-key", "401")
+
+
+def _is_auth_error(text: str) -> bool:
+    """Whether a finder failure was the key being refused, as against the page or
+    the model. Matched on the text because the finder is a callable handed in, and
+    what it raises is the SDK's business."""
+    return any(m in text for m in _AUTH_MARKERS)
 
 
 def _learn_book(field_finder, brand, url, missing, transport, browser_factory, log, failures=None):

@@ -120,3 +120,19 @@ services:
         sync: false
       - key: R2_SECRET_ACCESS_KEY
         sync: false
+
+      # The machine room at /dev. Comma-separated emails of the archive's owners;
+      # empty refuses everyone, so it has to be set before the page opens for anyone.
+      - key: ADMIN_EMAILS
+        sync: false
+      # The same ceiling the scraper runs under, so the deck shows the right cap.
+      - key: FINDER_DAILY_USD
+        value: "2"
+      # The costs page reads each provider's own API. All optional: a missing key
+      # shows that provider as "not connected" and nothing else on the page waits.
+      - key: ANTHROPIC_ADMIN_KEY
+        sync: false
+      - key: CLOUDFLARE_API_TOKEN
+        sync: false
+      - key: RENDER_API_KEY
+        sync: false

@@ -956,19 +956,30 @@ def main(argv: list[str] | None = None) -> int:
                         cap.charge(spend.usd - before)
 
                 def do_brand(brand):
+                    from backend.archive.transport import for_level
+
                     spent_before = spend.usd
-                    run_brand(
-                        brand,
-                        cat,
-                        HttpxTransport(),
-                        mode="delta",
-                        locks_dir=args.locks if hasattr(args, "locks") else Path("locks"),
-                        log_dir=Path("backend/archive/data/logs"),
-                        browser=True,
-                        browser_transport_factory=_browser_factory,
-                        prober=escalating_prober(browser_factory=_browser_factory),
-                        field_finder=_field_finder if finder_cap_usd > 0 else None,
-                    )
+                    # What the sites answered, kept with the catalogue: the deck's
+                    # per-host latency and refusal counts come from this ledger, and
+                    # until today the daemon's transport had no sink, so those
+                    # numbers only ever existed for scrapes run by hand.
+                    requests_log = RequestLog(cat)
+                    try:
+                        run_brand(
+                            brand,
+                            cat,
+                            HttpxTransport(sink=requests_log),
+                            mode="delta",
+                            locks_dir=args.locks if hasattr(args, "locks") else Path("locks"),
+                            log_dir=Path("backend/archive/data/logs"),
+                            browser=True,
+                            browser_transport_factory=_browser_factory,
+                            prober=escalating_prober(browser_factory=_browser_factory),
+                            field_finder=_field_finder if finder_cap_usd > 0 else None,
+                            transport_factory=lambda level: for_level(level, sink=requests_log),
+                        )
+                    finally:
+                        requests_log.flush()
                     # The photographs with the catalogue, the same as a hand-run
                     # scrape. A daemon that kept the records fresh and let the images
                     # fall behind would be filling the archive with links to other

@@ -141,6 +141,143 @@ def test_a_brand_that_keeps_needing_a_person_is_next_wanted_later(tmp_path):
     assert next_due - before >= timedelta(seconds=7200 - 5)
 
 
+# --- a run's own log is kept with the run --------------------------------------------
+
+
+@pytest.mark.unit
+def test_a_run_leaves_its_event_log_in_the_store(tmp_path):
+    from backend.archive.domain.product import ProductRef
+    from backend.archive.planner import compose_plan
+    from backend.archive.runner.run import run_brand
+
+    brand = Brand(domain="kuurth.com", homepage_url="https://kuurth.com")
+    cap = Capability(
+        domain="kuurth.com", platform="shopify", transport=TransportLevel.T0, bulk_json=True
+    )
+
+    class Conn:
+        kind = "shopify"
+
+        def discover(self, b, t):
+            return [ProductRef(url="https://kuurth.com/products/a", change_hint="h1", payload={})]
+
+        def fetch(self, r, t):
+            return ProductRecord(itemurl=r.url, product_title="A")
+
+    cat = Catalog(DirectoryObjectStore(tmp_path))
+    cat.upsert_brand(brand)
+    code = run_brand(
+        brand,
+        cat,
+        transport=None,
+        mode="full",
+        locks_dir=tmp_path / "locks",
+        log_dir=tmp_path / "logs",
+        prober=lambda d, t: cap,
+        composer=compose_plan,
+        connector_factory=lambda plan, sitemap_url=None, limit=None: Conn(),
+    )
+    assert code == 0
+    run = cat.latest_run("kuurth.com")
+    text = cat.load_run_log("kuurth.com", run["id"])
+    assert text is not None
+    events = [__import__("json").loads(line)["event"] for line in text.splitlines() if line]
+    assert events[0] == "planned" and "finalized" in events
+
+
+@pytest.mark.unit
+def test_a_run_left_running_by_a_replaced_worker_is_closed_by_the_next_one(tmp_path):
+    cat = Catalog(DirectoryObjectStore(tmp_path))
+    cat.upsert_brand(Brand(domain="x.com", homepage_url="https://x.com"))
+    lost = cat.open_run("x.com", "delta")  # never finalised: the container went away
+    fresh = cat.open_run("x.com", "delta")
+    rows = {r["id"]: r for r in cat.recent_runs("x.com", 5)}
+    assert rows[lost]["exit_status"] == 2 and "replaced" in rows[lost]["abandoned"]
+    assert rows[fresh]["exit_status"] is None  # the live one is still live
+
+
+@pytest.mark.unit
+def test_a_refused_key_stops_the_finder_for_the_run_after_one_answer(tmp_path):
+    from backend.archive.domain.product import ProductRef
+    from backend.archive.planner import compose_plan
+    from backend.archive.runner.run import run_brand
+
+    brand = Brand(domain="kuurth.com", homepage_url="https://kuurth.com")
+    cap = Capability(
+        domain="kuurth.com", platform="shopify", transport=TransportLevel.T0, bulk_json=True
+    )
+    calls = []
+
+    class Conn:
+        kind = "shopify"
+
+        def discover(self, b, t):
+            return [
+                ProductRef(url=f"https://kuurth.com/products/{i}", change_hint=f"h{i}", payload={})
+                for i in range(4)
+            ]
+
+        def fetch(self, r, t):
+            return ProductRecord(itemurl=r.url, product_title="A")
+
+        def page_html(self, r, t):
+            return "<html></html>"
+
+    def refused(domain, url, missing, transport):
+        calls.append(url)
+        raise RuntimeError("AuthenticationError: Error code: 401 - invalid x-api-key")
+
+    cat = Catalog(DirectoryObjectStore(tmp_path))
+    cat.upsert_brand(brand)
+    run_brand(
+        brand,
+        cat,
+        transport=None,
+        mode="full",
+        locks_dir=tmp_path / "locks",
+        log_dir=tmp_path / "logs",
+        prober=lambda d, t: cap,
+        composer=compose_plan,
+        connector_factory=lambda plan, sitemap_url=None, limit=None: Conn(),
+        field_finder=refused,
+    )
+    assert len(calls) == 1, "one refusal is the whole answer for the run"
+    text = cat.load_run_log("kuurth.com", cat.latest_run("kuurth.com")["id"])
+    assert "finder-unauthorised" in text
+    assert cat.latest_run("kuurth.com")["coverage"]["verdict"] == "degraded"
+
+
+# --- run now is an edit to the schedule, and only when nobody holds the brand ---------
+
+
+@pytest.mark.unit
+def test_run_now_moves_the_turn_forward_and_re_enables(tmp_path):
+    from backend.archive.scheduler import Scheduler
+
+    sched = Scheduler(DirectoryObjectStore(tmp_path))
+    sched.add("x.com", cadence_seconds=86400)
+    sched.set_enabled("x.com", False)
+    later = datetime.now(timezone.utc) + timedelta(days=1)
+    sched._amend("x.com", next_due=later.isoformat())
+
+    assert sched.run_now("x.com") is True
+    row = sched.rows()[0]
+    assert row["enabled"] == 1
+    assert row["next_due"] <= datetime.now(timezone.utc).isoformat()
+
+
+@pytest.mark.unit
+def test_run_now_is_refused_for_a_held_or_unknown_brand(tmp_path):
+    from backend.archive.scheduler import Scheduler
+
+    store = DirectoryObjectStore(tmp_path)
+    sched = Scheduler(store, worker_id="w1")
+    sched.add("x.com", cadence_seconds=3600)
+    assert sched.claim_next() is not None
+    assert sched.run_now("x.com") is False  # a worker has it; nothing to bring forward
+    assert sched.run_now("nobody.example") is False
+
+
 # --- the gate tolerates a shop's odd unphotographed item ------------------------------
 
 

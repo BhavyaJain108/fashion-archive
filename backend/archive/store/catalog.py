@@ -25,7 +25,8 @@ import json
 import secrets
 import sys
 import threading
-from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from backend.archive.domain.brand import Brand, ScrapePlan
@@ -204,6 +205,19 @@ class Catalog:
 
     # --- runs ---
     def open_run(self, domain: str, mode: str) -> str:
+        # A brand runs in one place at a time — the lock and the claim see to that —
+        # so an earlier row still marked running is a run that never got to finish:
+        # its container was replaced under it. Two deploys forty seconds apart on
+        # 2026-09-22 left four such rows reading "running" for ever. Close them now,
+        # named for what happened, so the deck shows a run that was lost rather than
+        # one still going.
+        for old_id in self.run_ids(domain)[-3:]:
+            old = self._run(domain, old_id)
+            if old and old.get("exit_status") is None:
+                old["finished_at"] = _now()
+                old["exit_status"] = 2
+                old["abandoned"] = "the worker was replaced before this run finished"
+                self._write(f"runs/{domain}/{old_id}.json", old)
         run_id = new_run_id()
         self._write(
             f"runs/{domain}/{run_id}.json",
@@ -276,6 +290,28 @@ class Catalog:
             if row and row.get("exit_status") is not None:
                 return row
         return None
+
+    def recent_runs(self, domain: str, limit: int = 20) -> list[dict]:
+        """The last `limit` run rows, newest first. Read together: run ids are
+        timestamps, so the index alone says which to fetch."""
+        ids = self.run_ids(domain)[-limit:]
+        if not ids:
+            return []
+        with ThreadPoolExecutor(max_workers=min(16, len(ids))) as pool:
+            rows = list(pool.map(lambda r: self._run(domain, r), ids))
+        return [r for r in reversed(rows) if r]
+
+    # --- run logs ---
+    # The event log a run writes as it goes (planned, discovered, fetch-error,
+    # finder-added, finalized…) used to live on the worker's disk and vanish with the
+    # container. It is the only record of *how* a scrape went, as against how it
+    # scored, so it is kept beside the run row once the run is over.
+    def save_run_log(self, domain: str, run_id: str, text: str) -> None:
+        self._store.put(f"logs/{domain}/{run_id}.jsonl", text.encode("utf-8"))
+
+    def load_run_log(self, domain: str, run_id: str) -> str | None:
+        found = self._store.get(f"logs/{domain}/{run_id}.jsonl")
+        return found[0].decode("utf-8", errors="replace") if found else None
 
     def _latest_covered_run(self, domain: str) -> str | None:
         """The run a product must have been seen in to count as still listed.
@@ -665,19 +701,37 @@ class Catalog:
 
     # --- scorecards, request ledger, extraction versions ---
     def save_scorecard(self, run_id: str, domain: str, card) -> None:
-        self._write(
-            f"scores/{domain}/{run_id}.json",
-            {"card": card.as_dict(), "run_id": run_id, "scored_at": _now()},
-        )
+        row = {"card": card.as_dict(), "run_id": run_id, "scored_at": _now()}
+        self._write(f"scores/{domain}/{run_id}.json", row)
+        # The headline numbers also go into the fleet object, so the deck's overview
+        # shows gate, fill, speed and cost for every brand from one read.
+        c = row["card"]
+        entry = dict(self.fleet().get(domain, {"domain": domain, "products": 0}))
+        entry["last_card"] = {
+            "run_id": run_id,
+            "scored_at": row["scored_at"],
+            "products": c["products"],
+            "required_ok": c["required_ok"],
+            "fields_filled": c["fields_filled"],
+            "seconds_per_product": c["seconds_per_product"],
+            "cost_usd": c["cost_usd"],
+            "images_per_product": c["images_per_product"],
+        }
+        self._merge_into_fleet(domain, entry)
 
     def scorecards(self, domain: str, limit: int = 20) -> list[dict]:
         keys = sorted(self._store.list(f"scores/{domain}/"), reverse=True)[:limit]
-        out = []
-        for key in keys:
-            row = self._read(key)
-            if row:
-                out.append({**row["card"], "run_id": row["run_id"], "scored_at": row["scored_at"]})
-        return out
+        if not keys:
+            return []
+        # Together, not in turn: twenty runs one round trip at a time was most of a
+        # brand page's load.
+        with ThreadPoolExecutor(max_workers=min(16, len(keys))) as pool:
+            rows = list(pool.map(self._read, keys))
+        return [
+            {**row["card"], "run_id": row["run_id"], "scored_at": row["scored_at"]}
+            for row in rows
+            if row
+        ]
 
     # --- attention and recommendations ---
     def record_attention(self, domain: str, reason: str | None) -> int:
@@ -735,12 +789,25 @@ class Catalog:
             {"rows": [list(r) for r in rows]},
         )
 
-    def host_stats(self, since: str | None = None) -> list[dict]:
-        """How each host has been answering us."""
+    def host_stats(self, since: str | None = None, days: int = 7) -> list[dict]:
+        """How each host has been answering us, over the last `days` (or since `since`).
+
+        The ledger is one object per batch and the batches are keyed by time, so the
+        window is applied to the key before anything is read: 863 objects read one
+        at a time was six minutes, paid by every brand page and — once recommend()
+        ran after each scrape — by every run.
+        """
+        if since is None:
+            since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        keys = [k for k in self._store.list("requests/") if k[len("requests/") :] >= since]
         tallies: dict[str, dict[str, Any]] = {}
-        for key in self._store.list("requests/"):
-            for host, status, latency, retry_after, at in self._read(key, {"rows": []})["rows"]:
-                if since and at < since:
+        if not keys:
+            return []
+        with ThreadPoolExecutor(max_workers=min(16, len(keys))) as pool:
+            batches = list(pool.map(lambda k: self._read(k, {"rows": []})["rows"], keys))
+        for rows in batches:
+            for host, status, latency, retry_after, at in rows:
+                if at < since:
                     continue
                 t = tallies.setdefault(
                     host,
