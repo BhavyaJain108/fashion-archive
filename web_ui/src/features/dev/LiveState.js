@@ -12,6 +12,7 @@ import { ago, n } from './format';
 // `size` is "row" inside a table cell, "hero" at the top of a brand page.
 const PHASE_WORDS = {
   fetching: 'reading products',
+  learning: 'learning fields',
   finalising: 'writing the catalogue',
   photographs: 'archiving photographs',
   done: 'done',

@@ -43,6 +43,11 @@ def _iso(dt: datetime) -> str:
 class Due:
     domain: str
     cadence_seconds: int
+    # "delta" (the usual run) or "learn": read a sample of pages for the finder only,
+    # store nothing. Set by the owner for the next claim and cleared by it.
+    mode: str = "delta"
+    # A learn run that may ask again about fields already searched and not found.
+    retry_searched: bool = False
 
 
 class Scheduler:
@@ -145,6 +150,33 @@ class Scheduler:
         self._amend(domain, next_due=_iso(now), run_once=1)
         return "queued_once"
 
+    def learn_now(
+        self, domain: str, retry_searched: bool = False, now: datetime | None = None
+    ) -> str:
+        """Ask for a learn run of this brand on the next poll: the finder reads a
+        sample of product pages and writes rules, and nothing goes to the catalogue.
+        It does not take the brand's turn — the scheduled run stays where it was and
+        is restored when the learn run hands the brand back. Same answers as run_now."""
+        now = now or _now()
+        row, _ = self._read(self._key(domain))
+        if not row:
+            return "unknown"
+        if row.get("claimed_by") is not None:
+            stale = _iso(now - timedelta(seconds=self.stale_claim_seconds))
+            return "held" if (row.get("claimed_at") or "") >= stale else "dead"
+        fields = {
+            "next_due": _iso(now),
+            "next_mode": "learn",
+            "retry_searched": 1 if retry_searched else 0,
+            # Keep the real turn, unless a learn run is already queued and holds it.
+            "due_after_learn": row.get("due_after_learn") or row.get("next_due"),
+        }
+        if row.get("enabled"):
+            self._amend(domain, **fields)
+            return "queued"
+        self._amend(domain, run_once=1, **fields)
+        return "queued_once"
+
     def set_cadence(self, domain: str, cadence_seconds: int) -> None:
         self._amend(domain, cadence_seconds=cadence_seconds)
 
@@ -234,11 +266,15 @@ class Scheduler:
             row["claimed_by"] = self.worker_id
             row["claimed_at"] = _iso(now)
             row["run_once"] = 0  # the one run asked for is this one
+            mode = row.get("next_mode") or "delta"
+            retry = bool(row.get("retry_searched"))
+            row["next_mode"] = None  # the mode asked for is this run's
+            row["retry_searched"] = 0
             try:
                 self._write(key, row, etag)
             except Conflict:
                 continue  # someone else got this brand; try the next
-            return Due(row["domain"], row["cadence_seconds"])
+            return Due(row["domain"], row["cadence_seconds"], mode=mode, retry_searched=retry)
         return None
 
     def touch(self, domain: str, now: datetime | None = None) -> bool:
@@ -279,6 +315,22 @@ class Scheduler:
             claimed_by=None,
             claimed_at=None,
             next_due=_iso(now + timedelta(seconds=cadence_seconds)),
+        )
+
+    def release_after_learn(self, domain: str, now: datetime | None = None) -> None:
+        """Hand the brand back after a learn run, restoring the turn it had before
+        the learn run was asked for. A turn already in the past stays due now."""
+        now = now or _now()
+        row, _ = self._read(self._key(domain))
+        if not row:
+            return
+        kept = row.get("due_after_learn")
+        self._amend(
+            domain,
+            claimed_by=None,
+            claimed_at=None,
+            due_after_learn=None,
+            next_due=kept or _iso(now + timedelta(seconds=row.get("cadence_seconds") or DEFAULT_CADENCE)),
         )
 
     def defer(self, domain: str, seconds: int, now: datetime | None = None) -> None:

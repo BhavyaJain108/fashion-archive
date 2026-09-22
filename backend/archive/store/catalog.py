@@ -238,6 +238,15 @@ class Catalog:
         self._write(f"runs/{domain}/index.json", index)
         return run_id
 
+    def annotate_run(self, domain: str, run_id: str, **fields) -> None:
+        """Add facts to a run row that the coverage shape has no place for — what a
+        learn run read and what it wrote — so the deck can say what the run did."""
+        row = self._run(domain, run_id)
+        if row is None:
+            return
+        row.update(fields)
+        self._write(f"runs/{domain}/{run_id}.json", row)
+
     def run_ids(self, domain: str) -> list[str]:
         return sorted(self._read(f"runs/{domain}/index.json", {"runs": []})["runs"])
 

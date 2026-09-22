@@ -13,6 +13,7 @@ const MINUTE = 60 * 1000;
 function statusPill(b) {
   if (b.claimed_by) return <LiveState brand={b} size="row" />;
   if (!b.enabled) return <span className="dev-pill idle">{b.run_once ? 'paused · one run queued' : 'paused'}</span>;
+  if (b.next_mode === 'learn') return <span className="dev-pill working">learn run queued</span>;
   return null;
 }
 

@@ -79,22 +79,39 @@ def run_once(catalog: Catalog, scheduler: Scheduler, do_brand, log=print) -> boo
                 pass
 
     threading.Thread(target=beat, daemon=True).start()
+    learning = due.mode == "learn"
     try:
-        records, cost = do_brand(brand)
+        if learning:
+            records, cost = do_brand(brand, mode="learn", retry_searched=due.retry_searched)
+        else:
+            records, cost = do_brand(brand)
     except ChannelBusy as e:
         # Not a failure of the brand or of our code: the host wants us to wait, and it
         # must not consume the brand's turn in the rotation.
         log(f"{due.domain} busy: {e}")
         beat_off.set()
-        scheduler.defer(due.domain, BUSY_BACKOFF)
+        if learning:
+            scheduler.release_after_learn(due.domain)
+        else:
+            scheduler.defer(due.domain, BUSY_BACKOFF)
         return True
     except Exception as e:  # one hostile site must never stop the loop
         log(f"{due.domain} crashed: {type(e).__name__}: {e}")
         beat_off.set()
-        scheduler.release(due.domain, due.cadence_seconds)
+        if learning:
+            scheduler.release_after_learn(due.domain)
+        else:
+            scheduler.release(due.domain, due.cadence_seconds)
         return True
 
     beat_off.set()
+    if learning:
+        # No scorecard: nothing was stored, so there is nothing to score, and a card
+        # of zero products would read as a failed gate on the deck. The run row
+        # says what was learned; the brand's turn is restored, not consumed.
+        log(f"{due.domain} learn run done, ${cost:.3f}")
+        scheduler.release_after_learn(due.domain)
+        return True
     card = score(records, seconds=time.monotonic() - started, cost_usd=cost)
     run = catalog.latest_run(due.domain)
     if run:

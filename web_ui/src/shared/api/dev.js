@@ -94,6 +94,10 @@ export class DevEndpoints {
     return command(`${brand(domain)}/run`, 'Could not schedule');
   }
 
+  static learn(domain, retrySearched) {
+    return command(`${brand(domain)}/learn`, 'Could not queue a learn run', { retry_searched: !!retrySearched });
+  }
+
   static pause(domain) {
     return command(`${brand(domain)}/pause`, 'Could not pause');
   }

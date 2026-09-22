@@ -61,6 +61,7 @@ export default function DevBrand({ domain, go }) {
   }, [data]);
   const [note, setNote] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [retrySearched, setRetrySearched] = useState(false);
 
   // One command at a time: a second press while the first is in flight would
   // queue the same run twice or flip a pause back before the page has caught up.
@@ -98,6 +99,23 @@ export default function DevBrand({ domain, go }) {
                   {data.brand.enabled ? 'run now' : 'run once'}
                 </button>
               )}
+              <button
+                type="button"
+                className="dev-act"
+                disabled={busy || !!data.brand.claimed_by || data.brand.next_mode === 'learn'}
+                title="The finder reads a spread of product pages and writes rules. Nothing is stored; the scheduled run is kept."
+                onClick={() => act((d) => DevEndpoints.learn(d, retrySearched))}
+              >
+                {data.brand.next_mode === 'learn' ? 'learn queued' : 'learn fields'}
+              </button>
+              <label className="dev-check">
+                <input
+                  type="checkbox"
+                  checked={retrySearched}
+                  onChange={(e) => setRetrySearched(e.target.checked)}
+                />
+                {' '}retry searched fields
+              </label>
               <button
                 type="button"
                 className="dev-act"
@@ -390,7 +408,11 @@ function RunRow({ domain, run }) {
   const card = run.card;
   let verdict = cov.verdict;
   if (!verdict) {
-    if (run.abandoned) verdict = 'lost · worker replaced';
+    if (run.mode === 'learn' && run.exit_status != null) {
+      const gained = (run.fields_gained || []).length;
+      verdict = `learned · ${n(run.rules || 0)} rules from ${n(run.pages || 0)} pages`
+        + (gained ? ` · ${gained} new field${gained === 1 ? '' : 's'}` : ' · no new fields');
+    } else if (run.abandoned) verdict = 'lost · worker replaced';
     else if (run.exit_status == null) verdict = 'running';
     else verdict = `${EXIT[run.exit_status] || run.exit_status} · no catalogue`;
   }
@@ -400,7 +422,7 @@ function RunRow({ domain, run }) {
         <td>{dateShort(run.started_at)} <span className="dev-muted">{ago(run.started_at)}</span></td>
         <td>{run.mode}</td>
         <td>{took(run)}</td>
-        <td className={cov.verdict === 'ok' ? 'wrap' : 'wrap dev-strong'}>
+        <td className={cov.verdict === 'ok' || run.mode === 'learn' ? 'wrap' : 'wrap dev-strong'}>
           {verdict}
           {(cov.reasons || []).length > 0 && <div className="dev-why">{cov.reasons.join(' · ')}</div>}
         </td>

@@ -465,6 +465,16 @@ def main(argv: list[str] | None = None) -> int:
             group = sp.add_mutually_exclusive_group()
             group.add_argument("--delta", action="store_true")
             group.add_argument("--full", action="store_true")
+            group.add_argument(
+                "--learn",
+                action="store_true",
+                help="finder only: read a spread of pages, write rules, store no products",
+            )
+            sp.add_argument(
+                "--retry-searched",
+                action="store_true",
+                help="with --learn: ask again about fields already searched and not found",
+            )
             sp.add_argument("--locks", type=Path, default=Path("backend/archive/data/locks"))
             sp.add_argument("--logs", type=Path, default=Path("backend/archive/data/logs"))
             sp.add_argument(
@@ -559,7 +569,9 @@ def main(argv: list[str] | None = None) -> int:
             if not targets and args.domain:
                 targets = [Brand(domain=args.domain, homepage_url=f"https://{args.domain}")]
                 catalog.upsert_brand(targets[0])
-            mode = "full" if args.full else "delta"
+            mode = "learn" if args.learn else "full" if args.full else "delta"
+            if args.learn and not args.find_fields:
+                args.find_fields = True  # a learn run is the finder; nothing else happens
             # Both ledgers a long run needs: what the sites answered, and what we spent.
             requests_log = RequestLog(catalog)
             spend = Spend()
@@ -647,6 +659,7 @@ def main(argv: list[str] | None = None) -> int:
                     field_finder=_field_finder if args.find_fields else None,
                     max_products=args.max_products or None,
                     learn_budget=args.learn_budget,
+                    retry_searched=args.retry_searched,
                     time_budget=args.time_budget or None,
                 )
                 # The daemon scores every run; a hand-run scrape is the same work and
@@ -973,7 +986,7 @@ def main(argv: list[str] | None = None) -> int:
                     finally:
                         cap.charge(spend.usd - before)
 
-                def do_brand(brand):
+                def do_brand(brand, mode="delta", retry_searched=False):
                     from backend.archive.transport import for_level
 
                     spent_before = spend.usd
@@ -987,7 +1000,8 @@ def main(argv: list[str] | None = None) -> int:
                             brand,
                             cat,
                             HttpxTransport(sink=requests_log),
-                            mode="delta",
+                            mode=mode,
+                            retry_searched=retry_searched,
                             locks_dir=args.locks if hasattr(args, "locks") else Path("locks"),
                             log_dir=Path("backend/archive/data/logs"),
                             browser=True,
@@ -1002,6 +1016,9 @@ def main(argv: list[str] | None = None) -> int:
                         )
                     finally:
                         requests_log.flush()
+                    if mode == "learn":
+                        # Nothing stored, nothing to photograph or score.
+                        return None, spend.usd - spent_before
                     # The photographs with the catalogue, the same as a hand-run
                     # scrape. A daemon that kept the records fresh and let the images
                     # fall behind would be filling the archive with links to other

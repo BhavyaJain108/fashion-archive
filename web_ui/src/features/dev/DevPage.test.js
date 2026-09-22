@@ -152,6 +152,24 @@ test('the brand page lists fields with class, fill, rules and where we searched'
   expect(screen.getByText('all_images missing on 1 of 381 products')).toBeInTheDocument();
 });
 
+test('a learn run is queued from the brand page and reads as what it learned', async () => {
+  DevEndpoints.learn.mockResolvedValue({ success: true, outcome: 'queued', mode: 'learn' });
+  DevEndpoints.getBrand.mockResolvedValue({
+    ...brand,
+    runs: [
+      { id: 'r2', mode: 'learn', started_at: new Date().toISOString(), finished_at: new Date().toISOString(),
+        exit_status: 0, coverage: null, card: null, pages: 12, rules: 3, fields_gained: ['material_info', 'care'] },
+      ...brand.runs,
+    ],
+  });
+  render(<DevPage route={{ page: 'dev', brandId: 'huelleyrose.com', category: null }} navigate={() => {}} />);
+  await screen.findByText('t0×bulk_json×platform_json×per_item');
+  expect(screen.getByText(/learned · 3 rules from 12 pages · 2 new fields/)).toBeInTheDocument();
+  fireEvent.click(screen.getByLabelText('retry searched fields'));
+  fireEvent.click(screen.getByRole('button', { name: 'learn fields' }));
+  await waitFor(() => expect(DevEndpoints.learn).toHaveBeenCalledWith('huelleyrose.com', true));
+});
+
 test('every run is listed, and an unscored one opens its log', async () => {
   render(<DevPage route={{ page: 'dev', brandId: 'huelleyrose.com', category: null }} navigate={() => {}} />);
   await screen.findByText('t0×bulk_json×platform_json×per_item');

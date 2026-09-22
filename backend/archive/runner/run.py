@@ -63,6 +63,9 @@ def run_brand(
     field_finder=None,
     max_products: int | None = None,
     learn_budget: int = 10,
+    # A learn run may ask again about fields already searched and not found,
+    # instead of waiting RETRY_AFTER_DAYS for them.
+    retry_searched: bool = False,
     version=extraction_version,
     time_budget: float | None = None,
     clock=time.monotonic,
@@ -168,13 +171,22 @@ def run_brand(
             log("capped", found=len(refs), kept=max_products)
             refs = refs[:max_products]
 
+        # A learn run reads a spread of product pages for the finder and stores
+        # nothing: no products, no photographs, no coverage, no state. What it leaves
+        # behind is the recipe book and the evidence, which the next real run uses.
+        learning = mode == "learn"
+        if learning and field_finder is None:
+            catalog.finalize_run(run_id, 1, None)
+            log("learn-without-finder")
+            return 1
+
         calibrating = catalog.get_brand_state(brand.domain) != "active"
         # The sample tells the finder which fields this channel never provides. An
         # already-active brand with no rules yet still pays for one, or a brand
         # promoted before the finder existed could never learn any (xsai.vision).
         wants_finder = field_finder is not None and catalog.load_recipe_book(brand.domain) is None
         sample_records = []
-        if calibrating or wants_finder:
+        if calibrating or wants_finder or learning:
             if calibrating:
                 catalog.set_brand_state(brand.domain, "calibrating")
             sample = refs[:sample_size]
@@ -194,18 +206,26 @@ def run_brand(
         # because nothing on the shop's side had moved.
         current_version = version()
         last_version = catalog.extraction_version_for(brand.domain)
-        if last_version and last_version != current_version and mode != "full":
+        if last_version and last_version != current_version and mode == "delta":
             log("extraction-changed", was=last_version, now=current_version)
             mode = "full"
 
         hints = catalog.get_change_hints(brand.domain)
         first_run = not hints
-        to_fetch = refs if (mode == "full" or first_run) else select_delta(refs, hints)
+        if learning:
+            # Pages from across the catalogue, not the first N: a shop lays the same
+            # field out differently between its categories, and the first page of a
+            # feed is one category.
+            to_fetch = _spread(refs, learn_budget)
+        else:
+            to_fetch = refs if (mode == "full" or first_run) else select_delta(refs, hints)
+        phase = "learning" if learning else "fetching"
         log("selected", mode=mode, to_fetch=len(to_fetch), total=len(refs))
-        catalog.report_progress(brand.domain, "fetching", 0, len(to_fetch), force=True)
+        catalog.report_progress(brand.domain, phase, 0, len(to_fetch), force=True)
 
         book = catalog.load_recipe_book(brand.domain)
         recipes = book.recipes if book else []
+        loaded_fields = book.fields() if book else set()  # what a learn run starts from
         # Rules verified on a rendered page match nothing in static HTML, so a book
         # that needs rendering escalates this run's transport — the requirement was
         # measured during learning, not configured per brand.
@@ -246,7 +266,7 @@ def run_brand(
         exhausted = set()
         for f in learnable:
             asked, found = prior.get((f, "page_llm"), (0, 0))
-            if asked and not found:
+            if asked and not found and not retry_searched:
                 age = catalog.evidence_age_days(brand.domain, f, "page_llm")
                 if age is None or age < RETRY_AFTER_DAYS:
                     exhausted.add(f)
@@ -263,7 +283,7 @@ def run_brand(
                 unreached = len(to_fetch) - index
                 log("time-budget-spent", budget=time_budget, unreached=unreached)
                 break
-            catalog.report_progress(brand.domain, "fetching", index, len(to_fetch))
+            catalog.report_progress(brand.domain, phase, index, len(to_fetch))
             try:
                 rec = connector.fetch(r, work_transport)
             except SkipProduct as e:
@@ -362,6 +382,8 @@ def run_brand(
                 rec.brand = brand.display_name or brand.domain
             _align_sizes(rec, log)
             records.append(rec)
+            if learning:
+                continue  # the rules and the evidence are the product of this run
             appended = catalog.record_product(brand.domain, run_id, rec, r.change_hint)
             within_budget = image_product_budget is None or imaged_products < image_product_budget
             images = rec.image_list()
@@ -370,6 +392,34 @@ def run_brand(
                 imaged_products += 1
                 if n:
                     log("images-archived", url=rec.itemurl, count=n)
+
+        if learning:
+            if rule_hits and book is not None:
+                for recipe in book.recipes:
+                    recipe.hits = rule_hits.get((recipe.field, recipe.expression), 0)
+                book.recipes.sort(key=lambda r: -r.hits)
+                catalog.save_recipe_book(book)
+            catalog.record_evidence(brand.domain, run_id, search.rows())
+            before_fields = set(loaded_fields)
+            after_fields = set(book.fields()) if book else set()
+            catalog.annotate_run(
+                brand.domain,
+                run_id,
+                pages=len(records),
+                rules=len(book.recipes) if book else 0,
+                fields_gained=sorted(after_fields - before_fields),
+                finder_calls=learned_this_run,
+            )
+            if finder_failures and learned_this_run and not (book and book.recipes):
+                log("finder-unavailable", attempts=len(finder_failures), last=finder_failures[-1])
+            catalog.finalize_run(run_id, 0, None)
+            log(
+                "learned",
+                pages=len(records),
+                rules=len(book.recipes) if book else 0,
+                fields_gained=sorted(after_fields - before_fields),
+            )
+            return 0
 
         # Some faults are only visible across a whole catalogue: staud.clothing fills
         # Shopify's vendor field with 41 campaign names, thesupermade with one SKU per
@@ -452,6 +502,14 @@ def run_brand(
 
 # Failed attempts at one field before a run stops asking about it.
 _FIELD_STRIKES = 3
+
+
+def _spread(refs: list, n: int) -> list:
+    """Up to n of the refs, evenly spaced through the list, first and last included."""
+    if n <= 0 or len(refs) <= n:
+        return list(refs)
+    step = (len(refs) - 1) / (n - 1) if n > 1 else 0
+    return [refs[round(i * step)] for i in range(n)]
 
 # Days before a field the model was shown a page for, and found nothing, is asked
 # about again. Everything is tried; what does not work is tried again later, not never.

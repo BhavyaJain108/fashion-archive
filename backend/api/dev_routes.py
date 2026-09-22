@@ -380,6 +380,8 @@ def _brand_row(domain: str, row: dict, meta: dict, name: str, catalog: Catalog) 
         "enabled": bool(row.get("enabled")),
         # Paused, but the owner asked for one run: it goes on the next poll.
         "run_once": bool(row.get("run_once")),
+        # "learn" when the next claim is a finder-only run.
+        "next_mode": row.get("next_mode") or None,
         "cadence_seconds": row.get("cadence_seconds"),
         "claimed_by": claimed,
         "claimed_at": row.get("claimed_at"),
@@ -797,6 +799,30 @@ def register_dev_routes(app: Flask) -> None:
             return jsonify({"success": False, "error": error, "code": code}), 409
         _forget_overview()
         return jsonify({"success": True, "domain": brand_id, "outcome": outcome})
+
+    @app.route("/api/dev/brands/<brand_id>/learn", methods=["POST"])
+    def dev_brand_learn(brand_id):
+        """Queue a learn run: the finder reads a spread of product pages and writes
+        rules; nothing goes to the catalogue and the brand's scheduled turn is kept.
+        Body: {"retry_searched": bool} to ask again about fields already searched."""
+        if not _is_owner():
+            return _forbidden()
+        if not _from_our_site():
+            return _cross_site()
+        if bad := _bad_domain(brand_id):
+            return bad
+        body = request.get_json(silent=True) or {}
+        sched = Scheduler(_store(), stale_claim_seconds=HEARTBEAT_GRACE_MINUTES * 60)
+        outcome = sched.learn_now(brand_id, retry_searched=bool(body.get("retry_searched")))
+        if outcome == "unknown":
+            return jsonify(
+                {"success": False, "error": "not on the schedule", "code": "NOT_FOUND"}
+            ), 404
+        if outcome in RUN_REFUSALS:
+            error, code = RUN_REFUSALS[outcome]
+            return jsonify({"success": False, "error": error, "code": code}), 409
+        _forget_overview()
+        return jsonify({"success": True, "domain": brand_id, "outcome": outcome, "mode": "learn"})
 
     @app.route("/api/dev/brands/<brand_id>/release", methods=["POST"])
     def dev_brand_release(brand_id):

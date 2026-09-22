@@ -573,3 +573,23 @@ def test_a_claim_whose_heartbeat_stopped_reads_as_stalled_not_running(client, tm
     assert brand["claimed_by"] == "worker-2"
     assert brand["worker_alive"] is False
     assert brand["heartbeat_minutes"] >= 39
+
+
+@pytest.mark.unit
+def test_a_learn_run_is_queued_from_the_deck_and_refused_while_held(client, tmp_path):
+    from backend.archive.scheduler import Scheduler
+
+    c, mp = client
+    mp.setenv("ADMIN_EMAILS", "owner@example.com")
+    _as(mp, "owner@example.com")
+    body = json.loads(c.post("/api/dev/brands/kuurth.com/learn", json={"retry_searched": True}).data)
+    assert body["outcome"] == "queued" and body["mode"] == "learn"
+    row = Scheduler(DirectoryObjectStore(tmp_path)).row("kuurth.com")
+    assert row["next_mode"] == "learn" and row["retry_searched"] == 1
+    brand = json.loads(c.get("/api/dev/overview").data)["brands"][0]
+    assert brand["next_mode"] == "learn"
+
+    assert Scheduler(DirectoryObjectStore(tmp_path), worker_id="w").claim_next().mode == "learn"
+    r = c.post("/api/dev/brands/kuurth.com/learn")
+    assert r.status_code == 409 and json.loads(r.data)["code"] == "HELD"
+    assert c.post("/api/dev/brands/nobody.example/learn").status_code == 404

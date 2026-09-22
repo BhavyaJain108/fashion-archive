@@ -105,6 +105,9 @@ Buttons and what they do:
 | pause / pause after run | on schedule | skipped at the next claim; a running brand finishes first |
 | resume | paused | back on its cadence; an overdue brand runs at once |
 | release | worker dead (no beat for 12 min) | hands the brand back; the run starts over |
+| learn fields | idle | a finder-only run: a spread of product pages is read, rules are written, nothing is stored, the scheduled turn is kept; *retry searched fields* asks again about fields given up on |
+
+From the terminal the same run is `cli scrape --domain X --learn [--retry-searched]`.
 
 ## Running the scraper by hand
 

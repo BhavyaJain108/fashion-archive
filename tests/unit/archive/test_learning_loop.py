@@ -518,3 +518,152 @@ def test_two_workers_share_one_allowance(tmp_path):
 @pytest.mark.unit
 def test_a_zero_cap_is_off(tmp_path):
     assert not DailyCap(DirectoryObjectStore(tmp_path), usd_per_day=0).allow()
+
+
+# --- a learn run: the finder alone, nothing stored, the turn kept ---------------------
+
+
+@pytest.mark.unit
+def test_a_learn_run_writes_rules_and_evidence_and_stores_no_products(tmp_path):
+    from backend.archive.domain.product import ProductRef
+    from backend.archive.domain.recipe import Recipe, RecipeBook
+    from backend.archive.runner.run import _spread, run_brand
+
+    brand = Brand(domain="kuurth.com", homepage_url="https://kuurth.com")
+    cap = Capability(
+        domain="kuurth.com", platform="shopify", transport=TransportLevel.T0, bulk_json=True
+    )
+    asked: list[str] = []
+
+    class Conn:
+        kind = "shopify"
+
+        def discover(self, b, t):
+            return [
+                ProductRef(url=f"https://kuurth.com/products/{i}", change_hint=f"h{i}", payload={})
+                for i in range(20)
+            ]
+
+        def fetch(self, r, t):
+            return ProductRecord(itemurl=r.url, product_title="A")
+
+        def page_html(self, r, t):
+            return "<html><p class='m'>cotton</p></html>"
+
+    def finder(domain, url, missing, transport):
+        asked.append(url)
+        if "material_info" not in missing or len(asked) > 1:
+            return None  # the model proposes for the fields it was asked about, once
+        return RecipeBook(
+            domain=domain,
+            learned_at="now",
+            recipes=[Recipe(field="material_info", kind="css_text", expression="p.m", expected="cotton")],
+        )
+
+    cat = Catalog(DirectoryObjectStore(tmp_path))
+    cat.upsert_brand(brand)
+    code = run_brand(
+        brand,
+        cat,
+        transport=None,
+        mode="learn",
+        locks_dir=tmp_path / "locks",
+        log_dir=tmp_path / "logs",
+        prober=lambda d, t: cap,
+        composer=compose_plan,
+        connector_factory=lambda plan, sitemap_url=None, limit=None: Conn(),
+        field_finder=finder,
+        learn_budget=5,
+    )
+    assert code == 0
+    # Five pages spread across twenty, first and last included. The finder is asked
+    # on the spread only, and stops being asked once every field has struck out.
+    spread = {f"https://kuurth.com/products/{i}" for i in (0, 5, 10, 14, 19)}
+    assert asked[0].endswith("/0") and set(asked) <= spread and 1 < len(asked) <= 5
+    assert cat.current_products("kuurth.com", live_only=False) == []
+    assert cat.stored_image_count("kuurth.com") == 0
+    book = cat.load_recipe_book("kuurth.com")
+    assert book is not None and "material_info" in book.fields()
+    run = cat.latest_run("kuurth.com")
+    assert run["mode"] == "learn" and run["exit_status"] == 0 and run["coverage"] is None
+    assert run["rules"] == 1 and run["fields_gained"] == ["material_info"] and run["pages"] == 5
+    assert cat.load_evidence("kuurth.com").get(("material_info", "page_llm"), (0, 0))[1] >= 1
+    assert _spread(list(range(10)), 3) == [0, 4, 9] and _spread([1, 2], 5) == [1, 2]
+
+
+@pytest.mark.unit
+def test_a_learn_run_may_ask_again_about_a_field_given_up_on(tmp_path):
+    from backend.archive.domain.product import ProductRef
+    from backend.archive.runner.run import run_brand
+
+    brand = Brand(domain="kuurth.com", homepage_url="https://kuurth.com")
+    cap = Capability(
+        domain="kuurth.com", platform="shopify", transport=TransportLevel.T0, bulk_json=True
+    )
+    fields_asked: list[list[str]] = []
+
+    class Conn:
+        kind = "shopify"
+
+        def discover(self, b, t):
+            return [ProductRef(url="https://kuurth.com/products/1", change_hint="h", payload={})]
+
+        def fetch(self, r, t):
+            return ProductRecord(itemurl=r.url, product_title="A")
+
+    def finder(domain, url, missing, transport):
+        fields_asked.append(sorted(missing))
+        return None
+
+    cat = Catalog(DirectoryObjectStore(tmp_path))
+    cat.upsert_brand(brand)
+    cat.record_evidence("kuurth.com", "r0", [("material_info", "page_llm", 3, 0)])  # searched, not found
+    common = dict(
+        transport=None,
+        locks_dir=tmp_path / "locks",
+        log_dir=tmp_path / "logs",
+        prober=lambda d, t: cap,
+        composer=compose_plan,
+        connector_factory=lambda plan, sitemap_url=None, limit=None: Conn(),
+        field_finder=finder,
+    )
+    run_brand(brand, cat, mode="learn", **common)
+    assert "material_info" not in fields_asked[-1]  # given up on within the fortnight
+    run_brand(brand, cat, mode="learn", retry_searched=True, **common)
+    assert "material_info" in fields_asked[-1]
+
+
+@pytest.mark.unit
+def test_learn_now_keeps_the_brands_turn_and_the_daemon_writes_no_scorecard(tmp_path):
+    store = DirectoryObjectStore(tmp_path)
+    cat = Catalog(store)
+    cat.upsert_brand(Brand(domain="kuurth.com", homepage_url="https://kuurth.com"))
+    sched = Scheduler(store, worker_id="w1")
+    sched.add("kuurth.com", cadence_seconds=3600)
+    later = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
+    sched._amend("kuurth.com", next_due=later)
+
+    assert sched.learn_now("kuurth.com", retry_searched=True) == "queued"
+    row = sched.row("kuurth.com")
+    assert row["next_mode"] == "learn" and row["due_after_learn"] == later
+
+    seen: list[tuple] = []
+
+    def do_brand(brand, mode="delta", retry_searched=False):
+        seen.append((brand.domain, mode, retry_searched))
+        return None, 0.4
+
+    assert run_once(cat, sched, do_brand, log=lambda *a: None) is True
+    assert seen == [("kuurth.com", "learn", True)]
+    row = sched.row("kuurth.com")
+    assert row["claimed_by"] is None and row["next_due"] == later  # the turn is kept
+    assert row["next_mode"] is None and row["due_after_learn"] is None
+    assert cat.fleet().get("kuurth.com", {}).get("last_card") is None  # nothing to score
+
+    # Paused: a learn run is one run, and the brand stays paused.
+    sched.set_enabled("kuurth.com", False)
+    assert sched.learn_now("kuurth.com") == "queued_once"
+    due = sched.claim_next()
+    assert due is not None and due.mode == "learn" and due.retry_searched is False
+    sched.release_after_learn("kuurth.com")
+    assert sched.row("kuurth.com")["enabled"] == 0
