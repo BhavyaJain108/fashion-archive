@@ -384,31 +384,62 @@ def test_every_product_carries_when_it_came_was_read_and_left(tmp_path):
 
 
 @pytest.mark.unit
-def test_run_now_moves_the_turn_forward_and_re_enables(tmp_path):
+def test_run_now_moves_the_turn_forward(tmp_path):
     from backend.archive.scheduler import Scheduler
 
     sched = Scheduler(DirectoryObjectStore(tmp_path))
     sched.add("x.com", cadence_seconds=86400)
-    sched.set_enabled("x.com", False)
     later = datetime.now(timezone.utc) + timedelta(days=1)
     sched._amend("x.com", next_due=later.isoformat())
 
-    assert sched.run_now("x.com") is True
+    assert sched.run_now("x.com") == "queued"
     row = sched.rows()[0]
     assert row["enabled"] == 1
     assert row["next_due"] <= datetime.now(timezone.utc).isoformat()
 
 
 @pytest.mark.unit
-def test_run_now_is_refused_for_a_held_or_unknown_brand(tmp_path):
+def test_run_now_on_a_paused_brand_runs_it_once_and_leaves_it_paused(tmp_path):
     from backend.archive.scheduler import Scheduler
 
     store = DirectoryObjectStore(tmp_path)
     sched = Scheduler(store, worker_id="w1")
+    sched.add("x.com", cadence_seconds=86400)
+    sched.set_enabled("x.com", False)
+    assert sched.claim_next() is None  # paused: not offered
+
+    assert sched.run_now("x.com") == "queued_once"
+    row = sched.rows()[0]
+    assert row["enabled"] == 0 and row["run_once"] == 1
+
+    due = sched.claim_next()  # offered exactly once
+    assert due is not None and due.domain == "x.com"
+    sched.release("x.com", 86400)
+    row = sched.rows()[0]
+    assert row["enabled"] == 0 and row["run_once"] == 0
+    sched._amend("x.com", next_due=datetime.now(timezone.utc).isoformat())
+    assert sched.claim_next() is None  # still paused afterwards
+
+    # Pausing withdraws a one-off run that has not started yet.
+    assert sched.run_now("x.com") == "queued_once"
+    sched.set_enabled("x.com", False)
+    assert sched.rows()[0]["run_once"] == 0
+
+
+@pytest.mark.unit
+def test_run_now_says_held_dead_or_unknown_instead_of_queueing(tmp_path):
+    from backend.archive.scheduler import Scheduler
+
+    store = DirectoryObjectStore(tmp_path)
+    sched = Scheduler(store, worker_id="w1", stale_claim_seconds=900)
     sched.add("x.com", cadence_seconds=3600)
     assert sched.claim_next() is not None
-    assert sched.run_now("x.com") is False  # a worker has it; nothing to bring forward
-    assert sched.run_now("nobody.example") is False
+    assert sched.run_now("x.com") == "held"  # a worker has it; nothing to bring forward
+    long_ago = datetime.now(timezone.utc) - timedelta(seconds=901)
+    sched._amend("x.com", claimed_at=long_ago.isoformat())
+    assert sched.run_now("x.com") == "dead"  # nobody is beating; release it first
+    assert sched.rows()[0]["claimed_by"] == "w1"  # and run now did not touch the claim
+    assert sched.run_now("nobody.example") == "unknown"
 
 
 # --- the gate tolerates a shop's odd unphotographed item ------------------------------

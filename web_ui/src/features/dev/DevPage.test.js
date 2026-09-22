@@ -173,6 +173,28 @@ test('a held brand shows where its scrape is, as a bar with the phase in words',
   expect(bars.length).toBeGreaterThan(0);
   expect(screen.getAllByText('reading products').length).toBeGreaterThan(0);
   expect(screen.getAllByText(/120 \/ 381 · 31%/).length).toBeGreaterThan(0);
+  // While a worker holds it, run now is off and pause says when it lands.
+  expect(screen.getByRole('button', { name: 'run now' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'pause after run' })).toBeEnabled();
+});
+
+test('a dead worker offers release; a paused brand offers one run', async () => {
+  DevEndpoints.release.mockResolvedValue({ success: true, released: true });
+  DevEndpoints.getOverview.mockResolvedValue({
+    ...overview,
+    workers: { running: [], stalled: ['huelleyrose.com'] },
+    brands: [
+      { ...overview.brands[0], claimed_by: 'worker-1', worker_alive: false, claimed_at: new Date(Date.now() - 20 * 60000).toISOString() },
+      { ...overview.brands[1], enabled: false, run_once: false },
+    ],
+  });
+  render(<DevPage route={{ page: 'dev', brandId: null, category: null }} navigate={() => {}} />);
+  await screen.findByText('Huelley Rose');
+  fireEvent.click(screen.getByRole('button', { name: 'release' }));
+  await waitFor(() => expect(DevEndpoints.release).toHaveBeenCalledWith('huelleyrose.com'));
+  expect(screen.getByText('paused')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'run once' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: 'resume' })).toBeEnabled();
 });
 
 test('someone who is not the owner sees a plain notice', async () => {

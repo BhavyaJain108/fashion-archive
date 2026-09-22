@@ -118,18 +118,32 @@ class Scheduler:
         raise Conflict(f"{key}: still changing under us after 5 attempts")
 
     def set_enabled(self, domain: str, enabled: bool) -> None:
-        self._amend(domain, enabled=1 if enabled else 0)
+        """Pausing takes effect at the next claim: a worker already holding the brand
+        finishes its run. Pausing also withdraws a one-off run still waiting."""
+        self._amend(domain, enabled=1 if enabled else 0, run_once=0)
 
-    def run_now(self, domain: str, now: datetime | None = None) -> bool:
-        """Ask for this brand on the next poll. False when it is held by a worker
-        already — there is nothing to bring forward, it is being scraped."""
+    def run_now(self, domain: str, now: datetime | None = None) -> str:
+        """Ask for this brand on the next poll. Says what happened:
+
+        "queued"      due now; a worker takes it on its next poll.
+        "queued_once" the brand is paused, so it runs this once and stays paused —
+                      pressing run now is not the same as resuming.
+        "held"        a live worker has it; there is nothing to bring forward.
+        "dead"        a worker claimed it and stopped beating; release it first.
+        "unknown"     not on the schedule.
+        """
+        now = now or _now()
         row, _ = self._read(self._key(domain))
         if not row:
-            return False
+            return "unknown"
         if row.get("claimed_by") is not None:
-            return False
-        self._amend(domain, next_due=_iso(now or _now()), enabled=1)
-        return True
+            stale = _iso(now - timedelta(seconds=self.stale_claim_seconds))
+            return "held" if (row.get("claimed_at") or "") >= stale else "dead"
+        if row.get("enabled"):
+            self._amend(domain, next_due=_iso(now))
+            return "queued"
+        self._amend(domain, next_due=_iso(now), run_once=1)
+        return "queued_once"
 
     def set_cadence(self, domain: str, cadence_seconds: int) -> None:
         self._amend(domain, cadence_seconds=cadence_seconds)
@@ -206,7 +220,8 @@ class Scheduler:
         with ThreadPoolExecutor(max_workers=min(16, max(1, len(keys)))) as pool:
             rows = list(pool.map(self._read, keys))
         for key, (row, etag) in zip(keys, rows, strict=True):
-            if not row or not row.get("enabled"):
+            # A paused brand is skipped unless the owner asked for one run of it.
+            if not row or not (row.get("enabled") or row.get("run_once")):
                 continue
             if row["next_due"] > _iso(now):
                 continue
@@ -218,6 +233,7 @@ class Scheduler:
         for _due, key, row, etag in sorted(candidates):
             row["claimed_by"] = self.worker_id
             row["claimed_at"] = _iso(now)
+            row["run_once"] = 0  # the one run asked for is this one
             try:
                 self._write(key, row, etag)
             except Conflict:

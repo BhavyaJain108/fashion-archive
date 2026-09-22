@@ -49,6 +49,20 @@ HEARTBEAT_GRACE_MINUTES = 12
 # After this the schedule itself lets another worker take the brand.
 STALE_CLAIM_MINUTES = 15
 
+# What Scheduler.run_now can answer, in the deck's words. The refusals carry a code
+# the page can act on; a paused brand is not refused — it runs once and stays paused.
+RUN_REFUSALS = {
+    "held": ("already being scraped", "HELD"),
+    "dead": ("its worker has stopped — release it first", "DEAD"),
+}
+RUN_WORDS = {
+    "queued": "queued",
+    "queued_once": "queued once (stays paused)",
+    "held": "already being scraped",
+    "dead": "worker dead — release first",
+    "unknown": "not on the schedule",
+}
+
 # Which audit class each E0005 field belongs to, by the class's one-letter tag.
 FIELD_CLASS = {f: label[0] for label, fields, _ in CLASSES for f in fields}
 CLASS_NOTES = {label[0]: (label[3:].strip(), note) for label, _, note in CLASSES}
@@ -364,6 +378,8 @@ def _brand_row(domain: str, row: dict, meta: dict, name: str, catalog: Catalog) 
         "last_mode": meta.get("mode"),
         "next_due": row.get("next_due"),
         "enabled": bool(row.get("enabled")),
+        # Paused, but the owner asked for one run: it goes on the next poll.
+        "run_once": bool(row.get("run_once")),
         "cadence_seconds": row.get("cadence_seconds"),
         "claimed_by": claimed,
         "claimed_at": row.get("claimed_at"),
@@ -768,17 +784,19 @@ def register_dev_routes(app: Flask) -> None:
             return _cross_site()
         if bad := _bad_domain(brand_id):
             return bad
-        sched = Scheduler(_store())
-        if not any(r["domain"] == brand_id for r in sched.rows()):
+        # The deck's idea of a dead worker (no beat for twelve minutes) is the one
+        # the answer must agree with, so the schedule is asked with that limit.
+        sched = Scheduler(_store(), stale_claim_seconds=HEARTBEAT_GRACE_MINUTES * 60)
+        outcome = sched.run_now(brand_id)
+        if outcome == "unknown":
             return jsonify(
                 {"success": False, "error": "not on the schedule", "code": "NOT_FOUND"}
             ), 404
-        if not sched.run_now(brand_id):
-            return jsonify(
-                {"success": False, "error": "already being scraped", "code": "HELD"}
-            ), 409
+        if outcome in RUN_REFUSALS:
+            error, code = RUN_REFUSALS[outcome]
+            return jsonify({"success": False, "error": error, "code": code}), 409
         _forget_overview()
-        return jsonify({"success": True, "domain": brand_id})
+        return jsonify({"success": True, "domain": brand_id, "outcome": outcome})
 
     @app.route("/api/dev/brands/<brand_id>/release", methods=["POST"])
     def dev_brand_release(brand_id):
@@ -819,14 +837,23 @@ def register_dev_routes(app: Flask) -> None:
         if bad := _bad_domain(brand_id):
             return bad
         sched = Scheduler(_store())
-        if not any(r["domain"] == brand_id for r in sched.rows()):
+        row = sched.row(brand_id)
+        if row is None:
             return jsonify(
                 {"success": False, "error": "not on the schedule", "code": "NOT_FOUND"}
             ), 404
         enabled = request.path.endswith("/resume")
         sched.set_enabled(brand_id, enabled)
         _forget_overview()
-        return jsonify({"success": True, "domain": brand_id, "enabled": enabled})
+        # A worker holding the brand finishes its run; the pause holds after that.
+        return jsonify(
+            {
+                "success": True,
+                "domain": brand_id,
+                "enabled": enabled,
+                "after_run": row.get("claimed_by") is not None,
+            }
+        )
 
     @app.route("/api/dev/brands", methods=["POST"])
     def dev_brand_add():
@@ -948,7 +975,7 @@ def register_dev_routes(app: Flask) -> None:
             ), 400
         if len(domains) > 200:
             return jsonify({"success": False, "error": "too many brands", "code": "TOO_MANY"}), 400
-        sched = Scheduler(_store())
+        sched = Scheduler(_store(), stale_claim_seconds=HEARTBEAT_GRACE_MINUTES * 60)
         known = {r["domain"] for r in sched.rows()}
         results = {}
         for domain in domains:
@@ -957,7 +984,7 @@ def register_dev_routes(app: Flask) -> None:
             elif domain not in known:
                 results[domain] = "not on the schedule"
             elif action == "run":
-                results[domain] = "queued" if sched.run_now(domain) else "already being scraped"
+                results[domain] = RUN_WORDS[sched.run_now(domain)]
             else:
                 sched.set_enabled(domain, action == "resume")
                 results[domain] = "paused" if action == "pause" else "resumed"

@@ -111,6 +111,49 @@ def test_run_now_is_refused_while_a_worker_holds_the_brand(client, tmp_path):
     r = c.post("/api/dev/brands/kuurth.com/run")
     assert r.status_code == 409 and json.loads(r.data)["code"] == "HELD"
 
+    # Once the worker has stopped beating, the answer is to release, not to queue.
+    from datetime import datetime, timedelta, timezone
+
+    dead = datetime.now(timezone.utc) - timedelta(minutes=13)
+    Scheduler(DirectoryObjectStore(tmp_path))._amend("kuurth.com", claimed_at=dead.isoformat())
+    r = c.post("/api/dev/brands/kuurth.com/run")
+    assert r.status_code == 409 and json.loads(r.data)["code"] == "DEAD"
+    assert json.loads(c.post("/api/dev/brands/kuurth.com/release").data)["released"] is True
+    assert json.loads(c.post("/api/dev/brands/kuurth.com/run").data)["outcome"] == "queued"
+
+
+@pytest.mark.unit
+def test_run_now_on_a_paused_brand_is_one_run_and_the_deck_says_so(client, tmp_path):
+    from backend.archive.scheduler import Scheduler
+
+    c, mp = client
+    mp.setenv("ADMIN_EMAILS", "owner@example.com")
+    _as(mp, "owner@example.com")
+    assert c.post("/api/dev/brands/kuurth.com/pause").status_code == 200
+    body = json.loads(c.post("/api/dev/brands/kuurth.com/run").data)
+    assert body["outcome"] == "queued_once"
+    brand = json.loads(c.get("/api/dev/overview").data)["brands"][0]
+    assert brand["enabled"] is False and brand["run_once"] is True
+    assert Scheduler(DirectoryObjectStore(tmp_path), worker_id="w").claim_next() is not None
+    import backend.api.dev_routes as dr
+
+    dr._forget_overview()  # the claim came from a worker, not through the API's cache
+    brand = json.loads(c.get("/api/dev/overview").data)["brands"][0]
+    assert brand["run_once"] is False and brand["claimed_by"] == "w"
+
+
+@pytest.mark.unit
+def test_pausing_a_held_brand_says_it_takes_effect_after_the_run(client, tmp_path):
+    from backend.archive.scheduler import Scheduler
+
+    c, mp = client
+    assert Scheduler(DirectoryObjectStore(tmp_path), worker_id="w").claim_next() is not None
+    mp.setenv("ADMIN_EMAILS", "owner@example.com")
+    _as(mp, "owner@example.com")
+    body = json.loads(c.post("/api/dev/brands/kuurth.com/pause").data)
+    assert body["enabled"] is False and body["after_run"] is True
+    assert Scheduler(DirectoryObjectStore(tmp_path)).row("kuurth.com")["claimed_by"] == "w"
+
 
 @pytest.mark.unit
 def test_pause_and_resume_flip_the_schedule(client, tmp_path):

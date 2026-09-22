@@ -12,8 +12,15 @@ const MINUTE = 60 * 1000;
 // be invisible: it looks identical to work in progress from the outside.
 function statusPill(b) {
   if (b.claimed_by) return <LiveState brand={b} size="row" />;
-  if (!b.enabled) return <span className="dev-pill idle">paused</span>;
+  if (!b.enabled) return <span className="dev-pill idle">{b.run_once ? 'paused · one run queued' : 'paused'}</span>;
   return null;
+}
+
+// The pause button's label says when it takes effect: a worker holding the brand
+// finishes its run first. Resuming an overdue brand runs it on the next poll.
+function pauseLabel(b) {
+  if (!b.enabled) return 'resume';
+  return b.claimed_by ? 'pause after run' : 'pause';
 }
 
 function gateCell(b) {
@@ -309,10 +316,10 @@ export default function DevOverview({ go }) {
                         <button
                           type="button"
                           className="dev-act"
-                          disabled={busy[b.domain] || !!b.claimed_by}
+                          disabled={busy[b.domain] || !!b.claimed_by || b.run_once}
                           onClick={() => act(b.domain, DevEndpoints.runNow)}
                         >
-                          run now
+                          {b.enabled ? 'run now' : 'run once'}
                         </button>
                       )}
                       <button
@@ -321,7 +328,7 @@ export default function DevOverview({ go }) {
                         disabled={busy[b.domain]}
                         onClick={() => act(b.domain, b.enabled ? DevEndpoints.pause : DevEndpoints.resume)}
                       >
-                        {b.enabled ? 'pause' : 'resume'}
+                        {pauseLabel(b)}
                       </button>
                     </td>
                   </tr>

@@ -60,10 +60,16 @@ export default function DevBrand({ domain, go }) {
     setHeld(!!(data && data.brand && data.brand.claimed_by));
   }, [data]);
   const [note, setNote] = useState(null);
+  const [busy, setBusy] = useState(false);
 
+  // One command at a time: a second press while the first is in flight would
+  // queue the same run twice or flip a pause back before the page has caught up.
   const act = async (fn) => {
+    if (busy) return;
+    setBusy(true);
     setNote(null);
     const r = await fn(domain);
+    setBusy(false);
     if (r.error) setNote(r.error);
     await reload();
   };
@@ -79,25 +85,26 @@ export default function DevBrand({ domain, go }) {
             </div>
             <div className="dev-head-actions">
               {data.brand.claimed_by && data.brand.worker_alive === false ? (
-                <button type="button" className="dev-act" onClick={() => act(DevEndpoints.release)}>
+                <button type="button" className="dev-act" disabled={busy} onClick={() => act(DevEndpoints.release)}>
                   release
                 </button>
               ) : (
                 <button
                   type="button"
                   className="dev-act"
-                  disabled={!!data.brand.claimed_by}
+                  disabled={busy || !!data.brand.claimed_by || data.brand.run_once}
                   onClick={() => act(DevEndpoints.runNow)}
                 >
-                  run now
+                  {data.brand.enabled ? 'run now' : 'run once'}
                 </button>
               )}
               <button
                 type="button"
                 className="dev-act"
+                disabled={busy}
                 onClick={() => act(data.brand.enabled ? DevEndpoints.pause : DevEndpoints.resume)}
               >
-                {data.brand.enabled ? 'pause' : 'resume'}
+                {!data.brand.enabled ? 'resume' : data.brand.claimed_by ? 'pause after run' : 'pause'}
               </button>
               <button type="button" className="dev-act" onClick={() => go({ brandId: domain, category: 'products' })}>
                 catalogue →
