@@ -100,6 +100,27 @@ export class DevEndpoints {
   static batch(action, domains) {
     return command('batch', 'Could not apply to the selection', { action, domains });
   }
+
+  static addBrand(domain, displayName, show) {
+    return command('brands', 'Could not add the brand', { domain, display_name: displayName, show });
+  }
+
+  // The owner's notes: what to change next, kept with the archive.
+  static getNotes() {
+    return read('notes');
+  }
+
+  static addNote(text) {
+    return command('notes', 'Could not save the note', { text });
+  }
+
+  static setNoteDone(id, done) {
+    return command(`notes/${encodeURIComponent(id)}`, 'Could not update the note', { done });
+  }
+
+  static deleteNote(id) {
+    return command(`notes/${encodeURIComponent(id)}`, 'Could not remove the note', { delete: true });
+  }
 }
 
 export default DevEndpoints;

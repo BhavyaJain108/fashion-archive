@@ -333,6 +333,7 @@ def main(argv: list[str] | None = None) -> int:
         "access",
         "coverage",
         "fleet-check",
+        "notes",
     ):
         sp = sub.add_parser(name)
         sp.add_argument(
@@ -797,6 +798,23 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.cmd == "fleet-check":
             return _fleet_check(args, catalog, brands)
+
+        if args.cmd == "notes":
+            # What the owner wrote on the deck. Open ones first, then the done ones,
+            # so whoever picks the work up — a person or an agent — reads one list.
+            from backend.archive.store.objects import loads
+
+            found = store.get("control/notes.json")
+            notes = (loads(found[0]) if found else {}).get("notes", [])
+            if not notes:
+                print("no notes")
+                return 0
+            for done in (False, True):
+                for n in notes:
+                    if bool(n.get("done")) != done:
+                        continue
+                    print(f"[{'x' if done else ' '}] {n['at'][:16]}  {n['id']}\n    {n['text']}")
+            return 0
 
         if args.cmd == "coverage":
             return _coverage(args, brands)

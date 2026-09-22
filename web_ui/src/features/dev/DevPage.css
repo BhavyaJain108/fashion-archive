@@ -25,11 +25,57 @@
 
 .dev {
   padding: 24px 28px 64px;
-  max-width: 1180px;
+  max-width: 1480px;
   margin: 0 auto;
   color: var(--ar-ink);
   font-family: var(--ar-font);
 }
+
+/* The page and, beside it, the notes. The notes column is the archive's sidebar
+   width; it stacks under the page on a narrow screen. */
+.dev-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--ar-sidebar-w);
+  gap: 32px;
+  align-items: start;
+}
+
+.dev-main { min-width: 0; }
+
+.dev-aside {
+  position: sticky;
+  top: 0;
+  padding-left: 24px;
+  border-left: 1px solid var(--ar-line);
+  font-size: var(--ar-fs-ui);
+}
+
+.dev-note-form { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.dev-note-input { width: 100%; box-sizing: border-box; resize: vertical; font: inherit; line-height: var(--ar-lh-ui); }
+.dev-note-row { display: flex; align-items: center; gap: 8px; }
+
+.dev-notes { list-style: none; margin: 0; padding: 0; }
+.dev-note {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: start;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--ar-line-soft);
+}
+.dev-note input[type="checkbox"] { margin: 2px 0 0; accent-color: var(--ar-ink); }
+.dev-note-body { min-width: 0; }
+.dev-note-text { color: var(--ar-ink); white-space: pre-wrap; overflow-wrap: anywhere; line-height: var(--ar-lh-ui); }
+.dev-note-done .dev-note-text { color: var(--ar-ink-3); text-decoration: line-through; }
+.dev-note-x { color: var(--ar-ink-4); }
+.dev-note-x:hover { color: var(--ar-ink); text-decoration: none; }
+
+/* Adding a brand: a button that opens one short row of fields. */
+.dev-add { margin-bottom: 12px; }
+.dev-add-form { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 8px; }
+.dev-add-form .ar-input { width: 220px; }
+.dev-check { display: inline-flex; align-items: center; gap: 4px; font-size: var(--ar-fs-micro); letter-spacing: var(--ar-track-ui); text-transform: uppercase; color: var(--ar-ink-3); }
+.dev-check input { margin: 0; accent-color: var(--ar-ink); }
 
 /* --- Chrome: nav, heads, sections ---------------------------------------------- */
 
@@ -433,6 +479,9 @@ table.dev-table {
   .dev-table-sub { width: 100%; }
   .dev-search .ar-input { width: 100%; }
   .dev-product { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .dev-layout { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+  .dev-aside { position: static; padding-left: 0; border-left: 0; padding-top: 16px; border-top: 1px solid var(--ar-line); }
+  .dev-add-form .ar-input { width: 100%; }
   .dev-strip { min-height: 96px; }
   .dev-strip img { height: 96px; }
 }

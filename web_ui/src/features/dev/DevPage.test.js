@@ -65,6 +65,9 @@ const brand = {
 };
 
 beforeEach(() => {
+  DevEndpoints.getNotes.mockResolvedValue({ success: true, notes: [{ id: '1', text: 'sort by cost', at: new Date().toISOString(), done: false }] });
+  DevEndpoints.addNote.mockResolvedValue({ success: true });
+  DevEndpoints.addBrand.mockResolvedValue({ success: true, domain: 'new.com', name: 'New', shown: true, already_scheduled: false });
   DevEndpoints.getOverview.mockResolvedValue(overview);
   DevEndpoints.getBrand.mockResolvedValue(brand);
   DevEndpoints.getHosts.mockResolvedValue({ success: true, domain: 'huelleyrose.com', days: 7, hosts: [] });
@@ -116,6 +119,20 @@ test('columns sort, and a selection runs as one batch', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'run selected' }));
   await waitFor(() => expect(DevEndpoints.batch).toHaveBeenCalledWith('run', expect.arrayContaining(['huelleyrose.com', 'laluneofficial.com'])));
   expect(await screen.findByText('2 queued')).toBeInTheDocument();
+});
+
+test('notes sit beside every view and a brand can be added from the overview', async () => {
+  render(<DevPage route={{ page: 'dev', brandId: null, category: null }} navigate={() => {}} />);
+  expect(await screen.findByText('sort by cost')).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('New note'), { target: { value: 'show cost per product' } });
+  fireEvent.click(screen.getByRole('button', { name: 'add note' }));
+  await waitFor(() => expect(DevEndpoints.addNote).toHaveBeenCalledWith('show cost per product'));
+
+  fireEvent.click(await screen.findByRole('button', { name: 'add a brand' }));
+  fireEvent.change(screen.getByLabelText('Domain'), { target: { value: 'https://New.com/shop' } });
+  fireEvent.click(screen.getByRole('button', { name: 'add and scrape now' }));
+  await waitFor(() => expect(DevEndpoints.addBrand).toHaveBeenCalledWith('new.com', '', true));
+  expect(await screen.findByText(/New added and due now/)).toBeInTheDocument();
 });
 
 test('a brand name is a navigation, not a fetch', async () => {

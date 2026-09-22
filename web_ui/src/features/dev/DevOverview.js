@@ -86,6 +86,58 @@ function readSort() {
   }
 }
 
+// A brand joins by its domain. It is on the schedule and due at once from the
+// moment this returns; "show on the site" is whether the public My Brands page
+// lists it, which is the roster's business and not the scraper's.
+function AddBrand({ onAdded }) {
+  const [open, setOpen] = useState(false);
+  const [domain, setDomain] = useState('');
+  const [name, setName] = useState('');
+  const [show, setShow] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState(null);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    const d = domain.trim().toLowerCase().replace(/^https?:\/\//, '').split('/')[0];
+    if (!d || !d.includes('.')) {
+      setNote('Enter the shop’s domain, like kuurth.com');
+      return;
+    }
+    setBusy(true);
+    setNote(null);
+    const r = await DevEndpoints.addBrand(d, name.trim(), show);
+    setBusy(false);
+    if (r.error) {
+      setNote(r.error);
+      return;
+    }
+    setNote(`${r.name} added${r.already_scheduled ? ' (was already on the schedule; now due)' : ' and due now'}`);
+    setDomain('');
+    setName('');
+    await onAdded();
+  };
+
+  return (
+    <div className="dev-add">
+      <button type="button" className="dev-act" aria-expanded={open} onClick={() => setOpen(!open)}>
+        {open ? 'close' : 'add a brand'}
+      </button>
+      {open && (
+        <form className="dev-add-form" onSubmit={submit}>
+          <input className="ar-input" placeholder="DOMAIN" aria-label="Domain" value={domain} onChange={(e) => { setDomain(e.target.value); setNote(null); }} />
+          <input className="ar-input" placeholder="NAME (OPTIONAL)" aria-label="Display name" value={name} onChange={(e) => setName(e.target.value)} />
+          <label className="dev-check">
+            <input type="checkbox" checked={show} onChange={(e) => setShow(e.target.checked)} /> show on the site
+          </label>
+          <button type="submit" className="dev-act" disabled={busy}>add and scrape now</button>
+        </form>
+      )}
+      {note && <div className="dev-why">{note}</div>}
+    </div>
+  );
+}
+
 export default function DevOverview({ go }) {
   const { data, state, refreshing, reload } = useDevLoad(() => DevEndpoints.getOverview(), [], MINUTE, 'overview');
   const [busy, setBusy] = useState({});
@@ -202,6 +254,8 @@ export default function DevOverview({ go }) {
               after the last heartbeat, then another worker retries it.
             </div>
           )}
+
+          <AddBrand onAdded={reload} />
 
           <div className="dev-bulk" role="group" aria-label="Selected brands">
             <span className="dev-bulk-k">{picked.size} selected</span>

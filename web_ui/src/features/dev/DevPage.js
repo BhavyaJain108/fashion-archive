@@ -4,6 +4,7 @@ import DevOverview from './DevOverview';
 import DevBrand from './DevBrand';
 import DevProducts from './DevProducts';
 import DevCosts from './DevCosts';
+import DevNotes from './DevNotes';
 import './DevPage.css';
 
 // The machine room. Four views, one frame. Which view is a fact about the URL
@@ -59,10 +60,15 @@ export default function DevPage({ route, navigate }) {
         )}
       </nav>
 
-      {view === 'overview' && <DevOverview go={go} />}
-      {view === 'costs' && <DevCosts />}
-      {view === 'brand' && <DevBrand domain={route.brandId} go={go} />}
-      {view === 'products' && <DevProducts domain={route.brandId} />}
+      <div className="dev-layout">
+        <main className="dev-main">
+          {view === 'overview' && <DevOverview go={go} />}
+          {view === 'costs' && <DevCosts />}
+          {view === 'brand' && <DevBrand domain={route.brandId} go={go} />}
+          {view === 'products' && <DevProducts domain={route.brandId} />}
+        </main>
+        <DevNotes />
+      </div>
     </div>
     </div>
   );

@@ -37,6 +37,9 @@ def client(tmp_path, monkeypatch):
 
     dr._forget_overview()
     pv._cache.clear()  # provider answers are cached ten minutes per process too
+    from backend.archive import roster
+
+    roster.forget_added()  # and the roster's additions are cached a minute
     app = Flask(__name__)
     register_dev_routes(app)
     return app.test_client(), monkeypatch
@@ -235,6 +238,63 @@ def test_a_held_brand_shows_where_its_scrape_is(client, tmp_path):
     assert b["claimed_by"] == "w1"
     assert b["progress"]["phase"] == "fetching" and b["progress"]["done"] == 120
     assert b["progress"]["total"] == 332
+
+
+@pytest.mark.unit
+def test_a_brand_added_from_the_deck_is_on_the_roster_the_schedule_and_the_overview(
+    client, tmp_path
+):
+    from backend.archive import roster
+    from backend.archive.scheduler import Scheduler
+
+    c, mp = client
+    mp.setenv("ADMIN_EMAILS", "owner@example.com")
+    _as(mp, "owner@example.com")
+    r = c.post(
+        "/api/dev/brands",
+        json={
+            "domain": "https://New-Shop.com/collections",
+            "display_name": "New Shop",
+            "show": False,
+        },
+    )
+    assert r.status_code == 200
+    body = json.loads(r.data)
+    assert (
+        body["domain"] == "new-shop.com" and body["name"] == "New Shop" and body["shown"] is False
+    )
+    store = DirectoryObjectStore(tmp_path)
+    added = {e.domain: e for e in roster.added_entries(store, fresh=True)}
+    assert (
+        added["new-shop.com"].size == "large" and added["new-shop.com"].display_name == "New Shop"
+    )
+    assert any(x["domain"] == "new-shop.com" for x in Scheduler(store).rows())
+    names = {b["domain"]: b["name"] for b in json.loads(c.get("/api/dev/overview").data)["brands"]}
+    assert names["new-shop.com"] == "New Shop"
+    assert c.post("/api/dev/brands", json={"domain": "not a domain"}).status_code == 400
+
+
+@pytest.mark.unit
+def test_notes_are_kept_ticked_and_removed(client):
+    c, mp = client
+    mp.setenv("ADMIN_EMAILS", "owner@example.com")
+    _as(mp, "owner@example.com")
+    assert c.post("/api/dev/notes", json={"text": "  "}).status_code == 400
+    note = json.loads(c.post("/api/dev/notes", json={"text": "sort by cost"}).data)["note"]
+    assert note["done"] is False
+    notes = json.loads(c.get("/api/dev/notes").data)["notes"]
+    assert [n["text"] for n in notes] == ["sort by cost"]
+    r = json.loads(c.post(f"/api/dev/notes/{note['id']}", json={"done": True}).data)
+    assert r["notes"][0]["done"] is True and r["notes"][0]["done_at"]
+    r = json.loads(c.post(f"/api/dev/notes/{note['id']}", json={"delete": True}).data)
+    assert r["notes"] == []
+    assert c.post("/api/dev/notes/nope", json={"done": True}).status_code == 400
+    assert (
+        c.post(
+            "/api/dev/notes", json={"text": "x"}, headers={"Origin": "https://evil.example"}
+        ).status_code
+        == 403
+    )
 
 
 @pytest.mark.unit

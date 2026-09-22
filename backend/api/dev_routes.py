@@ -33,10 +33,11 @@ from pathlib import Path
 from flask import Flask, Response, current_app, jsonify, request
 
 from backend.api import providers
+from backend.archive import roster
 from backend.archive.audit import CLASSES
 from backend.archive.domain.product import E0005_FIELDS
 from backend.archive.evidence import describe
-from backend.archive.roster import app_roster
+from backend.archive.roster import load_roster
 from backend.archive.scheduler import Scheduler
 from backend.archive.spend_cap import DailyCap
 from backend.archive.store.catalog import Catalog
@@ -190,7 +191,29 @@ def _why_empty(domain: str, catalog: Catalog) -> str | None:
 
 
 def _names() -> dict[str, str]:
-    return {e.domain: e.name for e in app_roster()}
+    # Every brand the archive follows, not only the ones the app shows: the deck
+    # lists large houses too, and they have names.
+    return {e.domain: e.name for e in load_roster(store=_store())}
+
+
+# --- notes ------------------------------------------------------------------------
+# What the owner wants changed, written where it was noticed. One object, a list of
+# short notes with a done flag; the CLI's `notes` prints the open ones so whoever
+# works on the deck next — a person or an agent — starts from the same list.
+NOTES_KEY = "control/notes.json"
+NOTE_MAX = 2000
+
+
+def _notes(store):
+    found = store.get(NOTES_KEY)
+    held = loads(found[0]) if found else {"notes": []}
+    return held, (found[1] if found else None)
+
+
+def _save_notes(store, held, etag):
+    from backend.archive.store.objects import dumps
+
+    store.put(NOTES_KEY, dumps(held), if_match=etag)
 
 
 def _brand_row(domain: str, row: dict, meta: dict, name: str, catalog: Catalog) -> dict:
@@ -572,6 +595,108 @@ def register_dev_routes(app: Flask) -> None:
         sched.set_enabled(brand_id, enabled)
         _forget_overview()
         return jsonify({"success": True, "domain": brand_id, "enabled": enabled})
+
+    @app.route("/api/dev/brands", methods=["POST"])
+    def dev_brand_add():
+        """Add a brand from the deck: {"domain", "display_name"?, "show": bool}.
+
+        Three writes, the same three the CLI's `brands add` makes plus the roster:
+        the roster addition (so the app knows its name and whether to show it), the
+        brand row, and the schedule row — due at once, so a worker picks it up
+        within its next poll.
+        """
+        if not _is_owner():
+            return _forbidden()
+        if not _from_our_site():
+            return _cross_site()
+        body = request.get_json(silent=True) or {}
+        domain = str(body.get("domain") or "").strip().lower()
+        domain = re.sub(r"^https?://", "", domain).split("/")[0]
+        if not _DOMAIN.match(domain):
+            return jsonify({"success": False, "error": "not a domain", "code": "BAD_DOMAIN"}), 400
+        display_name = str(body.get("display_name") or "").strip()[:80] or None
+        size = "small" if body.get("show", True) else "large"
+        store = _store()
+        try:
+            entry = roster.add_entry(store, domain, display_name=display_name, size=size)
+        except Exception as e:  # noqa: BLE001 — a conflict on the roster object, retry once
+            entry = roster.add_entry(store, domain, display_name=display_name, size=size)
+            current_app.logger.warning("roster add retried: %s", e)
+        from backend.archive.domain.brand import Brand
+
+        catalog = Catalog(store)
+        catalog.upsert_brand(
+            catalog.get_brand(domain)
+            or Brand(domain=domain, homepage_url=entry.homepage_url, display_name=display_name)
+        )
+        sched = Scheduler(store)
+        already = any(r["domain"] == domain for r in sched.rows())
+        sched.add(domain)
+        _forget_overview()
+        return jsonify(
+            {
+                "success": True,
+                "domain": domain,
+                "name": entry.name,
+                "shown": size == "small",
+                "already_scheduled": already,
+            }
+        )
+
+    @app.route("/api/dev/notes", methods=["GET"])
+    def dev_notes():
+        if not _is_owner():
+            return _forbidden()
+        held, _ = _notes(_store())
+        return jsonify({"success": True, "notes": held.get("notes", [])})
+
+    @app.route("/api/dev/notes", methods=["POST"])
+    def dev_note_add():
+        if not _is_owner():
+            return _forbidden()
+        if not _from_our_site():
+            return _cross_site()
+        text = str((request.get_json(silent=True) or {}).get("text") or "").strip()
+        if not text:
+            return jsonify({"success": False, "error": "an empty note", "code": "EMPTY"}), 400
+        store = _store()
+        held, etag = _notes(store)
+        note = {
+            "id": datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f"),
+            "text": text[:NOTE_MAX],
+            "at": datetime.now(timezone.utc).isoformat(),
+            "done": False,
+        }
+        held.setdefault("notes", []).append(note)
+        _save_notes(store, held, etag)
+        return jsonify({"success": True, "note": note})
+
+    @app.route("/api/dev/notes/<note_id>", methods=["POST"])
+    def dev_note_edit(note_id):
+        """{"done": bool} to tick or untick; {"delete": true} to remove."""
+        if not _is_owner():
+            return _forbidden()
+        if not _from_our_site():
+            return _cross_site()
+        if not re.fullmatch(r"[0-9T]{1,32}", note_id):
+            return jsonify({"success": False, "error": "not a note id", "code": "BAD_ID"}), 400
+        body = request.get_json(silent=True) or {}
+        store = _store()
+        held, etag = _notes(store)
+        notes = held.get("notes", [])
+        note = next((x for x in notes if x.get("id") == note_id), None)
+        if note is None:
+            return jsonify({"success": False, "error": "no such note", "code": "NOT_FOUND"}), 404
+        if body.get("delete"):
+            held["notes"] = [x for x in notes if x.get("id") != note_id]
+        else:
+            note["done"] = bool(body.get("done"))
+            if note["done"]:
+                note["done_at"] = datetime.now(timezone.utc).isoformat()
+            else:
+                note.pop("done_at", None)
+        _save_notes(store, held, etag)
+        return jsonify({"success": True, "notes": held["notes"]})
 
     @app.route("/api/dev/batch", methods=["POST"])
     def dev_batch():
