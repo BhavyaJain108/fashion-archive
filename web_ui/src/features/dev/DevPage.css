@@ -323,6 +323,43 @@ table.dev-table {
 
 .dev-actions .dev-act + .dev-act { margin-left: 4px; }
 
+/* A column header that sorts. The same text as a plain header; the glyph says which. */
+.dev-sort {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.dev-sort:hover { color: var(--ar-ink); }
+.dev-sort:focus-visible { outline: 1px solid var(--ar-ink); outline-offset: 2px; }
+
+/* The selection and what to do with it. Sits between the readout and the table
+   because it acts on the rows below it. */
+.dev-bulk {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin-bottom: 8px;
+  font-size: var(--ar-fs-micro);
+}
+
+.dev-bulk-k {
+  letter-spacing: var(--ar-track-label);
+  text-transform: uppercase;
+  color: var(--ar-ink-3);
+  margin-right: 4px;
+}
+
+.dev-row-picked td { background: var(--ar-wash-strong); }
+
+.dev-table input[type="checkbox"] { margin: 0; accent-color: var(--ar-ink); }
+
 .dev-search { display: flex; gap: 4px; align-items: center; }
 .dev-search .ar-input { width: 220px; }
 

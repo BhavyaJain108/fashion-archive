@@ -36,10 +36,11 @@ async function read(path, fallback) {
   return envelope(response, fallback);
 }
 
-async function command(path, fallback) {
+async function command(path, fallback, body) {
   const response = await fetch(`${ApiClient.BASE_URL}/api/dev/${path}`, {
     method: 'POST',
     credentials: 'include',
+    ...(body ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}),
   });
   return envelope(response, fallback);
 }
@@ -93,6 +94,11 @@ export class DevEndpoints {
 
   static resume(domain) {
     return command(`${brand(domain)}/resume`, 'Could not resume');
+  }
+
+  // One command over several brands. The answer names what happened to each.
+  static batch(action, domains) {
+    return command('batch', 'Could not apply to the selection', { action, domains });
   }
 }
 

@@ -101,6 +101,23 @@ test('run now and pause are commands on the schedule, then a reload', async () =
   expect(DevEndpoints.getOverview.mock.calls.length).toBeGreaterThanOrEqual(3);
 });
 
+test('columns sort, and a selection runs as one batch', async () => {
+  DevEndpoints.batch.mockResolvedValue({ success: true, action: 'run', results: { 'huelleyrose.com': 'queued', 'laluneofficial.com': 'queued' } });
+  render(<DevPage route={{ page: 'dev', brandId: null, category: null }} navigate={() => {}} />);
+  await screen.findByText('Huelley Rose');
+  const names = () => screen.getAllByRole('button', { name: /Huelley Rose|La Lune/ }).map((b) => b.textContent);
+  expect(names()[0]).toBe('Huelley Rose');
+  fireEvent.click(screen.getByRole('button', { name: /^Products/ }));
+  expect(names()[0]).toBe('La Lune'); // 0 products sorts first, ascending
+  fireEvent.click(screen.getByRole('button', { name: /^Products/ }));
+  expect(names()[0]).toBe('Huelley Rose');
+
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Select every brand shown' }));
+  fireEvent.click(screen.getByRole('button', { name: 'run selected' }));
+  await waitFor(() => expect(DevEndpoints.batch).toHaveBeenCalledWith('run', expect.arrayContaining(['huelleyrose.com', 'laluneofficial.com'])));
+  expect(await screen.findByText('2 queued')).toBeInTheDocument();
+});
+
 test('a brand name is a navigation, not a fetch', async () => {
   const navigate = jest.fn();
   render(<DevPage route={{ page: 'dev', brandId: null, category: null }} navigate={navigate} />);

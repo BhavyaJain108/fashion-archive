@@ -557,6 +557,40 @@ def register_dev_routes(app: Flask) -> None:
         _forget_overview()
         return jsonify({"success": True, "domain": brand_id, "enabled": enabled})
 
+    @app.route("/api/dev/batch", methods=["POST"])
+    def dev_batch():
+        """One command over several brands: {"action": "run"|"pause"|"resume",
+        "domains": [...]}. Each brand is answered on its own — a held brand does
+        not stop the others — and the reply says what happened to every one."""
+        if not _is_owner():
+            return _forbidden()
+        if not _from_our_site():
+            return _cross_site()
+        body = request.get_json(silent=True) or {}
+        action = body.get("action")
+        domains = body.get("domains")
+        if action not in ("run", "pause", "resume") or not isinstance(domains, list):
+            return jsonify(
+                {"success": False, "error": "action and domains required", "code": "BAD_REQUEST"}
+            ), 400
+        if len(domains) > 200:
+            return jsonify({"success": False, "error": "too many brands", "code": "TOO_MANY"}), 400
+        sched = Scheduler(_store())
+        known = {r["domain"] for r in sched.rows()}
+        results = {}
+        for domain in domains:
+            if not isinstance(domain, str) or not _DOMAIN.match(domain):
+                results[str(domain)] = "not a domain"
+            elif domain not in known:
+                results[domain] = "not on the schedule"
+            elif action == "run":
+                results[domain] = "queued" if sched.run_now(domain) else "already being scraped"
+            else:
+                sched.set_enabled(domain, action == "resume")
+                results[domain] = "paused" if action == "pause" else "resumed"
+        _forget_overview()
+        return jsonify({"success": True, "action": action, "results": results})
+
     @app.route("/api/dev/costs", methods=["GET"])
     def dev_costs():
         """What it costs: our own ledger first, the providers' own numbers after.

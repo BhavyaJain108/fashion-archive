@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 
 import DevEndpoints from '../../shared/api/dev';
 import useDevLoad, { Gate } from './useDevLoad';
@@ -24,10 +24,65 @@ function gateCell(b) {
   return '—';
 }
 
+// Sorting. One key, one direction, blanks last whichever way. The choice is kept
+// per tab so a reload does not undo it.
+const COLUMNS = [
+  { key: 'name', label: 'Brand', value: (b) => b.name.toLowerCase() },
+  { key: 'status', label: '', value: (b) => (b.claimed_by ? 0 : b.enabled ? 1 : 2) },
+  { key: 'live_products', label: 'Products', n: true },
+  { key: 'gate', label: 'Gate', value: (b) => (b.gate == null ? null : b.gate ? 1 : 0) },
+  { key: 'fields_filled', label: 'Fields', n: true },
+  { key: 'seconds_per_product', label: 's / product', n: true },
+  { key: 'cost_usd', label: '$ run', n: true },
+  { key: 'last_run', label: 'Last run' },
+  { key: 'next_due', label: 'Next' },
+];
+
+function valueOf(col, b) {
+  const v = col.value ? col.value(b) : b[col.key];
+  return v === undefined ? null : v;
+}
+
+function sorted(rows, key, dir) {
+  const col = COLUMNS.find((c) => c.key === key) || COLUMNS[0];
+  const sign = dir === 'desc' ? -1 : 1;
+  return [...rows].sort((a, b) => {
+    const va = valueOf(col, a);
+    const vb = valueOf(col, b);
+    if (va == null && vb == null) return 0;
+    if (va == null) return 1;
+    if (vb == null) return -1;
+    if (va < vb) return -sign;
+    if (va > vb) return sign;
+    return 0;
+  });
+}
+
+function readSort() {
+  try {
+    const raw = window.sessionStorage.getItem('dev:sort');
+    return raw ? JSON.parse(raw) : { key: 'name', dir: 'asc' };
+  } catch {
+    return { key: 'name', dir: 'asc' };
+  }
+}
+
 export default function DevOverview({ go }) {
   const { data, state, refreshing, reload } = useDevLoad(() => DevEndpoints.getOverview(), [], MINUTE, 'overview');
   const [busy, setBusy] = useState({});
   const [note, setNote] = useState({});
+  const [sort, setSort] = useState(readSort);
+  const [picked, setPicked] = useState(() => new Set());
+  const [bulkNote, setBulkNote] = useState(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
+
+  const rows = useMemo(() => (data ? sorted(data.brands, sort.key, sort.dir) : []), [data, sort]);
+
+  const sortBy = (key) => {
+    const next = sort.key === key ? { key, dir: sort.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' };
+    setSort(next);
+    try { window.sessionStorage.setItem('dev:sort', JSON.stringify(next)); } catch { /* fine */ }
+  };
 
   const act = async (domain, fn) => {
     setBusy((m) => ({ ...m, [domain]: true }));
@@ -35,6 +90,35 @@ export default function DevOverview({ go }) {
     const r = await fn(domain);
     setBusy((m) => ({ ...m, [domain]: false }));
     if (r.error) setNote((m) => ({ ...m, [domain]: r.error }));
+    await reload();
+  };
+
+  const toggle = (domain) => {
+    setPicked((s) => {
+      const next = new Set(s);
+      if (next.has(domain)) next.delete(domain); else next.add(domain);
+      return next;
+    });
+  };
+
+  const allShown = rows.length > 0 && rows.every((b) => picked.has(b.domain));
+  const toggleAll = () => setPicked(allShown ? new Set() : new Set(rows.map((b) => b.domain)));
+
+  const bulk = async (action) => {
+    const domains = [...picked];
+    if (!domains.length) return;
+    setBulkBusy(true);
+    setBulkNote(null);
+    const r = await DevEndpoints.batch(action, domains);
+    setBulkBusy(false);
+    if (r.error) {
+      setBulkNote(r.error);
+    } else {
+      const tally = {};
+      Object.values(r.results).forEach((v) => { tally[v] = (tally[v] || 0) + 1; });
+      setBulkNote(Object.entries(tally).map(([k, v]) => `${v} ${k}`).join(' · '));
+      setPicked(new Set());
+    }
     await reload();
   };
 
@@ -99,25 +183,39 @@ export default function DevOverview({ go }) {
             </div>
           )}
 
+          <div className="dev-bulk" role="group" aria-label="Selected brands">
+            <span className="dev-bulk-k">{picked.size} selected</span>
+            <button type="button" className="dev-act" disabled={bulkBusy || !picked.size} onClick={() => bulk('run')}>run selected</button>
+            <button type="button" className="dev-act" disabled={bulkBusy || !picked.size} onClick={() => bulk('pause')}>pause selected</button>
+            <button type="button" className="dev-act" disabled={bulkBusy || !picked.size} onClick={() => bulk('resume')}>resume selected</button>
+            {bulkNote && <span className="dev-muted">{bulkNote}</span>}
+          </div>
+
           <div className="dev-scroll">
             <table className="dev-table">
               <thead>
                 <tr>
-                  <th>Brand</th>
-                  <th></th>
-                  <th className="n">Products</th>
-                  <th>Gate</th>
-                  <th className="n">Fields</th>
-                  <th className="n">s / product</th>
-                  <th className="n">$ run</th>
-                  <th>Last run</th>
-                  <th>Next</th>
+                  <th>
+                    <input type="checkbox" aria-label="Select every brand shown" checked={allShown} onChange={toggleAll} />
+                  </th>
+                  {COLUMNS.map((c) => (
+                    <th key={c.key} className={c.n ? 'n' : ''} aria-sort={sort.key === c.key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                      {c.label ? (
+                        <button type="button" className="dev-sort" onClick={() => sortBy(c.key)}>
+                          {c.label}{sort.key === c.key ? (sort.dir === 'asc' ? ' ▴' : ' ▾') : ''}
+                        </button>
+                      ) : null}
+                    </th>
+                  ))}
                   <th></th>
                 </tr>
               </thead>
               <tbody>
-                {data.brands.map((b) => (
-                  <tr key={b.domain}>
+                {rows.map((b) => (
+                  <tr key={b.domain} className={picked.has(b.domain) ? 'dev-row-picked' : ''}>
+                    <td>
+                      <input type="checkbox" aria-label={`Select ${b.name}`} checked={picked.has(b.domain)} onChange={() => toggle(b.domain)} />
+                    </td>
                     <td>
                       <button type="button" className="dev-link dev-brand" onClick={() => go({ brandId: b.domain })}>
                         {b.name}
@@ -168,7 +266,8 @@ export default function DevOverview({ go }) {
           <p className="dev-note">
             Gate, fields, speed and cost are the last scorecard&rsquo;s. &ldquo;Run now&rdquo; moves the
             brand&rsquo;s next turn to this moment; a worker polls every ten seconds and takes it from
-            there. Nothing here talks to a worker directly.
+            there. Two workers run at once, so a selection is a queue, not a burst. Nothing here talks
+            to a worker directly.
           </p>
         </>
       )}

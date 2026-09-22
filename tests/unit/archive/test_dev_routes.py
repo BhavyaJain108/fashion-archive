@@ -222,6 +222,42 @@ def test_an_unchanged_answer_is_a_304_and_a_command_makes_it_new_again(client, m
 
 
 @pytest.mark.unit
+def test_a_batch_answers_for_every_brand_on_its_own(client, tmp_path):
+    from backend.archive.scheduler import Scheduler
+
+    c, mp = client
+    store = DirectoryObjectStore(tmp_path)
+    Scheduler(store).add("other.com", cadence_seconds=3600)
+    assert Scheduler(store, worker_id="w").claim_next() is not None  # kuurth is now held
+    mp.setenv("ADMIN_EMAILS", "owner@example.com")
+    _as(mp, "owner@example.com")
+
+    r = c.post(
+        "/api/dev/batch",
+        json={"action": "run", "domains": ["kuurth.com", "other.com", "nobody.example", ".."]},
+    )
+    assert r.status_code == 200
+    results = json.loads(r.data)["results"]
+    assert results["kuurth.com"] == "already being scraped"
+    assert results["other.com"] == "queued"
+    assert results["nobody.example"] == "not on the schedule"
+    assert results[".."] == "not a domain"
+
+    r = c.post("/api/dev/batch", json={"action": "pause", "domains": ["other.com"]})
+    assert json.loads(r.data)["results"]["other.com"] == "paused"
+    assert next(x for x in Scheduler(store).rows() if x["domain"] == "other.com")["enabled"] == 0
+    assert c.post("/api/dev/batch", json={"action": "explode", "domains": []}).status_code == 400
+    assert (
+        c.post(
+            "/api/dev/batch",
+            json={"action": "run", "domains": ["x.com"]},
+            headers={"Origin": "https://evil.example"},
+        ).status_code
+        == 403
+    )
+
+
+@pytest.mark.unit
 def test_products_are_paged_and_the_catalogue_is_released(client):
     c, mp = client
     mp.setenv("ADMIN_EMAILS", "owner@example.com")
