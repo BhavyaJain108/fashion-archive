@@ -141,6 +141,37 @@ def test_a_brand_that_keeps_needing_a_person_is_next_wanted_later(tmp_path):
     assert next_due - before >= timedelta(seconds=7200 - 5)
 
 
+# --- the gate tolerates a shop's odd unphotographed item ------------------------------
+
+
+def _with_photo(i: int, photo: bool = True) -> ProductRecord:
+    return ProductRecord(
+        itemurl=f"https://x.com/products/{i}",
+        product_title=f"Item {i}",
+        price=10.0,
+        in_stock=True,
+        main_image_url="https://cdn.x/a.jpg" if photo else None,
+        all_images='["https://cdn.x/a.jpg"]' if photo else None,
+    )
+
+
+@pytest.mark.unit
+def test_one_unphotographed_product_in_two_hundred_does_not_fail_the_brand():
+    from backend.archive.score import score
+
+    card = score([_with_photo(i, photo=(i != 0)) for i in range(200)])
+    assert card.required_ok is True
+    assert card.required_gaps == {"main_image_url": 0.005, "all_images": 0.005}  # still said
+
+
+@pytest.mark.unit
+def test_five_in_two_hundred_still_fails_it():
+    from backend.archive.score import score
+
+    card = score([_with_photo(i, photo=(i >= 5)) for i in range(200)])
+    assert card.required_ok is False
+
+
 # --- the finder has a ceiling ---------------------------------------------------------
 
 

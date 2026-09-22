@@ -72,20 +72,31 @@ def recommend(catalog: Catalog, domain: str) -> list[tuple[int, str, str]]:
                 )
             )
 
-    # 1 — the gate
-    if card and not card["required_ok"]:
+    # 1 — the gate. A gap the gate tolerated is still a gap; it is listed lower down
+    # so the odd unphotographed item is visible without outranking real work.
+    if card:
         for field, share in sorted(card["required_gaps"].items(), key=lambda x: -x[1]):
             # A single product in two hundred rounds to 0%, which reads as "nothing
             # missing" for a finding that only exists because something is.
             n = round(share * card["products"])
-            out.append(
-                (
-                    1,
-                    f"{field} missing on {n} of {card['products']} products",
-                    "a shop cannot sell without this, so the blank is ours: "
-                    + describe(evidence, field),
+            if card["required_ok"]:
+                out.append(
+                    (
+                        5,
+                        f"{field} missing on {n} of {card['products']} products",
+                        "within the gate's tolerance — the shop's odd unlisted item, "
+                        "worth a look only if the count grows",
+                    )
                 )
-            )
+            else:
+                out.append(
+                    (
+                        1,
+                        f"{field} missing on {n} of {card['products']} products",
+                        "a shop cannot sell without this, so the blank is ours: "
+                        + describe(evidence, field),
+                    )
+                )
 
     # 2 — fields holding the wrong kind of thing
     for field, problem in check_brand_catalogue(rows):

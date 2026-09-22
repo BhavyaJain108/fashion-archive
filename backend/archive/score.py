@@ -29,6 +29,13 @@ REQUIRED = (
     "all_images",
 )
 
+# The gate tolerates this share of products missing a required field. It was zero, and
+# on 2026-09-22 that read as twelve brands failing: huelleyrose had one product in 381
+# without a photograph, thesupermade a handful in 1,466. A shop can list one item it has
+# not photographed yet; a shop cannot list a third of them that way. The gaps are still
+# reported exactly — only the verdict stops turning on a single row.
+REQUIRED_TOLERANCE = 0.01
+
 
 @dataclass
 class Scorecard:
@@ -67,7 +74,7 @@ def score(records, seconds: float = 0.0, cost_usd: float = 0.0) -> Scorecard:
 
     return Scorecard(
         products=n,
-        required_ok=not gaps,
+        required_ok=all(share <= REQUIRED_TOLERANCE for share in gaps.values()),
         required_gaps=gaps,
         fields_filled=round(filled, 4),
         field_fill=per_field,
