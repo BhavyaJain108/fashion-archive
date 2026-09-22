@@ -1,6 +1,6 @@
 """Compose a (T,D,F,C) coordinate into a ScrapePlan; escalation with memory (spec §4.0, §4.3, §4.3b)."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from backend.archive.domain.brand import (
     Capability,
@@ -12,6 +12,24 @@ from backend.archive.domain.brand import (
     TransportLevel,
 )
 
+# A failed composition is remembered, not banned. After this long it is offered again:
+# the failure may have been the host's bad hour or our own bug since fixed, and a
+# memory that only ever tightened left every brand scarred by its worst day for good.
+ATTEMPT_MEMORY_DAYS = 7
+
+
+def _aware(iso: str) -> datetime:
+    dt = datetime.fromisoformat(iso)
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def still_counts(attempt: PlanAttempt, now: str) -> bool:
+    """Whether this failure is recent enough to keep its composition off the ladder."""
+    try:
+        return _aware(attempt.failed_at) >= _aware(now) - timedelta(days=ATTEMPT_MEMORY_DAYS)
+    except ValueError:
+        return True  # an unreadable timestamp is not a reason to retry a known failure
+
 
 def compose_plan(
     cap: Capability,
@@ -21,7 +39,8 @@ def compose_plan(
 ) -> ScrapePlan:
     tried = tried or []
     now = now or datetime.now(timezone.utc).isoformat()
-    tried_compositions = {a.composition for a in tried}
+    # The whole history stays on the plan; only the recent part blocks a rung.
+    tried_compositions = {a.composition for a in tried if still_counts(a, now)}
 
     def plan(transport, discovery, fetch, change, status) -> ScrapePlan:
         return ScrapePlan(

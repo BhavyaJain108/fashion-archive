@@ -128,6 +128,13 @@ def register_dev_routes(app: Flask) -> None:
                     "heartbeat_minutes": None if age is None else round(age, 1),
                     "worker_alive": alive,
                     "empty_because": _why_empty(domain, catalog) if not live else None,
+                    # Runs in a row that ended needing a person, and the last reason.
+                    "attention_streak": meta.get("attention_streak") or 0,
+                    "attention_reason": meta.get("attention_reason"),
+                    # The top line of what recommend() ranked after the last run.
+                    "next_action": meta.get("next_action"),
+                    "next_priority": meta.get("next_priority"),
+                    "open_findings": meta.get("open_findings"),
                 }
             )
             if claimed:

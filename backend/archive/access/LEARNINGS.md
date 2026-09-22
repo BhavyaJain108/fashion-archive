@@ -1,8 +1,11 @@
 # Access learnings
 
 What each round of testing taught us about getting products out of brands that the plain
-pipeline could not reach. Research for a general shopping bot: nothing here is wired into
-the production scraper.
+pipeline could not reach. The harness in this folder (`strategy`, `policy`, `bench`) is
+the bench: it is reached only from the CLI and never from the daemon. What it *found* is
+another matter — every rule below that earned its way in now lives in the real pipeline
+(`fingerprint.py`, `connectors/sitemap.py`, `connectors/structured.py`, `escalate.py`),
+and `access/learned.py`, where they were first proved, no longer exists.
 
 ## Adding a learning — the procedure
 
@@ -83,9 +86,21 @@ learning in it. Six steps:
    evidence. That is what makes it reviewable later, and what lets a rule be deleted when a
    site changes rather than lingering as folklore.
 
-Rules live in `access/learned.py`, applied on top of the pipeline rather than inside it, so
-the production extractor keeps its own behaviour until a rule has earned its way in. Only
-one has so far: learning 8, which was a plain bug.
+Rules were first written in `access/learned.py`, applied on top of the pipeline rather than
+inside it, so the production extractor kept its own behaviour until a rule had earned its
+way in. All of them have now (2026-09-20), and that file is gone. Where each lives:
+
+| Learning | Rule | Now in |
+|---|---|---|
+| 4 | `trust_a_named_product_sitemap` | `fingerprint.py` |
+| 7 | `widen_to_the_biggest_url_family` | `fingerprint.py` |
+| 10 | `dedupe_locale_copies` | `connectors/sitemap.py` |
+| 11 | `drop_landing_pages` | `connectors/sitemap.py` |
+| 9 | `sizes_from_swatches` | `connectors/structured.py` |
+| 12 | `categories_from_breadcrumbs` | `connectors/structured.py` |
+| 13 | `variant_from_sku`, `color_from_variant` | `connectors/structured.py` |
+| 1, 2 | climb T0 → T1 → T2, a timeout is a refusal | `escalate.py` |
+| 6, 14 | wait out the challenge, mint once | `browser/challenge.py` |
 
 **Scope:** brands on the roster that are not Shopify (including Shopify behind a custom
 front end) and did not already work. As of 2026-09-17 that is Vivienne Westwood, Van Cleef

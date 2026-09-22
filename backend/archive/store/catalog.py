@@ -679,6 +679,53 @@ class Catalog:
                 out.append({**row["card"], "run_id": row["run_id"], "scored_at": row["scored_at"]})
         return out
 
+    # --- attention and recommendations ---
+    def record_attention(self, domain: str, reason: str | None) -> int:
+        """Count the runs in a row that ended needing a person, and why. None clears it.
+
+        A brand stuck in needs_attention used to fail identically on every cycle and
+        nobody was told. The streak is what the daemon backs off on and what the deck
+        shows as "needs a human"."""
+        key = f"brands/{domain}.json"
+        row = self._read(key, {"domain": domain, "homepage_url": f"https://{domain}"})
+        streak = 0 if reason is None else int(row.get("attention_streak") or 0) + 1
+        row["attention_streak"] = streak
+        row["attention_reason"] = reason
+        self._write(key, row)
+        entry = dict(self.fleet().get(domain, {"domain": domain, "products": 0}))
+        entry["attention_streak"] = streak
+        entry["attention_reason"] = reason
+        self._merge_into_fleet(domain, entry)
+        return streak
+
+    def attention(self, domain: str) -> tuple[int, str | None]:
+        entry = self.fleet().get(domain) or self._read(f"brands/{domain}.json", {})
+        return int(entry.get("attention_streak") or 0), entry.get("attention_reason")
+
+    def save_recommendations(self, domain: str, run_id: str | None, findings) -> None:
+        """What to fix first, as recommend() ranked it, kept where the deck can read it.
+
+        The top line also goes into the fleet object, so an overview of thirty brands
+        is one read rather than thirty-one — a round trip to the bucket is ~400ms."""
+        rows = [{"priority": p, "headline": h, "action": a} for p, h, a in findings]
+        self._write(
+            f"recommend/{domain}.json",
+            {"domain": domain, "run_id": run_id, "at": _now(), "findings": rows},
+        )
+        entry = dict(self.fleet().get(domain, {"domain": domain, "products": 0}))
+        entry["next_action"] = rows[0]["headline"] if rows else None
+        entry["next_priority"] = rows[0]["priority"] if rows else None
+        entry["open_findings"] = len(rows)
+        self._merge_into_fleet(domain, entry)
+
+    @property
+    def store(self) -> ObjectStore:
+        """The bucket this catalogue lives in, for the ledgers that share it."""
+        return self._store
+
+    def load_recommendations(self, domain: str) -> dict | None:
+        return self._read(f"recommend/{domain}.json")
+
     def record_requests(self, rows: list[tuple]) -> None:
         """Store a batch of (host, status, latency_ms, retry_after, at) observations."""
         if not rows:

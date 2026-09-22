@@ -141,6 +141,15 @@ export default function DevPage() {
                     <div className="dev-brand">{b.name}</div>
                     <div className="dev-domain">{b.domain}</div>
                     {b.empty_because && <div className="dev-why">{b.empty_because}</div>}
+                    {b.attention_streak > 0 && (
+                      <div className="dev-why">
+                        needs a human · {b.attention_streak} run{b.attention_streak === 1 ? '' : 's'}
+                        {b.attention_reason ? ` · ${b.attention_reason}` : ''}
+                      </div>
+                    )}
+                    {!b.attention_streak && b.next_action && (
+                      <div className="dev-why">next: {b.next_action}</div>
+                    )}
                   </td>
                   <td>
                     {workerPill(b) || (!b.enabled && <span className="dev-pill idle">paused</span>)}

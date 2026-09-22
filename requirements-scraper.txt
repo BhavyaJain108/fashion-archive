@@ -20,6 +20,9 @@
 
 httpx>=0.27
 curl_cffi>=0.7
+# Pinned to the base image's tag in Dockerfile.scraper: the browsers it ships are built
+# for exactly this version, and a mismatch fails at launch rather than at install.
+playwright==1.40.0
 pydantic>=2.5
 PyYAML>=6.0
 beautifulsoup4>=4.12.0

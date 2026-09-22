@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -55,6 +56,102 @@ def image_sink(images_dir: Path):
             public_base=config.R2_PUBLIC_BASE,
         )
     return LocalImageStore(root=images_dir, api_base=config.API_BASE_URL)
+
+
+def _fleet_check(args, catalog: Catalog, brands: list[Brand]) -> int:
+    """Every brand, live and from the record, in one table: can we get in today, what
+    the last run scored, how many runs in a row needed a person, and what to fix first.
+
+    The live half is `capability` — probe, plan, fetch a few products, measure — and it
+    writes nothing. The recorded half is what the daemon left in the bucket. Reading
+    them side by side is the point: a brand can probe green today and have failed its
+    gate three runs running.
+    """
+    if args.shown:
+        from backend.archive.roster import app_roster
+
+        wanted = {e.domain for e in app_roster(args.brands)}
+        targets = [b for b in brands if b.domain in wanted]
+    elif args.all:
+        targets = brands
+    else:
+        targets = [b for b in brands if b.domain == args.domain]
+    if not targets:
+        print("say which brands: a domain, or --shown, or --all", file=sys.stderr)
+        return 2
+
+    def _browser():
+        from backend.archive.browser.challenge import ChallengeAwareBrowser
+
+        return ChallengeAwareBrowser()
+
+    rows = []
+    for b in targets:
+        t: Transport = HttpxTransport()
+        try:
+            rep = probe_brand(
+                b,
+                t,
+                sample=args.sample,
+                browser=args.browser,
+                prober=escalating_prober(browser_factory=_browser if args.browser else None),
+            )
+        finally:
+            t.close()
+        cards = catalog.scorecards(b.domain, limit=1)
+        card = cards[0] if cards else None
+        streak, reason = catalog.attention(b.domain)
+        rec = catalog.load_recommendations(b.domain)
+        top = (rec or {}).get("findings") or []
+        rows.append(
+            {
+                "domain": b.domain,
+                "live": rep.verdict,
+                "lane": rep.lane,
+                "cat": rep.catalog_size,
+                "core": rep.core_fill(),
+                "last": (card or {}).get("required_ok"),
+                "fields": (card or {}).get("fields_filled"),
+                "spp": (card or {}).get("seconds_per_product"),
+                "usd": (card or {}).get("cost_usd"),
+                "streak": streak,
+                "reason": reason or "",
+                "next": top[0]["headline"] if top else "",
+                "note": rep.note,
+            }
+        )
+        print(f"  checked {b.domain:<26} {rep.verdict:<9} {rep.note[:50]}", flush=True)
+
+    order = {"full": 0, "partial": 1, "poor": 2, "blocked": 3, "gated": 4, "unreachable": 5}
+    rows.sort(key=lambda r: (-(r["streak"] or 0), order.get(r["live"], 9), r["domain"]))
+    head = (
+        f"{'BRAND':<26}{'LIVE':<9}{'LANE':<30}{'CAT':>6}{'CORE':>6}  "
+        f"{'GATE':<5}{'FIELDS':>7}{'S/PROD':>7}{'$RUN':>6}{'HUMAN':>6}  NEXT"
+    )
+    print()
+    print(head)
+    print("-" * len(head))
+    for r in rows:
+        gate = "—" if r["last"] is None else ("pass" if r["last"] else "FAIL")
+        fields = "—" if r["fields"] is None else f"{r['fields']:.0%}"
+        spp = "—" if r["spp"] is None else f"{r['spp']:.1f}"
+        usd = "—" if r["usd"] is None else f"{r['usd']:.2f}"
+        cat = "—" if r["cat"] is None else str(r["cat"])
+        human = f"{r['streak']}×" if r["streak"] else ""
+        nxt = r["next"] or (r["reason"] if r["streak"] else r["note"])
+        print(
+            f"{r['domain']:<26}{r['live']:<9}{r['lane'][:29]:<30}{cat:>6}{r['core']:>6.0%}  "
+            f"{gate:<5}{fields:>7}{spp:>7}{usd:>6}{human:>6}  {nxt[:60]}"
+        )
+    needing = [r for r in rows if r["streak"]]
+    failing = [r for r in rows if r["last"] is False]
+    print()
+    print(
+        f"{len(rows)} brands: {sum(1 for r in rows if r['live'] in ('full', 'partial'))} "
+        f"readable now, {len(failing)} failed their last gate, "
+        f"{len(needing)} need a human"
+    )
+    return 0
 
 
 def _seed(catalog: Catalog, brands_path: Path) -> list[Brand]:
@@ -234,6 +331,7 @@ def main(argv: list[str] | None = None) -> int:
         "images",
         "access",
         "coverage",
+        "fleet-check",
     ):
         sp = sub.add_parser(name)
         sp.add_argument(
@@ -345,6 +443,14 @@ def main(argv: list[str] | None = None) -> int:
                 "--headful",
                 action="store_true",
                 help="run the browser visibly — much harder for sites to detect",
+            )
+        if name == "fleet-check":
+            sp.add_argument("domain", nargs="?")
+            sp.add_argument("--all", action="store_true", help="every brand in brands.yml")
+            sp.add_argument("--shown", action="store_true", help="only the brands the app shows")
+            sp.add_argument("--sample", type=int, default=5, help="products fetched per brand")
+            sp.add_argument(
+                "--browser", action="store_true", help="allow escalating to a real browser"
             )
         if name == "scrape":
             sp.add_argument("domain", nargs="?")
@@ -688,6 +794,9 @@ def main(argv: list[str] | None = None) -> int:
             print(format_matrix(reports, show_gated=args.show_gated))
             return 0
 
+        if args.cmd == "fleet-check":
+            return _fleet_check(args, catalog, brands)
+
         if args.cmd == "coverage":
             return _coverage(args, brands)
 
@@ -814,9 +923,39 @@ def main(argv: list[str] | None = None) -> int:
             sched.request_stop(False)  # a fresh start clears a previous stop
             catalog.close()
             budget = HostBudget(gap=args.gap)
+            # What the finder may spend across the fleet today. Zero keeps it off, which
+            # is what the daemon did unconditionally until 2026-09-22.
+            finder_cap_usd = float(os.getenv("FINDER_DAILY_USD", "0") or 0)
 
             def factory(cat):
+                from backend.archive.spend_cap import DailyCap
+
+                spend = Spend()
+                cap = DailyCap(cat.store, finder_cap_usd)
+
+                def _browser_factory():
+                    # The image carries Chromium now, so a brand behind a challenge
+                    # gets a real browser — for the 2.5s it takes to mint the cookie,
+                    # after which every page goes over plain HTTP (learning 14).
+                    from backend.archive.browser.challenge import ChallengeAwareBrowser
+
+                    return ChallengeAwareBrowser()
+
+                def _field_finder(domain, url, missing, page_transport):
+                    from backend.archive.finder_llm import learn_recipes
+
+                    cap.check(estimate_usd=0.02)  # raises FinderBudgetSpent
+                    before = spend.usd
+                    resp = page_transport.get(url)
+                    if resp.status_code != 200:
+                        return None
+                    try:
+                        return learn_recipes(resp.text, url, domain, missing, spend=spend)
+                    finally:
+                        cap.charge(spend.usd - before)
+
                 def do_brand(brand):
+                    spent_before = spend.usd
                     run_brand(
                         brand,
                         cat,
@@ -824,10 +963,10 @@ def main(argv: list[str] | None = None) -> int:
                         mode="delta",
                         locks_dir=args.locks if hasattr(args, "locks") else Path("locks"),
                         log_dir=Path("backend/archive/data/logs"),
-                        # No browser factory: this image carries no Chromium, so the
-                        # daemon climbs T0 → T1 and stops. The one brand that needs a
-                        # browser is refreshed by hand — see Dockerfile.scraper.
-                        prober=escalating_prober(),
+                        browser=True,
+                        browser_transport_factory=_browser_factory,
+                        prober=escalating_prober(browser_factory=_browser_factory),
+                        field_finder=_field_finder if finder_cap_usd > 0 else None,
                     )
                     # The photographs with the catalogue, the same as a hand-run
                     # scrape. A daemon that kept the records fresh and let the images
@@ -845,7 +984,7 @@ def main(argv: list[str] | None = None) -> int:
                             budget,
                         )
                     rows = cat.current_products(brand.domain)
-                    return [ProductRecord(**cast(Any, r)) for r in rows], 0.0
+                    return [ProductRecord(**cast(Any, r)) for r in rows], spend.usd - spent_before
 
                 return do_brand
 

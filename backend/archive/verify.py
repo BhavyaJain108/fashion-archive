@@ -1,24 +1,17 @@
 """Immune system: channel counts and field fill → verdicts (spec §4.5)."""
 
-from backend.archive.domain.product import ProductRecord
+from backend.archive.domain.product import E0005_FIELDS, ProductRecord
 from backend.archive.domain.run import Coverage
-
-_FILL_FIELDS = (
-    "product_title",
-    "price",
-    "in_stock",
-    "all_images",
-    "size_info",
-    "description",
-    "category1",
-)
 
 
 def field_fill_rates(records: list[ProductRecord]) -> dict[str, float]:
+    """Share of records carrying each E0005 field. All 42, the same set the scorecard
+    measures — this used to count seven, so a run had two fill numbers that disagreed
+    and neither said which it was."""
     if not records:
         return {}
     fill: dict[str, float] = {}
-    for f in _FILL_FIELDS:
+    for f in E0005_FIELDS:
         filled = sum(
             1
             for r in records

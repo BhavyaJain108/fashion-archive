@@ -25,12 +25,11 @@ services:
     runtime: docker
     dockerfilePath: ./Dockerfile.scraper
     region: oregon
-    # No Chromium in this image, so it does not need the standard plan the API does.
-    # The brands that refuse plain HTTP are reached over T1 instead, which is one request
-    # with a browser's TLS handshake and no browser. The single brand that genuinely needs
-    # one (Gentle Monster) needs a browser for 2.5s per run to mint a cookie, and that
-    # spike is 500 MB — too close to this plan's 512 MB to risk. See Dockerfile.scraper.
-    plan: starter
+    # Standard, because the image carries Chromium. Most brands never open it — plain
+    # HTTP or T1 (a browser's TLS handshake, no browser) reads them — but a brand behind
+    # a JavaScript challenge needs a real browser for ~2.5s per run to mint its cookie,
+    # and that spike is ~500 MB. Two workers can both be minting at once; 2 GB fits it.
+    plan: standard
     dockerCommand: python -m backend.archive.runner.cli daemon start --workers 2
     envVars:
       # The control plane lives in R2 alongside the catalogue, so cadence, pausing a
@@ -46,10 +45,14 @@ services:
         sync: false
       - key: R2_SECRET_ACCESS_KEY
         sync: false
-      # Learning new field rules costs money and is deliberate, not a background
-      # activity. The daemon scrapes and archives; `--find-fields` is run by hand.
+      # Learning a field rule is one model call over one product page, and it is the
+      # only thing here that costs money per run. It runs under a daily ceiling shared
+      # by both workers and kept in the bucket, so a restart does not forget the
+      # morning. Zero switches it off; `--find-fields` by hand still works either way.
       - key: ANTHROPIC_API_KEY
         sync: false
+      - key: FINDER_DAILY_USD
+        value: "2"
 
   - type: web
     name: fashion-archive-api

@@ -18,7 +18,12 @@
 # It stores nothing locally. The catalogue and the photographs both go to R2, so the
 # container is disposable and it does not matter whether it runs on a laptop, a VM or
 # a worker.
-FROM python:3.12-slim
+#
+# 2026-09-22: Chromium is in after all, and the worker moved to a plan that fits it. The
+# argument above was right about cost — a browser per page is unaffordable — and wrong
+# about what the browser is for: it mints one cookie per run and is put away. Same base
+# image as the API, so the playwright pin and the browsers it ships stay in step.
+FROM mcr.microsoft.com/playwright/python:v1.40.0-jammy
 
 WORKDIR /app
 

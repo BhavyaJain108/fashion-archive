@@ -92,12 +92,24 @@ class Scheduler:
         self._write(key, row, etag)
 
     def _amend(self, domain: str, **fields) -> None:
+        """Change some fields of a brand's row and keep the rest.
+
+        Retried on a conflict. A release can land while the heartbeat thread's last
+        touch is still in flight, and a release that is lost leaves the brand claimed
+        by a worker that has already moved on to another one.
+        """
         key = self._key(domain)
-        row, etag = self._read(key)
-        if not row:
-            return
-        row.update(fields)
-        self._write(key, row, etag)
+        for _ in range(5):
+            row, etag = self._read(key)
+            if not row:
+                return
+            row.update(fields)
+            try:
+                self._write(key, row, etag)
+                return
+            except Conflict:
+                continue
+        raise Conflict(f"{key}: still changing under us after 5 attempts")
 
     def set_enabled(self, domain: str, enabled: bool) -> None:
         self._amend(domain, enabled=1 if enabled else 0)

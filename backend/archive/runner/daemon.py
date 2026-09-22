@@ -23,6 +23,7 @@ import time
 from datetime import datetime, timezone
 
 from backend.archive.connectors.base import ChannelBusy
+from backend.archive.recommend import recommend
 from backend.archive.scheduler import Scheduler
 from backend.archive.score import score
 from backend.archive.store.catalog import Catalog
@@ -35,6 +36,20 @@ HEARTBEAT_SECONDS = 300
 # How long to stand a brand down when its host asks us to slow down. Long enough that
 # the window a shop counts requests over has moved on.
 BUSY_BACKOFF = 1800
+# A brand that ends needing a person, run after run, was re-probed every cycle for
+# nothing. After this many identical endings its turns come at longer gaps, doubling
+# each time up to the factor below — still probed, so a site that opens up is noticed,
+# just not every day.
+ATTENTION_PATIENCE = 3
+ATTENTION_MAX_FACTOR = 16
+
+
+def backoff(cadence_seconds: int, attention_streak: int) -> int:
+    """When a brand is next wanted, given how many runs in a row needed a person."""
+    if attention_streak < ATTENTION_PATIENCE:
+        return cadence_seconds
+    factor = min(ATTENTION_MAX_FACTOR, 2 ** (attention_streak - ATTENTION_PATIENCE + 1))
+    return cadence_seconds * factor
 
 
 def code_version() -> str:
@@ -84,13 +99,23 @@ def run_once(catalog: Catalog, scheduler: Scheduler, do_brand, log=print) -> boo
     run = catalog.latest_run(due.domain)
     if run:
         catalog.save_scorecard(run["id"], due.domain, card)
+        # What to fix first, written where the deck can read it. The judgement already
+        # existed in recommend.py; it was a command nobody ran.
+        try:
+            catalog.save_recommendations(due.domain, run["id"], recommend(catalog, due.domain))
+        except Exception as e:  # advice must never cost a run
+            log(f"{due.domain} recommend failed: {type(e).__name__}: {e}")
     log(
         f"{due.domain} {card.products} products, "
         f"{'PASS' if card.required_ok else 'FAIL ' + ','.join(card.required_gaps)}, "
         f"{card.fields_filled:.0%} fields, {card.images_per_product} img/product, "
         f"${card.cost_usd}, {card.seconds_per_product}s/product"
     )
-    scheduler.release(due.domain, due.cadence_seconds)
+    streak, reason = catalog.attention(due.domain)
+    wait = backoff(due.cadence_seconds, streak)
+    if wait != due.cadence_seconds:
+        log(f"{due.domain} needs a human ({streak} runs: {reason}); next look in {wait // 3600}h")
+    scheduler.release(due.domain, wait)
     return True
 
 

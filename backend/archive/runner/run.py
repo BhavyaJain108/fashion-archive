@@ -22,6 +22,7 @@ from backend.archive.evidence import SearchLog
 from backend.archive.finder import apply_recipes
 from backend.archive.fingerprint import probe
 from backend.archive.planner import compose_plan
+from backend.archive.spend_cap import FinderBudgetSpent
 from backend.archive.store.catalog import Catalog
 from backend.archive.transport import for_level
 from backend.archive.verify import assess, field_fill_rates
@@ -95,6 +96,7 @@ def run_brand(
         plan.stale = True
         catalog.save_plan(plan)
         catalog.set_brand_state(brand.domain, "needs_attention")
+        catalog.record_attention(brand.domain, f"{plan.composition}: {reason}")
         catalog.finalize_run(run_id, 1, None)
         log("plan-failed", reason=reason, composition=plan.composition)
         return 1
@@ -112,11 +114,14 @@ def run_brand(
 
         if plan.status == "skip_gated":
             catalog.set_brand_state(brand.domain, "gated")
+            catalog.record_attention(brand.domain, "password-gated: no transport opens one")
             catalog.finalize_run(run_id, 0, None)
             log("skipped-gated")
             return 0
         if plan.status == "needs_attention":
             catalog.set_brand_state(brand.domain, "needs_attention")
+            last = plan.tried[-1].reason if plan.tried else "nothing readable at any transport"
+            catalog.record_attention(brand.domain, f"no lane: {last}")
             catalog.finalize_run(run_id, 1, None)
             log("needs-attention", tried=[a.composition for a in plan.tried])
             return 1
@@ -283,22 +288,33 @@ def run_brand(
             if gaps and field_finder is not None and learned_this_run < learn_budget:
                 learned_this_run += 1
                 failures_before = len(finder_failures)
-                extra = _learn_book(
-                    field_finder,
-                    brand,
-                    r.url,
-                    gaps,
-                    work_transport,
-                    browser_transport_factory if plan.transport != TransportLevel.T2 else None,
-                    log,
-                    finder_failures,
-                )
+                try:
+                    extra = _learn_book(
+                        field_finder,
+                        brand,
+                        r.url,
+                        gaps,
+                        work_transport,
+                        browser_transport_factory if plan.transport != TransportLevel.T2 else None,
+                        log,
+                        finder_failures,
+                    )
+                except FinderBudgetSpent as e:
+                    # The day's allowance is gone. Not a failure of the finder and not
+                    # evidence about the page: the rest of this run simply does not ask.
+                    log("finder-budget-spent", detail=str(e))
+                    field_finder = None
+                    learned_this_run -= 1
+                    extra = None
+                    budget_stopped = True
+                else:
+                    budget_stopped = False
                 fresh = [x for x in (extra.recipes if extra else []) if x.field in gaps]
                 won = {x.field for x in fresh}
                 # A call that never reached the model is not a search. Recording one
                 # as evidence would turn an outage into "the brand does not publish
                 # this" — the exact false confidence this record exists to prevent.
-                if len(finder_failures) == failures_before:
+                if not budget_stopped and len(finder_failures) == failures_before:
                     search.searched("page_llm", gaps, won)
                     if extra is not None and extra.rendered:
                         search.searched("page_rendered", gaps, won)
@@ -367,6 +383,11 @@ def run_brand(
         if rule_hits and book is not None:
             for recipe in book.recipes:
                 recipe.hits = rule_hits.get((recipe.field, recipe.expression), 0)
+            # Replay tries a field's rules in order and keeps the first that holds up,
+            # so the order is the whole ranking. A rule that fired on 2% of this
+            # catalogue beside a sibling at 60% was learned from one page's accident;
+            # it goes behind. Stable, so ties keep the order they were learned in.
+            book.recipes.sort(key=lambda r: -r.hits)
             catalog.save_recipe_book(book)
 
         catalog.set_extraction_version(brand.domain, current_version)
@@ -381,11 +402,15 @@ def run_brand(
             coverage.reasons.append(f"field finder unavailable: {finder_failures[-1][:120]}")
         exit_status = _EXIT[coverage.verdict]
         catalog.set_brand_state(brand.domain, "active" if exit_status == 0 else "degraded")
+        # A run that stored products, however it scored, is one a person need not look
+        # at because of access. Quality is the scorecard's to report.
+        catalog.record_attention(brand.domain, None)
         catalog.finalize_run(run_id, exit_status, coverage)
         log("finalized", verdict=coverage.verdict, errors=errors, extracted=len(records))
         return exit_status
     except Exception as e:  # containment: one hostile site must never kill the fleet
         catalog.set_brand_state(brand.domain, "unreachable")
+        catalog.record_attention(brand.domain, f"crashed: {type(e).__name__}: {e}"[:200])
         catalog.finalize_run(run_id, 2, None)
         log("run-crashed", error=f"{type(e).__name__}: {e}")
         return 2
