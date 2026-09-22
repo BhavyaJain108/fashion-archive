@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import DevEndpoints from '../../shared/api/dev';
 import useDevLoad, { Gate } from './useDevLoad';
 import DevGlossary from './DevGlossary';
+import LiveState from './LiveState';
 import { ago, dateShort, due, hours, n, pct, secs, usd } from './format';
 
 // The newest run with a log, told as sentences: what it decided, found, read,
@@ -49,9 +50,15 @@ const MINUTE = 60 * 1000;
 // are what to do about it. All from the small objects — never the catalogue,
 // which has a page of its own. Every block is a table under one rule set.
 export default function DevBrand({ domain, go }) {
+  // Every minute when idle; every fifteen seconds while a worker holds the brand,
+  // so the bar moves at the pace the worker writes it.
+  const [held, setHeld] = React.useState(false);
   const { data, state, reload } = useDevLoad(
-    () => DevEndpoints.getBrand(domain), [domain], MINUTE, `brand:${domain}`,
+    () => DevEndpoints.getBrand(domain), [domain], held ? 15000 : MINUTE, `brand:${domain}`,
   );
+  React.useEffect(() => {
+    setHeld(!!(data && data.brand && data.brand.claimed_by));
+  }, [data]);
   const [note, setNote] = useState(null);
 
   const act = async (fn) => {
@@ -71,14 +78,20 @@ export default function DevBrand({ domain, go }) {
               <div className="dev-domain">{domain}</div>
             </div>
             <div className="dev-head-actions">
-              <button
-                type="button"
-                className="dev-act"
-                disabled={!!data.brand.claimed_by}
-                onClick={() => act(DevEndpoints.runNow)}
-              >
-                run now
-              </button>
+              {data.brand.claimed_by && data.brand.worker_alive === false ? (
+                <button type="button" className="dev-act" onClick={() => act(DevEndpoints.release)}>
+                  release
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="dev-act"
+                  disabled={!!data.brand.claimed_by}
+                  onClick={() => act(DevEndpoints.runNow)}
+                >
+                  run now
+                </button>
+              )}
               <button
                 type="button"
                 className="dev-act"
@@ -92,6 +105,7 @@ export default function DevBrand({ domain, go }) {
             </div>
           </div>
           {note && <div className="dev-alarm">{note}</div>}
+          <LiveState brand={data.brand} size="hero" />
           <DevGlossary />
 
           <LastActions la={data.last_actions} />

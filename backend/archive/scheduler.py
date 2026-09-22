@@ -21,6 +21,12 @@ from backend.archive.store.objects import Conflict, ObjectStore, dumps, loads
 
 DEFAULT_CADENCE = 86_400  # a day
 
+# How long a claim stands without a heartbeat before another worker may take the
+# brand. A live worker beats every five minutes, so three missed beats is dead. It
+# was an hour: every deploy replaced the container mid-run, and the brands it held
+# sat idle for an hour with the new daemon waiting on them (2026-09-22, twice).
+STALE_CLAIM_SECONDS = 900
+
 _SCHEDULE = "control/schedule/"
 _DAEMON = "control/daemon.json"
 
@@ -46,7 +52,7 @@ class Scheduler:
         self,
         store: ObjectStore,
         worker_id: str = "worker-1",
-        stale_claim_seconds: int = 3600,
+        stale_claim_seconds: int = STALE_CLAIM_SECONDS,
     ):
         self._store = store
         self.worker_id = worker_id
@@ -237,6 +243,16 @@ class Scheduler:
             self._write(key, row, etag)
         except Conflict:
             return False
+        return True
+
+    def force_release(self, domain: str) -> bool:
+        """Take a claim off a brand without waiting for it to go stale — the owner's
+        move when a worker is known to be gone. Leaves next_due alone, so a brand
+        that was due stays due and a worker picks it up on its next poll."""
+        row, _ = self._read(self._key(domain))
+        if not row or row.get("claimed_by") is None:
+            return False
+        self._amend(domain, claimed_by=None, claimed_at=None)
         return True
 
     def release(self, domain: str, cadence_seconds: int, now: datetime | None = None) -> None:

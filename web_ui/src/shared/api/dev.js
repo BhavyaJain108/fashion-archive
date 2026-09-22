@@ -102,6 +102,11 @@ export class DevEndpoints {
     return command(`${brand(domain)}/resume`, 'Could not resume');
   }
 
+  // Take a dead worker's claim off a brand now, rather than when it goes stale.
+  static release(domain) {
+    return command(`${brand(domain)}/release`, 'Could not release');
+  }
+
   // One command over several brands. The answer names what happened to each.
   static batch(action, domains) {
     return command('batch', 'Could not apply to the selection', { action, domains });

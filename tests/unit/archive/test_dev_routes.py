@@ -477,6 +477,32 @@ def test_costs_answer_without_any_provider_key(client):
 
 
 @pytest.mark.unit
+def test_a_dead_workers_claim_can_be_released_but_a_live_ones_cannot(client, tmp_path):
+    from datetime import datetime, timedelta, timezone
+
+    from backend.archive.scheduler import Scheduler
+
+    c, mp = client
+    store = DirectoryObjectStore(tmp_path)
+    sched = Scheduler(store, worker_id="worker-2")
+    assert sched.claim_next() is not None
+    mp.setenv("ADMIN_EMAILS", "owner@example.com")
+    _as(mp, "owner@example.com")
+
+    r = c.post("/api/dev/brands/kuurth.com/release")
+    assert r.status_code == 409 and json.loads(r.data)["code"] == "ALIVE"
+
+    sched._amend(
+        "kuurth.com", claimed_at=(datetime.now(timezone.utc) - timedelta(minutes=20)).isoformat()
+    )
+    r = c.post("/api/dev/brands/kuurth.com/release")
+    assert r.status_code == 200 and json.loads(r.data)["released"] is True
+    assert Scheduler(store).rows()[0]["claimed_by"] is None
+    # Nothing held: a second release is a no-op, not an error.
+    assert json.loads(c.post("/api/dev/brands/kuurth.com/release").data)["released"] is False
+
+
+@pytest.mark.unit
 def test_a_claim_whose_heartbeat_stopped_reads_as_stalled_not_running(client, tmp_path):
     """The distinction the page exists for. psylos1 sat claimed for 24 minutes with a
     dead worker behind it, and nothing in the app could tell that from working."""

@@ -501,6 +501,12 @@ def _learn(field_finder, brand, url, missing, transport, log, failures=None):
     """One finder call, contained: a failure here must never end the run."""
     try:
         return field_finder(brand.domain, url, missing, transport)
+    except FinderBudgetSpent:
+        # Not a failure and not this page's fault: the day's allowance is gone. It
+        # goes up to the loop, which stops asking. Caught here as a plain failure it
+        # was logged per page and then retried in a browser — a Chromium launch per
+        # product to be told the same thing (kuurth, 2026-09-22).
+        raise
     except Exception as e:
         log("finder-failed", error=f"{type(e).__name__}: {e}")
         if failures is not None:

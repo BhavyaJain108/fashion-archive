@@ -71,6 +71,7 @@ beforeEach(() => {
   DevEndpoints.getOverview.mockResolvedValue(overview);
   DevEndpoints.getBrand.mockResolvedValue(brand);
   DevEndpoints.getHosts.mockResolvedValue({ success: true, domain: 'huelleyrose.com', days: 7, hosts: [] });
+  DevEndpoints.getChanges.mockResolvedValue({ success: true, domain: 'huelleyrose.com', changes: [] });
   DevEndpoints.getRunLog.mockResolvedValue({
     success: true, domain: 'huelleyrose.com', run_id: 'r0',
     events: [
@@ -158,6 +159,20 @@ test('every run is listed, and an unscored one opens its log', async () => {
   fireEvent.click(screen.getAllByRole('button', { name: 'log' })[1]);
   expect(await screen.findByText('channel-busy')).toBeInTheDocument();
   expect(DevEndpoints.getRunLog).toHaveBeenCalledWith('huelleyrose.com', 'r0');
+});
+
+test('a held brand shows where its scrape is, as a bar with the phase in words', async () => {
+  DevEndpoints.getOverview.mockResolvedValue({
+    ...overview,
+    workers: { running: ['huelleyrose.com'], stalled: [] },
+    brands: [{ ...overview.brands[0], claimed_by: 'worker-1', worker_alive: true, claimed_at: new Date().toISOString(),
+      progress: { phase: 'fetching', done: 120, total: 381, updated_at: new Date().toISOString() } }],
+  });
+  render(<DevPage route={{ page: 'dev', brandId: null, category: null }} navigate={() => {}} />);
+  const bars = await screen.findAllByRole('status');
+  expect(bars.length).toBeGreaterThan(0);
+  expect(screen.getAllByText('reading products').length).toBeGreaterThan(0);
+  expect(screen.getAllByText(/120 \/ 381 · 31%/).length).toBeGreaterThan(0);
 });
 
 test('someone who is not the owner sees a plain notice', async () => {

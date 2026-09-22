@@ -274,6 +274,61 @@ def test_a_field_given_up_on_is_asked_about_again_after_a_fortnight(tmp_path):
     assert cat.evidence_age_days("x.com", "material_info", "page_llm") > RETRY_AFTER_DAYS
 
 
+@pytest.mark.unit
+def test_a_spent_budget_stops_the_finder_without_a_browser_retry(tmp_path):
+    from backend.archive.domain.product import ProductRef
+    from backend.archive.planner import compose_plan
+    from backend.archive.runner.run import run_brand
+
+    brand = Brand(domain="kuurth.com", homepage_url="https://kuurth.com")
+    cap = Capability(
+        domain="kuurth.com", platform="shopify", transport=TransportLevel.T0, bulk_json=True
+    )
+    calls: list[str] = []
+    browsers: list[int] = []
+
+    class Conn:
+        kind = "shopify"
+
+        def discover(self, b, t):
+            return [
+                ProductRef(url=f"https://kuurth.com/products/{i}", change_hint=f"h{i}", payload={})
+                for i in range(3)
+            ]
+
+        def fetch(self, r, t):
+            return ProductRecord(itemurl=r.url, product_title="A")
+
+    def spent(domain, url, missing, transport):
+        calls.append(url)
+        raise FinderBudgetSpent("$2.20 of $2.00 spent today")
+
+    def browser():
+        browsers.append(1)
+        raise AssertionError("no browser should be launched for a budget stop")
+
+    cat = Catalog(DirectoryObjectStore(tmp_path))
+    cat.upsert_brand(brand)
+    code = run_brand(
+        brand,
+        cat,
+        transport=None,
+        mode="full",
+        locks_dir=tmp_path / "locks",
+        log_dir=tmp_path / "logs",
+        prober=lambda d, t: cap,
+        composer=compose_plan,
+        connector_factory=lambda plan, sitemap_url=None, limit=None: Conn(),
+        field_finder=spent,
+        browser_transport_factory=browser,
+    )
+    assert code == 0
+    assert len(calls) == 1 and browsers == []
+    text = cat.load_run_log("kuurth.com", cat.latest_run("kuurth.com")["id"])
+    assert "finder-budget-spent" in text and "finder-failed" not in text
+    assert cat.latest_run("kuurth.com")["coverage"]["verdict"] == "ok"  # not our failure
+
+
 # --- what came and went ---------------------------------------------------------------
 
 

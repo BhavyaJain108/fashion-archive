@@ -46,6 +46,8 @@ from backend.archive.store.objects import ObjectStore, loads, object_store
 # A worker says it is alive every five minutes. Twice that and something is wrong: a
 # claim nobody is working is the shape every dead worker has left behind.
 HEARTBEAT_GRACE_MINUTES = 12
+# After this the schedule itself lets another worker take the brand.
+STALE_CLAIM_MINUTES = 15
 
 # Which audit class each E0005 field belongs to, by the class's one-letter tag.
 FIELD_CLASS = {f: label[0] for label, fields, _ in CLASSES for f in fields}
@@ -499,6 +501,15 @@ def register_dev_routes(app: Flask) -> None:
             return jsonify({"success": False, "error": "no such brand", "code": "NOT_FOUND"}), 404
         meta = fleet.get(brand_id) or {}
         summary = _brand_row(brand_id, row or {}, meta, _names().get(brand_id, brand_id), catalog)
+        if summary["claimed_by"]:
+            p = catalog.load_progress(brand_id)
+            if p and (p.get("updated_at") or "") >= (summary.get("claimed_at") or ""):
+                summary["progress"] = {
+                    "phase": p.get("phase"),
+                    "done": p.get("done"),
+                    "total": p.get("total"),
+                    "updated_at": p.get("updated_at"),
+                }
 
         plan_out = None
         if plan is not None:
@@ -768,6 +779,35 @@ def register_dev_routes(app: Flask) -> None:
             ), 409
         _forget_overview()
         return jsonify({"success": True, "domain": brand_id})
+
+    @app.route("/api/dev/brands/<brand_id>/release", methods=["POST"])
+    def dev_brand_release(brand_id):
+        """Take a dead worker's claim off the brand now rather than in fifteen
+        minutes. Refused while the claim's heartbeat is still fresh — that worker is
+        alive, and two hands on one catalogue is the thing the claim exists to
+        prevent."""
+        if not _is_owner():
+            return _forbidden()
+        if not _from_our_site():
+            return _cross_site()
+        if bad := _bad_domain(brand_id):
+            return bad
+        sched = Scheduler(_store())
+        row = sched.row(brand_id)
+        if row is None:
+            return jsonify(
+                {"success": False, "error": "not on the schedule", "code": "NOT_FOUND"}
+            ), 404
+        if row.get("claimed_by") is None:
+            return jsonify({"success": True, "domain": brand_id, "released": False})
+        age = _minutes_since(row.get("claimed_at"))
+        if age is not None and age <= HEARTBEAT_GRACE_MINUTES:
+            return jsonify(
+                {"success": False, "error": "that worker is still alive", "code": "ALIVE"}
+            ), 409
+        sched.force_release(brand_id)
+        _forget_overview()
+        return jsonify({"success": True, "domain": brand_id, "released": True})
 
     @app.route("/api/dev/brands/<brand_id>/pause", methods=["POST"])
     @app.route("/api/dev/brands/<brand_id>/resume", methods=["POST"])

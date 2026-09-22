@@ -3,37 +3,15 @@ import React, { useMemo, useState } from 'react';
 import DevEndpoints from '../../shared/api/dev';
 import useDevLoad, { Gate } from './useDevLoad';
 import DevGlossary from './DevGlossary';
+import LiveState from './LiveState';
 import { ago, due, n, pct, secs, usd } from './format';
 
 const MINUTE = 60 * 1000;
 
-// Where a running scrape is: the phase, and a bar when the phase has a length.
-// Discovery and finalising have none — the bar only claims to know what it knows.
-function Progress({ p }) {
-  if (!p) return <span className="dev-muted">starting</span>;
-  const known = p.total != null && p.total > 0 && p.done != null;
-  const share = known ? Math.min(100, Math.round((p.done / p.total) * 100)) : null;
-  return (
-    <span className="dev-progress" title={p.updated_at ? `as of ${ago(p.updated_at)}` : ''}>
-      <span className="dev-progress-k">{p.phase}</span>
-      {known && (
-        <>
-          <span className="dev-bar-track dev-progress-track"><span className="dev-bar" style={{ width: `${share}%` }} /></span>
-          <span className="dev-progress-v">{n(p.done)} / {n(p.total)}</span>
-        </>
-      )}
-    </span>
-  );
-}
-
 // A claimed brand whose worker has stopped beating is the one state that used to
 // be invisible: it looks identical to work in progress from the outside.
 function statusPill(b) {
-  if (b.claimed_by) {
-    return b.worker_alive
-      ? <Progress p={b.progress} />
-      : <span className="dev-pill stalled">worker dead</span>;
-  }
+  if (b.claimed_by) return <LiveState brand={b} size="row" />;
   if (!b.enabled) return <span className="dev-pill idle">paused</span>;
   return null;
 }
@@ -242,7 +220,7 @@ export default function DevOverview({ go }) {
                 <span key={b.domain} className="dev-now-item">
                   <button type="button" className="dev-link" onClick={() => go({ brandId: b.domain })}>{b.name}</button>
                   <span className="dev-muted"> · {b.claimed_by} · since {ago(b.claimed_at)} · </span>
-                  <Progress p={b.progress} />
+                  <LiveState brand={b} size="row" />
                 </span>
               ))}
             </div>
@@ -251,8 +229,10 @@ export default function DevOverview({ go }) {
           {data.workers.stalled.length > 0 && (
             <div className="dev-alarm">
               <b>{data.workers.stalled.length === 1 ? 'A worker has stopped' : `${data.workers.stalled.length} workers have stopped`}:</b>{' '}
-              {data.workers.stalled.join(', ')}. The brand stays held until the claim expires an hour
-              after the last heartbeat, then another worker retries it.
+              {data.workers.stalled.join(', ')}. Usually a deploy replaced the container mid-run. The
+              brand frees itself fifteen minutes after the last heartbeat, or press{' '}
+              <b>release</b> on its row to hand it back now; the run is re-run from the start,
+              never resumed, and nothing half-written is kept.
             </div>
           )}
 
@@ -316,14 +296,25 @@ export default function DevOverview({ go }) {
                     <td>{ago(b.last_run)}{b.last_mode ? ` (${b.last_mode})` : ''}</td>
                     <td>{due(b.next_due)}</td>
                     <td className="dev-actions">
-                      <button
-                        type="button"
-                        className="dev-act"
-                        disabled={busy[b.domain] || !!b.claimed_by}
-                        onClick={() => act(b.domain, DevEndpoints.runNow)}
-                      >
-                        run now
-                      </button>
+                      {b.claimed_by && b.worker_alive === false ? (
+                        <button
+                          type="button"
+                          className="dev-act"
+                          disabled={busy[b.domain]}
+                          onClick={() => act(b.domain, DevEndpoints.release)}
+                        >
+                          release
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="dev-act"
+                          disabled={busy[b.domain] || !!b.claimed_by}
+                          onClick={() => act(b.domain, DevEndpoints.runNow)}
+                        >
+                          run now
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="dev-act"

@@ -231,12 +231,50 @@
 
 .dev-now-item { color: var(--ar-ink); display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px; }
 
-/* A running scrape's place: phase, a short bar, done / total. Inline, so it sits
-   in a table cell or the strip without either growing. */
-.dev-progress { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; font-size: var(--ar-fs-micro); }
-.dev-progress-k { letter-spacing: var(--ar-track-ui); text-transform: uppercase; color: var(--ar-ink); }
-.dev-progress-track { width: 72px; }
-.dev-progress-v { color: var(--ar-ink-3); font-variant-numeric: tabular-nums; }
+/* A running scrape, drawn. The fill is silver — a moving sheen over the ink greys,
+   the one motion on the deck, there to be seen from across the room. A phase
+   with a length fills the track; one without shows the sheen crossing an empty
+   track: alive, not yet measurable. Both stop the moment the brand is handed
+   back. Durations are the design's slow beat multiplied, never a raw number. */
+.dev-live { display: inline-flex; flex-direction: column; gap: 4px; min-width: 0; }
+.dev-live-row { width: 160px; font-size: var(--ar-fs-micro); }
+.dev-live-hero { display: flex; width: 100%; margin: 16px 0 4px; font-size: var(--ar-fs-ui); }
+
+.dev-live-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; white-space: nowrap; }
+.dev-live-k { letter-spacing: var(--ar-track-ui); text-transform: uppercase; color: var(--ar-ink); font-weight: 600; }
+.dev-live-v { color: var(--ar-ink-2); font-variant-numeric: tabular-nums; }
+
+.dev-live-track { position: relative; height: 6px; background: var(--ar-bg-sunk); overflow: hidden; }
+.dev-live-hero .dev-live-track { height: 12px; }
+
+.dev-live-fill {
+  height: 100%;
+  background-color: var(--ar-ink-3);
+  background-image: linear-gradient(100deg, var(--ar-ink-4) 0%, var(--ar-ink-2) 30%, var(--ar-bg) 50%, var(--ar-ink-2) 70%, var(--ar-ink-4) 100%);
+  background-size: 200% 100%;
+  animation: dev-sheen calc(var(--ar-slow) * 9) linear infinite;
+  transition: width var(--ar-slow) ease;
+}
+
+.dev-live-track.indeterminate .dev-live-fill {
+  width: 30%;
+  animation: dev-sweep calc(var(--ar-slow) * 8) ease-in-out infinite alternate;
+}
+
+@keyframes dev-sheen {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+@keyframes dev-sweep {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(333%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dev-live-fill { animation: none; }
+  .dev-live-track.indeterminate .dev-live-fill { width: 100%; transform: none; opacity: 0.5; }
+}
 
 .dev-note {
   margin-top: 20px;
