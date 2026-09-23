@@ -93,6 +93,9 @@ def run_once(catalog: Catalog, scheduler: Scheduler, do_brand, log=print) -> boo
         while not beat_off.wait(HEARTBEAT_SECONDS):
             try:
                 scheduler.touch(due.domain)
+                # The worker's own liveness too: it is written per poll, and a run
+                # is longer than the window between polls.
+                scheduler.beat_worker(scheduler.worker_id)
             except Exception:  # a missed beat is survivable; a dead worker is not
                 pass
 

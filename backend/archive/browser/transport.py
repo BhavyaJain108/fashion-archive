@@ -78,10 +78,13 @@ class PlaywrightTransport:
             from playwright.sync_api import sync_playwright
 
         self._pw = sync_playwright().start()
-        # Sandboxed: the pages are other people's, and the container holds the
-        # bucket's keys. Needs a non-root user (Dockerfile.scraper runs as pwuser).
+        # Not sandboxed. Chromium's sandbox needs unprivileged user namespaces, and
+        # Render's containers do not grant them: with it on, both workers hung in
+        # the browser launch for the first gated brand of the day (2026-09-23,
+        # 17:09) and never came back. The container runs as pwuser instead, so a
+        # renderer escape still lands in an unprivileged process.
         self._browser = self._pw.chromium.launch(
-            headless=self._headless, args=stealth_args(), chromium_sandbox=True
+            headless=self._headless, args=stealth_args(), chromium_sandbox=False
         )
         self._context = self._browser.new_context(user_agent=STEALTH_USER_AGENT)
         for script in stealth_scripts(self.driver):

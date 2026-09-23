@@ -227,7 +227,7 @@ class Scheduler:
             dumps({"worker": worker_id, "seen_at": _iso(now or _now())}),
         )
 
-    def workers_seen(self, within_seconds: int = 120, now: datetime | None = None) -> dict:
+    def workers_seen(self, within_seconds: int = 660, now: datetime | None = None) -> dict:
         """Which workers have polled recently, and when each was last seen."""
         now = now or _now()
         cutoff = _iso(now - timedelta(seconds=within_seconds))
