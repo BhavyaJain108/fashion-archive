@@ -41,7 +41,7 @@ jest.mock('./LibraryPage', () => ({
   __esModule: true,
   default: () => require('react').createElement('div', null, 'library page'),
 }));
-jest.mock('../brands/BrandsPage', () => ({
+jest.mock('../brands/Storefront', () => ({
   __esModule: true,
   default: () => require('react').createElement('div', null, 'brands page'),
 }));

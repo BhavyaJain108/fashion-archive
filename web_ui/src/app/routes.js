@@ -15,6 +15,10 @@ export const FILTER_KEYS = new Set([
   'gender', 'year', 'season', 'category', 'shootType', 'city', 'letter',
 ]);
 
+// The shop's own state, carried in the query string of /brands. Kept apart from
+// FILTER_KEYS: those belong to the archive, and a year filter means nothing here.
+export const SHOP_KEYS = new Set(['group', 'bucket', 'sale', 'colour', 'sort', 'q']);
+
 const EMPTY = {
   page: 'high-fashion',
   collectionId: null,
@@ -25,6 +29,8 @@ const EMPTY = {
   token: null,
   slug: null,
   filters: {},
+  shop: {},
+  productHandle: null,
 };
 
 // Latin-1 accents folded rather than percent-encoded, so "Comme des Garçons"
@@ -41,6 +47,15 @@ export function slugify(...parts) {
   // An empty segment would make /hf//1234, which parses as a different shape.
   return slug || 'show';
 }
+
+const readShop = (search) => {
+  const out = {};
+  const params = new URLSearchParams(search || '');
+  for (const [key, value] of params.entries()) {
+    if (SHOP_KEYS.has(key) && value !== '') out[key] = value;
+  }
+  return out;
+};
 
 const readFilters = (search) => {
   const out = {};
@@ -99,12 +114,17 @@ export function parseRoute(pathname, search) {
   }
 
   if (head === 'brands') {
+    // /brands/<brand>/p/<handle> is one product; anything else is the shop front.
+    if (rest[0] && rest[1] === 'p' && rest[2]) {
+      return { ...EMPTY, filters, page: 'product', brandId: rest[0], productHandle: rest[2] };
+    }
     return {
       ...EMPTY,
       filters,
       page: 'brands',
       brandId: rest[0] || null,
       category: rest[1] || null,
+      shop: readShop(search),
     };
   }
 
@@ -172,11 +192,20 @@ export function buildRoute(route) {
   const r = route || {};
   const q = query(r.filters);
 
+  if (r.page === 'product' && r.brandId && r.productHandle) {
+    return `/brands/${encodeURIComponent(r.brandId)}/p/${encodeURIComponent(r.productHandle)}`;
+  }
+
   if (r.page === 'brands') {
     const parts = ['/brands'];
     if (r.brandId) parts.push(encodeURIComponent(r.brandId));
     if (r.brandId && r.category) parts.push(encodeURIComponent(r.category));
-    return parts.join('/') + q;
+    const params = new URLSearchParams();
+    for (const key of Object.keys(r.shop || {}).sort()) {
+      if (SHOP_KEYS.has(key) && r.shop[key]) params.set(key, r.shop[key]);
+    }
+    const sq = params.toString();
+    return parts.join('/') + (sq ? `?${sq}` : '');
   }
 
   if (r.page === 'album' && r.albumId) {

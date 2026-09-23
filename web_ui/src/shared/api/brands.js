@@ -56,6 +56,34 @@ class ArchiveAPI {
     return data.products || [];
   }
 
+  /**
+   * The shop front: every brand in one grid. `params` are the page's own state
+   * (group, bucket, brand, sale, colour, q, sort, offset, limit). A 503 with
+   * code WARMING means the server is still building its index; call again.
+   */
+  static async storefront(params = {}) {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v !== '' && v !== null && v !== undefined && v !== false) qs.set(k, String(v));
+    const response = await fetch(`${this.BASE_URL}/api/archive/storefront?${qs}`, { credentials: 'include' });
+    ApiClient.checkAuth(response);
+    if (response.status === 503) return { warming: true };
+    if (!response.ok) throw new Error(`Storefront failed: ${response.status}`);
+    return response.json();
+  }
+
+  /** One product by the handle in its URL, with eight more from the same brand. */
+  static async product(brandId, handle) {
+    const response = await fetch(
+      `${this.BASE_URL}/api/archive/product?brand_id=${encodeURIComponent(brandId)}&handle=${encodeURIComponent(handle)}`,
+      { credentials: 'include' }
+    );
+    ApiClient.checkAuth(response);
+    if (response.status === 503) return { warming: true };
+    if (response.status === 404) return null;
+    if (!response.ok) throw new Error(`Product failed: ${response.status}`);
+    return response.json();
+  }
+
   /** Whether the catalogue is where the app thinks it is. */
   static async health() {
     try {

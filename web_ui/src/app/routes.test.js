@@ -35,6 +35,8 @@ describe('parseRoute', () => {
       token: null,
       slug: null,
       filters: {},
+      shop: {},
+      productHandle: null,
     });
   });
 
@@ -111,6 +113,19 @@ describe('parseRoute', () => {
     const r = parseRoute('/library/albums/7', '');
     expect(r.page).toBe('album');
     expect(r.albumId).toBe('7');
+  });
+
+  test('the shop carries its own state and a product has a handle', () => {
+    const r = parseRoute('/brands', '?group=Clothing&sort=price-asc&year=2024');
+    expect(r.shop).toEqual({ group: 'Clothing', sort: 'price-asc' });
+    expect(r.filters).toEqual({ year: '2024' });
+    expect(buildRoute({ page: 'brands', shop: { sort: 'price-asc', group: 'Clothing' } }))
+      .toBe('/brands?group=Clothing&sort=price-asc');
+    const pr = parseRoute('/brands/bode.com/p/1776-ls-tee-cream', '');
+    expect(pr.page).toBe('product');
+    expect(pr.brandId).toBe('bode.com');
+    expect(pr.productHandle).toBe('1776-ls-tee-cream');
+    expect(buildRoute(pr)).toBe('/brands/bode.com/p/1776-ls-tee-cream');
   });
 
   test('a share token', () => {

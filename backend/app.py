@@ -137,6 +137,12 @@ try:
     from backend.api.archive_routes import register_archive_routes
 
     register_archive_routes(app)
+    # The shop front index reads every brand's catalogue from the store (~90 s).
+    # Built once here, in the background, so the first My Brands request finds it.
+    from backend.api.archive_routes import _catalog as _archive_catalog
+    from backend.archive import storefront
+    from backend.archive.roster import app_roster
+    storefront.warm(_archive_catalog, app_roster)
 except Exception as e:
     print(f"❌ Error registering Archive API: {e}")
     import traceback

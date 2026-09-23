@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import LibraryPage from '../features/library/LibraryPage';
 import AlbumGrid from '../features/library/AlbumGrid';
 import SharedView from '../features/library/SharedView';
-import BrandsPage from '../features/brands/BrandsPage';
+import Storefront from '../features/brands/Storefront';
+import ProductPage from '../features/brands/ProductPage';
 import AuthPanel, { authErrorMessage } from '../features/auth/AuthPanel';
 import HighFashionPage from '../features/high-fashion/HighFashionPage';
 import StyleguidePage from '../features/styleguide/StyleguidePage';
@@ -26,7 +27,7 @@ import {
 // archive, which is where an unfinished link should land rather than on a
 // blank screen.
 export function pageKeyForRoute(route) {
-  if (route.page === 'brands') return 'my-brands';
+  if (route.page === 'brands' || route.page === 'product') return 'my-brands';
   if (route.page === 'library' || route.page === 'album') return 'library';
   return 'high-fashion';
 }
@@ -236,8 +237,10 @@ function App() {
     <div className="ar-app">
       {currentPage === 'high-fashion' ? (
         <HighFashionPage {...pageProps} />
+      ) : route.page === 'product' ? (
+        <ProductPage {...pageProps} brandId={route.brandId} handle={route.productHandle} />
       ) : currentPage === 'my-brands' ? (
-        <BrandsPage {...pageProps} />
+        <Storefront {...pageProps} route={route} />
       ) : route.page === 'album' ? (
         <AlbumGrid {...pageProps} albumId={route.albumId} />
       ) : (

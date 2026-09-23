@@ -30,7 +30,7 @@ if (bundles.length === 0) {
 // a page's own styling overrides the shared default.
 const PAIRS = [
   ['.ar-btn', '.fav-remove'],
-  ['.ar-select', '.product-sort-select'],
+  ['.ar-input', '.shop-search'],
   // The star: SaveStar.css's primitive against the archive list's own rule
   // for it. `.ar-star.on` and `.hf2-collection-item .hf2-row-star` are both
   // (0,2,0) and both set `color`, so which of the two files is written later

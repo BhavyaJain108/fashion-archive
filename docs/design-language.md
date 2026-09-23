@@ -259,7 +259,7 @@ lookup.
 | High Fashion (the archive) | `hf2-` | designer nav, collections list, search with results, facet filters, segmented mode, recently-seen drawer, single-image viewer (frame, thumb strip, arrows, progress bar), grid view, video frame with resize bar, status bar |
 | Library | `lib-`, `fav-` | kinds list, album list, saved-looks single/grid, saved shows list |
 | Album | `alb-` | album grid tiles, freeform canvas (`AlbumCanvas`), layout toggle, filter, actions |
-| My Brands | `brand-`, `nav-`, `product-`, `detail-`, `carousel-` | brand nav, product grid tiles, product detail panel with image carousel |
+| My Brands | `shop-` | the shop front: sub-row (Everything · New in · Sale · search), left column (Sale, Categories, Designers), product grid with hover image, right column (Sort, Colours); the product page (images stacked, sticky info, more from the brand) |
 | Shared view | `shv-` | public, read-only album or look |
 | Top bar | `topbar-` | wordmark, page switch, user, sign-out |
 | Album picker | `alp-` | the panel that opens from a star |

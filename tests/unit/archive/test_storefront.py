@@ -1,0 +1,83 @@
+from backend.archive import storefront as sf
+
+
+def test_classify_prefers_shop_category_then_title_and_checks_specific_first():
+    assert sf.classify({"category1": "JACKETS", "product_title": "Blue denim"}) == (
+        "Clothing",
+        "Jackets & coats",
+    )
+    assert sf.classify({"product_title": "Navy Denim Jacket"}) == ("Clothing", "Jackets & coats")
+    assert sf.classify({"product_title": "Wide leg jeans"}) == ("Clothing", "Jeans")
+    assert sf.classify({"product_title": "Sunset print tee"}) == ("Clothing", "Tees")  # not "set"
+    assert sf.classify({"product_title": "Gift card"}) == ("Everything else", "Everything else")
+    assert sf.classify({"product_title": "Cashmere Rollneck - Grey"}) == ("Clothing", "Knitwear")
+    assert sf.classify({"product_title": "Floral Bow Barrette"}) == ("Accessories", "Hair")
+    assert sf.classify({"product_title": "Garden Party Pillowcases"}) == ("Everything else", "Home")
+
+
+def test_colour_folds_text_and_calls_mixtures_multi():
+    assert sf.colour({"color_info": "Cream"}) == "Tan"
+    assert sf.colour({"color_info": "Black / White"}) == "Multi"
+    assert sf.colour({"product_title": "Olive cargo pant"}) == "Green"
+    assert sf.colour({"product_title": "Wool coat"}) is None
+    # tags list every colourway; they only count when nothing else named a colour
+    assert (
+        sf.colour({"product_title": "Logo tee", "additional_tags": "BLACK, WHITE, NAVY"}) == "Black"
+    )
+    assert sf.colour({"color_info": "Cream", "additional_tags": "BLACK, WHITE"}) == "Tan"
+
+
+def test_placeholder_prices_are_no_price():
+    t = sf.tile(
+        {"product_title": "Made to order set", "price": "99999"},
+        brand_id="x",
+        brand_name="X",
+        first_seen=None,
+        archived=[],
+    )
+    assert t["price"] is None
+
+
+def _index():
+    recs = [
+        (
+            {
+                "product_title": "Denim jacket",
+                "price": "300",
+                "full_price": "400",
+                "color_info": "Indigo",
+                "itemurl": "a",
+            },
+            "2026-09-01",
+        ),
+        ({"product_title": "Wool sweater", "price": "200", "itemurl": "b"}, "2026-09-10"),
+        (
+            {
+                "product_title": "Leather boot",
+                "price": "500",
+                "color_info": "Black",
+                "itemurl": "c",
+            },
+            "2026-08-01",
+        ),
+    ]
+    tiles = [
+        sf.tile(r, brand_id="x.com", brand_name="X", first_seen=d, archived=[]) for r, d in recs
+    ]
+    return sf.Index(tiles=tiles, brands=[{"brand_id": "x.com", "name": "X", "products": 3}])
+
+
+def test_query_sorts_filters_and_counts():
+    ix = _index()
+    latest = sf.query(ix)["products"]
+    assert [t["title"] for t in latest] == ["Wool sweater", "Denim jacket", "Leather boot"]
+    cheap = sf.query(ix, sort="price-asc")["products"]
+    assert [t["price"] for t in cheap] == [200.0, 300.0, 500.0]
+    sale = sf.query(ix, sale=True)
+    assert sale["total"] == 1 and sale["products"][0]["discount"] == 0.25
+    shoes = sf.query(ix, group="Shoes")
+    assert shoes["total"] == 1
+    # facets count along every axis except their own: the Shoes filter still lists Clothing
+    assert {c["group"] for c in shoes["facets"]["categories"]} == {"Clothing", "Shoes"}
+    assert shoes["facets"]["colours"] == [{"colour": "Black", "count": 1}]
+    assert shoes["facets"]["designers"][0]["count"] == 1

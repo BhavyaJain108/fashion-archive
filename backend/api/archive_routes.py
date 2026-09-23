@@ -15,6 +15,7 @@ from typing import Any
 
 from flask import Flask, jsonify, request
 
+from backend.archive import storefront
 from backend.archive.roster import RosterEntry, app_roster
 from backend.archive.store.catalog import Catalog
 from backend.archive.store.objects import ObjectStore, object_store
@@ -309,6 +310,80 @@ def search_products():
 
 
 # ---------------------------------------------------------------------------
+# the shop front: every brand in one grid
+# ---------------------------------------------------------------------------
+
+def _index() -> storefront.Index:
+    return storefront.get(_catalog, app_roster)
+
+
+def get_storefront():
+    """GET /api/archive/storefront?group=&bucket=&brand=&sale=&colour=&q=&sort=&offset=&limit=
+
+    One answer for the whole page: the tiles for this view, and the counts every
+    column shows. Served from an in-memory index that is built at boot and refreshed
+    in the background; a request never waits on a rebuild.
+    """
+    a = request.args
+    try:
+        offset = max(0, int(a.get("offset", 0)))
+        limit = min(max(1, int(a.get("limit", 60))), 240)
+    except ValueError:
+        return jsonify({"error": "offset and limit must be integers"}), 400
+    sort = a.get("sort", "latest")
+    if sort not in storefront.SORTS:
+        return jsonify({"error": f"sort must be one of {', '.join(storefront.SORTS)}"}), 400
+    brand = a.get("brand", "")
+    if brand and not _entry(brand):
+        return jsonify({"error": "Brand not shown by this archive"}), 404
+    index = _index()
+    if index is None:
+        return jsonify({"error": "The shop front is still being built", "code": "WARMING"}), 503
+    return jsonify(
+        storefront.query(
+            index,
+            group=a.get("group", ""),
+            bucket=a.get("bucket", ""),
+            brand=brand,
+            sale=a.get("sale", "") in ("1", "true", "yes"),
+            colour_=a.get("colour", ""),
+            q=a.get("q", "").strip(),
+            sort=sort,
+            offset=offset,
+            limit=limit,
+        )
+    )
+
+
+def get_product():
+    """GET /api/archive/product?brand_id=&url= — one product, in full, with its
+    classification and eight more from the same brand."""
+    brand_id = request.args.get("brand_id", "")
+    url = request.args.get("url", "")
+    handle = request.args.get("handle", "")
+    if not _entry(brand_id) or not (url or handle):
+        return jsonify({"error": "brand_id and url or handle are required"}), 400
+    index = _index()
+    if index is None:
+        return jsonify({"error": "The shop front is still being built", "code": "WARMING"}), 503
+    t = next((t for t in index.tiles if t["brand_id"] == brand_id and (t["url"] == url if url else t["handle"] == handle)), None)
+    if t is None:
+        return jsonify({"error": "No such product"}), 404
+    url = t["url"]
+    catalog = _catalog()
+    try:
+        record = next((r for r in catalog.current_products(brand_id) if r.get("itemurl") == url), None)
+        if record is None:
+            return jsonify({"error": "No such product"}), 404
+        full = _decorate([record], brand_id, catalog)[0]
+        history = catalog.product_history(brand_id).get(url, {})
+    finally:
+        catalog.close()
+    more = [m for m in storefront.query(index, brand=brand_id, limit=9)["products"] if m["url"] != url][:8]
+    return jsonify({"product": full, "tile": t, "history": history, "more": more})
+
+
+# ---------------------------------------------------------------------------
 
 
 def get_health():
@@ -351,3 +426,5 @@ def register_archive_routes(app: Flask) -> None:
     app.add_url_rule(
         "/api/archive/products/search", "archive_search", search_products, methods=["GET"]
     )
+    app.add_url_rule("/api/archive/storefront", "archive_storefront", get_storefront, methods=["GET"])
+    app.add_url_rule("/api/archive/product", "archive_product", get_product, methods=["GET"])

@@ -32,7 +32,7 @@ jest.mock('../features/library/LibraryPage', () => ({
   __esModule: true,
   default: () => require('react').createElement('div', null, 'library page'),
 }));
-jest.mock('../features/brands/BrandsPage', () => ({
+jest.mock('../features/brands/Storefront', () => ({
   __esModule: true,
   default: () => require('react').createElement('div', null, 'brands page'),
 }));
