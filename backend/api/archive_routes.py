@@ -18,7 +18,7 @@ from typing import Any
 
 from flask import Flask, jsonify, request
 
-from backend.archive import storefront
+from backend.archive import storefront, taxonomy
 from backend.archive.roster import RosterEntry, app_roster
 from backend.archive.store.catalog import Catalog, has_photograph
 from backend.archive.store.objects import ObjectStore, object_store
@@ -60,6 +60,12 @@ def _catalog() -> Catalog:
     if backing.get("fleet.json") is None and not backing.list("brands/"):
         raise NoCatalogue("no archive in this store: no fleet.json and nothing under brands/")
     return Catalog(backing)
+
+
+# The phrase book is one small object shared by every brand; re-reading it on each
+# request would be a round trip per page for something that changes when someone edits it.
+BOOK_CACHE_SECONDS = 60
+_book_cache: tuple[float, Any] | None = None
 
 
 def _slim(record: dict) -> dict:
@@ -252,8 +258,25 @@ def get_hierarchy(brand_id):
 # ---------------------------------------------------------------------------
 
 
+def _phrase_book(catalog: Catalog):
+    """The shared vocabulary, re-read at most once a minute.
+
+    One small object, and the answer to "what is this product" for every brand. Reading
+    it per request would be a round trip on every page; a minute stale is invisible to a
+    reader and means a correction still lands within a minute.
+    """
+    global _book_cache
+    now = time.time()
+    if _book_cache and now - _book_cache[0] < BOOK_CACHE_SECONDS:
+        return _book_cache[1]
+    book = taxonomy.load(catalog.store)
+    _book_cache = (now, book)
+    return book
+
+
 def _decorate(records: list[dict], domain: str, catalog: Catalog) -> list[dict]:
     archived = catalog.archived_images(domain)
+    book = _phrase_book(catalog)
     # The stored `brand` is whatever the shop published, which for most of these is the
     # domain — accurate, and not what anyone wants to read on a tile. The roster's name
     # travels alongside it rather than overwriting it.
@@ -261,6 +284,9 @@ def _decorate(records: list[dict], domain: str, catalog: Catalog) -> list[dict]:
     out = []
     for record in records:
         slim = _slim(record)
+        # What this product answers to in the archive's own words, beside the shop's.
+        types = book.types_for(record)
+        slim[taxonomy.TYPE_FIELD] = ", ".join(types) if types else None
         slim["brand_id"] = domain
         slim["brand_name"] = name
         urls = archived.get(record.get("itemurl", ""), [])

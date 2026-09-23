@@ -14,9 +14,18 @@ Use these names when discussing the pipeline — every file belongs to exactly o
 | **S3** | **DISCOVER** | *What products exist?* (`connector.discover`) | `connectors/shopify.py`, `connectors/woocommerce.py`, `connectors/sitemap.py` |
 | **S4** | **FETCH** | *What are this product's fields?* (`connector.fetch`) | `connectors/shopify.py`, `connectors/woocommerce.py`, `connectors/structured.py` |
 | **S4b** | **FIND** | *The channel left a field empty — where is it on the page?* | `finder.py` (apply + validate), `finder_llm.py` (learn), `domain/recipe.py` |
+| **S4c** | **PLACE** | *What is this thing, in words every brand shares?* | `taxonomy.py` (the vocabulary and the phrase book), `taxonomy_llm.py` (ask) |
 | **S5** | **STORE** | *What do we keep, and what changed?* | `store/catalog.py`, `store/objects.py`, `images.py` |
 | **S6** | **VERIFY** | *Did we get it all, and is it any good?* | `verify.py`, `capability.py`, `score.py` (the scorecard per run) |
 | **S7** | **LEARN** | *Which of E0005's 42 fields are we still not getting, and why?* | `coverage.py`, `access/` (the bench), `access/LEARNINGS.md` (the record) |
+
+S4c is the one layer that is *not* the brand's own words. `category1..10` stays exactly
+as the shop published it — bode's `MENS SHIRTS`, marrknull's `上衣` — and the shared
+vocabulary sits beside it, joined on at read time from one fleet-wide phrase book
+(`taxonomy/phrases.json`). The scrape only *learns*: it sends the phrases the book has
+never seen (a category level, or a title's trailing words when a brand publishes no
+categories at all) to a small model, once each, ever. Nothing is written into E0005, so
+correcting the book re-answers every brand at once instead of costing 41 rescrapes.
 
 S3 and S4 share files because bulk-feed connectors answer both questions from one response
 (Shopify's `/products.json` is discovery *and* fetch); the sitemap+structured pair splits them.

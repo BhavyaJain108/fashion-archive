@@ -1219,3 +1219,84 @@ def test_the_first_run_of_a_brand_is_not_treated_as_a_change(env):
     )
     log_text = "".join(f.read_text() for f in (logs / "kuurth.com").glob("*.jsonl"))
     assert "extraction-changed" not in log_text
+
+
+# --- S4c: the shared vocabulary --------------------------------------------------
+
+
+@pytest.mark.unit
+def test_a_run_learns_the_phrases_it_has_never_seen(env):
+    """The scrape's job is to notice new shop-speak, not to classify every product."""
+    from backend.archive import taxonomy
+
+    cat, locks, logs = env
+    conn = FakeConnector([ref("a", "h1"), ref("b", "h2")])
+    asked: list[list[str]] = []
+
+    def mapper(phrases, log=None):
+        asked.append(phrases)
+        return {p: ["tops"] for p in phrases}
+
+    run_brand(
+        BRAND,
+        cat,
+        transport=None,
+        mode="full",
+        locks_dir=locks,
+        log_dir=logs,
+        prober=lambda d, t: OPEN_CAP,
+        connector_factory=lambda plan, sitemap_url=None, limit=None: conn,
+        phrase_mapper=mapper,
+    )
+    assert asked, "the run never asked about its phrases"
+    assert "a" in asked[0]  # the product titles are "A" and "B"
+    assert taxonomy.load(cat.store).entries["a"]["types"] == ["tops"]
+
+
+@pytest.mark.unit
+def test_a_second_run_asks_about_nothing_it_already_knows(env):
+    """Steady state is zero phrases and zero cost."""
+    cat, locks, logs = env
+    conn = FakeConnector([ref("a", "h1")])
+    calls: list[list[str]] = []
+
+    def mapper(phrases, log=None):
+        calls.append(phrases)
+        return {p: ["tops"] for p in phrases}
+
+    common = dict(
+        transport=None,
+        locks_dir=locks,
+        log_dir=logs,
+        prober=lambda d, t: OPEN_CAP,
+        connector_factory=lambda plan, sitemap_url=None, limit=None: conn,
+        phrase_mapper=mapper,
+    )
+    run_brand(BRAND, cat, mode="full", **common)
+    run_brand(BRAND, cat, mode="full", **common)
+    # Not "asked and told nothing" — not asked at all. The second run pays no call.
+    assert len(calls) == 1, f"asked again about {calls[1:]}"
+
+
+@pytest.mark.unit
+def test_a_failing_mapper_does_not_fail_the_scrape(env):
+    """Categories are a layer over the archive, never a gate on storing it."""
+    cat, locks, logs = env
+    conn = FakeConnector([ref("a", "h1")])
+
+    def mapper(phrases, log=None):
+        raise RuntimeError("no credit")
+
+    code = run_brand(
+        BRAND,
+        cat,
+        transport=None,
+        mode="full",
+        locks_dir=locks,
+        log_dir=logs,
+        prober=lambda d, t: OPEN_CAP,
+        connector_factory=lambda plan, sitemap_url=None, limit=None: conn,
+        phrase_mapper=mapper,
+    )
+    assert code == 0
+    assert len(cat.current_products("kuurth.com")) == 1

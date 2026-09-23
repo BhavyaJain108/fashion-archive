@@ -7,9 +7,11 @@ import { ago, dateShort, n } from './format';
 const PAGE = 100;
 // The order the facets are shown in, and their labels. What a brand's own filter
 // bar offers, in the brand's own words; a facet with nothing to offer is not shown.
+// `type` leads: it is the archive's own word for the thing, the one label that means
+// the same on every brand. Everything after it is the brand's own vocabulary.
 const FACET_ORDER = [
-  ['category', 'category'], ['colour', 'colour'], ['size', 'size'], ['material', 'material'],
-  ['stock', 'stock'], ['sale', 'price'], ['tag', 'tag'],
+  ['type', 'type'], ['category', 'category'], ['colour', 'colour'], ['size', 'size'],
+  ['material', 'material'], ['stock', 'stock'], ['sale', 'price'], ['tag', 'tag'],
 ];
 
 // One facet: its values as chips with counts. Clicking toggles a value; a chip
@@ -196,6 +198,7 @@ export default function DevProducts({ domain, run = null, go }) {
                         {p.product_title || <span className="dev-muted">untitled</span>}
                       </a>
                       <div className="dev-domain">{facts.join(' · ')}</div>
+                      {p.archive_type && <div className="dev-domain">type {p.archive_type}</div>}
                       {p.size_info && <div className="dev-domain">sizes {p.size_info}</div>}
                       {p.color_info && <div className="dev-domain">colour {p.color_info}</div>}
                       <div className="dev-domain">{images.length} photograph{images.length === 1 ? '' : 's'}</div>

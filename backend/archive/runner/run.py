@@ -8,6 +8,7 @@ import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 
+from backend.archive import taxonomy, taxonomy_llm
 from backend.archive.connectors import get_connector
 from backend.archive.connectors.base import ChannelBlocked, ChannelBusy, SkipProduct
 from backend.archive.domain.brand import Brand, PlanAttempt, TransportLevel, shop_target
@@ -70,6 +71,10 @@ def run_brand(
     version=extraction_version,
     time_budget: float | None = None,
     clock=time.monotonic,
+    # S4c: what places this brand's category words in the archive's shared vocabulary.
+    # None means the default mapper (one cheap batched call); pass a callable to
+    # substitute one, or `lambda phrases, log=None: {}` to run a scrape without it.
+    phrase_mapper=None,
 ) -> int:
     locks_dir.mkdir(parents=True, exist_ok=True)
     lock = locks_dir / f"{brand.domain}.lock"
@@ -498,6 +503,8 @@ def run_brand(
             book.recipes.sort(key=lambda r: -r.hits)
             catalog.save_recipe_book(book)
 
+        _place_phrases(catalog, records, phrase_mapper, log)
+
         catalog.report_progress(
             brand.domain, "finalising", len(to_fetch) - unreached, len(to_fetch), force=True
         )
@@ -565,6 +572,54 @@ _FIELD_STRIKES = 3
 # Finder calls that failed in a row (not the page's fault: the model, the network)
 # before a run stops asking altogether.
 _FINDER_MISSES = 3
+
+# How many question-and-answer rounds one run spends on the shared vocabulary.
+TAXONOMY_ROUNDS = 3
+
+
+def _place_phrases(catalog: Catalog, records: list, mapper, log) -> None:
+    """S4c — teach the shared vocabulary whatever words this brand just used.
+
+    The scrape learns; the read applies. Only phrases the book has never been told about
+    are sent, so a brand that has not invented a word since its last run costs nothing
+    at all — and a phrase learned here is already answered for every other brand.
+
+    Nothing about this can fail a scrape. Categories are a layer over the archive; the
+    products are the archive. A model that is out of credit, busy, or wrong leaves the
+    catalogue exactly as it was and the phrases to be asked about again next run.
+    """
+    if not records:
+        return
+    try:
+        book = taxonomy.load(catalog.store)
+        ask = mapper or taxonomy_llm.decide
+        asked = learned = 0
+        # Rounds, because the book asks lazily: the answer "FW26 is not a garment"
+        # is what makes the next question — this product's title — worth asking. Three
+        # is enough for a category path plus a title word; a brand needing more is
+        # served by its next run rather than by a longer loop here.
+        for _ in range(TAXONOMY_ROUNDS):
+            unseen = book.unknown(records)
+            if not unseen:
+                break
+            asked += len(unseen)
+            added = book.learn(ask(unseen, log=log), model=taxonomy_llm.MODEL)
+            learned += added
+            if not added:
+                break  # nothing came back; asking the same again would cost twice
+        if learned:
+            taxonomy.save(catalog.store, book)
+        placed = sum(1 for r in records if book.types_for(r))
+        log(
+            "taxonomy",
+            asked=asked,
+            learned=learned,
+            placed=placed,
+            of=len(records),
+            vocabulary=len(book.entries),
+        )
+    except Exception as exc:  # noqa: BLE001 — see the docstring: never a gate
+        log("taxonomy-unavailable", error=str(exc)[:200])
 
 
 def _spread(refs: list, n: int) -> list:

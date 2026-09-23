@@ -16,9 +16,14 @@ import re
 from collections import Counter
 from typing import Any
 
+from backend.archive import taxonomy
+
 # facet name -> the record field it reads. Every one is a comma-separated list in
 # E0005 except category, which is a path (category1 is its first level).
 LIST_FACETS = {
+    # The archive's own vocabulary, the one facet that means the same thing on every
+    # brand — bode's "MENS SHIRTS" and marrknull's "上衣" are both `shirts` here.
+    "type": taxonomy.TYPE_FIELD,
     "colour": "color_info",
     "size": "size_info",
     "material": "material_info",

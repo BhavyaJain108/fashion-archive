@@ -33,7 +33,7 @@ from pathlib import Path
 from flask import Flask, Response, current_app, jsonify, request
 
 from backend.api import providers
-from backend.archive import facets, roster
+from backend.archive import facets, roster, taxonomy
 from backend.archive.audit import CLASSES
 from backend.archive.domain.product import E0005_FIELDS
 from backend.archive.evidence import describe
@@ -720,6 +720,11 @@ def register_dev_routes(app: Flask) -> None:
         ]
         if q:
             rows = [r for r in rows if q in str(r.get("product_title") or "").lower()]
+        # What each product answers to in the archive's shared vocabulary, so the `type`
+        # chip filters by the one facet that means the same on every brand. Applied on
+        # the way out, never stored: the book is the source, and editing it re-answers
+        # every brand at once.
+        rows = taxonomy.typed(rows, taxonomy.load(_store()))
         # The brand's own facets — colours, sizes, materials, categories, tags, stock,
         # sale, price — read off the products and applied the way a shop's page does:
         # any of a facet's chosen values, all of the chosen facets. ?colour=Black&size=M
@@ -758,6 +763,7 @@ def register_dev_routes(app: Flask) -> None:
             "material_info",
             "category1",
             "category2",
+            taxonomy.TYPE_FIELD,
             "additional_tags",
             "brand",
         )
@@ -782,6 +788,10 @@ def register_dev_routes(app: Flask) -> None:
                 "status": status,
                 "runs": runs,
                 "facets": facet_counts,
+                # How much of this brand the shared vocabulary can place. The gap is
+                # the work left: words nobody has taught it, or products whose title
+                # never says what they are.
+                "typed": sum(1 for r in rows if r.get(taxonomy.TYPE_FIELD)),
                 "selected": {f: sorted(v) for f, v in selected.items()},
                 "sized_in_stock": sized_in_stock,
                 "price_range": prices,

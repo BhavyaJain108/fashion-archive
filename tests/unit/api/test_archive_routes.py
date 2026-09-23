@@ -275,3 +275,47 @@ def test_the_bank_alone_is_enough_when_the_second_feed_is_down(monkeypatch):
 
     monkeypatch.setattr(archive_routes, "_fetch_json", fake)
     assert archive_routes._fetch_rates()["rates"] == {"EUR": 0.88, "USD": 1.0}
+
+# --- the shared vocabulary reaching a reader --------------------------------------
+
+
+@pytest.fixture()
+def vocabulary(tmp_path, client, monkeypatch):
+    """A book that knows this shop's words, written where the API will read it."""
+    from backend.archive import taxonomy
+
+    objects = DirectoryObjectStore(tmp_path / "objects")
+    book = taxonomy.PhraseBook({})
+    book.learn({"tees": ["t-shirts"], "cap": ["hats"], "thing": ["accessories"]}, model="m")
+    taxonomy.save(objects, book)
+    monkeypatch.setattr(archive_routes, "_book_cache", None)  # the book is cached a minute
+    return client
+
+
+@pytest.mark.unit
+def test_a_product_says_what_it_answers_to_in_the_archives_words(vocabulary):
+    from backend.archive import taxonomy
+
+    _, body = get(vocabulary, "/api/archive/products?brand_id=shown.com")
+    by_title = {p["product_title"]: p for p in body["products"]}
+    assert by_title["Cotton Tee"][taxonomy.TYPE_FIELD] == "t-shirts"
+    # ...from its deepest category level, while the shop's own words stay untouched
+    assert by_title["Cotton Tee"]["category1"] == "TOPS"
+    assert by_title["Cotton Tee"]["category2"] == "TEES"
+
+
+@pytest.mark.unit
+def test_a_product_with_no_category_is_placed_by_its_title(vocabulary):
+    from backend.archive import taxonomy
+
+    _, body = get(vocabulary, "/api/archive/products?brand_id=shown.com")
+    unfiled = next(p for p in body["products"] if p["product_title"] == "Unfiled Thing")
+    assert unfiled[taxonomy.TYPE_FIELD] == "accessories"
+
+
+@pytest.mark.unit
+def test_a_product_the_vocabulary_cannot_place_says_nothing_rather_than_guessing(client):
+    from backend.archive import taxonomy
+
+    _, body = get(client, "/api/archive/products?brand_id=shown.com")
+    assert all(p[taxonomy.TYPE_FIELD] is None for p in body["products"])
