@@ -553,6 +553,43 @@ table.dev-table {
 
 .dev-pager { display: flex; gap: 4px; justify-content: flex-end; margin-top: 12px; }
 
+/* The brand's own filters, one line per facet: a label, then chips with counts.
+   Chips are the design's .ar-chip, so a chosen value is black with the marker. */
+.dev-facets {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--ar-line-soft);
+  border-bottom: 1px solid var(--ar-line-soft);
+}
+
+.dev-facet { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+
+.dev-facet-k {
+  flex: none;
+  width: 90px;
+  font-size: var(--ar-fs-micro);
+  letter-spacing: var(--ar-track-label);
+  text-transform: uppercase;
+  color: var(--ar-ink-3);
+}
+
+.dev-facet-values { display: flex; flex-wrap: wrap; gap: 2px 4px; min-width: 0; }
+
+.dev-facet-n { color: var(--ar-ink-4); font-weight: 400; font-variant-numeric: tabular-nums; }
+
+.dev-facet-opt { margin-left: 98px; }
+
+.dev-facet-price .ar-input { width: 90px; }
+
+@media (max-width: 720px) {
+  .dev-facet { flex-direction: column; gap: 2px; }
+  .dev-facet-k { width: auto; }
+  .dev-facet-opt { margin-left: 0; }
+}
+
 /* --- Narrow screens -------------------------------------------------------------- */
 
 /* The design language is desktop-only; the deck is the one page read from a phone,

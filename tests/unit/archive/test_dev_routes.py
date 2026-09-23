@@ -595,3 +595,55 @@ def test_a_learn_run_is_queued_from_the_deck_and_refused_while_held(client, tmp_
     r = c.post("/api/dev/brands/kuurth.com/learn")
     assert r.status_code == 409 and json.loads(r.data)["code"] == "HELD"
     assert c.post("/api/dev/brands/nobody.example/learn").status_code == 404
+
+
+@pytest.mark.unit
+def test_the_catalogue_filters_by_what_the_brand_offers(client, tmp_path):
+    from backend.archive.domain.product import ProductRecord
+
+    c, mp = client
+    cat = Catalog(DirectoryObjectStore(tmp_path))
+    r1 = cat.open_run("kuurth.com", "full")
+    for i, (colour, sizes, avail, price) in enumerate(
+        [
+            ("Black", "S, M", "in_stock, out_of_stock", 120.0),
+            ("Black", "M, L", "in_stock, in_stock", 80.0),
+            ("Red", "38, 40", "out_of_stock, in_stock", 200.0),
+        ]
+    ):
+        cat.record_product(
+            "kuurth.com",
+            r1,
+            ProductRecord(
+                itemurl=f"https://kuurth.com/p/{i}",
+                product_title=f"P{i}",
+                color_info=colour,
+                size_info=sizes,
+                size_availability=avail,
+                price=price,
+                category1="Women",
+                in_stock=True,
+            ),
+            None,
+        )
+    cat.finalize_run(r1, 0, Coverage(extracted=3, coverage_pct=1.0, verdict="ok"))
+    cat.close()
+    mp.setenv("ADMIN_EMAILS", "owner@example.com")
+    _as(mp, "owner@example.com")
+
+    body = json.loads(c.get("/api/dev/brands/kuurth.com/products").data)
+    assert body["total"] == 3
+    assert {i["value"]: i["count"] for i in body["facets"]["colour"]} == {"Black": 2, "Red": 1}
+    assert body["price_range"] == {"min": 80.0, "max": 200.0}
+
+    body = json.loads(c.get("/api/dev/brands/kuurth.com/products?colour=black&size=M").data)
+    assert body["total"] == 2 and body["selected"] == {"colour": ["black"], "size": ["M"]}
+    body = json.loads(
+        c.get("/api/dev/brands/kuurth.com/products?colour=black&size=M&sized_in_stock=1").data
+    )
+    assert body["total"] == 1  # M is offered on both, in stock on one
+    body = json.loads(c.get("/api/dev/brands/kuurth.com/products?size=S&sized_in_stock=1").data)
+    assert body["total"] == 1
+    body = json.loads(c.get("/api/dev/brands/kuurth.com/products?price_min=100").data)
+    assert body["total"] == 2 and body["price_min"] == 100.0
+    assert c.get("/api/dev/brands/kuurth.com/products?price_min=abc").status_code == 400

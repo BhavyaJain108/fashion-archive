@@ -84,10 +84,20 @@ export class DevEndpoints {
     return read(`${brand(domain)}/runs/${encodeURIComponent(runId)}/log`, 'No log for this run');
   }
 
-  static getProducts(domain, { offset = 0, limit = 100, q = '', status = 'live', run = null } = {}) {
+  // `filters` is {facet: [values]} — colour, size, material, category, tag, stock,
+  // sale — plus sizedInStock, priceMin and priceMax. Repeated params, so a facet
+  // with several values is ?size=S&size=M.
+  static getProducts(domain, {
+    offset = 0, limit = 100, q = '', status = 'live', run = null,
+    filters = {}, sizedInStock = false, priceMin = null, priceMax = null,
+  } = {}) {
     const params = new URLSearchParams({ offset, limit, status });
     if (q) params.set('q', q);
     if (run) params.set('run', run);
+    Object.entries(filters).forEach(([facet, values]) => (values || []).forEach((v) => params.append(facet, v)));
+    if (sizedInStock) params.set('sized_in_stock', '1');
+    if (priceMin != null && priceMin !== '') params.set('price_min', priceMin);
+    if (priceMax != null && priceMax !== '') params.set('price_max', priceMax);
     return read(`${brand(domain)}/products?${params}`);
   }
 

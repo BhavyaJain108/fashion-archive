@@ -215,6 +215,29 @@ test('a dead worker offers release; a paused brand offers one run', async () => 
   expect(screen.getByRole('button', { name: 'resume' })).toBeEnabled();
 });
 
+test('the catalogue offers the brand\'s own facets and a chip narrows the page', async () => {
+  DevEndpoints.getProducts.mockResolvedValue({
+    success: true, domain: 'huelleyrose.com', total: 2, offset: 0, run: null, status: 'live', runs: [],
+    facets: {
+      colour: [{ value: 'Black', count: 2, selected: false }, { value: 'Red', count: 1, selected: false }],
+      size: [{ value: 'S', count: 2, selected: false, in_stock: 1 }, { value: 'M', count: 1, selected: false, in_stock: 1 }],
+    },
+    selected: {}, sized_in_stock: false, price_range: { min: 80, max: 200 }, price_min: null, price_max: null,
+    products: [
+      { itemurl: 'https://huelleyrose.com/p/1', product_title: 'Coat', price: 200, currency: 'USD', images: [], size_info: 'S, M', color_info: 'Black' },
+      { itemurl: 'https://huelleyrose.com/p/2', product_title: 'Top', price: 80, currency: 'USD', images: [], size_info: 'S', color_info: 'Red' },
+    ],
+  });
+  render(<DevPage route={{ page: 'dev', brandId: 'huelleyrose.com', category: 'products', token: null }} navigate={() => {}} />);
+  expect(await screen.findByRole('group', { name: 'colour' })).toBeInTheDocument();
+  expect(screen.getByText(/1 in stock/)).toBeInTheDocument(); // S: 2 offered, 1 in stock
+  fireEvent.click(screen.getByRole('button', { name: /^Black/ }));
+  await waitFor(() => expect(DevEndpoints.getProducts).toHaveBeenLastCalledWith(
+    'huelleyrose.com', expect.objectContaining({ filters: { colour: ['Black'] } }),
+  ));
+  expect(screen.getByRole('button', { name: 'clear filters' })).toBeInTheDocument();
+});
+
 test('someone who is not the owner sees a plain notice', async () => {
   DevEndpoints.getOverview.mockResolvedValue({ forbidden: true });
   render(<DevPage route={{ page: 'dev', brandId: null, category: null }} navigate={() => {}} />);

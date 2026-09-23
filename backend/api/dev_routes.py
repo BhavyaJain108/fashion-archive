@@ -33,7 +33,7 @@ from pathlib import Path
 from flask import Flask, Response, current_app, jsonify, request
 
 from backend.api import providers
-from backend.archive import roster
+from backend.archive import facets, roster
 from backend.archive.audit import CLASSES
 from backend.archive.domain.product import E0005_FIELDS
 from backend.archive.evidence import describe
@@ -720,6 +720,25 @@ def register_dev_routes(app: Flask) -> None:
         ]
         if q:
             rows = [r for r in rows if q in str(r.get("product_title") or "").lower()]
+        # The brand's own facets — colours, sizes, materials, categories, tags, stock,
+        # sale, price — read off the products and applied the way a shop's page does:
+        # any of a facet's chosen values, all of the chosen facets. ?colour=Black&size=M
+        selected = {
+            f: {v.strip() for v in request.args.getlist(f) if v.strip()}
+            for f in facets.FACETS
+            if request.args.getlist(f)
+        }
+        sized_in_stock = request.args.get("sized_in_stock") in ("1", "true")
+        try:
+            price_min = float(request.args["price_min"]) if request.args.get("price_min") else None
+            price_max = float(request.args["price_max"]) if request.args.get("price_max") else None
+        except ValueError:
+            return jsonify({"success": False, "error": "price bounds are numbers"}), 400
+        # Counts before the price cut, so the chips still say what each would leave.
+        facet_counts = facets.counts(rows, selected, sized_in_stock)
+        prices = facets.price_range(rows)
+        rows = facets.apply(rows, selected, sized_in_stock)
+        rows = facets.within_price(rows, price_min, price_max)
         # Most recently scraped first, so a fresh run's products lead.
         rows.sort(
             key=lambda r: history.get(r.get("itemurl"), {}).get("last_seen") or "", reverse=True
@@ -736,8 +755,10 @@ def register_dev_routes(app: Flask) -> None:
             "size_info",
             "size_availability",
             "color_info",
+            "material_info",
             "category1",
             "category2",
+            "additional_tags",
             "brand",
         )
         page = []
@@ -760,6 +781,12 @@ def register_dev_routes(app: Flask) -> None:
                 "run": run,
                 "status": status,
                 "runs": runs,
+                "facets": facet_counts,
+                "selected": {f: sorted(v) for f, v in selected.items()},
+                "sized_in_stock": sized_in_stock,
+                "price_range": prices,
+                "price_min": price_min,
+                "price_max": price_max,
                 "products": page,
             }
         )

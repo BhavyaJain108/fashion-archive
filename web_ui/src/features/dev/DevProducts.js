@@ -5,6 +5,41 @@ import useDevLoad, { Gate } from './useDevLoad';
 import { ago, dateShort, n } from './format';
 
 const PAGE = 100;
+// The order the facets are shown in, and their labels. What a brand's own filter
+// bar offers, in the brand's own words; a facet with nothing to offer is not shown.
+const FACET_ORDER = [
+  ['category', 'category'], ['colour', 'colour'], ['size', 'size'], ['material', 'material'],
+  ['stock', 'stock'], ['sale', 'price'], ['tag', 'tag'],
+];
+
+// One facet: its values as chips with counts. Clicking toggles a value; a chip
+// says how many products it would leave under the other facets' choices.
+function Facet({ name, label, items, onToggle }) {
+  if (!items || !items.length) return null;
+  return (
+    <div className="dev-facet" role="group" aria-label={label}>
+      <span className="dev-facet-k">{label}</span>
+      <div className="dev-facet-values">
+        {items.map((it) => (
+          <button
+            type="button"
+            key={it.value}
+            className={`ar-chip${it.selected ? ' selected' : ''}`}
+            aria-pressed={it.selected}
+            onClick={() => onToggle(name, it.value)}
+          >
+            {it.value}
+            <span className="dev-facet-n">
+              {' '}{n(it.count)}
+              {name === 'size' && it.in_stock != null && it.in_stock !== it.count ? ` (${n(it.in_stock)} in stock)` : ''}
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 const STATUSES = [['live', 'on the site'], ['gone', 'removed'], ['all', 'everything']];
 const RUN_STATUSES = [['live', 'present then'], ['added', 'added in it'], ['gone', 'removed at it'], ['all', 'seen by then']];
 
@@ -22,10 +57,41 @@ export default function DevProducts({ domain, run = null, go }) {
   const [q, setQ] = useState('');
   const [typed, setTyped] = useState('');
   const [status, setStatus] = useState('live');
+  const [filters, setFilters] = useState({});
+  const [sizedInStock, setSizedInStock] = useState(false);
+  const [priceMin, setPriceMin] = useState('');
+  const [priceMax, setPriceMax] = useState('');
+  const [priceTyped, setPriceTyped] = useState(['', '']);
   const { data, state } = useDevLoad(
-    () => DevEndpoints.getProducts(domain, { offset, limit: PAGE, q, status, run }),
-    [domain, offset, q, status, run],
+    () => DevEndpoints.getProducts(domain, { offset, limit: PAGE, q, status, run, filters, sizedInStock, priceMin, priceMax }),
+    [domain, offset, q, status, run, filters, sizedInStock, priceMin, priceMax],
   );
+  const chosen = Object.values(filters).reduce((a, v) => a + v.length, 0) + (priceMin || priceMax ? 1 : 0);
+
+  const toggle = (facet, value) => {
+    setOffset(0);
+    setFilters((f) => {
+      const have = f[facet] || [];
+      const next = have.includes(value) ? have.filter((v) => v !== value) : [...have, value];
+      const out = { ...f, [facet]: next };
+      if (!next.length) delete out[facet];
+      return out;
+    });
+  };
+  const clear = () => {
+    setOffset(0);
+    setFilters({});
+    setSizedInStock(false);
+    setPriceMin('');
+    setPriceMax('');
+    setPriceTyped(['', '']);
+  };
+  const applyPrice = (e) => {
+    e.preventDefault();
+    setOffset(0);
+    setPriceMin(priceTyped[0].trim());
+    setPriceMax(priceTyped[1].trim());
+  };
   const choices = run ? RUN_STATUSES : STATUSES;
 
   const pickRun = (id) => {
@@ -86,7 +152,31 @@ export default function DevProducts({ domain, run = null, go }) {
             <div className="dev-stamp">
               {n(data.total)} product{data.total === 1 ? '' : 's'}
               {run ? ` as of the run of ${dateShort(run)}` : ''}
-              {q ? ` matching “${q}”` : ''} · showing {data.total === 0 ? 0 : offset + 1}–{Math.min(offset + PAGE, data.total)}
+              {q ? ` matching “${q}”` : ''}
+              {chosen ? ` under ${chosen} filter${chosen === 1 ? '' : 's'}` : ''}
+              {' '}· showing {data.total === 0 ? 0 : offset + 1}–{Math.min(offset + PAGE, data.total)}
+            </div>
+            <div className="dev-facets">
+              {FACET_ORDER.map(([name, label]) => (
+                <Facet key={name} name={name} label={label} items={data.facets && data.facets[name]} onToggle={toggle} />
+              ))}
+              {filters.size && filters.size.length > 0 && (
+                <label className="dev-check dev-facet-opt">
+                  <input type="checkbox" checked={sizedInStock} onChange={(e) => { setOffset(0); setSizedInStock(e.target.checked); }} />
+                  {' '}only where that size is in stock
+                </label>
+              )}
+              {data.price_range && (
+                <form className="dev-facet dev-facet-price" onSubmit={applyPrice}>
+                  <span className="dev-facet-k">price {data.price_range.min}–{data.price_range.max}</span>
+                  <input className="ar-input" type="number" step="any" placeholder="MIN" aria-label="Minimum price" value={priceTyped[0]} onChange={(e) => setPriceTyped([e.target.value, priceTyped[1]])} />
+                  <input className="ar-input" type="number" step="any" placeholder="MAX" aria-label="Maximum price" value={priceTyped[1]} onChange={(e) => setPriceTyped([priceTyped[0], e.target.value])} />
+                  <button type="submit" className="dev-act">apply</button>
+                </form>
+              )}
+              {chosen > 0 && (
+                <button type="button" className="dev-act" onClick={clear}>clear filters</button>
+              )}
             </div>
             <ol className="dev-products">
               {data.products.map((p) => {
@@ -97,6 +187,7 @@ export default function DevProducts({ domain, run = null, go }) {
                   price && (p.full_price != null && p.full_price !== p.price ? `${price} (was ${p.full_price})` : price),
                   p.in_stock == null ? null : p.in_stock ? 'in stock' : 'out of stock',
                   [p.category1, p.category2].filter(Boolean).join(' / ') || null,
+                  p.material_info || null,
                 ].filter(Boolean);
                 return (
                   <li className="dev-product" key={p.itemurl}>
