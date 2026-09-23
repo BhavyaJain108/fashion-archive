@@ -1069,6 +1069,20 @@ def main(argv: list[str] | None = None) -> int:
                             browser=True,
                             browser_transport_factory=_browser_factory,
                             prober=escalating_prober(browser_factory=_browser_factory),
+                            # Probing asks a brand that may refuse, on purpose. On the
+                            # paced transport a refusal stands the host down for a
+                            # quarter of an hour and the probe then sleeps on its own
+                            # evidence — both workers sat on gated brands for the
+                            # whole afternoon of 2026-09-23. The probe gets a short
+                            # fuse, as the hand-run scrape always has.
+                            probe_transport=HttpxTransport(
+                                sink=requests_log,
+                                budget=HostBudget(
+                                    gap=args.gap,
+                                    busy_backoff=max(args.gap * 4, 2.0),
+                                    refused_backoff=max(args.gap * 4, 2.0),
+                                ),
+                            ),
                             field_finder=_field_finder if finder_cap_usd > 0 else None,
                             # Ask about everything the run can, not ten pages' worth:
                             # the daily ceiling is the throttle, and what a page did
