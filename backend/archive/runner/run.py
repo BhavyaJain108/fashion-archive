@@ -4,6 +4,7 @@ import json
 import os
 import re
 import time
+import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -517,7 +518,13 @@ def run_brand(
         catalog.record_attention(brand.domain, f"crashed: {type(e).__name__}: {e}"[:200])
         catalog.finalize_run(run_id, 2, None, domain=brand.domain)
         catalog.annotate_run(brand.domain, run_id, reason=f"crashed: {type(e).__name__}: {e}"[:200])
-        log("run-crashed", error=f"{type(e).__name__}: {e}")
+        # The frames, not just the message: a crash with no traceback cost an hour
+        # of guessing on 2026-09-23, and the bug-fixer reads this log first.
+        log(
+            "run-crashed",
+            error=f"{type(e).__name__}: {e}",
+            where=traceback.format_exc().strip().splitlines()[-12:],
+        )
         return 2
     finally:
         if work_transport is not transport and hasattr(work_transport, "close"):
