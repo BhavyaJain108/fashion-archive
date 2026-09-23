@@ -176,3 +176,31 @@ def test_a_long_brand_keeps_its_claim_fresh_while_it_runs(env, monkeypatch):
 
     assert d.run_once(cat, sched, slow, log=lambda *a: None) is True
     assert len(stamps) > 1, "the claim was never refreshed while the brand ran"
+
+
+@pytest.mark.unit
+def test_a_worker_stands_down_when_a_newer_daemon_announces_itself(tmp_path, monkeypatch):
+    """Render keeps the old container alive for a minute after the new one is up;
+    the old daemon must not keep claiming brands with the code just replaced."""
+    import backend.archive.runner.daemon as d
+
+    store = DirectoryObjectStore(tmp_path)
+    cat = Catalog(store)
+    cat.upsert_brand(Brand(domain="kuurth.com", homepage_url="https://kuurth.com"))
+    Scheduler(store).add("kuurth.com", cadence_seconds=3600)
+    monkeypatch.setenv("RENDER_GIT_COMMIT", "abc123")
+    assert d.code_version() == "abc123"
+    assert d.superseded("abc123", "def456") is True
+    assert d.superseded("abc123", "abc123") is False
+    assert d.superseded("unknown", "def456") is False and d.superseded("abc123", None) is False
+
+    Scheduler(store).set_code_version("def456")  # the new daemon has announced itself
+    seen: list[str] = []
+    d.worker(
+        lambda: DirectoryObjectStore(tmp_path),
+        "w1",
+        lambda _cat: lambda b: (seen.append(b.domain), ([rec()], 0.0))[1],
+        "abc123",
+        log=lambda *a: None,
+    )
+    assert seen == []  # stood down before claiming anything

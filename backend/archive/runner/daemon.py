@@ -17,6 +17,7 @@ Workers are threads over one schedule. Claiming is atomic, so they need no coord
 beyond the database.
 """
 
+import os
 import subprocess
 import threading
 import time
@@ -53,15 +54,30 @@ def backoff(cadence_seconds: int, attention_streak: int) -> int:
 
 
 def code_version() -> str:
-    """The commit the worker is running, for the record. Render replaces the
-    container on every deploy, so nothing stands down on a version change; the
-    check used to fork git every ten seconds and a failed fork read as a change."""
+    """The commit the worker is running. Render names it in the environment; a
+    checkout answers from git; anything else is "unknown" and never compared.
+
+    It matters at deploy time: Render keeps the previous container alive for a
+    minute after the new one is healthy, and on 2026-09-23 the old daemon took
+    three queued runs in that minute and crashed them with a bug the new code had
+    fixed. A worker that sees a newer version in the store stands down between
+    brands instead of claiming another.
+    """
+    from_host = os.environ.get("RENDER_GIT_COMMIT", "").strip()
+    if from_host:
+        return from_host
     try:
-        return subprocess.run(
+        out = subprocess.run(
             ["git", "rev-parse", "HEAD"], capture_output=True, text=True, timeout=5
-        ).stdout.strip()
+        )
+        return out.stdout.strip() or "unknown"
     except Exception:
         return "unknown"
+
+
+def superseded(mine: str, stored: str | None) -> bool:
+    """Whether a newer daemon has announced itself. Only two real versions count."""
+    return bool(mine and stored) and mine != "unknown" and stored != "unknown" and mine != stored
 
 
 def run_once(catalog: Catalog, scheduler: Scheduler, do_brand, log=print) -> bool:
@@ -164,6 +180,9 @@ def worker(store_factory, worker_id: str, do_brand_factory, version: str, log=pr
         while True:
             try:
                 if scheduler.should_stop():
+                    return
+                if superseded(version, scheduler.code_version()):
+                    log(f"{worker_id}: a newer daemon is up; standing down")
                     return
                 # Seen recently, by the deck: a thread that died used to be invisible.
                 scheduler.beat_worker(worker_id)
