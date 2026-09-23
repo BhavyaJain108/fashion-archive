@@ -117,7 +117,7 @@ def run_once(catalog: Catalog, scheduler: Scheduler, do_brand, log=print) -> boo
                 p = catalog.load_progress(due.domain) or {}
                 stale = (p.get("updated_at") or "") < _iso_ago(STUCK_AFTER_SECONDS)
                 if stale:
-                    frames = sys._current_frames().get(run_thread.ident)
+                    frames = sys._current_frames().get(run_thread.ident or -1)
                     where = "".join(traceback.format_stack(frames)[-6:]) if frames else "?"
                     log(
                         f"{due.domain}: no progress for {STUCK_AFTER_SECONDS // 60}m; run thread at:\n{where}"
