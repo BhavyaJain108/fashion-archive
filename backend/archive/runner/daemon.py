@@ -19,8 +19,10 @@ beyond the database.
 
 import os
 import subprocess
+import sys
 import threading
 import time
+import traceback
 from datetime import datetime, timezone
 
 from backend.archive.connectors.base import ChannelBusy
@@ -31,6 +33,8 @@ from backend.archive.store.catalog import Catalog
 from backend.archive.store.objects import ObjectStore
 
 POLL_SECONDS = 10
+# A run that has written no position for this long is reported with its stack.
+STUCK_AFTER_SECONDS = 600
 # How often a worker says it is still alive. Well under the hour a claim takes to go
 # stale, so a live worker never loses its brand and a dead one still frees it.
 HEARTBEAT_SECONDS = 300
@@ -43,6 +47,12 @@ BUSY_BACKOFF = 1800
 # just not every day.
 ATTENTION_PATIENCE = 3
 ATTENTION_MAX_FACTOR = 16
+
+
+def _iso_ago(seconds: int) -> str:
+    from datetime import timedelta
+
+    return (datetime.now(timezone.utc) - timedelta(seconds=seconds)).isoformat()
 
 
 def backoff(cadence_seconds: int, attention_streak: int) -> int:
@@ -89,6 +99,8 @@ def run_once(catalog: Catalog, scheduler: Scheduler, do_brand, log=print) -> boo
     brand = catalog.get_brand(due.domain)
     beat_off = threading.Event()
 
+    run_thread = threading.current_thread()
+
     def beat() -> None:
         while not beat_off.wait(HEARTBEAT_SECONDS):
             try:
@@ -97,6 +109,20 @@ def run_once(catalog: Catalog, scheduler: Scheduler, do_brand, log=print) -> boo
                 # is longer than the window between polls.
                 scheduler.beat_worker(scheduler.worker_id)
             except Exception:  # a missed beat is survivable; a dead worker is not
+                pass
+            # A beat proves this thread breathes, not that the run moves. When the
+            # brand has written no position for a while, say where the run's thread
+            # is standing, so a hang names its own cause in the log.
+            try:
+                p = catalog.load_progress(due.domain) or {}
+                stale = (p.get("updated_at") or "") < _iso_ago(STUCK_AFTER_SECONDS)
+                if stale:
+                    frames = sys._current_frames().get(run_thread.ident)
+                    where = "".join(traceback.format_stack(frames)[-6:]) if frames else "?"
+                    log(
+                        f"{due.domain}: no progress for {STUCK_AFTER_SECONDS // 60}m; run thread at:\n{where}"
+                    )
+            except Exception:  # noqa: BLE001
                 pass
 
     threading.Thread(target=beat, daemon=True).start()
