@@ -58,6 +58,9 @@ export default function DevPage({ route, navigate }) {
             )}
           </span>
         )}
+        {/* The one way out of the machine room: the site itself, by a plain link, so it
+            works whatever state the deck's own router is in. */}
+        <a className="dev-nav-item dev-nav-exit" href="/">← site</a>
       </nav>
 
       <div className="dev-layout">

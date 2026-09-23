@@ -107,6 +107,8 @@
   margin-right: 8px;
 }
 
+.dev-nav-exit { margin-left: auto; text-decoration: none; }
+
 .dev-nav-item {
   background: none;
   border: 0;
