@@ -145,8 +145,14 @@ class HttpxTransport(LedgeredTransport):
                     raise ResponseTooLarge(f"{url}: over {MAX_BODY_BYTES} bytes")
         finally:
             resp.close()
+        # iter_bytes() already decoded the transfer encoding. The headers still name
+        # it, and a Response built with them decodes the body a second time: every
+        # gzip page on the fleet raised DecodingError on 2026-09-23 for exactly that.
+        headers = httpx.Headers(
+            [(k, v) for k, v in resp.headers.multi_items() if k.lower() not in _CODING_HEADERS]
+        )
         return httpx.Response(
-            resp.status_code, headers=resp.headers, content=bytes(body), request=resp.request
+            resp.status_code, headers=headers, content=bytes(body), request=resp.request
         )
 
 
@@ -169,6 +175,10 @@ TIMEOUT = 15.0
 # The largest response worth reading: a product page is under a megabyte, a
 # photograph under a few. Anything past this is not ours to keep.
 MAX_BODY_BYTES = 20 * 1024 * 1024
+
+
+# Headers that describe the wire form of a body we have already decoded.
+_CODING_HEADERS = ("content-encoding", "content-length", "transfer-encoding")
 
 
 class ResponseTooLarge(Exception):
