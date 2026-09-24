@@ -16,6 +16,8 @@ SCHEMA_PATHS = (
     Path(__file__).parent.parent / "userdata" / "schema.sql",
     # Shared show cache. No foreign keys into users, so order is free.
     Path(__file__).parent.parent / "high_fashion" / "schema.sql",
+    # The product catalogue. No foreign keys into users either.
+    Path(__file__).parent.parent / "archive" / "schema.sql",
 )
 
 

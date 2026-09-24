@@ -18,6 +18,7 @@ from backend.archive.budget import HostBudget
 from backend.archive.images import ImageStore
 from backend.archive.observe import RequestLog
 from backend.archive.store.catalog import Catalog
+from backend.archive.store.factory import open_catalog
 from backend.archive.store.objects import ObjectStore
 from backend.archive.transport import HttpxTransport
 from backend.storage.images import ImageStore as Sink
@@ -59,7 +60,7 @@ def archive_brand(
     host budget is shared, which is the part that has to be, or two Shopify stores
     would double the rate on one CDN.
     """
-    catalog = Catalog(store)
+    catalog = open_catalog(store)
     try:
         out = Outcome(domain)
         images = ImageStore(sink, width=width)

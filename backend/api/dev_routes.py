@@ -41,6 +41,7 @@ from backend.archive.roster import load_roster
 from backend.archive.scheduler import Scheduler
 from backend.archive.spend_cap import DailyCap
 from backend.archive.store.catalog import Catalog
+from backend.archive.store.factory import open_catalog
 from backend.archive.store.objects import ObjectStore, loads, object_store
 
 # A worker says it is alive every five minutes. Twice that and something is wrong: a
@@ -410,7 +411,7 @@ def _brand_row(domain: str, row: dict, meta: dict, name: str, catalog: Catalog) 
 def register_dev_routes(app: Flask) -> None:
     def _build_overview() -> dict:
         store = _store()
-        catalog = Catalog(store)
+        catalog = open_catalog(store)
         finder_cap = float(os.environ.get("FINDER_DAILY_USD", "0") or 0)
         # The three reads that do not depend on each other, together.
         with ThreadPoolExecutor(max_workers=3) as pool:
@@ -500,7 +501,7 @@ def register_dev_routes(app: Flask) -> None:
         if bad := _bad_domain(brand_id):
             return bad
         store = _store()
-        catalog = Catalog(store)
+        catalog = open_catalog(store)
         # Eight independent reads, together. In turn they were most of the page's
         # three seconds; the schedule row alone used to be read by listing every
         # brand's to find one.
@@ -640,7 +641,7 @@ def register_dev_routes(app: Flask) -> None:
             return bad
         if not _RUN_ID.match(run_id):
             return jsonify({"success": False, "error": "not a run id", "code": "BAD_RUN"}), 400
-        text = Catalog(_store()).load_run_log(brand_id, run_id)
+        text = open_catalog(_store()).load_run_log(brand_id, run_id)
         if text is None:
             return jsonify(
                 {
@@ -675,7 +676,7 @@ def register_dev_routes(app: Flask) -> None:
         bare = brand_id.removeprefix("www.")
         hosts = [
             h
-            for h in Catalog(_store()).host_stats(days=7)
+            for h in open_catalog(_store()).host_stats(days=7)
             if h["host"].endswith(brand_id) or h["host"].endswith(bare)
         ]
         return jsonify({"success": True, "domain": brand_id, "days": 7, "hosts": hosts})
@@ -703,7 +704,7 @@ def register_dev_routes(app: Flask) -> None:
             return jsonify({"success": False, "error": "status is live, gone, all or added"}), 400
         if run and not _RUN_ID.match(run):
             return jsonify({"success": False, "error": "not a run id", "code": "BAD_RUN"}), 400
-        catalog = Catalog(_store())
+        catalog = open_catalog(_store())
         history = catalog.product_history(brand_id)
         if run:
             rows = catalog.products_at_run(brand_id, run, status)
@@ -809,7 +810,7 @@ def register_dev_routes(app: Flask) -> None:
             return _forbidden()
         if bad := _bad_domain(brand_id):
             return bad
-        catalog = Catalog(_store())
+        catalog = open_catalog(_store())
         changes = catalog.catalogue_changes(brand_id)
         catalog.release_products(brand_id)
         return jsonify({"success": True, "domain": brand_id, "changes": changes})
@@ -825,7 +826,7 @@ def register_dev_routes(app: Flask) -> None:
             return _forbidden()
         if bad := _bad_domain(brand_id):
             return bad
-        catalog = Catalog(_store())
+        catalog = open_catalog(_store())
         stored = catalog.stored_image_count(brand_id)
         waiting = sum(len(urls) for _, urls in catalog.images_awaiting_archive(brand_id))
         catalog.release_products(brand_id)
@@ -964,7 +965,7 @@ def register_dev_routes(app: Flask) -> None:
             current_app.logger.warning("roster add retried: %s", e)
         from backend.archive.domain.brand import Brand
 
-        catalog = Catalog(store)
+        catalog = open_catalog(store)
         catalog.upsert_brand(
             catalog.get_brand(domain)
             or Brand(domain=domain, homepage_url=entry.homepage_url, display_name=display_name)
@@ -1084,7 +1085,7 @@ def register_dev_routes(app: Flask) -> None:
         if not _is_owner():
             return _forbidden()
         store = _store()
-        catalog = Catalog(store)
+        catalog = open_catalog(store)
         names = _names()
         finder_cap = float(os.environ.get("FINDER_DAILY_USD", "0") or 0)
         brands = []

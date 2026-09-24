@@ -170,7 +170,7 @@ function Storefront({ currentPage, onPageSwitch, currentUser, onLogout, navigate
               <span className="shop-total">{state === 'ready' ? `${count(total)} products` : ''}</span>
             </div>
             {state === 'warming' && (
-              <div className="ar-loading"><span className="headline">Building the shop front</span><span>Reading every brand's catalogue. About a minute, once.</span></div>
+              <div className="ar-loading"><span className="headline">Filling the shop front</span><span>Copying every brand's catalogue into the database. A few minutes, once; this page refreshes itself.</span></div>
             )}
             {state === 'error' && (
               <div className="ar-empty"><span className="headline">The shop could not be read</span><span>Try again in a moment.</span></div>

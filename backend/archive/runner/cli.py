@@ -22,6 +22,7 @@ from backend.archive.planner import compose_plan
 from backend.archive.runner.run import run_brand
 from backend.archive.score import score
 from backend.archive.store.catalog import Catalog
+from backend.archive.store.factory import open_catalog
 from backend.archive.store.objects import ObjectStore, R2ObjectStore, object_store
 from backend.archive.transport import HttpxTransport, Transport
 
@@ -597,7 +598,7 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     store: ObjectStore = object_store(args.objects)
-    catalog = Catalog(store)
+    catalog = open_catalog(store)
     try:
         brands = _seed(catalog, args.brands) if args.brands.exists() else []
 

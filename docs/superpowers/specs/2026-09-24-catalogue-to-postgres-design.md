@@ -1,7 +1,8 @@
 # Catalogue storage: from one JSON object per brand to Postgres
 
-Status: proposed, 2026-09-24. Owner: Bhavya. For an agent to execute in phases;
-each phase ships on its own and leaves the site working.
+Status: built 2026-09-24 (phases 0–3 in one change; phase 4 pending a scrape pass).
+Owner: Bhavya. The section "As built" at the end records where the build
+departed from this design.
 
 ## The problem, measured
 
@@ -214,10 +215,13 @@ hand: **25,305 product rows, 23,846 with `last_covered_run` set, per-brand
 counts equal to the R2 objects, `product_raw` count equal to `products`.**
 Run it once against production from a laptop (`DATABASE_URL` from Render).
 
-**Phase 2 — dual write.** Flip the scraper to `CATALOG_BACKEND=both`. Let one
-full scheduled pass run. Exit: for every brand scraped in that pass, the live
-product count in Postgres equals the count in the R2 object, and
-`product_observations` for that run equals the R2 history object.
+**Phase 2 — prove the writes without a scrape.** Run the existing catalogue
+tests (`test_catalog`, `test_end_to_end`, `test_flush_safety`,
+`test_stale_buffer`, `test_images`, `test_image_concurrency`,
+`test_truncated_images`, `test_upload_budget`) against the `pg` backend using
+the throwaway Postgres fixtures. They already drive `record_product`,
+`finalize_run`, `record_image` and the readers end to end. Exit: green on
+both backends. `both` mode exists as a rollback aid, not a gate.
 
 **Phase 3 — cut reads over.** Flip the API to `CATALOG_BACKEND=pg`. Replace
 `storefront.get/build/warm` with SQL (keep `classify`, `colour`, `tile`,
@@ -275,3 +279,31 @@ calendar time because of the passes in between.
   being removed.
 - Don't split R2 into one object per product. It fixes the point read and
   breaks listing; see Option A.
+
+## As built (2026-09-24)
+
+- **`products.record jsonb`** holds the connector's record minus `raw`, returned
+  verbatim to every reader that used to get it from the JSON object, so no
+  reader had to change. The typed columns beside it are what queries filter
+  and sort on. This doubles some bytes; it is what made the port safe.
+- **`search`** is a plain `tsvector` column set by the upsert, not a generated
+  column: `array_to_string` is not immutable and Postgres refuses it in a
+  generation expression.
+- **`product_images`** keeps the object's row shape (`url`, `content_hash`,
+  `stored_url`, `misses`) rather than the `status` column sketched above, so
+  the inherited image-queue logic works unchanged.
+- **`catalogue_brands`** (`live_run`, counts) replaces listing runs to find the
+  live run and replaces `.meta.json` for the counts; `fleet.json` and the
+  `.meta.json` objects are still written so the dev page needs no change yet.
+- **No `both` mode.** Rollback is `CATALOG_BACKEND=r2`, which reads the R2
+  objects as they were at cut-over.
+- **Backfill runs inside the API** at boot when the table is empty
+  (`backfill_if_empty`), and as `python -m backend.archive.store.backfill`.
+  The shop answers 503 WARMING until it finishes.
+- **The scrape-pass gate was dropped** on Bhavya's call: the write path is
+  proven by `tests/db/test_pg_catalog.py`, which drives record → finalize →
+  read, the image queue, the backfill reconciliation and the SQL shop front
+  against a real Postgres.
+- **Local development:** the Homebrew cluster's databases were SQL_ASCII and
+  refused `\u00a0` inside jsonb; `fa_dev` and `fashion_archive_test` were
+  recreated as UTF-8 (the old one is kept as `fa_dev_ascii`).

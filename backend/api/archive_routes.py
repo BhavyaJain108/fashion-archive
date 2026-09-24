@@ -18,9 +18,10 @@ from typing import Any
 
 from flask import Flask, jsonify, request
 
-from backend.archive import storefront, taxonomy
+from backend.archive import storefront, storefront_sql, taxonomy
 from backend.archive.roster import RosterEntry, app_roster
 from backend.archive.store.catalog import Catalog, has_photograph
+from backend.archive.store.factory import backend_name, open_catalog
 from backend.archive.store.objects import ObjectStore, object_store
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -59,7 +60,7 @@ def _catalog() -> Catalog:
     # One GET rather than a LIST: fleet.json names every brand the archive knows.
     if backing.get("fleet.json") is None and not backing.list("brands/"):
         raise NoCatalogue("no archive in this store: no fleet.json and nothing under brands/")
-    return Catalog(backing)
+    return open_catalog(backing)
 
 
 # The phrase book is one small object shared by every brand; re-reading it on each
@@ -370,16 +371,32 @@ def search_products():
 # ---------------------------------------------------------------------------
 
 
-def _index() -> storefront.Index:
+def _index() -> storefront.Index | None:
     return storefront.get(_catalog, app_roster)
+
+
+def _pg_view():
+    """(pool, roster, open domains) for the SQL shop front, or None while the first
+    backfill is still filling the table."""
+    from backend.archive.store import backfill
+
+    catalog = _catalog()
+    try:
+        if backfill.in_progress():
+            return None
+        pool = catalog._pool
+        domains = storefront_sql.open_domains(catalog, app_roster())
+    finally:
+        catalog.close()
+    return pool, list(app_roster()), domains
 
 
 def get_storefront():
     """GET /api/archive/storefront?group=&bucket=&brand=&sale=&colour=&q=&sort=&offset=&limit=
 
     One answer for the whole page: the tiles for this view, and the counts every
-    column shows. Served from an in-memory index that is built at boot and refreshed
-    in the background; a request never waits on a rebuild.
+    column shows. On the Postgres backend this is six small queries; on the
+    object-store backend it is served from an in-memory index built at boot.
     """
     a = request.args
     try:
@@ -393,40 +410,56 @@ def get_storefront():
     brand = a.get("brand", "")
     if brand and not _entry(brand):
         return jsonify({"error": "Brand not shown by this archive"}), 404
+    args = dict(
+        group=a.get("group", ""),
+        bucket=a.get("bucket", ""),
+        brand=brand,
+        sale=a.get("sale", "") in ("1", "true", "yes"),
+        q=a.get("q", "").strip(),
+        sort=sort,
+        offset=offset,
+        limit=limit,
+    )
+    if backend_name() == "pg":
+        view = _pg_view()
+        if view is None:
+            return jsonify(
+                {"error": "The shop front is still being filled", "code": "WARMING"}
+            ), 503
+        pool, roster, domains = view
+        return jsonify(
+            storefront_sql.query(
+                pool, roster=roster, domains=domains, colour=a.get("colour", ""), **args
+            )
+        )
     index = _index()
     if index is None:
         return jsonify({"error": "The shop front is still being built", "code": "WARMING"}), 503
-    return jsonify(
-        storefront.query(
-            index,
-            group=a.get("group", ""),
-            bucket=a.get("bucket", ""),
-            brand=brand,
-            sale=a.get("sale", "") in ("1", "true", "yes"),
-            colour_=a.get("colour", ""),
-            q=a.get("q", "").strip(),
-            sort=sort,
-            offset=offset,
-            limit=limit,
-        )
-    )
+    return jsonify(storefront.query(index, colour_=a.get("colour", ""), **args))
 
 
 def get_product():
     """GET /api/archive/product?brand_id=&handle= — one product with everything the
-    page shows, and eight more from the same brand.
-
-    Answered from the index. R2 holds one object per brand, not per product, so
-    "read this product" used to mean downloading the brand's whole catalogue and
-    picking one out — several seconds a click. The index already holds the
-    parsed catalogue; the tile carries the product page's fields (see
-    storefront.tile) and is served as-is.
-    """
+    page shows, and eight more from the same brand. One indexed lookup on the
+    Postgres backend; on the object-store backend, a scan of the in-memory index."""
     brand_id = request.args.get("brand_id", "")
     url = request.args.get("url", "")
     handle = request.args.get("handle", "")
     if not _entry(brand_id) or not (url or handle):
         return jsonify({"error": "brand_id and url or handle are required"}), 400
+    if backend_name() == "pg":
+        view = _pg_view()
+        if view is None:
+            return jsonify(
+                {"error": "The shop front is still being filled", "code": "WARMING"}
+            ), 503
+        pool, roster, domains = view
+        found = storefront_sql.product(
+            pool, roster=roster, domains=domains, brand=brand_id, handle=handle, url=url
+        )
+        if found is None:
+            return jsonify({"error": "No such product"}), 404
+        return jsonify(found)
     index = _index()
     if index is None:
         return jsonify({"error": "The shop front is still being built", "code": "WARMING"}), 503

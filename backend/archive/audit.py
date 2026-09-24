@@ -34,7 +34,7 @@ import sys
 
 from backend.archive.domain.product import E0005_FIELDS, ProductRecord
 from backend.archive.evidence import describe
-from backend.archive.store.catalog import Catalog
+from backend.archive.store.factory import open_catalog
 from backend.archive.store.objects import object_store
 
 A_GUARANTEED = (
@@ -176,7 +176,7 @@ def verdict(field: str, rows: list[dict]) -> tuple[str, float]:
 
 
 def main(argv: list[str]) -> int:
-    catalog = Catalog(object_store())
+    catalog = open_catalog(object_store())
     try:
         domains = argv or [
             r["domain"] for r in catalog.status_rows() if catalog.current_products(r["domain"])

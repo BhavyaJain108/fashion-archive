@@ -140,10 +140,19 @@ try:
     # The shop front index reads every brand's catalogue from the store (~90 s).
     # Built once here, in the background, so the first My Brands request finds it.
     from backend.api.archive_routes import _catalog as _archive_catalog
+    from backend.api.archive_routes import store as _archive_store
     from backend.archive import storefront
     from backend.archive.roster import app_roster
+    from backend.archive.store.factory import backend_name
 
-    storefront.warm(_archive_catalog, app_roster)
+    if backend_name() == "pg":
+        # Rows, not an index: nothing to warm. The one-time copy from the object
+        # store runs here if the table is empty (see backend/archive/store/backfill.py).
+        from backend.archive.store.backfill import backfill_if_empty
+
+        backfill_if_empty(_archive_store())
+    else:
+        storefront.warm(_archive_catalog, app_roster)
 except Exception as e:
     print(f"❌ Error registering Archive API: {e}")
     import traceback

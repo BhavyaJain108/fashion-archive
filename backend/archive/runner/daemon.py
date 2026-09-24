@@ -30,6 +30,7 @@ from backend.archive.recommend import recommend
 from backend.archive.scheduler import Scheduler
 from backend.archive.score import score
 from backend.archive.store.catalog import Catalog
+from backend.archive.store.factory import open_catalog
 from backend.archive.store.objects import ObjectStore
 
 POLL_SECONDS = 10
@@ -202,7 +203,7 @@ def worker(store_factory, worker_id: str, do_brand_factory, version: str, log=pr
     Each worker builds its own store, because a store holds a network client and the
     workers are threads."""
     store: ObjectStore = store_factory()
-    catalog = Catalog(store)
+    catalog = open_catalog(store)
     scheduler = Scheduler(store, worker_id=worker_id)
     do_brand = do_brand_factory(catalog)
     try:
