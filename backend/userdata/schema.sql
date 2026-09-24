@@ -390,3 +390,35 @@ CREATE TABLE IF NOT EXISTS rate_limits (
     count        integer NOT NULL DEFAULT 1,
     PRIMARY KEY (key, window_start)
 );
+
+-- The shopping bag: one row per (product, variant) a user has put in it, across
+-- every shop. Nothing about money moves here — a line remembers what the product
+-- cost when it was added so the bag can say "this changed", and the checkout
+-- hands the person to each shop's own cart. No card, no order, no address.
+--
+-- variant_id and size are nullable because a product read from a page rather
+-- than a feed has neither; COALESCE in the unique index keeps such a line from
+-- being added twice, since NULLs would otherwise compare unequal.
+CREATE TABLE IF NOT EXISTS bag_lines (
+    id          bigserial PRIMARY KEY,
+    user_id     uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    brand       text NOT NULL,           -- the shop's domain, as the roster names it
+    itemurl     text NOT NULL,
+    handle      text,
+    title       text NOT NULL DEFAULT '',
+    image       text,
+    platform    text,                    -- 'shopify' | 'woo' | NULL
+    variant_id  text,
+    size        text,
+    qty         integer NOT NULL CHECK (qty > 0),
+    price       numeric(12, 2),          -- in `currency`, as the catalogue said at add time
+    currency    text,
+    added_at    timestamptz NOT NULL DEFAULT now(),
+    updated_at  timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_bag_lines_variant
+    ON bag_lines (user_id, itemurl, COALESCE(variant_id, ''), COALESCE(size, ''));
+
+CREATE INDEX IF NOT EXISTS idx_bag_lines_user
+    ON bag_lines (user_id, added_at);

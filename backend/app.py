@@ -150,6 +150,19 @@ except Exception as e:
 
     traceback.print_exc()
 
+# 7b. Bag API (one shopping bag across every brand; checkout is each shop's own
+# cart). Reads the storefront index the Archive API warms above.
+try:
+    print("🔧 Registering Bag API...")
+    from backend.api.bag_routes import register_bag_routes
+
+    register_bag_routes(app)
+except Exception as e:
+    print(f"❌ Error registering Bag API: {e}")
+    import traceback
+
+    traceback.print_exc()
+
 # 8. Dev API (the owner's view of the scrapers and what the services cost). Also
 # registered before install_auth, and additionally checks the caller against
 # ADMIN_EMAILS — a session is not the same thing as being the owner.
