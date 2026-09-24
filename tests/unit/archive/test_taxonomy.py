@@ -186,7 +186,7 @@ def test_the_catch_all_still_answers_when_nothing_else_does():
 
 @pytest.mark.unit
 def test_a_weak_entry_yields_to_anything_more_specific():
-    """"set" is a top and a bottom — unless the product says bikini."""
+    """ "set" is a top and a bottom — unless the product says bikini."""
     book = taxonomy.PhraseBook(
         {"set": {"types": ["tops", "trousers"], "weak": True}, "bikini": {"types": ["swimwear"]}}
     )

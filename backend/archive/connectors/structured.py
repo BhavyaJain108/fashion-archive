@@ -76,7 +76,12 @@ def parse_ldjson_product(html: str, url: str) -> ProductRecord:
     if node:
         return _map_product_node(node, url, html)
     og = dict(_OG.findall(html))
-    if og.get("title"):
+    # A title alone is not a product. Entire Studios' sitemap lists 987 retired pages
+    # that say "currently unavailable" and carry og:title and nothing else; storing
+    # them made 72% of the brand's live count out of pages nobody could buy from.
+    # With a photograph there is at least something to show; without one, skip, and
+    # the page is picked up the day it comes back with data.
+    if og.get("title") and og.get("image"):
         return ProductRecord(
             itemurl=url,
             product_title=og["title"],
@@ -84,7 +89,7 @@ def parse_ldjson_product(html: str, url: str) -> ProductRecord:
             **pack_sizes(sizes_from_dom(html)),
             raw={"source": "og_meta"},
         )
-    raise SkipProduct(f"no Product JSON-LD or OG data on {url}")
+    raise SkipProduct(f"no product data on {url} (no JSON-LD Product, no og:image)")
 
 
 def sizes_from_dom(html: str) -> list[dict]:

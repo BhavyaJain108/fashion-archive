@@ -456,3 +456,13 @@ def test_a_variant_that_is_not_a_colour_is_still_recorded_as_a_variant():
     rec = parse_ldjson_product(html, "https://x/p")
     assert rec.variant_info == "SEX"
     assert rec.color_info is None
+
+
+@pytest.mark.unit
+def test_a_page_with_only_a_title_is_not_a_product():
+    # entirestudios.com/products/a-4-bomber-army: 200, og:title, "currently
+    # unavailable", nothing else. A record with a name and no data is not kept.
+    html = '<html><head><meta property="og:title" content="A-4 Bomber Army"></head><body>This product is currently unavailable.</body></html>'
+    with pytest.raises(SkipProduct) as e:
+        parse_ldjson_product(html, "https://www.entirestudios.com/products/a-4-bomber-army")
+    assert "no product data" in str(e.value)

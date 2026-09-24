@@ -276,6 +276,7 @@ def test_the_bank_alone_is_enough_when_the_second_feed_is_down(monkeypatch):
     monkeypatch.setattr(archive_routes, "_fetch_json", fake)
     assert archive_routes._fetch_rates()["rates"] == {"EUR": 0.88, "USD": 1.0}
 
+
 # --- the shared vocabulary reaching a reader --------------------------------------
 
 
