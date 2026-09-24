@@ -240,3 +240,22 @@ def test_sql_shop_front_matches_the_index_shape(tmp_path, pool, clean):
         is None
     )
     cat.close()
+
+
+def test_boot_backfill_resumes_the_brands_without_a_finished_row(tmp_path, pool, clean):
+    store = DirectoryObjectStore(tmp_path)
+    r2 = Catalog(store)
+    for d in ("a.com", "b.com"):
+        run = r2.open_run(d, "full")
+        r2.record_product(d, run, _record(f"https://{d}/products/x", "X", 10), None)
+        r2.finalize_run(run, 0, _coverage(), domain=d)
+    r2.close()
+    pg = PgCatalog(store, pool=pool)
+    assert sorted(bf.missing_domains(store, pg)) == ["a.com", "b.com"]
+    bf.backfill_brand(store, pg, "a.com", log=lambda *_: None)
+    assert bf.missing_domains(store, pg) == [
+        "b.com"
+    ]  # a.com finished; only b.com is copied on the next boot
+    bf.backfill(store, pg, bf.missing_domains(store, pg), log=lambda *_: None)
+    assert bf.missing_domains(store, pg) == []
+    pg.close()

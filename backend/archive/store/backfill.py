@@ -207,12 +207,25 @@ def in_progress() -> bool:
     return _running
 
 
+def missing_domains(store: ObjectStore, pg: PgCatalog) -> list[str]:
+    """Brands with a catalogue object in the store but no finished row here.
+
+    `backfill_brand` writes the brand's `catalogue_brands` row last, so a brand
+    whose copy was cut short (a deploy that swapped instances mid-way) has no row
+    and is copied again on the next boot. The copy is idempotent, so a brand that
+    is half in is simply finished."""
+    with pg._pg() as conn:
+        done = {r[0] for r in conn.execute("SELECT brand FROM catalogue_brands").fetchall()}
+    return [d for d in _domains(store) if d not in done]
+
+
 def backfill_if_empty(store: ObjectStore, log=print) -> None:
-    """At boot on the Postgres backend: if nothing has been copied yet, copy
-    everything, in the background, once. The shop answers 503 WARMING meanwhile."""
+    """At boot on the Postgres backend: copy in every brand that has not finished
+    copying, in the background. The shop answers 503 WARMING meanwhile."""
     global _running
     pg = PgCatalog(store)
-    if not products_table_is_empty(pg):
+    todo = missing_domains(store, pg)
+    if not todo:
         pg.close()
         return
     import threading
@@ -220,7 +233,8 @@ def backfill_if_empty(store: ObjectStore, log=print) -> None:
     def run() -> None:
         global _running
         try:
-            backfill(store, pg, log=log)
+            log(f"backfill: {len(todo)} brand(s) not yet copied — copying")
+            backfill(store, pg, todo, log=log)
         finally:
             _running = False
             pg.close()

@@ -57,6 +57,15 @@ app.config["API_BASE_URL"] = config.API_BASE_URL
 
 
 @app.route("/api/health", methods=["GET"])
+def _catalogue_filling() -> bool:
+    try:
+        from backend.archive.store.backfill import in_progress
+
+        return in_progress()
+    except Exception:  # noqa: BLE001 — health must answer even if the archive package is broken
+        return False
+
+
 def health_check():
     """Health check endpoint. `catalogue` names the catalogue backend (r2 | pg) so a
     deploy that flips it can be verified from outside without a session."""
@@ -68,6 +77,7 @@ def health_check():
             "service": "Fashion Archive API",
             "version": "1.0.0",
             "catalogue": backend_name(),
+            "catalogue_filling": _catalogue_filling(),
         }
     )
 
