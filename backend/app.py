@@ -58,8 +58,18 @@ app.config["API_BASE_URL"] = config.API_BASE_URL
 
 @app.route("/api/health", methods=["GET"])
 def health_check():
-    """Health check endpoint"""
-    return jsonify({"status": "healthy", "service": "Fashion Archive API", "version": "1.0.0"})
+    """Health check endpoint. `catalogue` names the catalogue backend (r2 | pg) so a
+    deploy that flips it can be verified from outside without a session."""
+    from backend.archive.store.factory import backend_name
+
+    return jsonify(
+        {
+            "status": "healthy",
+            "service": "Fashion Archive API",
+            "version": "1.0.0",
+            "catalogue": backend_name(),
+        }
+    )
 
 
 # =============================================================================
