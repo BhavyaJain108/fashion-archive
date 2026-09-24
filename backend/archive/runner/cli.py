@@ -385,6 +385,8 @@ def main(argv: list[str] | None = None) -> int:
         "fleet-check",
         "notes",
         "failures",
+        "backup",
+        "restore",
     ):
         sp = sub.add_parser(name)
         sp.add_argument(
@@ -436,6 +438,13 @@ def main(argv: list[str] | None = None) -> int:
             )
             sp.add_argument("--gap", type=float, default=0.0)
             sp.add_argument("--images-dir", type=Path, default=Path("backend/archive/data/images"))
+        if name == "backup":
+            sp.add_argument(
+                "--status", action="store_true", help="say what is held and stop; back up nothing"
+            )
+        if name == "restore":
+            sp.add_argument("date", help="a day with a backup, YYYY-MM-DD")
+            sp.add_argument("domain", help="the one brand to put back as it was that day")
         if name == "failures":
             sp.add_argument("--hours", type=int, default=24)
             sp.add_argument("--all", action="store_true", help="every failed run, not only ours")
@@ -974,6 +983,40 @@ def main(argv: list[str] | None = None) -> int:
                     f"{r['cadence_seconds']:>8}  {r['next_due'][:19]}"
                     f"{'  (running)' if r['claimed_by'] else ''}"
                 )
+            return 0
+
+        if args.cmd in ("backup", "restore"):
+            from backend.archive import backup as bk
+
+            if args.cmd == "backup" and args.status:
+                s = bk.status(store)
+                print(f"last:  {s.get('day')} {s.get('state')} by {s.get('worker')}")
+                if s.get("error"):
+                    print(f"error: {s['error']}")
+                print(f"days:  {', '.join(s['days']) or 'none'}")
+                return 0
+            if not hasattr(catalog, "_pg"):
+                print(
+                    "the catalogue is not on Postgres here: set CATALOG_BACKEND=pg and "
+                    "DATABASE_URL, then run again",
+                    file=sys.stderr,
+                )
+                return 2
+            if args.cmd == "backup":
+                m = bk.backup(catalog, store)
+                for table, t in m["tables"].items():
+                    print(
+                        f"{table:<22}{t['rows']:>8} rows {t['bytes'] / 1e6:>8.1f} MB {t['seconds']}s"
+                    )
+                print(
+                    f"{m['r2']['copied']} objects copied, {len(m['pruned'])} old days pruned, "
+                    f"{m['seconds']}s → backups/{m['day']}/"
+                )
+                return 0
+            counts = bk.restore(catalog, store, args.date, args.domain)
+            for table, n in counts.items():
+                print(f"{table:<22}{n:>8} rows")
+            print(f"{args.domain} is as it was on {args.date}")
             return 0
 
         if args.cmd == "daemon":
