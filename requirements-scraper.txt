@@ -4,7 +4,9 @@
 # Pillow in an image that opens none of them — over 100 MB for nothing. This list was
 # derived from what backend/archive and backend/storage actually import.
 #
-# Deliberately absent: flask and psycopg (the scraper is not the API).
+# Deliberately absent: flask (the scraper is not the API). psycopg is here since
+# 2026-09-24: the catalogue's rows live in Postgres (CATALOG_BACKEND=pg) and the
+# worker writes them; without it the container exits before its first poll.
 #
 # The old reason for leaving playwright out was that the four brands wanting a browser
 # were the four producing nothing, so a browser bought us nothing. That is no longer
@@ -30,3 +32,5 @@ lxml>=4.9.0
 boto3>=1.34
 anthropic>=0.25.0
 python-dotenv>=1.0.0
+psycopg[binary]>=3.1
+psycopg_pool>=3.2
