@@ -416,6 +416,8 @@ def main(argv: list[str] | None = None) -> int:
         "notes",
         "failures",
         "periods",
+        "backup",
+        "restore",
     ):
         sp = sub.add_parser(name)
         sp.add_argument(
@@ -477,6 +479,13 @@ def main(argv: list[str] | None = None) -> int:
             sp.add_argument("domain", nargs="?")
             sp.add_argument("itemurl", nargs="?")
             sp.add_argument("--all", action="store_true", help="migrate every brand in brands.yml")
+        if name == "backup":
+            sp.add_argument(
+                "--status", action="store_true", help="say what is held and stop; back up nothing"
+            )
+        if name == "restore":
+            sp.add_argument("date", help="a day with a backup, YYYY-MM-DD")
+            sp.add_argument("domain", help="the one brand to put back as it was that day")
         if name == "failures":
             sp.add_argument("--hours", type=int, default=24)
             sp.add_argument("--all", action="store_true", help="every failed run, not only ours")
@@ -1065,6 +1074,41 @@ def main(argv: list[str] | None = None) -> int:
                 )
             return 0
 
+        if args.cmd in ("backup", "restore"):
+            from backend.archive import backup as bk
+
+            if args.cmd == "backup" and args.status:
+                s = bk.status(store)
+                print(f"last:  {s.get('day')} {s.get('state')} by {s.get('worker')}")
+                if s.get("error"):
+                    print(f"error: {s['error']}")
+                print(f"days:  {', '.join(s['days']) or 'none'}")
+                return 0
+            if not hasattr(catalog, "_pg"):
+                print(
+                    "the catalogue is not on Postgres here: set CATALOG_BACKEND=pg and "
+                    "DATABASE_URL, then run again",
+                    file=sys.stderr,
+                )
+                return 2
+            if args.cmd == "backup":
+                m = bk.backup(catalog, store)
+                for table, st in m["tables"].items():
+                    print(
+                        f"{table:<22}{st['rows']:>8} rows {st['bytes'] / 1e6:>8.1f} MB "
+                        f"{st['seconds']}s"
+                    )
+                print(
+                    f"{m['r2']['copied']} objects copied, {len(m['pruned'])} old days pruned, "
+                    f"{m['seconds']}s → backups/{m['day']}/"
+                )
+                return 0
+            counts = bk.restore(catalog, store, args.date, args.domain)
+            for table, n in counts.items():
+                print(f"{table:<22}{n:>8} rows")
+            print(f"{args.domain} is as it was on {args.date}")
+            return 0
+
         if args.cmd == "daemon":
             from backend.archive.runner.daemon import serve
             from backend.archive.scheduler import Scheduler
@@ -1123,9 +1167,11 @@ def main(argv: list[str] | None = None) -> int:
                 def _field_finder(domain, url, missing, page_transport):
                     from backend.archive.finder_llm import learn_recipes
 
-                    # A page is up to ~55k tokens; the old 0.02 was a tenth of a real
-                    # call and let the day overshoot by a call per worker.
-                    cap.check(estimate_usd=0.2)  # raises FinderBudgetSpent
+                    # A trimmed page is up to ~28k tokens, about $0.10 on a heavy page.
+                    # It was 0.2 when the finder sent 220k characters; before that, 0.02
+                    # was a tenth of a real call and let the day overshoot by a call
+                    # per worker.
+                    cap.check(estimate_usd=0.1)  # raises FinderBudgetSpent
                     before = spend.usd
                     resp = page_transport.get(url)
                     if resp.status_code != 200:
@@ -1195,9 +1241,9 @@ def main(argv: list[str] | None = None) -> int:
                             # Ask about everything the run can, not ten pages' worth:
                             # the daily ceiling is the throttle, and what a page did
                             # not yield is asked again on a later product or run.
-                            # Fifteen pages at ~$0.17 is $2.50 — one brand cannot spend
-                            # the fleet's day; what a page did not yield is asked again
-                            # on a later run.
+                            # Fifteen pages at ~$0.10 (was ~$0.17 before the trimmer)
+                            # is $1.50 — one brand cannot spend the fleet's day; what a
+                            # page did not yield is asked again on a later run.
                             learn_budget=15,
                             transport_factory=lambda level: for_level(
                                 level, sink=requests_log, budget=budget

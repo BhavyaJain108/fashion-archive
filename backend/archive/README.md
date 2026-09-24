@@ -178,3 +178,74 @@ lays the same field out differently across its catalogue. A field keeps the firs
 that survives all four checks. Any product whose gaps the existing rules cannot fill is
 a chance to learn another rule, bounded by `--learn-budget` and three failed attempts
 per field.
+
+### What the model is shown
+
+One call is one page, and the page is most of the bill: 220,000 characters (~55k
+tokens) cost 17–20 cents on a heavy page against 1.5 on a light one. Since 2026-09-24
+`finder_llm.prepare_page` sends at most 110,000 characters, and what it removes is
+what no rule can point at:
+
+| Removed | Why it is safe |
+|---|---|
+| `<script>` (except `application/ld+json`), `<style>`, `<svg>`, `<noscript>`, comments | not markup a selector lands on; JSON-LD stays where it was |
+| stylesheet / preload / icon `<link>`s | plumbing; `canonical` and `alternate` stay |
+| `style=`, `on*=`, `sizes=` attributes | presentation and behaviour |
+| `data-*` values over 120 characters that are not about the product | Elementor `data-settings`, a mega-menu's config; kept when the name says product/variant/size/price/image… or the value carries an image URL (`data-product_variations` stays) |
+| `srcset` beyond its first two candidates | the rule reads the attribute; its `expected` may be the first entry, and replay accepts a value that begins with it |
+| whitespace runs | collapsed to one space |
+
+When the page marks where the product is — `<main>`, an `itemtype=…Product`
+container, or a `product-single` / `pdp` / `single-product`-style class — only that
+region is sent, with the head's `<meta>` tags and the JSON-LD in front of it; the
+header, mega-menu and footer are not. An empty `<main>` (an app shell) does not count.
+
+Measured on the three synthetic storefront pages in `tests/unit/archive/fixtures/`
+(built to the proportions of the platforms, not fetched — see
+`test_finder_trim.py`), against what the old code sent:
+
+| Fixture | Raw | Old payload | Now | Now / old |
+|---|---|---|---|---|
+| `nextjs_product_page.html` | 370,890 | 129,769 | 55,434 | 0.43 |
+| `shopify_product_page.html` | 278,979 | 148,739 | 78,587 | 0.53 |
+| `woo_elementor_product_page.html` | 282,415 | 132,875 | 63,301 | 0.48 |
+
+`_holds_up` replays every proposal on the page **as fetched**, never on the trimmed
+copy: the rule is applied to untrimmed pages for the rest of the brand's life, so a
+selector that only works on the trimmed copy is exactly what replay throws out — and
+a rule that points at something the model was not shown (a `<noscript>` image, say)
+is kept if it holds. The prompt tells the model the page is trimmed and that replay is
+on the whole page, so it anchors selectors on the product's own containers.
+
+## Backups
+
+Nothing was backed up before 2026-09-24. `backup.py` copies, once a day, what cannot
+be re-scraped, under `backups/<YYYY-MM-DD>/` in the same bucket:
+
+| | What | How |
+|---|---|---|
+| `pg/<table>.ndjson.gz` | the five catalogue tables (`schema.sql`), `raw` included | streamed out of Postgres through a server-side cursor, one JSON line per row into gzip; a 25k-row table is never in memory as rows and as bytes at once |
+| `r2/<key>` | `fleet.json`, `rules/`, `plans/`, `control/schedule/` | the bucket's own same-bucket `CopyObject` (`ObjectStore.copy`) — no bytes leave R2, no worker egress |
+| `manifest.json` | row counts, bytes, seconds, what was pruned | what `backup()` returns and the log line says |
+
+Not copied: photographs (re-fetchable from `product_images.url`, and gigabytes), run
+logs (history, not state), runs/scores/evidence (re-derived by the next pass), and
+the frozen `history/` observation objects (the table is dumped instead). Fourteen days
+are kept; older days are deleted. Bandwidth: ~25–35 MB uploaded a day, ~1 GB a month.
+
+**Who runs it:** the daemon. Each worker looks at `control/backup.json` once per
+calendar day; the first to see a new date claims it with a compare-and-swap and runs
+the backup, the others see the claim and carry on scraping. A day that failed is
+retried by the next worker to look; a claim whose worker died is retaken after three
+hours. The r2 backend has no rows to dump, so on `CATALOG_BACKEND=r2` nothing happens.
+
+```
+python -m backend.archive.runner.cli backup             # run one now
+python -m backend.archive.runner.cli backup --status    # last day, state, days held
+python -m backend.archive.runner.cli restore 2026-09-24 bode.com
+```
+
+`restore` puts one brand back as it was on one day: delete its rows in all five
+tables, insert the day's rows, one transaction. Other brands are untouched. Tests:
+`tests/unit/archive/test_backup.py` (line format, copies, prune, claim) and
+`tests/db/test_backup.py` (dump and restore against a real Postgres).

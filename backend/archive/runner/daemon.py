@@ -220,10 +220,16 @@ def worker(store_factory, worker_id: str, do_brand_factory, version: str, log=pr
 
     Each worker builds its own store, because a store holds a network client and the
     workers are threads."""
+    from backend.archive.backup import daily_backup
+
     store: ObjectStore = store_factory()
     catalog = open_catalog(store)
     scheduler = Scheduler(store, worker_id=worker_id)
     do_brand = do_brand_factory(catalog)
+    # The date this worker last looked at the backup claim. It looks once per day,
+    # not once per poll: the claim is one object in the bucket and every worker
+    # reading it every ten seconds would be most of the daemon's requests.
+    backup_day: str | None = None
     try:
         while True:
             try:
@@ -234,6 +240,12 @@ def worker(store_factory, worker_id: str, do_brand_factory, version: str, log=pr
                     return
                 # Seen recently, by the deck: a thread that died used to be invisible.
                 scheduler.beat_worker(worker_id)
+                today = datetime.now(timezone.utc).date().isoformat()
+                if today != backup_day:
+                    backup_day = today
+                    # The first worker to see the date change takes the day's backup;
+                    # the claim on control/backup.json is what stops a second one.
+                    daily_backup(store, catalog, worker_id, log=log)
                 if not run_once(catalog, scheduler, do_brand, log=log):
                     time.sleep(POLL_SECONDS)
             except Exception as e:  # noqa: BLE001 — a transient must not end the worker

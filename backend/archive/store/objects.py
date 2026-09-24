@@ -43,6 +43,12 @@ class ObjectStore(Protocol):
     def delete(self, key: str) -> None:
         """Remove the object. Absent is not an error."""
 
+    def copy(self, src: str, dst: str) -> bool:
+        """Duplicate one object inside the store. False when the source is absent.
+
+        On R2 this is a server-side CopyObject: the bytes never leave the bucket, so
+        the nightly backup of the control plane costs no worker egress."""
+
 
 def _etag(body: bytes) -> str:
     # md5 to match what S3 returns for a single-part upload, so the directory store
@@ -131,6 +137,13 @@ class DirectoryObjectStore:
 
     def delete(self, key: str) -> None:
         self._path(key).unlink(missing_ok=True)
+
+    def copy(self, src: str, dst: str) -> bool:
+        found = self.get(src)
+        if found is None:
+            return False
+        self.put(dst, found[0])
+        return True
 
 
 def _r2_client():
@@ -228,6 +241,25 @@ class R2ObjectStore:
 
     def delete(self, key: str) -> None:
         self._client.delete_object(Bucket=self._bucket, Key=self._key(key))
+
+    def copy(self, src: str, dst: str) -> bool:
+        """Same-bucket CopyObject. R2 does the copy inside the service; the worker
+        sends one request of a few hundred bytes and receives nothing but a status,
+        which is why the backup copies the control plane this way rather than
+        get+put."""
+        from botocore.exceptions import ClientError
+
+        try:
+            self._client.copy_object(
+                Bucket=self._bucket,
+                CopySource={"Bucket": self._bucket, "Key": self._key(src)},
+                Key=self._key(dst),
+            )
+        except ClientError as error:
+            if error.response["Error"]["Code"] in _ABSENT:
+                return False
+            raise
+        return True
 
 
 DEFAULT_LOCAL_ROOT = Path("backend/archive/data/objects")
