@@ -73,6 +73,17 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def has_photograph(record: dict) -> bool:
+    """Whether a product has anything to show. A tile with no image is not a product
+    anyone can shop; it stays in the catalogue and the site's routes leave it out."""
+    if record.get("main_image_url"):
+        return True
+    raw = record.get("all_images")
+    if isinstance(raw, list):
+        return any(raw)
+    return isinstance(raw, str) and raw.strip() not in ("", "[]")
+
+
 def new_run_id() -> str:
     """Sortable by time, unique without a counter to hand out.
 

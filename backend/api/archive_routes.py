@@ -9,7 +9,10 @@ Everything lives under /api/archive/ so the older pipeline's /api/brands routes 
 working for the panels that still use them.
 """
 
+import json
 import os
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +20,7 @@ from flask import Flask, jsonify, request
 
 from backend.archive import storefront
 from backend.archive.roster import RosterEntry, app_roster
-from backend.archive.store.catalog import Catalog
+from backend.archive.store.catalog import Catalog, has_photograph
 from backend.archive.store.objects import ObjectStore, object_store
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -87,6 +90,30 @@ def _matches(record: dict, category: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# what the site may show
+# ---------------------------------------------------------------------------
+
+# The site shows only what a person could go and buy: the products of the most
+# recent run that read the whole shop, from brands that are open, with a photograph.
+# A password-gated brand may still hold products from before its wall went up; those
+# are the archive's memory, not the shop's window.
+
+
+def _open(domain: str, catalog: Catalog) -> bool:
+    return catalog.get_brand_state(domain) != "gated"
+
+
+def _visible(records: list[dict]) -> list[dict]:
+    return [r for r in records if has_photograph(r)]
+
+
+def _shop_products(domain: str, catalog: Catalog) -> list[dict]:
+    if not _open(domain, catalog):
+        return []
+    return _visible(catalog.current_products(domain))
+
+
+# ---------------------------------------------------------------------------
 # brands
 # ---------------------------------------------------------------------------
 
@@ -134,6 +161,7 @@ def get_brands():
                 images.get(e.domain, 0),
             )
             for e in app_roster()
+            if (status.get(e.domain) or {}).get("state") != "gated"
         ]
         return jsonify({"brands": brands, "total": len(brands)})
     finally:
@@ -152,7 +180,7 @@ def get_brand(brand_id):
     catalog = _catalog()
     try:
         status = next((r for r in catalog.status_rows() if r["domain"] == brand_id), None)
-        records = catalog.current_products(brand_id)
+        records = _shop_products(brand_id, catalog)
         row = _brand_row(entry, status, catalog, len(records), catalog.stored_image_count(brand_id))
         row["field_fill"] = _field_fill(records)
         cards = catalog.scorecards(brand_id, limit=1)
@@ -192,7 +220,7 @@ def get_hierarchy(brand_id):
     """
     catalog = _catalog()
     try:
-        records = catalog.current_products(brand_id)
+        records = _shop_products(brand_id, catalog)
     finally:
         catalog.close()
 
@@ -253,7 +281,7 @@ def get_products():
 
     catalog = _catalog()
     try:
-        records = [r for r in catalog.current_products(brand_id) if _matches(r, category)]
+        records = [r for r in _shop_products(brand_id, catalog) if _matches(r, category)]
         page = records[offset : offset + limit]
         return jsonify(
             {
@@ -274,7 +302,7 @@ def get_counts():
         return jsonify({"error": "Brand not shown by this archive"}), 404
     catalog = _catalog()
     try:
-        records = catalog.current_products(brand_id)
+        records = _shop_products(brand_id, catalog)
     finally:
         catalog.close()
 
@@ -300,6 +328,8 @@ def search_products():
     try:
         by_domain: dict[str, list[dict]] = {}
         for domain, record in catalog.search_products(domains, query, limit):
+            if not has_photograph(record) or not _open(domain, catalog):
+                continue
             by_domain.setdefault(domain, []).append(record)
         out = []
         for domain, records in by_domain.items():
@@ -406,6 +436,44 @@ def get_health():
         catalog.close()
 
 
+# ---------------------------------------------------------------------------
+# money
+# ---------------------------------------------------------------------------
+
+# The shops price in their own currencies — dollars, euros, pounds, Australian
+# dollars, roubles. A visitor reads prices in theirs. The rates come from the
+# European Central Bank by way of frankfurter.dev, once a day, no key; a currency
+# the ECB does not publish (the rouble, since 2022) is shown as the shop prints it.
+RATES_URL = "https://api.frankfurter.dev/v1/latest?base=USD"
+RATES_TTL_SECONDS = 6 * 3600
+_rates_cache: tuple[float, dict] | None = None
+_rates_lock = threading.Lock()
+
+
+def _fetch_rates() -> dict:
+    import urllib.request
+
+    with urllib.request.urlopen(RATES_URL, timeout=10) as resp:  # noqa: S310 — fixed https URL
+        body = json.loads(resp.read().decode("utf-8"))
+    rates = {k: float(v) for k, v in (body.get("rates") or {}).items()}
+    rates["USD"] = 1.0
+    return {"ok": True, "base": "USD", "date": body.get("date"), "rates": rates}
+
+
+def get_rates():
+    """GET /api/archive/rates — today's exchange rates against the dollar."""
+    global _rates_cache
+    with _rates_lock:
+        if _rates_cache and time.monotonic() - _rates_cache[0] < RATES_TTL_SECONDS:
+            return jsonify(_rates_cache[1])
+        try:
+            payload = _fetch_rates()
+            _rates_cache = (time.monotonic(), payload)
+        except Exception as e:  # noqa: BLE001 — the page shows shop prices when this fails
+            payload = _rates_cache[1] if _rates_cache else {"ok": False, "error": str(e)[:160]}
+        return jsonify(payload)
+
+
 def _no_catalogue(error: NoCatalogue):
     return jsonify({"ok": False, "error": str(error), "code": "NO_CATALOGUE"}), 503
 
@@ -414,6 +482,7 @@ def register_archive_routes(app: Flask) -> None:
     app.register_error_handler(NoCatalogue, _no_catalogue)
     app.add_url_rule("/api/archive/health", "archive_health", get_health, methods=["GET"])
     app.add_url_rule("/api/archive/brands", "archive_brands", get_brands, methods=["GET"])
+    app.add_url_rule("/api/archive/rates", "archive_rates", get_rates, methods=["GET"])
     app.add_url_rule("/api/archive/brands/<brand_id>", "archive_brand", get_brand, methods=["GET"])
     app.add_url_rule(
         "/api/archive/brands/<brand_id>/categories/hierarchy",

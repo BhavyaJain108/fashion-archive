@@ -202,3 +202,51 @@ def test_a_missing_catalogue_says_so_instead_of_inventing_an_empty_one(tmp_path,
         assert status == 503, url
         assert body["code"] == "NO_CATALOGUE"
     assert empty.list("") == [], "asking for the archive must not create one"
+
+
+@pytest.mark.unit
+def test_the_site_shows_only_open_brands_and_products_with_a_photograph(tmp_path, client):
+    """A password-gated brand keeps its old products in the archive and off the site;
+    a product with no photograph is not something anyone can shop."""
+    catalog = Catalog(DirectoryObjectStore(tmp_path / "objects"))
+    run = catalog.open_run("shown.com", "full")
+    catalog.record_product("shown.com", run, product("tee", "Cotton Tee", "TOPS", "TEES"), None)
+    bare = product("bare", "No Photo", "TOPS")
+    bare.main_image_url = None
+    bare.all_images = None
+    catalog.record_product("shown.com", run, bare, None)
+    catalog.finalize_run(run, 0, COV)
+    catalog.close()
+
+    _, body = get(client, "/api/archive/products?brand_id=shown.com")
+    assert [p["product_title"] for p in body["products"]] == ["Cotton Tee"]
+    # The count beside the brand is the fleet's live count, which still includes the
+    # photograph-less product: one cheap read for the sidebar rather than every
+    # catalogue. A handful of products across the fleet lack a photograph.
+    assert get(client, "/api/archive/brands")[1]["brands"][0]["products"] == 2
+
+    catalog = Catalog(DirectoryObjectStore(tmp_path / "objects"))
+    catalog.set_brand_state("shown.com", "gated")
+    catalog.close()
+    assert get(client, "/api/archive/products?brand_id=shown.com")[1]["products"] == []
+    assert get(client, "/api/archive/products/counts?brand_id=shown.com")[1]["counts"]["*"] == 0
+    assert get(client, "/api/archive/brands")[1]["brands"] == []
+
+
+@pytest.mark.unit
+def test_rates_come_from_the_bank_once_and_fall_back_to_the_last_answer(client, monkeypatch):
+    calls = []
+
+    def fake():
+        calls.append(1)
+        if len(calls) > 1:
+            raise RuntimeError("bank down")
+        return {"ok": True, "base": "USD", "date": "2026-09-24", "rates": {"USD": 1.0, "EUR": 0.88}}
+
+    monkeypatch.setattr(archive_routes, "_fetch_rates", fake)
+    monkeypatch.setattr(archive_routes, "_rates_cache", None)
+    assert get(client, "/api/archive/rates")[1]["rates"]["EUR"] == 0.88
+    assert get(client, "/api/archive/rates")[1]["ok"] is True and len(calls) == 1  # cached
+    monkeypatch.setattr(archive_routes, "_rates_cache", (0.0, {"ok": True, "rates": {"USD": 1.0}}))
+    body = get(client, "/api/archive/rates")[1]
+    assert body["ok"] is True and "USD" in body["rates"]  # stale answer beats none
