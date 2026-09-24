@@ -81,3 +81,42 @@ def test_query_sorts_filters_and_counts():
     assert {c["group"] for c in shoes["facets"]["categories"]} == {"Clothing", "Shoes"}
     assert shoes["facets"]["colours"] == [{"colour": "Black", "count": 1}]
     assert shoes["facets"]["designers"][0]["count"] == 1
+
+
+def test_sizes_carry_the_variant_id_the_cart_takes():
+    t = sf.tile(
+        {
+            "product_title": "Cap",
+            "itemurl": "https://x.com/products/cap",
+            "size_info": "S, M",
+            "size_availability": "in_stock, out_of_stock",
+            "platform": "shopify",
+            "handle": "cap",
+            "offers": [
+                {"size": "S", "variant_id": "1", "available": False, "price": 40.0},
+                {"size": "S", "variant_id": "2", "available": True, "price": 40.0},
+                {"size": "M", "variant_id": "3", "available": False, "price": 40.0},
+            ],
+        },
+        brand_id="x.com",
+        brand_name="X",
+        first_seen=None,
+        archived=[],
+    )
+    assert t["platform"] == "shopify"
+    # Two variants carry S; the one in stock is the one a size button should add.
+    assert [(s["size"], s.get("variant_id")) for s in t["sizes"]] == [("S", "2"), ("M", "3")]
+    assert len(t["offers"]) == 3
+    assert "offers" not in sf.slim(t), "the grid does not carry every variant"
+
+
+def test_a_record_without_offers_has_sizes_without_ids():
+    t = sf.tile(
+        {"product_title": "Tee", "itemurl": "https://x.com/p/tee", "size_info": "S"},
+        brand_id="x.com",
+        brand_name="X",
+        first_seen=None,
+        archived=[],
+    )
+    assert t["platform"] is None and t["offers"] == []
+    assert t["sizes"] == [{"size": "S", "available": True}]

@@ -20,7 +20,8 @@
           "compare_at_price": "180.00",
           "available": true,
           "sku": "NEMO-M",
-          "barcode": "4901234567894"
+          "barcode": "4901234567894",
+          "id": 41000000001
         },
         {
           "title": "L",
@@ -28,7 +29,8 @@
           "price": "126.00",
           "compare_at_price": "180.00",
           "available": false,
-          "sku": "NEMO-L"
+          "sku": "NEMO-L",
+          "id": 41000000002
         }
       ],
       "images": [
@@ -57,7 +59,8 @@
           "option1": "Default",
           "price": "95.00",
           "compare_at_price": null,
-          "available": true
+          "available": true,
+          "id": 41000000003
         }
       ],
       "images": []

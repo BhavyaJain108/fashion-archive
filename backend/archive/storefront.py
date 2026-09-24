@@ -357,6 +357,29 @@ def _num(v: Any) -> float | None:
     return f if 0 < f <= _MAX_PRICE else None
 
 
+def _offers(record: dict) -> list[dict]:
+    raw = record.get("offers")
+    if not isinstance(raw, list):
+        return []
+    return [o for o in raw if isinstance(o, dict) and o.get("variant_id")]
+
+
+def _with_variant_ids(sizes: list[dict], offers: list[dict]) -> list[dict]:
+    """Give each size the id the shop's cart takes for it.
+
+    A size carried by several variants (one per colour) gets the first one in
+    stock, else the first at all; a page that lets the visitor choose a colour
+    reads `offers` directly. A size no offer names keeps no id, and the bag falls
+    back to the product page for it.
+    """
+    for s in sizes:
+        mine = [o for o in offers if str(o.get("size") or "") == s["size"]]
+        pick = next((o for o in mine if o.get("available")), mine[0] if mine else None)
+        if pick is not None:
+            s["variant_id"] = str(pick["variant_id"])
+    return sizes
+
+
 def _sizes(record: dict) -> list[dict]:
     avail = record.get("size_availability")
     if isinstance(avail, dict):
@@ -416,12 +439,14 @@ def tile(
     main = record.get("main_image_url") or (images[0] if images else None)
     second = next((u for u in images if u != main), None)
     url = record.get("itemurl") or ""
+    offers = _offers(record)
     return {
         "brand_id": brand_id,
         "brand": brand_name,
         "title": record.get("product_title") or "",
         "url": url,
-        "handle": handle_of(url) or str(record.get("product_code") or ""),
+        "handle": record.get("handle") or handle_of(url) or str(record.get("product_code") or ""),
+        "platform": record.get("platform") or None,
         "code": record.get("product_code") or "",
         "price": price,
         "full_price": full if sale else None,
@@ -437,9 +462,10 @@ def tile(
         "group": group,
         "bucket": bucket,
         "colour": colour(record),
-        "sizes": _sizes(record),
+        "sizes": _with_variant_ids(_sizes(record), offers),
         "first_seen": first_seen or "",
         # --- product page only (see slim) ---
+        "offers": offers,
         "images": [main] + [u for u in images if u != main] if main else images,
         "description": _text(record.get("description")),
         "material": _text(record.get("material_info")),
@@ -449,7 +475,15 @@ def tile(
     }
 
 
-_DETAIL = ("images", "description", "material", "colour_text", "last_seen", "last_on_site")
+_DETAIL = (
+    "offers",
+    "images",
+    "description",
+    "material",
+    "colour_text",
+    "last_seen",
+    "last_on_site",
+)
 
 
 def slim(t: dict) -> dict:

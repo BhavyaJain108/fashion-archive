@@ -79,6 +79,25 @@ def test_pack_helpers_build_the_aligned_e0005_strings():
 
 
 @pytest.mark.unit
+def test_pack_offers_coerces_to_the_one_shape_the_bag_reads():
+    from backend.archive.domain.product import pack_offers
+
+    packed = pack_offers(
+        [
+            {"size": "M", "variant_id": 41, "available": 1, "price": "126.00"},
+            {"size": "", "variant_id": "42", "available": None, "price": "n/a"},
+            {"size": "L", "variant_id": None},  # no id, no way to add it: dropped
+        ]
+    )
+    assert packed["offers"] == [
+        {"size": "M", "variant_id": "41", "available": True, "price": 126.0},
+        {"size": None, "variant_id": "42", "available": False, "price": None},
+    ]
+    assert pack_offers([])["offers"] is None
+    assert ProductRecord(itemurl="u", product_title="t").offers is None
+
+
+@pytest.mark.unit
 def test_capability_and_ref():
     cap = Capability(
         domain="kuurth.com",

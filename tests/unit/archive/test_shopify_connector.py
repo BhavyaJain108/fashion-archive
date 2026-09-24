@@ -281,3 +281,46 @@ def test_no_market_means_the_plain_feed_and_the_old_hint():
     refs = ShopifyConnector("EUR", market=None).discover(BRAND, transport)
     assert all("country=" not in url for url in transport.seen)
     assert refs[0].change_hint == "2026-08-20T09:30:00-04:00"
+
+
+@pytest.mark.unit
+def test_offers_carry_one_variant_id_per_variant_with_its_size():
+    """The bag hands Shopify's cart a variant id, which E0005's size list cannot say."""
+    refs = ShopifyConnector().discover(BRAND, make_transport())
+    rec = ShopifyConnector().fetch(refs[0], transport=None)
+    assert rec.platform == "shopify" and rec.handle == "nemo-hoodie"
+    assert rec.offers == [
+        {"size": "M", "variant_id": "41000000001", "available": True, "price": 126.0},
+        {"size": "L", "variant_id": "41000000002", "available": False, "price": 126.0},
+    ]
+
+
+@pytest.mark.unit
+def test_offers_read_the_size_from_whichever_option_is_the_size():
+    # ("Color", "Size") layout: the same size under two colours is two offers.
+    p = {
+        "handle": "cap",
+        "title": "Cap",
+        "options": [{"name": "Color"}, {"name": "Size"}],
+        "variants": [
+            {"id": 1, "option1": "Black", "option2": "S", "price": "40.00", "available": True},
+            {"id": 2, "option1": "Red", "option2": "S", "price": "40.00", "available": False},
+        ],
+    }
+    rec = map_product(p, "kuurth.com")
+    assert [(o["size"], o["variant_id"], o["available"]) for o in rec.offers] == [
+        ("S", "1", True),
+        ("S", "2", False),
+    ]
+
+
+@pytest.mark.unit
+def test_a_single_variant_product_offers_no_size():
+    p = {
+        "handle": "tote",
+        "title": "Tote",
+        "options": [{"name": "Title"}],
+        "variants": [{"id": 9, "option1": "Default Title", "price": "80", "available": True}],
+    }
+    rec = map_product(p, "kuurth.com")
+    assert rec.offers == [{"size": None, "variant_id": "9", "available": True, "price": 80.0}]

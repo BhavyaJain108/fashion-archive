@@ -167,6 +167,16 @@ class ProductRecord(BaseModel):
     category8: str | None = None
     category9: str | None = None
     category10: str | None = None
+    # --- not E0005: what a checkout needs ---
+    # One entry per purchasable variant, as the shop's cart identifies it:
+    #   {"size": "M" | None, "variant_id": "43210", "available": True, "price": 126.0 | None}
+    # Shopify's cart takes a variant id; WooCommerce's add-to-cart takes a variation
+    # id (or the product id for a product with no variations). E0005's size_info is
+    # a list of labels and cannot say which id "M" is, so a bag cannot be built from
+    # it. Empty when the channel does not say — the sitemap+structured lane.
+    offers: list[dict] | None = None
+    platform: str | None = None  # "shopify" | "woo" | None — decides the cart link's shape
+    handle: str | None = None  # the shop's own URL slug for the product, where it has one
     raw: dict = Field(default_factory=dict)
 
     def image_list(self) -> list[str]:
@@ -199,6 +209,35 @@ def pack_sizes(sizes: list[dict]) -> dict:
         "size_availability": ", ".join(avail) if any(avail) else None,
         "size_stock_counts": ", ".join(counts) if any(counts) else None,
     }
+
+
+def pack_offers(offers: list[dict]) -> dict:
+    """[{size, variant_id, available, price}] → the offers field, or None when empty.
+
+    Every entry is coerced to the one shape the bag and the checkout adapters read,
+    so a connector that hands in an int id or a string price still stores what the
+    consumers expect.
+    """
+    out = []
+    for o in offers:
+        variant_id = o.get("variant_id")
+        if variant_id in (None, ""):
+            continue
+        price = o.get("price")
+        try:
+            price = None if price in (None, "") else float(price)
+        except (TypeError, ValueError):
+            price = None
+        size = o.get("size")
+        out.append(
+            {
+                "size": None if size in (None, "") else str(size),
+                "variant_id": str(variant_id),
+                "available": bool(o.get("available")),
+                "price": price,
+            }
+        )
+    return {"offers": out or None}
 
 
 def usable_image_url(url: str) -> bool:
