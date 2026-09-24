@@ -425,6 +425,44 @@ def test_a_finder_that_cannot_run_degrades_the_run_but_still_stores_products(env
 
 
 @pytest.mark.unit
+def test_a_page_the_connector_could_not_read_is_neither_extracted_nor_kept_live(env):
+    """Gentle Monster, 2026-09-23: the WAF answered 1,063 of 1,332 product pages with
+    a 202 challenge. Each raised SkipProduct, was counted as extracted (coverage 100%,
+    verdict ok, on 269 products) and, being absent from `failed`, was stamped live
+    from the earlier run without having been read."""
+    from backend.archive.connectors.base import SkipProduct
+
+    cat, locks, logs = env
+    refs = [ref(x, f"h{x}") for x in "abcdefghij"]
+    conn = FakeConnector(refs)
+    kwargs = dict(
+        locks_dir=locks,
+        log_dir=logs,
+        prober=lambda d, t: OPEN_CAP,
+        composer=compose_plan,
+        connector_factory=lambda plan, sitemap_url=None, limit=None: conn,
+    )
+    assert run_brand(BRAND, cat, None, mode="full", **kwargs) == 0
+    assert len(cat.current_products("kuurth.com")) == 10
+
+    class Challenged(FakeConnector):
+        def fetch(self, r, transport):
+            if r.url.endswith("/a"):
+                raise SkipProduct(f"{r.url} → HTTP 202")
+            return super().fetch(r, transport)
+
+    conn = Challenged(refs)
+    code = run_brand(BRAND, cat, None, mode="full", **kwargs)
+    coverage = cat.latest_run("kuurth.com")["coverage"]
+    assert coverage["extracted"] == 9  # not 10: the challenge page was never read
+    assert code == 1 and coverage["verdict"] == "degraded"
+    live = {p["itemurl"] for p in cat.current_products("kuurth.com")}
+    assert refs[0].url not in live and len(live) == 9
+    log_files = list((logs / "kuurth.com").glob("*.jsonl"))
+    assert any('"skipped": 1' in f.read_text() for f in log_files)
+
+
+@pytest.mark.unit
 def test_max_products_caps_the_run(env):
     cat, locks, logs = env
     conn = FakeConnector([ref(x, f"h{x}") for x in "abcdefg"])

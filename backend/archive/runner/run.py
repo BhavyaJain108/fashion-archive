@@ -248,7 +248,7 @@ def run_brand(
 
         deadline = clock() + time_budget if time_budget else None
         unreached = 0
-        records, errors = [], 0
+        records, errors, skipped = [], 0, 0
         failed: set[str] = set()  # products this run tried to read and could not
         imaged_products = 0
         learned_this_run = 0
@@ -296,6 +296,14 @@ def run_brand(
             try:
                 rec = connector.fetch(r, work_transport)
             except SkipProduct as e:
+                # A page the connector could not read is a page this run did not
+                # see. Gentle Monster's AWS WAF answered 1,063 of 1,332 product pages
+                # with a 202 challenge (2026-09-23), and each was logged here and then
+                # counted as extracted, so the run scored 100% coverage, verdict ok,
+                # on 269 products. It also stayed out of `failed`, so `mark_seen`
+                # stamped every unread product live from an earlier run.
+                skipped += 1
+                failed.add(r.url)
                 log("skip-product", url=r.url, reason=str(e))
                 continue
             except Exception as e:
@@ -498,7 +506,9 @@ def run_brand(
         log("evidence-recorded", entries=len(search))
 
         coverage = assess(
-            len(refs) - unreached - errors, {connector.kind: len(refs)}, field_fill_rates(records)
+            len(refs) - unreached - errors - skipped,
+            {connector.kind: len(refs)},
+            field_fill_rates(records),
         )
         if finder_failures and not rules_added and coverage.verdict == "ok":
             coverage.verdict = "degraded"
@@ -509,7 +519,13 @@ def run_brand(
         # at because of access. Quality is the scorecard's to report.
         catalog.record_attention(brand.domain, None)
         catalog.finalize_run(run_id, exit_status, coverage)
-        log("finalized", verdict=coverage.verdict, errors=errors, extracted=len(records))
+        log(
+            "finalized",
+            verdict=coverage.verdict,
+            errors=errors,
+            skipped=skipped,
+            extracted=len(records),
+        )
         return exit_status
     except ChannelBusy:
         raise
