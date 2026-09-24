@@ -1,6 +1,6 @@
 # Catalogue storage: from one JSON object per brand to Postgres
 
-Status: built 2026-09-24 (phases 0–3 in one change; phase 4 pending a scrape pass).
+Status: built and deployed 2026-09-24. Phases 0–3 shipped as one change; phase 4 holds by construction (see As built).
 Owner: Bhavya. The section "As built" at the end records where the build
 departed from this design.
 
@@ -307,3 +307,12 @@ calendar time because of the passes in between.
 - **Local development:** the Homebrew cluster's databases were SQL_ASCII and
   refused `\u00a0` inside jsonb; `fa_dev` and `fashion_archive_test` were
   recreated as UTF-8 (the old one is kept as `fa_dev_ascii`).
+- **Phase 4 holds by construction.** `PgCatalog` never writes `catalogue/`,
+  `search/` or `history/` objects — those methods are overridden — so on the
+  `pg` backend the scraper stops writing the blobs the moment the flag flips.
+  It still writes `catalogue/<domain>.meta.json` and merges `fleet.json`, which
+  the dev page reads; moving those is the only remaining R2 write. The `r2`
+  code path keeps its writers for rollback.
+- **Verification:** `GET /api/health` reports `"catalogue": "pg"` on the live
+  API once the deploy lands; the shop answers 503 WARMING for the first few
+  minutes while the boot-time backfill copies the objects in.
