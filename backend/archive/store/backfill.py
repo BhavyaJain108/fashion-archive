@@ -68,9 +68,8 @@ def backfill_brand(store: ObjectStore, pg: PgCatalog, domain: str, log=print) ->
         if raw:
             raws.append((domain, itemurl, Jsonb(raw)))
 
-    imgs = (
-        loads(store.get(f"images/{domain}.json")[0]) if store.get(f"images/{domain}.json") else {}
-    ) or {}
+    found = store.get(f"images/{domain}.json")
+    imgs = (loads(found[0]) if found else {}) or {}
     image_rows = [
         (
             domain,
@@ -88,7 +87,10 @@ def backfill_brand(store: ObjectStore, pg: PgCatalog, domain: str, log=print) ->
     obs_rows = []
     for key in store.list(f"history/{domain}/"):
         run_id = key.rsplit("/", 1)[-1][: -len(".json")]
-        held = loads(store.get(key)[0])
+        found = store.get(key)
+        if not found:
+            continue
+        held = loads(found[0])
         when = run_when(run_id)
         for o in held.get("observations", []):
             obs_rows.append(

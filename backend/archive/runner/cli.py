@@ -759,11 +759,11 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 # The daemon scores every run; a hand-run scrape is the same work and
                 # is worth the same record, or the two loops disagree about a brand.
-                run = catalog.latest_run(b.domain)
+                latest = catalog.latest_run(b.domain)
                 stored = [ProductRecord(**cast(Any, r)) for r in catalog.current_products(b.domain)]
-                if run and stored:
+                if latest and stored:
                     card = score(stored, cost_usd=spend.usd - spent_before)
-                    catalog.save_scorecard(run["id"], b.domain, card)
+                    catalog.save_scorecard(latest["id"], b.domain, card)
                     per_product = card.cost_usd / card.products if card.products else 0
                     print(
                         f"{b.domain}  exit={code}  "

@@ -167,7 +167,7 @@ def query(
     for g in GROUPS:
         if not groups.get(g):
             continue
-        subs = [
+        subs: list[dict[str, Any]] = [
             {"bucket": b, "count": n}
             for b, n in buckets.items()
             if any(gg == g and bb == b for gg, bb, _ in _TAXONOMY)
