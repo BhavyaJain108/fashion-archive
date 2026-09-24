@@ -152,7 +152,10 @@ def row_params(
     return {
         "brand": brand,
         "itemurl": itemurl,
-        "handle": shop.handle_of(itemurl) or _text(record.get("product_code")) or itemurl,
+        "handle": _text(record.get("handle"))
+        or shop.handle_of(itemurl)
+        or _text(record.get("product_code"))
+        or itemurl,
         "product_code": _text(record.get("product_code")),
         "title": _text(record.get("product_title")) or "",
         "description": _text(record.get("description")),
