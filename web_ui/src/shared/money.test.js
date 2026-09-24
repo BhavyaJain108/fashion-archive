@@ -19,7 +19,7 @@ test('conversion goes through the dollar and is honest when a rate is missing', 
 test('a price reads in the visitor currency, marked approximate, or as the shop prints it', () => {
   expect(priceText(88, 'EUR', 'USD', RATES)).toBe('≈ $100');
   expect(priceText(88, 'EUR', 'EUR', RATES)).toBe('€88');
-  expect(priceText(2000, 'RUB', 'USD', RATES)).toBe('RUB 2,000');
+  expect(priceText(2000, 'RUB', 'USD', RATES).replace(/\u00a0/g, ' ')).toBe('RUB 2,000');
   expect(priceText(12.5, 'USD', 'USD', RATES)).toBe('$12.50');
   expect(formatMoney(null, 'USD')).toBe('');
 });

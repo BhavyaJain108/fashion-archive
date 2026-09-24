@@ -1,14 +1,17 @@
 // Small helpers the shop front and the product page share.
 
-const SYMBOL = { USD: '$', EUR: '€', GBP: '£', CAD: 'CA$', AUD: 'A$', JPY: '¥', CNY: '¥', KRW: '₩' };
+import { showPrice, shopPrice } from '../../shared/money';
 
+// A price reads in the visitor's currency, converted with the day's rates and
+// marked approximate; the shop's own figure is what the card is charged.
 export function formatPrice(value, currency = 'USD') {
   if (value === null || value === undefined) return '';
-  const n = Number(value);
-  if (!Number.isFinite(n)) return '';
-  const sym = SYMBOL[currency] || `${currency} `;
-  const whole = Number.isInteger(n) ? n.toLocaleString('en-US') : n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  return `${sym}${whole}`;
+  return showPrice(value, currency);
+}
+
+export function shopFigure(value, currency = 'USD') {
+  if (value === null || value === undefined) return '';
+  return shopPrice(value, currency);
 }
 
 export const count = (n) => Number(n || 0).toLocaleString('en-US');

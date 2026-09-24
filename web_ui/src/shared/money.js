@@ -47,10 +47,14 @@ export function formatMoney(amount, currency) {
   if (amount === null || amount === undefined || amount === '') return '';
   const n = typeof amount === 'string' ? parseFloat(amount.replace(/[^\d.]/g, '')) : Number(amount);
   if (!Number.isFinite(n)) return String(amount);
+  // Whole amounts read whole; anything else keeps its cents. Converted figures are
+  // rounded first so a rate never produces a third decimal.
+  const r = Math.round(n * 100) / 100;
+  const digits = Number.isInteger(r) ? 0 : 2;
   try {
     return new Intl.NumberFormat('en', {
-      style: 'currency', currency: currency || 'USD', minimumFractionDigits: 0, maximumFractionDigits: n >= 100 ? 0 : 2,
-    }).format(n);
+      style: 'currency', currency: currency || 'USD', minimumFractionDigits: digits, maximumFractionDigits: digits,
+    }).format(r);
   } catch {
     return `${currency ? `${currency} ` : ''}${n.toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
   }
@@ -66,26 +70,56 @@ export function priceText(amount, shopCurrency, currency, rates) {
   return `≈ ${formatMoney(converted, currency)}`;
 }
 
+// One store for the whole shop: the chosen currency and the day's rates. A
+// formatter anywhere reads it, so no page has to pass money down through props.
+const store = {
+  currency: remembered() || guessCurrency(),
+  rates: null,
+  fetched: false,
+  listeners: new Set(),
+};
+
+function notify() {
+  store.listeners.forEach((fn) => fn());
+}
+
+export function setCurrency(c) {
+  store.currency = c;
+  try { window.localStorage.setItem(KEY, c); } catch { /* fine */ }
+  notify();
+}
+
+export function loadRates() {
+  if (store.fetched) return;
+  store.fetched = true;
+  fetch(`${ApiClient.BASE_URL}/api/archive/rates`, { credentials: 'include' })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((body) => { if (body && body.ok) { store.rates = body.rates; notify(); } })
+    .catch(() => { store.fetched = false; });
+}
+
+// The price as the page shows it, in the visitor's currency when the rate is known.
+export function showPrice(amount, shopCurrency) {
+  return priceText(amount, shopCurrency, store.currency, store.rates);
+}
+
+// The shop's own figure, which is what the card is charged.
+export function shopPrice(amount, shopCurrency) {
+  return formatMoney(amount, shopCurrency || store.currency);
+}
+
+export function currentCurrency() {
+  return store.currency;
+}
+
 export function useMoney() {
-  const [currency, setCurrencyState] = useState(() => remembered() || guessCurrency());
-  const [rates, setRates] = useState(null);
-
+  const [, tick] = useState(0);
   useEffect(() => {
-    let alive = true;
-    fetch(`${ApiClient.BASE_URL}/api/archive/rates`, { credentials: 'include' })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((body) => { if (alive && body && body.ok) setRates(body.rates); })
-      .catch(() => {});
-    return () => { alive = false; };
+    const fn = () => tick((n) => n + 1);
+    store.listeners.add(fn);
+    loadRates();
+    return () => { store.listeners.delete(fn); };
   }, []);
-
-  const setCurrency = useCallback((c) => {
-    setCurrencyState(c);
-    try { window.localStorage.setItem(KEY, c); } catch { /* fine */ }
-  }, []);
-
-  const format = useCallback((amount, shopCurrency) => priceText(amount, shopCurrency, currency, rates), [currency, rates]);
-  const exact = useCallback((amount, shopCurrency) => formatMoney(amount, shopCurrency || currency), [currency]);
-
-  return { currency, setCurrency, rates, format, exact };
+  const set = useCallback((c) => setCurrency(c), []);
+  return { currency: store.currency, setCurrency: set, rates: store.rates, format: showPrice, exact: shopPrice };
 }

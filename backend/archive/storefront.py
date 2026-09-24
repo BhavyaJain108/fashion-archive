@@ -23,9 +23,11 @@ from __future__ import annotations
 import re
 import threading
 import time
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any
+
+from backend.archive.store.catalog import has_photograph
 
 # --- taxonomy ---------------------------------------------------------------
 
@@ -411,7 +413,9 @@ def tile(
         "price": price,
         "full_price": full if sale else None,
         "currency": record.get("currency") or "USD",
-        "discount": round((full - price) / full, 3) if sale else 0.0,
+        "discount": (
+            round((full - price) / full, 3) if sale and price is not None and full else 0.0
+        ),
         "sale": sale,
         "in_stock": record.get("in_stock") in (True, 1, "True", "true"),
         "image": main,
@@ -440,7 +444,12 @@ def build(catalog, roster: Iterable) -> Index:
     brands: list[dict] = []
     for entry in roster:
         domain = entry.domain
-        records = catalog.current_products(domain)
+        # A password-gated brand keeps its old products in the archive and off the
+        # shop front; a product with no photograph is not something anyone can buy.
+        if catalog.get_brand_state(domain) == "gated":
+            brands.append({"brand_id": domain, "name": entry.name, "products": 0})
+            continue
+        records = [r for r in catalog.current_products(domain) if has_photograph(r)]
         if not records:
             brands.append({"brand_id": domain, "name": entry.name, "products": 0})
             continue
@@ -562,15 +571,16 @@ def query(
 ) -> dict:
     f = dict(group=group, bucket=bucket, brand=brand, sale=sale, colour_=colour_, q=q)
     hits = [t for t in index.tiles if _matches(t, **f)]
-    key = {
+    keys: dict[str, Callable[[dict], Any]] = {
         "latest": lambda t: (t["first_seen"], t["title"]),
         "price-asc": lambda t: (t["price"] is None, t["price"] or 0.0),
         "price-desc": lambda t: (t["price"] is None, -(t["price"] or 0.0)),
         "discount": lambda t: (-t["discount"], t["title"]),
-    }.get(sort, None)
-    if sort == "latest":
+    }
+    key = keys.get(sort)
+    if sort == "latest" and key is not None:
         hits.sort(key=key, reverse=True)
-    elif key:
+    elif key is not None:
         hits.sort(key=key)
 
     # Facets narrow like the page's other filters, except along their own axis.
@@ -590,13 +600,13 @@ def query(
     for g in GROUPS:
         if not groups.get(g):
             continue
-        subs = [
+        subs: list[dict[str, Any]] = [
             {"bucket": b, "count": n}
             for b, n in buckets.items()
             if any(gg == g and bb == b for gg, bb, _ in _TAXONOMY)
             or (g == OTHER[0] and b == OTHER[1])
         ]
-        subs.sort(key=lambda s: -s["count"])
+        subs.sort(key=lambda s: -int(s["count"]))
         tree.append({"group": g, "count": groups[g], "buckets": subs})
     brand_counts = count("brand_id", {"brand": ""})
     names = {b["brand_id"]: b["name"] for b in index.brands}

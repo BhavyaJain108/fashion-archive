@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import TopBar from '../../shared/ui/TopBar';
 import ArchiveAPI from '../../shared/api/brands';
 import { formatPrice, count, fallbackOnError } from './shop';
+import { CURRENCIES, useMoney } from '../../shared/money';
 import './storefront.css';
 
 // My Brands, laid out like a shop: every designer in one grid, a thin column of
@@ -20,6 +21,7 @@ const SORTS = [
 function Storefront({ currentPage, onPageSwitch, currentUser, onLogout, navigate, route }) {
   const shop = route.shop || {};
   const brandId = route.brandId || '';
+  const money = useMoney(); // prices in the visitor's currency; re-renders on change
   const [data, setData] = useState(null);      // last answer from the server
   const [tiles, setTiles] = useState([]);      // accumulated across "load more"
   const [state, setState] = useState('loading'); // loading | ready | warming | error
@@ -165,6 +167,10 @@ function Storefront({ currentPage, onPageSwitch, currentUser, onLogout, navigate
 
           {/* right column */}
           <aside className="shop-right">
+            <div className="shop-h">Currency</div>
+            <select className="ar-select shop-currency" aria-label="Currency" value={money.currency} onChange={(e) => money.setCurrency(e.target.value)}>
+              {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
             <div className="shop-h">Sort</div>
             <ul className="shop-list">
               {SORTS.map(([v, label]) => (

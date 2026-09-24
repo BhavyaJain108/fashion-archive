@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react';
 import TopBar from '../../shared/ui/TopBar';
 import ArchiveAPI from '../../shared/api/brands';
 import { Tile } from './Storefront';
-import { formatPrice, fallbackOnError } from './shop';
+import { formatPrice, shopFigure, fallbackOnError } from './shop';
+import { useMoney } from '../../shared/money';
 import './storefront.css';
 
 // One product: its photographs stacked on the left, the facts pinned on the right,
@@ -11,6 +12,7 @@ import './storefront.css';
 // the library has no favourite kind for products yet.
 
 function ProductPage({ currentPage, onPageSwitch, currentUser, onLogout, navigate, brandId, handle }) {
+  const money = useMoney();
   const [res, setRes] = useState(undefined); // undefined loading, null missing
 
   useEffect(() => {
@@ -56,6 +58,9 @@ function ProductPage({ currentPage, onPageSwitch, currentUser, onLogout, navigat
             <div className="shop-product-price">
               {t.price !== null ? formatPrice(t.price, t.currency) : 'Price on the brand site'}
               {t.sale && <span className="shop-tile-strike">{formatPrice(t.full_price, t.currency)}</span>}
+              {t.price !== null && t.currency && t.currency !== money.currency && (
+                <span className="shop-product-shopprice"> · {shopFigure(t.price, t.currency)} at the shop</span>
+              )}
               {t.sale && <span className="shop-product-off">{Math.round(t.discount * 100)}% off</span>}
             </div>
             {t.sizes.length > 0 && (

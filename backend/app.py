@@ -142,6 +142,7 @@ try:
     from backend.api.archive_routes import _catalog as _archive_catalog
     from backend.archive import storefront
     from backend.archive.roster import app_roster
+
     storefront.warm(_archive_catalog, app_roster)
 except Exception as e:
     print(f"❌ Error registering Archive API: {e}")

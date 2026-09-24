@@ -59,6 +59,10 @@
   overflow-y: auto;
 }
 
+.shop-currency { width: 100%; margin-bottom: 12px; }
+
+.shop-product-shopprice { color: var(--ar-ink-3); font-size: var(--ar-fs-ui); }
+
 .shop-h {
   font-size: var(--ar-fs-label);
   letter-spacing: var(--ar-track-label);

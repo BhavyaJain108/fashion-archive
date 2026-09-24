@@ -343,6 +343,7 @@ def search_products():
 # the shop front: every brand in one grid
 # ---------------------------------------------------------------------------
 
+
 def _index() -> storefront.Index:
     return storefront.get(_catalog, app_roster)
 
@@ -396,20 +397,31 @@ def get_product():
     index = _index()
     if index is None:
         return jsonify({"error": "The shop front is still being built", "code": "WARMING"}), 503
-    t = next((t for t in index.tiles if t["brand_id"] == brand_id and (t["url"] == url if url else t["handle"] == handle)), None)
+    t = next(
+        (
+            t
+            for t in index.tiles
+            if t["brand_id"] == brand_id and (t["url"] == url if url else t["handle"] == handle)
+        ),
+        None,
+    )
     if t is None:
         return jsonify({"error": "No such product"}), 404
     url = t["url"]
     catalog = _catalog()
     try:
-        record = next((r for r in catalog.current_products(brand_id) if r.get("itemurl") == url), None)
+        record = next(
+            (r for r in catalog.current_products(brand_id) if r.get("itemurl") == url), None
+        )
         if record is None:
             return jsonify({"error": "No such product"}), 404
         full = _decorate([record], brand_id, catalog)[0]
         history = catalog.product_history(brand_id).get(url, {})
     finally:
         catalog.close()
-    more = [m for m in storefront.query(index, brand=brand_id, limit=9)["products"] if m["url"] != url][:8]
+    more = [
+        m for m in storefront.query(index, brand=brand_id, limit=9)["products"] if m["url"] != url
+    ][:8]
     return jsonify({"product": full, "tile": t, "history": history, "more": more})
 
 
@@ -495,5 +507,7 @@ def register_archive_routes(app: Flask) -> None:
     app.add_url_rule(
         "/api/archive/products/search", "archive_search", search_products, methods=["GET"]
     )
-    app.add_url_rule("/api/archive/storefront", "archive_storefront", get_storefront, methods=["GET"])
+    app.add_url_rule(
+        "/api/archive/storefront", "archive_storefront", get_storefront, methods=["GET"]
+    )
     app.add_url_rule("/api/archive/product", "archive_product", get_product, methods=["GET"])
