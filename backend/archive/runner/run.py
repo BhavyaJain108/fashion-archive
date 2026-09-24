@@ -10,7 +10,7 @@ from pathlib import Path
 
 from backend.archive.connectors import get_connector
 from backend.archive.connectors.base import ChannelBlocked, ChannelBusy, SkipProduct
-from backend.archive.domain.brand import Brand, PlanAttempt, TransportLevel
+from backend.archive.domain.brand import Brand, PlanAttempt, TransportLevel, shop_target
 from backend.archive.domain.product import (
     E0005_FIELDS,
     ProductRecord,
@@ -160,7 +160,7 @@ def run_brand(
         # 80,048 URLs and walking all of it timed the run out before it started.
         connector = connector_factory(plan, limit=max_products)
         try:
-            refs = connector.discover(brand, work_transport)
+            refs = connector.discover(shop_target(brand, plan), work_transport)
         except ChannelBusy as e:
             # Rate limiting says nothing about the brand, so the plan is left alone —
             # and the daemon is told, so it defers the brand instead of counting this

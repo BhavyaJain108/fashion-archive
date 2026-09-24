@@ -27,6 +27,13 @@ S1 does not assume a brand will talk to us. It climbs until one level can read t
 and records the level it stopped at on the `Capability`, so S2 plans for the same
 transport and `transport.for_level` builds it at scrape time.
 
+Nor does it assume the shop is on the brand's own host. When the bare domain has no
+feed, no Woo API and no product JSON-LD, S1 reads the homepage for a link whose words
+or path say shop or store and lead somewhere else, and probes that host once: La Lune's
+site is a portfolio, its nav sends buyers to shop.laluneofficial.com, and that is a
+WooCommerce store with 63 products. The capability stays keyed on the brand's domain
+and carries the shop host as `shop_domain`; only discovery addresses it.
+
 | Level | What it is | Cost | Why it exists |
 |---|---|---|---|
 | **T0** | Python's own HTTP | one request | most brands need nothing more |

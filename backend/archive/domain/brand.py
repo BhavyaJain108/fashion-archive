@@ -48,6 +48,9 @@ class Capability(BaseModel):
     password_gated: bool = False
     challenged: bool = False
     currency: str | None = None  # store-level, e.g. Shopify's /meta.json
+    # Where the products actually are, when it is not the brand's own host: La Lune's
+    # site is a portfolio and its "Shop" link goes to shop.laluneofficial.com.
+    shop_domain: str | None = None
     evidence: dict[str, str] = Field(default_factory=dict)
 
 
@@ -77,7 +80,19 @@ class ScrapePlan(BaseModel):
     sitemap_url: str | None = None  # carried for sitemap-discovery connectors
     product_url_prefix: str | None = None  # learned product URL shape
     currency: str | None = None  # the store's currency, where it states one
+    shop_domain: str | None = None  # the host discovery reads, when not the brand's own
 
     @property
     def composition(self) -> str:
         return f"{self.transport.value}×{self.discovery.value}×{self.fetch.value}×{self.change_signal.value}"
+
+
+def shop_target(brand: Brand, plan: ScrapePlan) -> Brand:
+    """The brand as discovery should address it.
+
+    The catalogue, the schedule and the deck all key on the brand's own domain; only
+    the connector needs to know the shop lives on another host.
+    """
+    if not plan.shop_domain or plan.shop_domain == brand.domain:
+        return brand
+    return brand.model_copy(update={"domain": plan.shop_domain})

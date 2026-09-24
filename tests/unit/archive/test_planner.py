@@ -157,3 +157,21 @@ def test_browser_bulk_rung_kept_for_genuinely_challenged_shopify():
     )
     plan = compose_plan(challenged, now=NOW, browser=True)
     assert plan.composition == "t2×bulk_json×platform_json×per_item"
+
+
+@pytest.mark.unit
+def test_the_shop_host_reaches_the_plan_and_the_connector_but_not_the_catalogue():
+    from backend.archive.domain.brand import Brand, Capability, TransportLevel, shop_target
+    from backend.archive.planner import compose_plan
+
+    cap = Capability(
+        domain="laluneofficial.com",
+        transport=TransportLevel.T0,
+        woo_api=True,
+        shop_domain="shop.laluneofficial.com",
+    )
+    plan = compose_plan(cap)
+    assert plan.domain == "laluneofficial.com" and plan.shop_domain == "shop.laluneofficial.com"
+    brand = Brand(domain="laluneofficial.com", homepage_url="https://laluneofficial.com")
+    assert shop_target(brand, plan).domain == "shop.laluneofficial.com"
+    assert brand.domain == "laluneofficial.com"  # a copy, the brand itself is untouched

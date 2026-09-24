@@ -458,3 +458,67 @@ def test_products_are_found_as_the_biggest_family_in_the_home_country_sitemap():
     got = widen_to_the_biggest_url_family(one_folder, t)
     assert got.sitemap_url == "https://gm.com/us/static-publish/sitemap.xml"
     assert got.product_url_prefix == "/us/en/item/"
+
+
+PORTFOLIO_HOME = (
+    "<html><head><title>La Lune</title></head><body>"
+    '<a href="https://laluneofficial.com/category/collections/">Collections</a>'
+    '<a href="https://shop.laluneofficial.com/product-category/all-products/">Shop</a>'
+    '<link rel="stylesheet" href="/wp-content/themes/portra/style.css"></body></html>'
+)
+
+
+def make_host_transport(routes: dict[tuple[str, str], httpx.Response]) -> HttpxTransport:
+    """Routes keyed by (host, path): a probe that crosses hosts needs to tell them apart."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return routes.get((request.url.host, request.url.path), httpx.Response(404))
+
+    return HttpxTransport(
+        client=httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=True)
+    )
+
+
+@pytest.mark.unit
+def test_a_portfolio_site_with_a_shop_link_is_read_at_the_shop():
+    # laluneofficial.com is WordPress with no feed; its nav says Shop and points at a
+    # subdomain running WooCommerce. The capability is the shop's, keyed on the brand.
+    t = make_host_transport(
+        {
+            ("laluneofficial.com", "/"): httpx.Response(200, text=PORTFOLIO_HOME),
+            ("shop.laluneofficial.com", "/"): httpx.Response(
+                200, text="<html><body class='woocommerce'></body></html>"
+            ),
+            ("shop.laluneofficial.com", "/wp-json/wc/store/v1/products"): httpx.Response(
+                200, text='[{"id": 1}]'
+            ),
+        }
+    )
+    cap = probe("laluneofficial.com", t, retry_pause=0)
+    assert (cap.domain, cap.shop_domain) == ("laluneofficial.com", "shop.laluneofficial.com")
+    assert cap.woo_api is True and cap.platform == "woocommerce"
+    assert cap.evidence["shop_link"] == "shop.laluneofficial.com"
+    assert cap.evidence["shop.woo_api"] == "/wp-json/wc/store/v1/products"
+
+
+@pytest.mark.unit
+def test_a_shop_link_that_leads_nowhere_changes_nothing():
+    t = make_host_transport({("laluneofficial.com", "/"): httpx.Response(200, text=PORTFOLIO_HOME)})
+    cap = probe("laluneofficial.com", t, retry_pause=0)
+    assert cap.shop_domain is None and cap.woo_api is False
+    assert cap.evidence["shop_link"] == "shop.laluneofficial.com"  # tried, and said so
+
+
+@pytest.mark.unit
+def test_a_link_back_to_the_brands_own_host_is_not_a_shop_link():
+    from backend.archive.fingerprint import shop_link
+
+    body = '<a href="https://www.kuurth.com/collections/all">Shop</a>'
+    assert shop_link(body, "kuurth.com") is None
+    assert (
+        shop_link('<a href="https://shop.kuurth.com/">Shop</a>', "kuurth.com") == "shop.kuurth.com"
+    )
+    assert (
+        shop_link('<a href="https://kuurth.bigcartel.com/store">buy here</a>', "kuurth.com")
+        == "kuurth.bigcartel.com"
+    )

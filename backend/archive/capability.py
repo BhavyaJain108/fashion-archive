@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 
 from backend.archive.connectors import get_connector
 from backend.archive.connectors.base import ChannelBlocked, SkipProduct
-from backend.archive.domain.brand import Brand, Capability, ScrapePlan
+from backend.archive.domain.brand import Brand, Capability, ScrapePlan, shop_target
 from backend.archive.fingerprint import probe
 from backend.archive.planner import compose_plan
 from backend.archive.transport import for_level
@@ -82,7 +82,7 @@ def probe_brand(
 
         connector = connector_factory(plan)
         try:
-            refs = connector.discover(brand, work)
+            refs = connector.discover(shop_target(brand, plan), work)
         except ChannelBlocked as e:
             rep.verdict, rep.note = "blocked", f"discover: {e}"
             return rep

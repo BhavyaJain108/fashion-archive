@@ -15,7 +15,7 @@ be written. `access/LEARNINGS.md` says how to tell the difference and how to add
 
 from backend.archive.connectors import get_connector
 from backend.archive.connectors.base import ChannelBlocked, SkipProduct
-from backend.archive.domain.brand import Brand
+from backend.archive.domain.brand import Brand, shop_target
 from backend.archive.domain.product import E0005_FIELDS
 from backend.archive.escalate import escalating_prober
 from backend.archive.planner import compose_plan
@@ -49,7 +49,7 @@ def field_coverage(
             work = transport_factory(plan.transport)
         try:
             connector = connector_factory(plan)
-            refs = connector.discover(brand, work)
+            refs = connector.discover(shop_target(brand, plan), work)
             records = []
             for ref in refs[:sample]:
                 try:

@@ -15,7 +15,30 @@ _PASSWORD_MARKERS = ("password", "opening soon", "coming soon")
 _TRANSIENT = (202, 403, 429, 500, 502, 503, 504)
 
 
-def probe(domain: str, transport: Transport, retry_pause: float = 1.0) -> Capability:
+# A homepage link whose words or path say "shop": La Lune's site is a portfolio and its
+# nav sends buyers to shop.laluneofficial.com, a WooCommerce store our probe of the
+# bare domain never saw. Followed once, only when the brand's own host has no feed.
+_ANCHOR = re.compile(r'<a[^>]+href="(https?://[^"]+)"[^>]*>(.*?)</a>', re.I | re.S)
+_SHOP_WORDS = re.compile(r"\b(shop|store)\b", re.I)
+
+
+def shop_link(body: str, domain: str) -> str | None:
+    """The other host the homepage sends shoppers to, if there is one."""
+    own = domain.removeprefix("www.")
+    for href, text in _ANCHOR.findall(body):
+        host = href.split("/", 3)[2].lower()
+        if host.removeprefix("www.") == own:
+            continue
+        label = re.sub(r"<[^>]+>|\s+", " ", text)
+        path = "/" + href.split("/", 3)[3] if href.count("/") >= 3 else "/"
+        if _SHOP_WORDS.search(label) or _SHOP_WORDS.search(path.split("?")[0]):
+            return host
+    return None
+
+
+def probe(
+    domain: str, transport: Transport, retry_pause: float = 1.0, follow_shop: bool = True
+) -> Capability:
     base = f"https://{domain}"
     evidence: dict[str, str] = {}
 
@@ -116,6 +139,27 @@ def probe(domain: str, transport: Transport, retry_pause: float = 1.0) -> Capabi
         currency=currency,
         evidence=evidence,
     )
+    if (
+        follow_shop
+        and served
+        and not password_gated
+        and not any((bulk_json, woo_api, ldjson_product))
+    ):
+        host = shop_link(home.text, domain)
+        if host:
+            evidence["shop_link"] = cap.evidence["shop_link"] = host
+            shop = probe(host, transport, retry_pause, follow_shop=False)
+            if shop.bulk_json or shop.woo_api or shop.ldjson_product:
+                return shop.model_copy(
+                    update={
+                        "domain": domain,
+                        "shop_domain": host,
+                        "evidence": {
+                            **evidence,
+                            **{f"shop.{k}": v for k, v in shop.evidence.items()},
+                        },
+                    }
+                )
     return _sharpen_discovery(cap, transport)
 
 

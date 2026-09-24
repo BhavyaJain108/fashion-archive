@@ -55,6 +55,7 @@ def compose_plan(
             sitemap_url=cap.sitemap_url,
             product_url_prefix=cap.product_url_prefix,
             currency=cap.currency,
+            shop_domain=cap.shop_domain,
         )
 
     if cap.password_gated:
