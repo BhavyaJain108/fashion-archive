@@ -269,6 +269,66 @@ def test_a_lone_product_group_is_still_used_when_it_is_all_there_is():
     assert _find_product_node(html)["name"] == "Zen"
 
 
+# The JSON-LD block from https://www.entirestudios.com/product/adidas-x-entire-studios-ace-black
+# as stored on 2026-09-23, cut to two of its sixteen variants and with the return policy
+# and seller trimmed. The group states no offers; each variant states its own.
+ENTIRE_PRODUCT_GROUP = """<html><head>
+<script type="application/ld+json">{"@context": "https://schema.org/", "@type": "ProductGroup",
+ "brand": {"@type": "Brand", "name": "Entire Studios"}, "name": "Ace Black",
+ "description": "Regular fit Laces Leather and synthetic upper",
+ "image": ["https://cdn.shopify.com/s/files/1/0111/8054/0000/files/entire-studios-ace-black.webp?v=1775503517"],
+ "url": "https://www.entirestudios.com/product/adidas-x-entire-studios-ace-black",
+ "variesBy": ["https://schema.org/size"],
+ "hasVariant": [
+  {"@type": "Product", "brand": {"@type": "Brand", "name": "Entire Studios"}, "gtin": "198321694357",
+   "mpn": "KI57014-", "name": "Ace Black \\u2014 4.5", "size": "4.5",
+   "offers": {"@type": "Offer", "availability": "https://schema.org/InStock",
+              "itemCondition": "https://schema.org/NewCondition", "price": "220.00",
+              "priceCurrency": "USD", "priceValidUntil": "2026-12-31",
+              "url": "https://www.entirestudios.com/product/adidas-x-entire-studios-ace-black"}},
+  {"@type": "Product", "brand": {"@type": "Brand", "name": "Entire Studios"}, "gtin": "198321694364",
+   "mpn": "KI57014-", "name": "Ace Black \\u2014 5", "size": "5",
+   "offers": {"@type": "Offer", "availability": "https://schema.org/OutOfStock",
+              "itemCondition": "https://schema.org/NewCondition", "price": "220.00",
+              "priceCurrency": "USD", "priceValidUntil": "2026-12-31",
+              "url": "https://www.entirestudios.com/product/adidas-x-entire-studios-ace-black"}}
+ ]}</script></head><body>x</body></html>"""
+
+
+@pytest.mark.unit
+def test_a_product_group_is_priced_from_its_variants_offers():
+    """Entire Studios (2026-09-24): 384 of 1,377 pages publish a ProductGroup with no
+    offers of its own, each hasVariant Product carrying the price, currency and stock
+    flag. Reading only the group stored all 384 with price None, currency None,
+    in_stock None."""
+    rec = parse_ldjson_product(
+        ENTIRE_PRODUCT_GROUP,
+        "https://www.entirestudios.com/product/adidas-x-entire-studios-ace-black",
+    )
+    assert rec.product_title == "Ace Black"
+    assert rec.price == 220.0
+    assert rec.currency == "USD"
+    assert rec.in_stock is True
+    assert rec.size_info == "4.5, 5"
+    assert rec.size_availability == "in_stock, out_of_stock"
+
+
+@pytest.mark.unit
+def test_a_group_listing_its_variants_offers_does_not_outrank_the_product_on_the_page():
+    """Gentle Monster's guard, kept: the Product being viewed wins over the style it
+    belongs to, even when that style now yields offers through its variants."""
+    from backend.archive.connectors.structured import _find_product_node
+
+    html = """<script type="application/ld+json">{"@context":"https://schema.org","@graph":[
+      {"@type":"ProductGroup","name":"Zen","hasVariant":[
+        {"@type":"Product","name":"Jennie - Zen C2",
+         "offers":{"@type":"Offer","price":"310","priceCurrency":"USD"}}]},
+      {"@type":"Product","name":"Jennie - Zen C1","image":["https://x/1.jpg"],
+       "offers":{"@type":"Offer","price":"330","priceCurrency":"USD",
+                 "availability":"https://schema.org/InStock"}}]}</script>"""
+    assert _find_product_node(html)["name"] == "Jennie - Zen C1"
+
+
 SWATCHES = """
 <a href="/x?size=XXS" data-tau-size-id="XXS" title="XXS (not available)"><span>XXS</span></a>
 <a href="/x?size=S" data-tau-size-id="S" title="S "><span>S</span></a>

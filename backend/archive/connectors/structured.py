@@ -229,7 +229,9 @@ def _find_product_node(html: str) -> dict | None:
                 candidates.append(node)
     if not candidates:
         return None
-    return next((n for n in candidates if _offers_of(n)), candidates[0])
+    # A node's own offers, not its variants': a ProductGroup that lists its variants'
+    # offers must not outrank the Product actually on the page.
+    return next((n for n in candidates if _own_offers(n)), candidates[0])
 
 
 def _iter_nodes(data):
@@ -241,7 +243,7 @@ def _iter_nodes(data):
             yield from _iter_nodes(item)
 
 
-def _offers_of(node: dict) -> list[dict]:
+def _own_offers(node: dict) -> list[dict]:
     """Flatten schema.org's two offer shapes into one list.
 
     A store with many variants usually publishes one AggregateOffer holding the real
@@ -256,6 +258,28 @@ def _offers_of(node: dict) -> list[dict]:
         if isinstance(inner, dict):
             inner = [inner]
         out.extend(inner if inner else [o])
+    return out
+
+
+def _offers_of(node: dict) -> list[dict]:
+    """The node's offers, or its variants' when it states none of its own.
+
+    schema.org's third shape: a ProductGroup with no `offers` at all, each
+    `hasVariant` Product carrying its own. Entire Studios publishes 384 of its 1,377
+    pages this way (2026-09-24) — one price and one stock flag per size, and nothing
+    on the group — and reading only the group left every one of them without a price,
+    a currency or a stock flag.
+    """
+    own = _own_offers(node)
+    if own:
+        return own
+    variants = node.get("hasVariant") or []
+    if isinstance(variants, dict):
+        variants = [variants]
+    out: list[dict] = []
+    for v in variants:
+        if isinstance(v, dict):
+            out.extend(_own_offers(v))
     return out
 
 
