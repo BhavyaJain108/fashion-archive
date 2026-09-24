@@ -36,6 +36,12 @@ RUN pip install --no-cache-dir -r requirements-scraper.txt
 COPY backend/__init__.py backend/__init__.py
 COPY backend/archive backend/archive
 COPY backend/storage backend/storage
+# The catalogue's rows live in Postgres and the worker opens the pool through
+# backend.auth.migrate, which applies every schema file at boot. Only those files:
+# the rest of auth is the API's (Flask, OAuth) and the scraper never imports it.
+COPY backend/auth/__init__.py backend/auth/migrate.py backend/auth/schema.sql backend/auth/
+COPY backend/userdata/schema.sql backend/userdata/schema.sql
+COPY backend/high_fashion/schema.sql backend/high_fashion/schema.sql
 COPY config config
 
 # Unbuffered, or a long pass's progress sits in a pipe until it finishes.
