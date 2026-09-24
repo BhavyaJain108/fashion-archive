@@ -10,6 +10,7 @@ from backend.archive.domain.product import (
     ProductRef,
     pack_categories,
     pack_images,
+    pack_offers,
     pack_sizes,
 )
 from backend.archive.transport import Transport
@@ -73,6 +74,28 @@ def _sizes_from_variants(variants: list[dict], options: list[str]) -> list[dict]
     for entry in out.values():
         entry["count"] = entry["count"] or None
     return list(out.values())
+
+
+def _offers_from_variants(variants: list[dict], options: list[str]) -> list[dict]:
+    """One entry per variant — the id /cart/<id>:<qty> takes — with the size read
+    from the same option `_sizes_from_variants` reads. A ("Color", "Size") layout
+    yields several entries per size; the bag picks by variant id, not by label."""
+    index = _option_index(options, _SIZE_WORDS)
+    key = f"option{index + 1}" if index is not None else None
+    out = []
+    for v in variants:
+        if v.get("id") in (None, ""):
+            continue
+        label = (v.get(key) or "").strip() if key else ""
+        out.append(
+            {
+                "size": None if not label or label.lower() == "default title" else label,
+                "variant_id": v["id"],
+                "available": v.get("available"),
+                "price": v.get("price"),
+            }
+        )
+    return out
 
 
 _MAX_PAGES = 200  # 200 × 250 = 50k products; loop guard, not a coverage cap
@@ -166,6 +189,9 @@ def map_product(p: dict, domain: str, currency: str | None = None) -> ProductRec
         **pack_sizes(sizes),
         **pack_images([img["src"] for img in p.get("images", []) if img.get("src")]),
         **pack_categories(categories),
+        **pack_offers(_offers_from_variants(variants, options)),
+        platform="shopify",
+        handle=p.get("handle") or None,
         raw=p,
     )
 

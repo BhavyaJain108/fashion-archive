@@ -10,6 +10,7 @@ from backend.archive.domain.product import (
     ProductRef,
     pack_categories,
     pack_images,
+    pack_offers,
     pack_sizes,
 )
 from backend.archive.transport import Transport
@@ -62,6 +63,46 @@ def _hint(p: dict) -> str:
     return hashlib.sha1(basis.encode()).hexdigest()[:16]
 
 
+def _offers(p: dict, price: float | None) -> list[dict]:
+    """What ?add-to-cart= takes: each variation's id on a variable product, else the
+    product's own id.
+
+    The Store API's product list names a variation's attributes and nothing else —
+    no stock, no price per variation. So a variation is marked available when the
+    product is, and priced only when the product quotes one price for every
+    variation (no price_range); otherwise the price is unknown until the shop's
+    own cart says.
+    """
+    if p.get("id") in (None, ""):
+        return []
+    in_stock = bool(p.get("is_in_stock")) and p.get("is_purchasable", True) is not False
+    variations = p.get("variations") or []
+    if not variations:
+        return [{"size": None, "variant_id": p["id"], "available": in_stock, "price": price}]
+    ranged = (p.get("prices") or {}).get("price_range")
+    out = []
+    for v in variations:
+        if not isinstance(v, dict) or v.get("id") in (None, ""):
+            continue
+        size = next(
+            (
+                a.get("value")
+                for a in v.get("attributes") or []
+                if isinstance(a, dict) and "size" in str(a.get("name") or "").lower()
+            ),
+            None,
+        )
+        out.append(
+            {
+                "size": size,
+                "variant_id": v["id"],
+                "available": in_stock,
+                "price": None if ranged else price,
+            }
+        )
+    return out
+
+
 def map_woo_product(p: dict) -> ProductRecord:
     prices = p.get("prices") or {}
     unit = 10 ** int(prices.get("currency_minor_unit", 2))
@@ -103,5 +144,8 @@ def map_woo_product(p: dict) -> ProductRecord:
         **pack_sizes(sizes),
         **pack_images([img["src"] for img in p.get("images", []) if img.get("src")]),
         **pack_categories([c["name"] for c in p.get("categories", []) if c.get("name")]),
+        **pack_offers(_offers(p, price)),
+        platform="woo",
+        handle=p.get("slug") or None,
         raw=p,
     )

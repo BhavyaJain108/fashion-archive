@@ -91,3 +91,49 @@ def test_a_zero_price_on_an_unpurchasable_product_is_not_a_price():
     assert unpurchasable.full_price is None  # the struck-through price is no more real
     # a purchasable product priced at zero is a giveaway, and that is a real price
     assert map_woo_product({**base, "is_purchasable": True}).price == 0
+
+
+@pytest.mark.unit
+def test_a_simple_product_offers_its_own_id():
+    """?add-to-cart= takes the product id when there are no variations."""
+    refs = WooConnector().discover(BRAND, make_transport())
+    rec = WooConnector().fetch(refs[1], transport=None)
+    assert rec.platform == "woo"
+    assert rec.offers == [{"size": None, "variant_id": "12", "available": False, "price": 45.0}]
+
+
+@pytest.mark.unit
+def test_a_variable_product_offers_each_variation_by_its_size():
+    from backend.archive.connectors.woocommerce import map_woo_product
+
+    p = {
+        "id": 20,
+        "slug": "wia-coat",
+        "name": "Wia Coat",
+        "permalink": "https://wiacollections.com/product/wia-coat/",
+        "type": "variable",
+        "is_in_stock": True,
+        "prices": {"price": "30000", "regular_price": "30000", "currency_minor_unit": 2},
+        "attributes": [{"name": "Size", "terms": [{"name": "S"}, {"name": "M"}]}],
+        "variations": [
+            {"id": 201, "attributes": [{"name": "Size", "value": "S"}]},
+            {"id": 202, "attributes": [{"name": "Size", "value": "M"}]},
+        ],
+    }
+    rec = map_woo_product(p)
+    assert rec.handle == "wia-coat"
+    assert rec.offers == [
+        {"size": "S", "variant_id": "201", "available": True, "price": 300.0},
+        {"size": "M", "variant_id": "202", "available": True, "price": 300.0},
+    ]
+    # A price range means the variations differ and the list does not say how.
+    ranged = map_woo_product(
+        {
+            **p,
+            "prices": {
+                **p["prices"],
+                "price_range": {"min_amount": "30000", "max_amount": "35000"},
+            },
+        }
+    )
+    assert [o["price"] for o in ranged.offers] == [None, None]

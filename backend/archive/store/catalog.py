@@ -66,6 +66,11 @@ SEARCH_FIELDS = (
     "description",
     "additional_tags",
     *(f"category{i}" for i in range(1, 11)),
+    # What a bag needs to hand the shop's cart: variant ids per size, and which
+    # cart URL shape the shop answers to.
+    "offers",
+    "platform",
+    "handle",
 )
 
 
