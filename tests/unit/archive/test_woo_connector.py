@@ -137,3 +137,16 @@ def test_a_variable_product_offers_each_variation_by_its_size():
         }
     )
     assert [o["price"] for o in ranged.offers] == [None, None]
+
+
+@pytest.mark.unit
+def test_a_refusal_says_what_the_store_answered():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text="<html><title>Just a moment...</title></html>")
+
+    t = HttpxTransport(client=httpx.Client(transport=httpx.MockTransport(handler)))
+    with pytest.raises(ChannelBlocked) as e:
+        WooConnector().discover(
+            Brand(domain="wiacollections.com", homepage_url="https://wiacollections.com"), t
+        )
+    assert "HTTP 200 'just a moment...'" in str(e.value)

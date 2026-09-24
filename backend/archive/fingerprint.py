@@ -269,12 +269,24 @@ def _one_sitemap(url: str, transport, depth: int = 0) -> tuple[str, list[str]]:
 
 
 def _probe_woo(base: str, transport: Transport, evidence: dict[str, str]) -> bool:
+    # What the store answered goes on the record either way: wiacollections.com serves
+    # its Store API to a home connection and something else to the worker, and "no woo
+    # store api" said nothing about which.
+    seen = []
     for path in ("/wp-json/wc/store/v1/products", "/wp-json/wc/store/products"):
         resp = transport.get(f"{base}{path}?per_page=1")
         if resp.status_code == 200 and resp.text.lstrip().startswith("["):
             evidence["woo_api"] = path
             return True
+        seen.append(answer_shape(resp))
+    evidence["woo_api"] = "closed: " + ", ".join(seen)
     return False
+
+
+def answer_shape(resp) -> str:
+    """One word for what a refusal looked like: the status and the page's title."""
+    title = _title(resp.text.lower())[:40].strip() if resp.text else ""
+    return f"HTTP {resp.status_code}" + (f" '{title}'" if title else "")
 
 
 _LOC = re.compile(r"<loc>\s*(https?://[^<\s]+)\s*</loc>", re.I)

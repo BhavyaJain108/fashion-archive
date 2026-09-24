@@ -13,6 +13,7 @@ from backend.archive.domain.product import (
     pack_offers,
     pack_sizes,
 )
+from backend.archive.fingerprint import answer_shape
 from backend.archive.transport import Transport
 
 _TAG_RE = re.compile(r"<[^>]+>")
@@ -48,13 +49,17 @@ class WooConnector:
         return map_woo_product(ref.payload)
 
     def _resolve_path(self, brand: Brand, transport: Transport) -> str:
+        seen = []
         for path in _PATHS:
             resp = transport.get(f"https://{brand.domain}{path}?per_page=1")
             if resp.status_code == 200 and resp.text.lstrip().startswith("["):
                 return path
             if resp.status_code in (401, 403, 429):
                 raise ChannelBlocked(f"{path} → HTTP {resp.status_code}")
-        raise ChannelBlocked(f"no woo store api on {brand.domain}")
+            seen.append(answer_shape(resp))
+        # Say what came back. A 200 that is not a list is a different problem from a
+        # 404, and the deck's reason line is the only place the worker's view shows.
+        raise ChannelBlocked(f"no woo store api on {brand.domain} ({'; '.join(seen)})")
 
 
 def _hint(p: dict) -> str:
