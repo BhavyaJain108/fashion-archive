@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import TopBar from '../../shared/ui/TopBar';
 import ArchiveAPI from '../../shared/api/brands';
-import { formatPrice, count, fallbackOnError } from './shop';
+import { formatPrice, count, fallbackOnError, sized } from './shop';
 import { CURRENCIES, useMoney } from '../../shared/money';
 import './storefront.css';
 
@@ -11,6 +11,10 @@ import './storefront.css';
 // so a filtered view is a link and the back button works.
 
 const PAGE = 60;
+
+// What the grid last showed, so coming back from a product lands where you
+// left: same tiles, same scroll offset. One entry; a different view replaces it.
+let remembered = null;
 const SORTS = [
   ['latest', 'Latest arrivals'],
   ['price-asc', 'Price: low to high'],
@@ -27,17 +31,34 @@ function Storefront({ currentPage, onPageSwitch, currentUser, onLogout, navigate
   const [state, setState] = useState('loading'); // loading | ready | warming | error
   const [designerQuery, setDesignerQuery] = useState('');
   const [draftQ, setDraftQ] = useState(shop.q || '');
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const scrollRef = useRef(null);
   const requestId = useRef(0);
 
   const key = JSON.stringify([shop, brandId]);
 
-  // A change of view starts from the top; "load more" appends.
+  // Remember the grid on the way out so Back can restore it.
+  useEffect(() => {
+    const el = scrollRef.current;
+    return () => {
+      if (data && tiles.length) remembered = { key, data, tiles, scrollTop: el ? el.scrollTop : 0 };
+    };
+  }, [key, data, tiles]);
+
+  // A change of view starts from the top; "load more" appends; the same view,
+  // revisited, comes back from memory.
   useEffect(() => {
     let cancelled = false;
     const id = ++requestId.current;
-    setState('loading');
     setDraftQ(shop.q || '');
+    setFiltersOpen(false);
+    if (remembered && remembered.key === key) {
+      setData(remembered.data); setTiles(remembered.tiles); setState('ready');
+      const top = remembered.scrollTop;
+      requestAnimationFrame(() => { if (scrollRef.current) scrollRef.current.scrollTop = top; });
+      return undefined;
+    }
+    setState('loading');
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
     const load = async () => {
       try {
@@ -91,9 +112,12 @@ function Storefront({ currentPage, onPageSwitch, currentUser, onLogout, navigate
           <form className="shop-searchform" onSubmit={(e) => { e.preventDefault(); go({ q: draftQ.trim() }); }}>
             <input className="ar-input shop-search" placeholder="Search" value={draftQ} onChange={(e) => setDraftQ(e.target.value)} />
           </form>
+          <button type="button" className={`shop-mode shop-filters-toggle ${filtersOpen ? 'on' : ''}`} onClick={() => setFiltersOpen((o) => !o)} aria-expanded={filtersOpen}>
+            Filters {filtersOpen ? '▴' : '▾'}
+          </button>
         </div>
 
-        <div className="shop-body">
+        <div className={`shop-body ${filtersOpen ? 'filters-open' : ''}`}>
           {/* left column */}
           <aside className="shop-left">
             <button type="button" className={`shop-check ${shop.sale ? 'on' : ''}`} onClick={() => go({ sale: shop.sale ? '' : '1' })}>
@@ -195,9 +219,19 @@ function Storefront({ currentPage, onPageSwitch, currentUser, onLogout, navigate
   );
 }
 
+// The widest a grid column gets at each layout, so the request matches the paint.
+function columnWidth() {
+  if (typeof window === 'undefined') return 400;
+  const w = window.innerWidth;
+  if (w >= 1700) return (w - 48 - 392) / 4;
+  if (w >= 1100) return (w - 48 - 392) / 3;
+  if (w >= 700) return (w - 48) / 3;
+  return (w - 32) / 2;
+}
+
 export function Tile({ tile, onOpen }) {
   const [hover, setHover] = useState(false);
-  const src = hover && tile.image2 ? tile.image2 : tile.image;
+  const src = sized(hover && tile.image2 ? tile.image2 : tile.image, columnWidth());
   return (
     <button type="button" className="shop-tile" onClick={onOpen} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
       <span className="shop-tile-img">

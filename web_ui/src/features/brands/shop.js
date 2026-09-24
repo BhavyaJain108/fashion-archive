@@ -26,3 +26,15 @@ export function fallbackOnError(archived = []) {
     else img.style.visibility = 'hidden';
   };
 }
+
+// The shop's CDN can resize on request. Ask for the width the display will
+// actually paint — the column's CSS width times the device pixel ratio, rounded
+// up to a step so caches hit — instead of the 2000px original for every tile.
+export function sized(url, cssWidth) {
+  if (!url || typeof url !== 'string') return url;
+  if (!/cdn\.shopify\.com/.test(url)) return url;
+  const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+  const px = Math.min(2400, Math.ceil((cssWidth * dpr) / 200) * 200);
+  const base = url.replace(/([?&])width=\d+&?/, '$1').replace(/[?&]$/, '');
+  return `${base}${base.includes('?') ? '&' : '?'}width=${px}`;
+}

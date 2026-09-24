@@ -387,8 +387,15 @@ def get_storefront():
 
 
 def get_product():
-    """GET /api/archive/product?brand_id=&url= — one product, in full, with its
-    classification and eight more from the same brand."""
+    """GET /api/archive/product?brand_id=&handle= — one product with everything the
+    page shows, and eight more from the same brand.
+
+    Answered from the index. R2 holds one object per brand, not per product, so
+    "read this product" used to mean downloading the brand's whole catalogue and
+    picking one out — several seconds a click. The index already holds the
+    parsed catalogue; the tile carries the product page's fields (see
+    storefront.tile) and is served as-is.
+    """
     brand_id = request.args.get("brand_id", "")
     url = request.args.get("url", "")
     handle = request.args.get("handle", "")
@@ -407,22 +414,12 @@ def get_product():
     )
     if t is None:
         return jsonify({"error": "No such product"}), 404
-    url = t["url"]
-    catalog = _catalog()
-    try:
-        record = next(
-            (r for r in catalog.current_products(brand_id) if r.get("itemurl") == url), None
-        )
-        if record is None:
-            return jsonify({"error": "No such product"}), 404
-        full = _decorate([record], brand_id, catalog)[0]
-        history = catalog.product_history(brand_id).get(url, {})
-    finally:
-        catalog.close()
     more = [
-        m for m in storefront.query(index, brand=brand_id, limit=9)["products"] if m["url"] != url
+        m
+        for m in storefront.query(index, brand=brand_id, limit=9)["products"]
+        if m["url"] != t["url"]
     ][:8]
-    return jsonify({"product": full, "tile": t, "history": history, "more": more})
+    return jsonify({"tile": t, "more": more})
 
 
 # ---------------------------------------------------------------------------

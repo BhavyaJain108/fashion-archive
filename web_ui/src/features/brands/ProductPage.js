@@ -37,17 +37,17 @@ function ProductPage({ currentPage, onPageSwitch, currentUser, onLogout, navigat
   if (res === undefined) body = <div className="ar-loading"><span className="headline">Loading</span></div>;
   else if (res === null) body = <div className="ar-empty"><span className="headline">Not in the archive</span><span>This product is no longer in the catalogue.</span></div>;
   else {
-    const { product: p, tile: t, history: h, more } = res;
-    const images = [...new Set([...(Array.isArray(p.all_images) ? p.all_images : []), ...(p.main_image_url ? [p.main_image_url] : [])])]
-      .filter((u) => typeof u === 'string' && u.startsWith('http'));
-    const desc = String(p.description || '').split(/\n+|(?<=\.)\s+(?=[A-Z])/).map((s) => s.trim()).filter(Boolean);
+    const { tile: t, more } = res;
+    const images = t.images && t.images.length ? t.images : (t.image ? [t.image] : []);
+    const desc = String(t.description || '').split(/\n+|(?<=\.)\s+(?=[A-Z])/).map((x) => x.trim()).filter(Boolean);
+    const imgW = typeof window !== 'undefined' && window.innerWidth < 900 ? window.innerWidth : 900;
     body = (
       <>
         <div className="shop-product">
           <div className="shop-product-images">
             {(images.length ? images : [null]).map((u, i) => (
               <div className="shop-product-img" key={u || i}>
-                {u ? <img src={u} alt="" loading={i === 0 ? 'eager' : 'lazy'} onError={fallbackOnError(p.archived_images)} /> : <span className="shop-tile-none">No image</span>}
+                {u ? <img src={sized(u, imgW)} alt="" loading={i === 0 ? 'eager' : 'lazy'} onError={fallbackOnError(t.archived)} /> : <span className="shop-tile-none">No image</span>}
               </div>
             ))}
           </div>
@@ -72,16 +72,16 @@ function ProductPage({ currentPage, onPageSwitch, currentUser, onLogout, navigat
             <div className="shop-h">Item info</div>
             <ul className="shop-facts">
               {desc.slice(0, 8).map((d, i) => <li key={i}>{d}</li>)}
-              {p.material_info && p.material_info !== 'None' && <li>{String(p.material_info)}</li>}
+              {t.material && <li>{t.material}</li>}
               {t.colour && <li>Colour: {t.colour}</li>}
-              {p.color_info && p.color_info !== 'None' && p.color_info !== t.colour && <li>Shop colour: {String(p.color_info)}</li>}
+              {t.colour_text && t.colour_text !== t.colour && <li>Shop colour: {t.colour_text}</li>}
               <li>{t.group} · {t.bucket}</li>
               {t.code && <li>{t.code}</li>}
             </ul>
             <div className="shop-h">In the archive</div>
             <ul className="shop-facts shop-facts-quiet">
-              {h.first_seen && <li>First seen {h.first_seen}</li>}
-              {h.last_seen && <li>Last read {h.last_seen}</li>}
+              {t.first_seen && <li>First seen {t.first_seen}</li>}
+              {t.last_seen && <li>Last read {t.last_seen}</li>}
               <li>{t.in_stock ? 'In stock at last read' : 'Stock unknown at last read'}</li>
             </ul>
           </aside>

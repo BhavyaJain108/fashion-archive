@@ -390,9 +390,22 @@ def handle_of(url: str) -> str:
     return url.split("?")[0].rstrip("/").rsplit("/", 1)[-1] if url else ""
 
 
+def _text(v: Any) -> str:
+    return "" if v in (None, "None") else str(v)
+
+
 def tile(
-    record: dict, *, brand_id: str, brand_name: str, first_seen: str | None, archived: list[str]
+    record: dict,
+    *,
+    brand_id: str,
+    brand_name: str,
+    first_seen: str | None,
+    archived: list[str],
+    history: dict | None = None,
 ) -> dict:
+    """One product as the page sees it. Carries everything the product page shows
+    too (all images, description, material) so opening a product is answered
+    from memory; `slim` strips those for the grid."""
     group, bucket = classify(record)
     price, full = _num(record.get("price")), _num(record.get("full_price"))
     sale = bool(price and full and full > price)
@@ -426,7 +439,22 @@ def tile(
         "colour": colour(record),
         "sizes": _sizes(record),
         "first_seen": first_seen or "",
+        # --- product page only (see slim) ---
+        "images": [main] + [u for u in images if u != main] if main else images,
+        "description": _text(record.get("description")),
+        "material": _text(record.get("material_info")),
+        "colour_text": _text(record.get("color_info")),
+        "last_seen": (history or {}).get("last_seen") or "",
+        "last_on_site": (history or {}).get("last_on_site") or "",
     }
+
+
+_DETAIL = ("images", "description", "material", "colour_text", "last_seen", "last_on_site")
+
+
+def slim(t: dict) -> dict:
+    """A tile without the product-page fields: what the grid gets."""
+    return {k: v for k, v in t.items() if k not in _DETAIL}
 
 
 # --- the index --------------------------------------------------------------
@@ -464,6 +492,7 @@ def build(catalog, roster: Iterable) -> Index:
                     brand_name=entry.name,
                     first_seen=(history.get(url) or {}).get("first_seen"),
                     archived=archived.get(url, []),
+                    history=history.get(url),
                 )
             )
         brands.append({"brand_id": domain, "name": entry.name, "products": len(records)})
@@ -617,7 +646,7 @@ def query(
     colours = count("colour", {"colour_": ""})
     sale_count = sum(1 for t in index.tiles if _matches(t, **{**f, "sale": True}))
     return {
-        "products": hits[offset : offset + limit],
+        "products": [slim(t) for t in hits[offset : offset + limit]],
         "total": len(hits),
         "offset": offset,
         "limit": limit,

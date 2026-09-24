@@ -82,3 +82,11 @@
   border-color: var(--ar-ink);
   color: var(--ar-ink);
 }
+
+/* On a phone the bar keeps its height; the user's name goes, the links tighten. */
+@media (max-width: 699px) {
+  .topbar { padding: 0 16px; }
+  .topbar-nav { gap: 0; }
+  .topbar-link { padding: 8px 8px; }
+  .topbar-user { display: none; }
+}
