@@ -56,7 +56,6 @@ app.config["API_BASE_URL"] = config.API_BASE_URL
 # =============================================================================
 
 
-@app.route("/api/health", methods=["GET"])
 def _catalogue_filling() -> bool:
     try:
         from backend.archive.store.backfill import in_progress
@@ -66,6 +65,7 @@ def _catalogue_filling() -> bool:
         return False
 
 
+@app.route("/api/health", methods=["GET"])
 def health_check():
     """Health check endpoint. `catalogue` names the catalogue backend (r2 | pg) so a
     deploy that flips it can be verified from outside without a session."""
