@@ -49,6 +49,7 @@ def clean(pool):
     with pool.connection() as conn:
         for t in (
             "product_observations",
+            "product_periods",
             "product_images",
             "product_raw",
             "products",

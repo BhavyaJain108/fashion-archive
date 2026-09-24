@@ -15,7 +15,7 @@ Use these names when discussing the pipeline — every file belongs to exactly o
 | **S4** | **FETCH** | *What are this product's fields?* (`connector.fetch`) | `connectors/shopify.py`, `connectors/woocommerce.py`, `connectors/structured.py` |
 | **S4b** | **FIND** | *The channel left a field empty — where is it on the page?* | `finder.py` (apply + validate), `finder_llm.py` (learn), `domain/recipe.py` |
 | **S4c** | **PLACE** | *What is this thing, in words every brand shares?* | `taxonomy.py` (the vocabulary and the phrase book), `taxonomy_llm.py` (ask) |
-| **S5** | **STORE** | *What do we keep, and what changed?* | `store/catalog.py`, `store/objects.py`, `images.py` |
+| **S5** | **STORE** | *What do we keep, and what changed?* | `store/catalog.py`, `store/pg_catalog.py`, `store/periods.py`, `store/objects.py`, `images.py` |
 | **S6** | **VERIFY** | *Did we get it all, and is it any good?* | `verify.py`, `capability.py`, `score.py` (the scorecard per run) |
 | **S7** | **LEARN** | *Which of E0005's 42 fields are we still not getting, and why?* | `coverage.py`, `access/` (the bench), `access/LEARNINGS.md` (the record) |
 
@@ -96,6 +96,51 @@ keeps its own currency and the site converts it for display. The market rides on
 change hint, so switching it re-records every product once. WooCommerce's Store API
 only relabels the symbol when asked for a currency, and JSON-LD sites state one price;
 neither gets a market. `market` on the record says which country a price is for.
+
+## The per-field timeline (periods)
+
+The owner's rule, verbatim: "we keep storing only if it has changed from the last
+record. otherwise we just update the period." `store/periods.py` is that rule. For every
+product and each of eleven fields — `price`, `full_price`, `in_stock`, `size_availability`,
+`size_info`, `color_info`, `material_info`, `main_image_url`, `product_title`, `currency`
+and the description's sha1 — the catalogue holds a list of periods `{value, from, to}`,
+oldest first. A run that reads the same value moves `to` forward; a different value
+closes the open period at the run's time and opens a new one there. Nothing is stored
+per run except a boundary. Values are normalised first (stripped text, prices to 2 dp,
+`in_stock` to a bool) so `126.004` after `126.0` opens nothing. At most 50 periods per
+field per product; the oldest are dropped.
+
+One worked example. A hoodie is read by four runs, at 10:00 on four days, and its
+price goes 180 → 126 → 126 → 180. Three periods:
+
+| value | from | to |
+|---|---|---|
+| 180 | day 1 10:00 | day 2 10:00 |
+| 126 | day 2 10:00 | day 4 10:00 |
+| 180 | day 4 10:00 | day 4 10:00 |
+
+The third run wrote nothing for the price — it moved the second period's `to`. The
+title, currency and sizes never moved, so each has one period from day 1 to day 4.
+
+Where it lives: on Postgres, the `product_periods` table, written in the same
+transaction as the product row (`PgCatalog._flush_locked`, one statement per batch,
+one more to cap at 50), and reached forward by `mark_seen` for products a delta run
+left untouched. On the object store, `periods: {field: [[value, from], …]}` on each
+product entry, with `from` in epoch seconds and no `to` — a closed period ends where
+the next begins, and the open one ends at `last_seen_run`, which the entry already
+carries. Measured on a synthetic 8,000-product catalogue (6.3 KB a record, four runs,
+a tenth of prices moving each run): 610 bytes a product, 9.7% growth.
+
+Readers: `product_history(domain, itemurl=None)` returns the run stamps as before plus
+`periods` per product, on both backends. `catalogue_changes(domain, limit)` keeps its
+`added`/`removed` rows and adds `changed` and `changed_names` — each a period boundary,
+as `Nemo Hoodie: price 180 → 126` — newest first.
+
+Migration: `archive periods migrate <domain>|--all` replays `product_observations`
+(the object store's `history/<domain>/<run>.json`) oldest first into periods, and is
+safe to run twice. `archive periods show <domain> <itemurl>` prints one product's
+timeline. Observations are still written: the backfill reconciles on their count and
+the migration reads them.
 
 ## Rules of the body
 

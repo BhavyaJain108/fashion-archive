@@ -31,8 +31,9 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from backend.archive.domain.brand import Brand, ScrapePlan
-from backend.archive.domain.product import usable_image_url
+from backend.archive.domain.product import WATCHED_FIELDS, usable_image_url
 from backend.archive.domain.run import Coverage
+from backend.archive.store import periods
 from backend.archive.store.objects import Conflict, ObjectStore, dumps, loads
 
 FLUSH_EVERY = 200
@@ -141,6 +142,11 @@ def has_photograph(record: dict) -> bool:
     if isinstance(raw, list):
         return any(raw)
     return isinstance(raw, str) and raw.strip() not in ("", "[]")
+
+
+def _name(row: dict) -> str:
+    rec = row.get("record") or {}
+    return rec.get("product_title") or row.get("product_code") or "untitled"
 
 
 def new_run_id() -> str:
@@ -436,8 +442,6 @@ class Catalog:
         return self._open[domain]
 
     def record_product(self, domain: str, run_id: str, record, change_hint: str | None) -> bool:
-        from backend.archive.domain.product import WATCHED_FIELDS
-
         products = self._catalogue(domain)["products"]
         current = json.loads(record.model_dump_json())
         previous = products.get(record.itemurl)
@@ -457,6 +461,12 @@ class Catalog:
                 # Not covered until its run finishes and earns coverage.
                 "last_covered_run": None,
             }
+        # The timeline: a new value opens a period; the same value writes nothing,
+        # since the open period ends at last_seen_run, stamped just above.
+        entry = products[record.itemurl]
+        periods.apply(
+            entry.setdefault("periods", {}), periods.values_of(current), periods.epoch(run_id)
+        )
         if changed:
             self._pending_observations.setdefault((domain, run_id), []).append(
                 {
@@ -595,6 +605,8 @@ class Catalog:
         products = self._catalogue(domain)["products"]
         for url in urls:
             if url in products:
+                # Unchanged, so every open period reaches this run: the stamp is
+                # where the JSON form keeps the open period's end.
                 products[url]["last_seen_run"] = run_id
         self._dirty.add(domain)
 
@@ -670,19 +682,75 @@ class Catalog:
     def _run_when(run_id: str | None) -> str | None:
         return run_id.rsplit("-", 1)[0] if run_id else None
 
-    def product_history(self, domain: str) -> dict[str, dict]:
-        """Per product url: when it was added, last scraped, last on the site, and
-        whether it is on the site now."""
+    def product_history(self, domain: str, itemurl: str | None = None) -> dict[str, dict]:
+        """Per product url: when it was added, last scraped, last on the site, whether
+        it is on the site now, and `periods` — per tracked field, what the value was
+        and from when to when, oldest first (see store/periods.py). With `itemurl`,
+        that product alone."""
         products = self._catalogue(domain)["products"]
         live = self._latest_covered_run(domain)
+        if itemurl is not None:
+            products = {itemurl: products[itemurl]} if itemurl in products else {}
         return {
             url: {
                 "first_seen": self._run_when(row.get("first_seen_run")),
                 "last_seen": self._run_when(row.get("last_seen_run")),
                 "last_on_site": self._run_when(row.get("last_covered_run")),
                 "live": live is not None and row.get("last_covered_run") == live,
+                "periods": periods.as_dicts(
+                    row.get("periods"),
+                    periods.epoch(row["last_seen_run"]) if row.get("last_seen_run") else None,
+                ),
             }
             for url, row in products.items()
+        }
+
+    def _field_changes(self, domain: str) -> dict[str, tuple[int, list[str]]]:
+        """Per moment (a period stamp): how many field periods opened on a product
+        that already had one, and the first eight as `Title: price 180 → 126`."""
+        products = self._catalogue(domain)["products"]
+        found: dict[str, list[str]] = {}
+        counts: dict[str, int] = {}
+        for row in products.values():
+            title = _name(row)
+            for field, held in (row.get("periods") or {}).items():
+                for before, after in zip(held, held[1:], strict=False):
+                    at = periods.stamp(after[1])
+                    counts[at] = counts.get(at, 0) + 1
+                    names = found.setdefault(at, [])
+                    if len(names) < 8:
+                        names.append(periods.describe(title, field, before[0], after[0]))
+        return {at: (counts[at], sorted(found[at])) for at in counts}
+
+    def migrate_periods(self, domain: str) -> dict:
+        """Replay the brand's observations (oldest first) into periods. The open
+        period reaches the product's last sighting by construction. Idempotent:
+        the same value at the same time is the same period."""
+        products = self._catalogue(domain)["products"]
+        observations = 0
+        for key in sorted(self._store.list(f"history/{domain}/")):
+            run_id = key.rsplit("/", 1)[-1][: -len(".json")]
+            at = periods.epoch(run_id)
+            for o in self._read(key, {"observations": []})["observations"]:
+                row = products.get(o.get("itemurl"))
+                if row is None:
+                    continue
+                observations += 1
+                periods.apply(
+                    row.setdefault("periods", {}),
+                    {f: periods.normalise(f, o.get(f)) for f in WATCHED_FIELDS},
+                    at,
+                )
+        self._dirty.add(domain)
+        self.flush()
+        return {
+            "domain": domain,
+            "observations": observations,
+            "periods": sum(
+                len(held)
+                for row in self._catalogue(domain)["products"].values()
+                for held in (row.get("periods") or {}).values()
+            ),
         }
 
     def _covered_stamps(self, domain: str, products: dict) -> list[str]:
@@ -738,19 +806,24 @@ class Catalog:
         return [row["record"] for row in products.values() if keep(row)]
 
     def catalogue_changes(self, domain: str, limit: int = 30) -> list[dict]:
-        """What each run added and removed, newest first.
+        """What each run added, removed and changed, newest first.
 
         A product is added at the run it was first seen in, and removed at the first
         covered run that did not see it — which is the run after the one stamped as
-        its last_covered_run. Runs that changed nothing do not appear.
+        its last_covered_run. A change is a period boundary: a tracked field that
+        opened a new period at that run (`changed`, with the first eight as
+        `changed_names`). Runs that changed nothing do not appear.
         """
         products = self._catalogue(domain)["products"]
+        return self._merge_changes(
+            domain,
+            self._stamp_changes(domain, products),
+            self._field_changes(domain),
+            limit,
+        )
+
+    def _stamp_changes(self, domain: str, products: dict) -> list[dict]:
         stamps = self._covered_stamps(domain, products)
-
-        def name(row: dict) -> str:
-            rec = row.get("record") or {}
-            return rec.get("product_title") or row.get("product_code") or "untitled"
-
         out: list[dict] = []
         prev: str | None = None
         for run in stamps:
@@ -767,12 +840,48 @@ class Catalog:
                         "at": self._run_when(run),
                         "added": len(added),
                         "removed": len(removed),
-                        "added_names": [name(r) for r in added[:8]],
-                        "removed_names": [name(r) for r in removed[:8]],
+                        "added_names": [_name(r) for r in added[:8]],
+                        "removed_names": [_name(r) for r in removed[:8]],
                     }
                 )
             prev = run
-        return list(reversed(out))[:limit]
+        return out
+
+    def _merge_changes(
+        self,
+        domain: str,
+        by_run: list[dict],
+        by_moment: dict[str, tuple[int, list[str]]],
+        limit: int,
+    ) -> list[dict]:
+        """Join the run-stamped rows (added, removed) with the period boundaries
+        (changed) on the run's second; a boundary with no run of its own (replayed
+        from an observation) stands as its own row."""
+        # The run a second belongs to: the last one opened in it (two runs in one
+        # second only happens in a test, and then the later is the one that wrote).
+        runs: dict[str, str] = {}
+        for run_id in self.run_ids(domain):
+            runs[periods.stamp(periods.period_time(run_id))] = run_id
+        rows: dict[str, dict] = {r["run_id"]: r for r in by_run}
+        for at, (count, names) in by_moment.items():
+            key = runs.get(at) or at
+            row = rows.get(key)
+            if row is None:
+                found = runs.get(at)
+                row = rows[key] = {
+                    "run_id": found,
+                    "at": self._run_when(found) or at,
+                    "added": 0,
+                    "removed": 0,
+                    "added_names": [],
+                    "removed_names": [],
+                }
+            row["changed"] = count
+            row["changed_names"] = names
+        for row in rows.values():
+            row.setdefault("changed", 0)
+            row.setdefault("changed_names", [])
+        return sorted(rows.values(), key=lambda r: r["at"], reverse=True)[:limit]
 
     def rewrite_field(self, domain: str, field: str, value) -> int:
         """Set one field to one value across a brand's products.
