@@ -1004,9 +1004,10 @@ def main(argv: list[str] | None = None) -> int:
                 return 2
             if args.cmd == "backup":
                 m = bk.backup(catalog, store)
-                for table, t in m["tables"].items():
+                for table, st in m["tables"].items():
                     print(
-                        f"{table:<22}{t['rows']:>8} rows {t['bytes'] / 1e6:>8.1f} MB {t['seconds']}s"
+                        f"{table:<22}{st['rows']:>8} rows {st['bytes'] / 1e6:>8.1f} MB "
+                        f"{st['seconds']}s"
                     )
                 print(
                     f"{m['r2']['copied']} objects copied, {len(m['pruned'])} old days pruned, "
@@ -1077,9 +1078,11 @@ def main(argv: list[str] | None = None) -> int:
                 def _field_finder(domain, url, missing, page_transport):
                     from backend.archive.finder_llm import learn_recipes
 
-                    # A page is up to ~55k tokens; the old 0.02 was a tenth of a real
-                    # call and let the day overshoot by a call per worker.
-                    cap.check(estimate_usd=0.2)  # raises FinderBudgetSpent
+                    # A trimmed page is up to ~28k tokens, about $0.10 on a heavy page.
+                    # It was 0.2 when the finder sent 220k characters; before that, 0.02
+                    # was a tenth of a real call and let the day overshoot by a call
+                    # per worker.
+                    cap.check(estimate_usd=0.1)  # raises FinderBudgetSpent
                     before = spend.usd
                     resp = page_transport.get(url)
                     if resp.status_code != 200:
@@ -1131,9 +1134,9 @@ def main(argv: list[str] | None = None) -> int:
                             # Ask about everything the run can, not ten pages' worth:
                             # the daily ceiling is the throttle, and what a page did
                             # not yield is asked again on a later product or run.
-                            # Fifteen pages at ~$0.17 is $2.50 — one brand cannot spend
-                            # the fleet's day; what a page did not yield is asked again
-                            # on a later run.
+                            # Fifteen pages at ~$0.10 (was ~$0.17 before the trimmer)
+                            # is $1.50 — one brand cannot spend the fleet's day; what a
+                            # page did not yield is asked again on a later run.
                             learn_budget=15,
                             transport_factory=lambda level: for_level(
                                 level, sink=requests_log, budget=budget

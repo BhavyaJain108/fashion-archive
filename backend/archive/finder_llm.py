@@ -20,10 +20,16 @@ from backend.archive.domain.recipe import RECIPE_KINDS, Recipe, RecipeBook
 from backend.archive.finder import apply_recipes, is_plausible, verify_recipe
 
 MODEL = os.getenv("FINDER_MODEL", "claude-sonnet-5")
-_MAX_HTML = 220000  # chars of stripped page sent to the model (~55k tokens)
+_MAX_HTML = 110_000  # chars of trimmed page sent to the model (~28k tokens)
 # Cutting the page too short makes the model guess values it cannot see, and a wrong
 # prediction kills an otherwise correct rule at verification (live: psylos1 2026-08-30,
-# where the size buttons sat past a 60k cut).
+# where the size buttons sat past a 60k cut). The cap was 220k, and a heavy page cost
+# 17–20 cents a call against 1.5 for a light one. The cap is half that now because
+# `prepare_page` first removes what no rule can point at — scripts, styles, SVG paths,
+# comments, inline handlers, theme-builder data blobs — and, when the page marks where
+# the product is, keeps that region rather than the header, mega-menu and footer
+# around it. The size buttons that sat past 60k of raw markup sit well inside 110k of
+# trimmed markup; what was cut was never markup a selector lands on.
 
 # The shape the model must return. Enforced by the API, not by parsing.
 RECIPE_TOOL = {
@@ -97,6 +103,10 @@ Guidance:
   do not omit the field because writing out every entry would be unwieldy.
 - Omit any field that genuinely is not on this page. An omitted field is fine. A wrong
   rule is not.
+- The HTML below has had scripts, styles, SVG paths, comments and inline handlers
+  removed, and may be only the page's product region with its <meta> tags and JSON-LD.
+  Your rule is replayed on the WHOLE page as the shop served it, so anchor selectors
+  on the product's own containers rather than on being the first match in the page.
 
 PAGE URL: {url}
 
@@ -114,11 +124,13 @@ def learn_recipes(
         return RecipeBook(domain=domain, learned_at=now, learned_from_url=url)
 
     client = client or _default_client(spend)
-    prompt = _PROMPT.format(
-        fields=", ".join(missing_fields), url=url, html=_strip(html)[:_MAX_HTML]
-    )
+    prompt = _PROMPT.format(fields=", ".join(missing_fields), url=url, html=prepare_page(html))
     proposed = _to_recipes(client.propose(prompt))
 
+    # Replayed on the page as fetched, never on the trimmed copy: a rule is applied
+    # to untrimmed pages for the rest of the brand's life, so that is where it must
+    # hold, and a selector the model wrote against the trimmed copy that only works
+    # there is exactly what this throws out.
     kept = [r for r in proposed if r.field in missing_fields and _holds_up(r, html)]
     return RecipeBook(domain=domain, learned_at=now, learned_from_url=url, recipes=kept)
 
@@ -151,15 +163,159 @@ def _to_recipes(payload) -> list[Recipe]:
     return out
 
 
-_DROP = re.compile(r"<(script|style|svg|noscript)\b.*?</\1>", re.S | re.I)
+# --- what the model is shown ---------------------------------------------------------
+#
+# The model's job is to point at markup: a CSS selector, a regex over the page, a
+# path into the JSON-LD. Everything below removes what none of those can usefully
+# point at, so the tokens paid for are the ones a rule can be learned from.
+
+_DROP = re.compile(r"<(script|style|svg|noscript)\b.*?</\1\s*>", re.S | re.I)
+_IS_LD = re.compile(r"""<script[^>]*type\s*=\s*["']?application/ld\+json""", re.I)
+_COMMENT = re.compile(r"<!--.*?-->", re.S)
+# style="…", every on*="…" handler, and sizes="(min-width…)": presentation and
+# behaviour, never a value.
+_JUNK_ATTR = re.compile(r"""\s(?:style|on[a-z]+|sizes)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)""", re.I)
+_DATA_ATTR = re.compile(r"""\s(data-[\w:.-]+)\s*=\s*("[^"]*"|'[^']*')""", re.I)
+# A srcset is one image at twelve widths. The rule the model writes reads the
+# attribute; its "expected" may be the first entry or two, and replay accepts a value
+# that begins with what was written — so the first two candidates are all it needs.
+_SRCSET = re.compile(r"""\s((?:data-)?srcset)\s*=\s*"([^"]*)\"""", re.I)
+_SRCSET_KEEP = 2
+# Stylesheets, preloads, icons: the head's plumbing. canonical and alternate stay.
+_PLUMBING_LINK = re.compile(
+    r"""<link\b[^>]*\brel\s*=\s*["']?(?:stylesheet|preload|modulepreload|preconnect|"""
+    r"""dns-prefetch|prefetch|icon|apple-touch-icon|manifest)\b[^>]*>""",
+    re.I,
+)
+_WS = re.compile(r"\s+")
+_TAG_END = re.compile(r"\s+(/?>)")
+# A data-* value longer than this is kept only if it looks like it is about the
+# product: Elementor's data-settings and a theme's data-section-settings are JSON
+# about layout; WooCommerce's data-product_variations is the size table.
+_LONG_DATA = 120
+_PRODUCT_WORDS = (
+    "product",
+    "variant",
+    "size",
+    "price",
+    "sku",
+    "color",
+    "colour",
+    "image",
+    "img",
+    "src",
+    "gallery",
+    "media",
+    "stock",
+    "avail",
+    "option",
+    "swatch",
+    "inventory",
+    "quantity",
+    "sold",
+)
+_URLISH = ("http", "//", ".jpg", ".jpeg", ".png", ".webp", ".avif", ".gif")
+# Where the product is, when a page says so. Tried in order; the first that is found
+# and holds a real amount of markup wins.
+_REGION_OPENERS = (
+    re.compile(r"<main\b[^>]*>", re.I),
+    re.compile(
+        r"""<(?:div|section|article|form)\b[^>]*itemtype\s*=\s*["'][^"']*Product["']""", re.I
+    ),
+    re.compile(
+        r"""<(?:div|section|article|form)\b[^>]*\b(?:id|class)\s*=\s*["'][^"']*\b(?:"""
+        r"product-single|product-page|product__info|product-detail|product-details|"
+        r"product-template|product-main|main-product|product__wrapper|product-container|"
+        r"productView|product-view|single-product|pdp"
+        r""")\b[^"']*["']""",
+        re.I,
+    ),
+)
+_MIN_REGION = 3_000  # a "main" with less than this is an app shell, not the product
 
 
-def _strip(html: str) -> str:
-    """Drop scripts/styles, but keep JSON-LD — it is a legal place for a rule to point."""
-    keep = re.findall(
-        r'<script[^>]*type="application/ld\+json"[^>]*>.*?</script>', html, re.S | re.I
-    )
-    return _DROP.sub(" ", html) + "\n".join(keep[:3])
+def _drop_noise(m: re.Match) -> str:
+    return m.group(0) if _IS_LD.match(m.group(0)) else " "
+
+
+def _data_attr(m: re.Match) -> str:
+    name, quoted = m.group(1), m.group(2)
+    value = quoted[1:-1]
+    if len(value) <= _LONG_DATA:
+        return m.group(0)
+    lowered = name.lower()
+    if any(w in lowered for w in _PRODUCT_WORDS):
+        return m.group(0)
+    v = value.lower()
+    if any(u in v for u in _URLISH):
+        return m.group(0)
+    return ""
+
+
+def _srcset(m: re.Match) -> str:
+    candidates = [c.strip() for c in m.group(2).split(",") if c.strip()]
+    if len(candidates) <= _SRCSET_KEEP:
+        return m.group(0)
+    return f' {m.group(1)}="{", ".join(candidates[:_SRCSET_KEEP])}"'
+
+
+def _close_of(html: str, tag: str, start: int) -> int | None:
+    """Index just past the closing tag that balances the opener at `start`."""
+    step = re.compile(rf"<(/?){tag}\b[^>]*>", re.I)
+    depth = 0
+    for m in step.finditer(html, start):
+        depth += -1 if m.group(1) else 1
+        if depth == 0:
+            return m.end()
+    return None
+
+
+def _product_region(html: str) -> str | None:
+    for opener in _REGION_OPENERS:
+        m = opener.search(html)
+        if not m:
+            continue
+        tag = re.match(r"<([a-z]+)", m.group(0), re.I)
+        end = _close_of(html, tag.group(1), m.start()) if tag else None
+        if end is not None and end - m.start() >= _MIN_REGION:
+            return html[m.start() : end]
+    return None
+
+
+def trim_page(html: str) -> str:
+    """The page with everything a rule cannot point at removed. No cap, no cut."""
+    out = _COMMENT.sub(" ", html)
+    out = _DROP.sub(_drop_noise, out)
+    out = _PLUMBING_LINK.sub(" ", out)
+    out = _JUNK_ATTR.sub("", out)
+    out = _DATA_ATTR.sub(_data_attr, out)
+    out = _SRCSET.sub(_srcset, out)
+    return _TAG_END.sub(r"\1", _WS.sub(" ", out)).strip()
+
+
+_HEAD_KEEP = re.compile(r"<(?:title\b[^>]*>.*?</title|meta\b[^>]*)>", re.S | re.I)
+
+
+def prepare_page(html: str, cap: int = _MAX_HTML) -> str:
+    """What the model is sent: the trimmed page, or — when the page marks where the
+    product is — the head's meta tags, the JSON-LD and that region, without the
+    header, mega-menu and footer around it. Then the cap.
+
+    Always the region when there is one, not only when the page is over the cap:
+    a threshold made two pages of nearly the same size cost very different amounts,
+    and a rule learned from the region holds on the whole page or is thrown out."""
+    trimmed = trim_page(html)
+    region = _product_region(trimmed)
+    if region is not None:
+        outside = trimmed.replace(region, " ", 1)
+        head = _HEAD_KEEP.findall(outside)
+        ld = [
+            m.group(0)
+            for m in re.finditer(r"<script\b[^>]*>.*?</script\s*>", outside, re.S | re.I)
+            if _IS_LD.match(m.group(0))
+        ]
+        trimmed = " ".join([*head, *ld[:3], region])
+    return trimmed[:cap]
 
 
 def _env_value(*names: str) -> str | None:
