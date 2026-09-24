@@ -58,6 +58,10 @@ services:
         sync: false
       - key: FINDER_DAILY_USD
         value: "10"
+      # The country the catalogue is priced for: Shopify stores with Markets serve
+      # this market's own prices; the rest keep their currency and the site converts.
+      - key: ARCHIVE_MARKET
+        value: "US"
 
   - type: web
     name: fashion-archive-api

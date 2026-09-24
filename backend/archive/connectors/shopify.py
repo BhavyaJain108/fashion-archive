@@ -78,14 +78,49 @@ def _sizes_from_variants(variants: list[dict], options: list[str]) -> list[dict]
 _MAX_PAGES = 200  # 200 × 250 = 50k products; loop guard, not a coverage cap
 _BUSY = (429, 503)  # the store is fine, it wants us to slow down
 
+# The market whose prices the catalogue holds. A Shopify store with Markets enabled
+# prices each country itself — kuurth.com asks 34.95 EUR at home and 52.00 USD in the
+# US, which is a decision, not a conversion — and `?country=US` on the feed returns
+# that market's figures. A store without a US market ignores the parameter and serves
+# its own currency (marrknull.com, EUR), which the response cookie then says.
+DEFAULT_MARKET = "US"
+_CART_CURRENCY = re.compile(r"cart_currency=([A-Z]{3})")
+
+
+def served_currency(resp) -> str | None:
+    """The currency the store priced this response in, read off its cookie.
+
+    Shopify sets `cart_currency` on every storefront response, the feed included,
+    and it names the currency of the prices in the body — so it is the one source
+    that agrees with the numbers whether or not the market switch took.
+    """
+    headers = resp.headers
+    try:
+        raw = headers.get_list("set-cookie")
+    except AttributeError:
+        value = headers.get("set-cookie") if headers is not None else None
+        raw = [value] if value else []
+    for line in raw:
+        m = _CART_CURRENCY.search(line or "")
+        if m:
+            return m.group(1)
+    return None
+
 
 class ShopifyConnector:
     kind = "shopify"
 
-    def __init__(self, currency: str | None = None, retry_pause: float = 2.0):
-        # /products.json states prices with no currency; the store states it once.
+    def __init__(
+        self,
+        currency: str | None = None,
+        retry_pause: float = 2.0,
+        market: str | None = DEFAULT_MARKET,
+    ):
+        # /products.json states prices with no currency; the store states it once
+        # (meta.json), and the response cookie says which market's prices came back.
         self.currency = currency
         self.retry_pause = retry_pause
+        self.market = market
 
     def _page(self, url: str, transport: Transport):
         """One page of the feed, with one patient retry when the store says slow down."""
@@ -101,16 +136,24 @@ class ShopifyConnector:
 
     def discover(self, brand: Brand, transport: Transport) -> list[ProductRef]:
         refs: list[ProductRef] = []
+        country = f"&country={self.market}" if self.market else ""
         for page in range(1, _MAX_PAGES + 1):
-            url = f"https://{brand.domain}/products.json?limit=250&page={page}"
-            products = self._page(url, transport).json().get("products", [])
+            url = f"https://{brand.domain}/products.json?limit=250&page={page}{country}"
+            resp = self._page(url, transport)
+            if page == 1:
+                # Whatever the store priced the feed in wins over what meta.json said:
+                # the two differ exactly when the market switch took.
+                self.currency = served_currency(resp) or self.currency
+            products = resp.json().get("products", [])
             if not products:
                 break
             for p in products:
                 refs.append(
                     ProductRef(
                         url=f"https://{brand.domain}/products/{p['handle']}",
-                        change_hint=p.get("updated_at"),
+                        # The market is part of the hint: switching it re-records
+                        # every product once, which is how the old currency leaves.
+                        change_hint=_hint(p.get("updated_at"), self.market),
                         payload=p,
                     )
                 )
@@ -120,10 +163,18 @@ class ShopifyConnector:
         if not ref.payload:
             raise SkipProduct(f"no payload on {ref.url}")
         domain = ref.url.split("/")[2]
-        return map_product(ref.payload, domain, self.currency)
+        return map_product(ref.payload, domain, self.currency, self.market)
 
 
-def map_product(p: dict, domain: str, currency: str | None = None) -> ProductRecord:
+def _hint(updated_at: str | None, market: str | None) -> str | None:
+    if updated_at is None:
+        return None
+    return f"{updated_at}|{market}" if market else updated_at
+
+
+def map_product(
+    p: dict, domain: str, currency: str | None = None, market: str | None = None
+) -> ProductRecord:
     variants = p.get("variants", [])
     prices = [float(v["price"]) for v in variants if v.get("price") is not None]
     compare = [float(v["compare_at_price"]) for v in variants if v.get("compare_at_price")]
@@ -153,6 +204,7 @@ def map_product(p: dict, domain: str, currency: str | None = None) -> ProductRec
         price=price,
         full_price=full_price,
         currency=currency,
+        market=market,
         in_stock=any(v.get("available") for v in variants) if variants else None,
         color_info=", ".join(colors) or None,
         material_info=", ".join(materials) or None,

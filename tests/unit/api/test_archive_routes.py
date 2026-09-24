@@ -250,3 +250,28 @@ def test_rates_come_from_the_bank_once_and_fall_back_to_the_last_answer(client, 
     monkeypatch.setattr(archive_routes, "_rates_cache", (0.0, {"ok": True, "rates": {"USD": 1.0}}))
     body = get(client, "/api/archive/rates")[1]
     assert body["ok"] is True and "USD" in body["rates"]  # stale answer beats none
+
+
+@pytest.mark.unit
+def test_the_second_feed_fills_in_what_the_bank_leaves_out(monkeypatch):
+    def fake(url):
+        if url == archive_routes.RATES_URL:
+            return {"date": "2026-09-24", "rates": {"EUR": 0.88, "GBP": 0.76}}
+        return {"rates": {"EUR": 0.90, "RUB": 84.5, "USD": 1}}
+
+    monkeypatch.setattr(archive_routes, "_fetch_json", fake)
+    rates = archive_routes._fetch_rates()["rates"]
+    assert rates["EUR"] == 0.88  # the bank's figure wins
+    assert rates["RUB"] == 84.5  # the rouble comes from the second feed
+    assert rates["USD"] == 1.0
+
+
+@pytest.mark.unit
+def test_the_bank_alone_is_enough_when_the_second_feed_is_down(monkeypatch):
+    def fake(url):
+        if url == archive_routes.RATES_URL:
+            return {"date": "2026-09-24", "rates": {"EUR": 0.88}}
+        raise RuntimeError("down")
+
+    monkeypatch.setattr(archive_routes, "_fetch_json", fake)
+    assert archive_routes._fetch_rates()["rates"] == {"EUR": 0.88, "USD": 1.0}

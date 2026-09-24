@@ -55,6 +55,7 @@ SEARCH_FIELDS = (
     "price",
     "full_price",
     "currency",
+    "market",
     "in_stock",
     "main_image_url",
     "all_images",

@@ -123,6 +123,10 @@ class ProductRecord(BaseModel):
     price: float | None = None
     full_price: float | None = None
     currency: str | None = None
+    # Not an E0005 field. The country whose prices these are, when the shop was asked
+    # for one (a Shopify store with Markets prices each country itself); None means
+    # the shop's own figures, whatever the visitor's country.
+    market: str | None = None
     promotion_type: str | None = None
     promotion_end_date: str | None = None
     ppu: float | None = None  # price per unit, where a shop sells by measure

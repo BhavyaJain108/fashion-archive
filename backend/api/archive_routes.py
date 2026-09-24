@@ -454,18 +454,36 @@ def get_health():
 # European Central Bank by way of frankfurter.dev, once a day, no key; a currency
 # the ECB does not publish (the rouble, since 2022) is shown as the shop prints it.
 RATES_URL = "https://api.frankfurter.dev/v1/latest?base=USD"
+# The central bank publishes about thirty currencies and no rouble. A second feed
+# fills in whatever the bank leaves out (RUB for xsai.vision); the bank's figure wins
+# wherever both have one.
+RATES_FALLBACK_URL = "https://open.er-api.com/v6/latest/USD"
 RATES_TTL_SECONDS = 6 * 3600
 _rates_cache: tuple[float, dict] | None = None
 _rates_lock = threading.Lock()
 
 
-def _fetch_rates() -> dict:
+def _fetch_json(url: str) -> dict:
     import urllib.request
 
-    with urllib.request.urlopen(RATES_URL, timeout=10) as resp:  # noqa: S310 — fixed https URL
-        body = json.loads(resp.read().decode("utf-8"))
+    with urllib.request.urlopen(url, timeout=10) as resp:  # noqa: S310 — fixed https URLs
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _fetch_rates() -> dict:
+    body = _fetch_json(RATES_URL)
     rates = {k: float(v) for k, v in (body.get("rates") or {}).items()}
     rates["USD"] = 1.0
+    try:
+        extra = _fetch_json(RATES_FALLBACK_URL).get("rates") or {}
+    except Exception:  # noqa: BLE001 — the second feed is a bonus, not a requirement
+        extra = {}
+    for code, value in extra.items():
+        if code not in rates:
+            try:
+                rates[code] = float(value)
+            except (TypeError, ValueError):
+                continue
     return {"ok": True, "base": "USD", "date": body.get("date"), "rates": rates}
 
 

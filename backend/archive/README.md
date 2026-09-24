@@ -49,6 +49,18 @@ T0 → T1 → T2 on its own. `--browser` is only needed for a hand-run scrape.
 | **DOMAIN** | The data shapes everything passes around; imports nothing | `domain/brand.py`, `domain/product.py`, `domain/run.py` |
 | **RUN** | Orchestration and entry points | `runner/run.py` (lifecycle), `runner/cli.py` (CLI), `brands.yml` (target list) |
 
+## Which prices the catalogue holds
+
+The catalogue is priced for one market, `ARCHIVE_MARKET` (US). A Shopify store with
+Markets prices each country itself — kuurth.com asks 34.95 EUR at home and 52.00 USD in
+the US, a decision the shop made, not a conversion — and `/products.json?country=US`
+returns that market's figures, with a `cart_currency` cookie naming the currency they
+are in. The connector reads the cookie, so a store without a US market (marrknull.com)
+keeps its own currency and the site converts it for display. The market rides on the
+change hint, so switching it re-records every product once. WooCommerce's Store API
+only relabels the symbol when asked for a currency, and JSON-LD sites state one price;
+neither gets a market. `market` on the record says which country a price is for.
+
 ## Rules of the body
 
 - Connectors never own transports and never touch the DB.

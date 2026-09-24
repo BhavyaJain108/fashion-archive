@@ -29,7 +29,7 @@ def test_discover_pages_until_empty_and_carries_payloads():
         "https://kuurth.com/products/nemo-hoodie",
         "https://kuurth.com/products/ring-one",
     ]
-    assert refs[0].change_hint == "2026-08-20T09:30:00-04:00"
+    assert refs[0].change_hint == "2026-08-20T09:30:00-04:00|US"  # the market rides on the hint
     assert refs[0].payload["title"] == "Nemo Hoodie"
 
 
@@ -231,3 +231,53 @@ def test_a_rate_limit_is_retried_then_reported_as_busy_not_blocked():
     )
     with pytest.raises(ChannelBusy):
         ShopifyConnector(retry_pause=0).discover(BRAND, always_busy)
+
+
+def make_market_transport(cookie: str | None) -> HttpxTransport:
+    """A store that answers the feed and, like Shopify, says on a cookie which
+    currency it priced the body in."""
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        page = request.url.params.get("page")
+        name = "shopify_products_page1.json" if page == "1" else "shopify_products_page2.json"
+        headers = {"set-cookie": f"cart_currency={cookie}; path=/"} if cookie else {}
+        return httpx.Response(200, json=json.loads((FIX / name).read_text()), headers=headers)
+
+    transport = HttpxTransport(client=httpx.Client(transport=httpx.MockTransport(handler)))
+    transport.seen = seen  # type: ignore[attr-defined]
+    return transport
+
+
+@pytest.mark.unit
+def test_the_feed_is_asked_for_the_market_and_the_cookie_names_the_currency():
+    # meta.json said EUR; the US market answered in dollars, and the cookie says so.
+    transport = make_market_transport("USD")
+    connector = ShopifyConnector("EUR", market="US")
+    refs = connector.discover(BRAND, transport)
+    assert all("country=US" in url for url in transport.seen)
+    rec = connector.fetch(refs[0], transport=None)
+    assert (rec.currency, rec.market) == ("USD", "US")
+    # The market is part of the hint, so switching it re-records every product once.
+    assert refs[0].change_hint == "2026-08-20T09:30:00-04:00|US"
+
+
+@pytest.mark.unit
+def test_a_store_without_that_market_keeps_its_own_currency():
+    # marrknull.com has no US market: the parameter is ignored and the cookie says EUR.
+    connector = ShopifyConnector("EUR", market="US")
+    refs = connector.discover(BRAND, make_market_transport("EUR"))
+    assert connector.fetch(refs[0], None).currency == "EUR"
+    # No cookie at all: meta.json's word stands.
+    connector = ShopifyConnector("EUR", market="US")
+    refs = connector.discover(BRAND, make_market_transport(None))
+    assert connector.fetch(refs[0], None).currency == "EUR"
+
+
+@pytest.mark.unit
+def test_no_market_means_the_plain_feed_and_the_old_hint():
+    transport = make_market_transport("EUR")
+    refs = ShopifyConnector("EUR", market=None).discover(BRAND, transport)
+    assert all("country=" not in url for url in transport.seen)
+    assert refs[0].change_hint == "2026-08-20T09:30:00-04:00"

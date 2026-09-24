@@ -50,4 +50,3 @@ brands:
   - {domain: www.vancleefarpels.com, homepage_url: "https://www.vancleefarpels.com", display_name: "Van Cleef & Arpels", size: large, notes: TLS-level block}
   - {domain: vondutch.com, homepage_url: "https://vondutch.com", display_name: "Von Dutch", size: large}
   - {domain: www.gentlemonster.com, homepage_url: "https://www.gentlemonster.com", display_name: "Gentle Monster", size: large, notes: enterprise challenge}
-  - {domain: www.theoutnet.com, homepage_url: "https://www.theoutnet.com", display_name: "The Outnet", size: multi_brand, notes: enterprise (YNAP multi-brand outlet), not yet probed}
