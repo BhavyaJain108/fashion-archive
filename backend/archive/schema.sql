@@ -79,6 +79,25 @@ CREATE TABLE IF NOT EXISTS product_observations (
 CREATE INDEX IF NOT EXISTS observations_product ON product_observations (brand, itemurl, observed_at DESC);
 CREATE INDEX IF NOT EXISTS observations_run ON product_observations (brand, run_id);
 
+-- The per-field timeline (backend/archive/store/periods.py). One row per product,
+-- field and stretch of time the value held: a run that sees the same value moves
+-- period_to forward, a different value closes the row at that time and opens the
+-- next. The open period is the row with the greatest period_from. Numbers go in
+-- value_num, everything else (including in_stock as 'true'/'false' and the
+-- description as its sha1) in value_text. At most 50 rows per product and field.
+CREATE TABLE IF NOT EXISTS product_periods (
+    brand       text NOT NULL,
+    itemurl     text NOT NULL,
+    field       text NOT NULL,
+    value_text  text,
+    value_num   double precision,
+    period_from timestamptz NOT NULL,
+    period_to   timestamptz NOT NULL,
+    PRIMARY KEY (brand, itemurl, field, period_from)
+);
+CREATE INDEX IF NOT EXISTS periods_open ON product_periods (brand, itemurl, field, period_to DESC);
+CREATE INDEX IF NOT EXISTS periods_recent ON product_periods (brand, period_from DESC);
+
 -- Photographs: what the shop published for each product, and where we keep a copy.
 CREATE TABLE IF NOT EXISTS product_images (
     brand        text NOT NULL,

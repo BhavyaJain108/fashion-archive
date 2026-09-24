@@ -205,6 +205,36 @@ def _failures(args, catalog: Catalog, brands: list[Brand]) -> int:
     return 0
 
 
+def _periods(args, catalog: Catalog, brands: list[Brand]) -> int:
+    """`periods migrate <domain>|--all` replays observations into the per-field
+    timeline; `periods show <domain> <itemurl>` prints one product's."""
+    if args.action == "migrate":
+        domains = [b.domain for b in brands] if args.all else [args.domain] if args.domain else []
+        if not domains:
+            print("periods migrate: give a domain or --all", file=sys.stderr)
+            return 2
+        for domain in domains:
+            r = catalog.migrate_periods(domain)
+            print(f"{domain:32s} observations {r['observations']:>7}  periods {r['periods']:>7}")
+        return 0
+    if not args.domain or not args.itemurl:
+        print("periods show: give a domain and an itemurl", file=sys.stderr)
+        return 2
+    row = catalog.product_history(args.domain, args.itemurl).get(args.itemurl)
+    if row is None:
+        print(f"{args.itemurl}: not in {args.domain}", file=sys.stderr)
+        return 1
+    print(
+        f"{args.itemurl}\n  first seen {row['first_seen']}  last seen {row['last_seen']}  "
+        f"{'live' if row['live'] else 'gone'}"
+    )
+    for field, held in row["periods"].items():
+        print(f"  {field}")
+        for p in held:
+            print(f"    {p['from']}  →  {p['to']}   {p['value']}")
+    return 0
+
+
 def _seed(catalog: Catalog, brands_path: Path) -> list[Brand]:
     brands = load_brands(brands_path)
     for b in brands:
@@ -385,6 +415,7 @@ def main(argv: list[str] | None = None) -> int:
         "fleet-check",
         "notes",
         "failures",
+        "periods",
     ):
         sp = sub.add_parser(name)
         sp.add_argument(
@@ -436,6 +467,16 @@ def main(argv: list[str] | None = None) -> int:
             )
             sp.add_argument("--gap", type=float, default=0.0)
             sp.add_argument("--images-dir", type=Path, default=Path("backend/archive/data/images"))
+        if name == "periods":
+            sp.add_argument(
+                "action",
+                choices=["migrate", "show"],
+                help="migrate: replay a brand's observations into the per-field timeline; "
+                "show: print one product's timeline",
+            )
+            sp.add_argument("domain", nargs="?")
+            sp.add_argument("itemurl", nargs="?")
+            sp.add_argument("--all", action="store_true", help="migrate every brand in brands.yml")
         if name == "failures":
             sp.add_argument("--hours", type=int, default=24)
             sp.add_argument("--all", action="store_true", help="every failed run, not only ours")
@@ -601,6 +642,9 @@ def main(argv: list[str] | None = None) -> int:
     catalog = open_catalog(store)
     try:
         brands = _seed(catalog, args.brands) if args.brands.exists() else []
+
+        if args.cmd == "periods":
+            return _periods(args, catalog, brands)
 
         if args.cmd == "plan":
             cap = probe(args.domain, HttpxTransport())
