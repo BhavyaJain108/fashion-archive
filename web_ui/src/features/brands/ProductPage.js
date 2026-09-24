@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import TopBar from '../../shared/ui/TopBar';
 import ArchiveAPI from '../../shared/api/brands';
 import { Tile } from './Storefront';
-import { formatPrice, shopFigure, fallbackOnError } from './shop';
+import { formatPrice, shopFigure, fallbackOnError, sized } from './shop';
 import { useMoney } from '../../shared/money';
 import './storefront.css';
 
