@@ -647,3 +647,45 @@ def test_the_catalogue_filters_by_what_the_brand_offers(client, tmp_path):
     body = json.loads(c.get("/api/dev/brands/kuurth.com/products?price_min=100").data)
     assert body["total"] == 2 and body["price_min"] == 100.0
     assert c.get("/api/dev/brands/kuurth.com/products?price_min=abc").status_code == 400
+
+
+@pytest.mark.unit
+def test_a_sweep_is_queued_from_the_deck_with_the_same_refusals_as_run(client, tmp_path):
+    from backend.archive.scheduler import Scheduler
+
+    c, mp = client
+    mp.setenv("ADMIN_EMAILS", "owner@example.com")
+    _as(mp, "owner@example.com")
+    r = c.post("/api/dev/brands/kuurth.com/sweep_seconds", json={"seconds": 900})
+    assert r.status_code == 200 and json.loads(r.data)["sweep_seconds"] == 900
+    bad = "/api/dev/brands/kuurth.com/sweep_seconds"
+    assert c.post(bad, json={"seconds": -1}).status_code == 400
+    assert c.post(bad, json={}).status_code == 400
+    assert (
+        c.post("/api/dev/brands/nobody.example/sweep_seconds", json={"seconds": 1}).status_code
+        == 404
+    )
+
+    body = json.loads(c.post("/api/dev/brands/kuurth.com/sweep").data)
+    assert body["outcome"] == "queued" and body["mode"] == "sweep"
+    brand = json.loads(c.get("/api/dev/overview").data)["brands"][0]
+    assert brand["sweep_seconds"] == 900 and brand["sweep_queued"] is True
+    assert brand["last_sweep"] is None
+
+    sched = Scheduler(DirectoryObjectStore(tmp_path), worker_id="w")
+    # The fixture added the brand due now, so its delta turn comes first and the
+    # queued sweep waits for the turn to pass.
+    assert sched.claim_next().mode == "delta"
+    r = c.post("/api/dev/brands/kuurth.com/sweep")
+    assert r.status_code == 409 and json.loads(r.data)["code"] == "HELD"
+    assert c.post("/api/dev/brands/nobody.example/sweep").status_code == 404
+    r = c.post("/api/dev/brands/kuurth.com/sweep", headers={"Origin": "https://evil.example"})
+    assert r.status_code == 403
+    sched.release("kuurth.com", 3600)
+    assert sched.claim_next().mode == "sweep"  # the queued sweep, once the turn is past
+    sched.release_after_sweep("kuurth.com")
+    import backend.api.dev_routes as dr
+
+    dr._forget_overview()  # the release came from a worker, not through the API's cache
+    brand = json.loads(c.get("/api/dev/overview").data)["brands"][0]
+    assert brand["last_sweep"] and brand["sweep_queued"] is False

@@ -65,6 +65,26 @@ T0 → T1 → T2 on its own. `--browser` is only needed for a hand-run scrape.
 | **DOMAIN** | The data shapes everything passes around; imports nothing | `domain/brand.py`, `domain/product.py`, `domain/run.py` |
 | **RUN** | Orchestration and entry points | `runner/run.py` (lifecycle), `runner/cli.py` (CLI), `brands.yml` (target list) |
 
+## Run modes
+
+`runner/run.py` runs the first three; `runner/sweep.py` the last. The scheduler
+offers delta on the brand's cadence, learn when the owner asks, and sweep on its own
+per-brand cadence (`sweep_seconds`, 0 = off) whenever the brand is unclaimed and its
+real turn is more than ten minutes away.
+
+| Mode | Reads | Writes | Covered run? | Cost per brand |
+|---|---|---|---|---|
+| **delta** | the feed, then the pages and photographs of products whose change hint moved | products, images, stamps, evidence, scorecard | yes | feed pages + one page per changed product + its images |
+| **full** | everything delta reads, for every product | the same | yes | feed pages + one page per product + images |
+| **learn** | a spread of product pages, through the finder | the recipe book and the evidence; no products | no | `learn_budget` finder calls (~$0.17 each) |
+| **sweep** | the bulk feed only: Shopify `/products.json?country=…` pages or Woo Store API pages | `in_stock`, `size_availability`, `size_stock_counts`, `price`, `full_price`, `promotion_type`, `currency`, `offers[].available/price` of products already held; an observation per watched change | no | ⌈products/250⌉+1 requests on Shopify, ⌈products/100⌉+1 on Woo; a few seconds |
+
+A sweep never adds or removes a product, never touches images, stamps or the
+reference run, and never probes: a brand whose plan reads the structured-data lane
+is skipped with the reason "no cheap stock source" and nothing is fetched. Its run
+row says `checked`, `changed` and `seconds`. `cli scrape X --sweep` runs one by
+hand; `cli brands sweep X --every 900` sets the cadence.
+
 ## Which prices the catalogue holds
 
 The catalogue is priced for one market, `ARCHIVE_MARKET` (US). A Shopify store with

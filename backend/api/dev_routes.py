@@ -308,6 +308,13 @@ def _narrate(events: list[dict]) -> list[dict]:
             say("The shop is password-gated; nothing to read until it opens")
         elif kind == "evidence-recorded":
             pass
+        elif kind == "swept":
+            say(
+                f"Swept the feed for stock: {e.get('checked', 0):,} products checked, "
+                f"{e.get('changed', 0):,} changed, {e.get('seconds', 0)} s"
+            )
+        elif kind == "sweep-skipped":
+            say(f"Sweep skipped: {e.get('reason')}")
         elif kind == "finalized":
             v = e.get("verdict")
             word = {
@@ -384,6 +391,13 @@ def _brand_row(domain: str, row: dict, meta: dict, name: str, catalog: Catalog) 
         # "learn" when the next claim is a finder-only run.
         "next_mode": row.get("next_mode") or None,
         "cadence_seconds": row.get("cadence_seconds"),
+        # Stock sweeps between real runs: how often (0 = off), when the last one
+        # was, and whether one is queued by hand.
+        "sweep_seconds": row.get("sweep_seconds") or 0,
+        "last_sweep": row.get("last_sweep"),
+        "sweep_queued": bool(row.get("sweep_asap")),
+        # "sweep" while the worker holding the brand is sweeping it, not scraping it.
+        "claimed_mode": row.get("claimed_mode") if claimed else None,
         "claimed_by": claimed,
         "claimed_at": row.get("claimed_at"),
         # When the run began; claimed_at moves with every heartbeat.
@@ -879,6 +893,59 @@ def register_dev_routes(app: Flask) -> None:
             return jsonify({"success": False, "error": error, "code": code}), 409
         _forget_overview()
         return jsonify({"success": True, "domain": brand_id, "outcome": outcome, "mode": "learn"})
+
+    @app.route("/api/dev/brands/<brand_id>/sweep", methods=["POST"])
+    def dev_brand_sweep(brand_id):
+        """Queue one stock sweep: the bulk feed is re-read and only what is in
+        stock, and at what price, is updated. No pages, no images, nothing added
+        or removed; the brand's scheduled turn is kept. Same refusals as /run."""
+        if not _is_owner():
+            return _forbidden()
+        if not _from_our_site():
+            return _cross_site()
+        if bad := _bad_domain(brand_id):
+            return bad
+        sched = Scheduler(_store(), stale_claim_seconds=HEARTBEAT_GRACE_MINUTES * 60)
+        outcome = sched.sweep_now(brand_id)
+        if outcome == "unknown":
+            return jsonify(
+                {"success": False, "error": "not on the schedule", "code": "NOT_FOUND"}
+            ), 404
+        if outcome in RUN_REFUSALS:
+            error, code = RUN_REFUSALS[outcome]
+            return jsonify({"success": False, "error": error, "code": code}), 409
+        _forget_overview()
+        return jsonify({"success": True, "domain": brand_id, "outcome": outcome, "mode": "sweep"})
+
+    @app.route("/api/dev/brands/<brand_id>/sweep_seconds", methods=["POST"])
+    def dev_brand_sweep_seconds(brand_id):
+        """Set how often the brand's stock is swept between real runs.
+        Body: {"seconds": n}; 0 turns sweeping off. Sits beside the cadence."""
+        if not _is_owner():
+            return _forbidden()
+        if not _from_our_site():
+            return _cross_site()
+        if bad := _bad_domain(brand_id):
+            return bad
+        body = request.get_json(silent=True) or {}
+        try:
+            seconds = int(body.get("seconds"))
+        except (TypeError, ValueError):
+            return jsonify(
+                {"success": False, "error": "seconds is an integer", "code": "BAD_REQUEST"}
+            ), 400
+        if seconds < 0 or seconds > 7 * 86400:
+            return jsonify(
+                {"success": False, "error": "seconds is 0 (off) to a week", "code": "BAD_REQUEST"}
+            ), 400
+        sched = Scheduler(_store())
+        if sched.row(brand_id) is None:
+            return jsonify(
+                {"success": False, "error": "not on the schedule", "code": "NOT_FOUND"}
+            ), 404
+        sched.set_sweep(brand_id, seconds)
+        _forget_overview()
+        return jsonify({"success": True, "domain": brand_id, "sweep_seconds": seconds})
 
     @app.route("/api/dev/brands/<brand_id>/release", methods=["POST"])
     def dev_brand_release(brand_id):

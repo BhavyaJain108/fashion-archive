@@ -79,6 +79,59 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+# What a sweep may change on a product that is already in the catalogue: the stock
+# and the price, nothing else. Sizes in stock move hourly; titles and photographs do
+# not, and re-reading them is what a delta run is for.
+STOCK_FIELDS = (
+    "in_stock",
+    "size_availability",
+    "size_stock_counts",
+    "price",
+    "full_price",
+    "promotion_type",
+    "currency",
+)
+
+
+def stock_patch(previous: dict, update: dict) -> dict:
+    """The stock fields of `update` that differ from `previous`, ready to merge.
+
+    `update` is the connector's fresh reading of one product (a record dump, or
+    just its stock fields). Only STOCK_FIELDS and the `available`/`price` of the
+    offers already stored are taken; an offer the catalogue does not hold is not
+    added, and a product's size list is not moved — E0005 stores size_availability
+    parallel to size_info, so when the feed's sizes no longer match the stored ones
+    the two availability strings are left for the next delta run, which re-reads
+    the product whole.
+    """
+    patch: dict = {}
+    sizes_moved = "size_info" in update and (update.get("size_info") or None) != (
+        previous.get("size_info") or None
+    )
+    for field in STOCK_FIELDS:
+        if field not in update:
+            continue
+        if sizes_moved and field in ("size_availability", "size_stock_counts"):
+            continue
+        value = update.get(field)
+        if value != previous.get(field):
+            patch[field] = value
+    held = previous.get("offers")
+    fresh = update.get("offers")
+    if isinstance(held, list) and isinstance(fresh, list):
+        by_id = {str(o.get("variant_id")): o for o in fresh if isinstance(o, dict)}
+        merged = []
+        for offer in held:
+            new = by_id.get(str(offer.get("variant_id"))) if isinstance(offer, dict) else None
+            if new is None:
+                merged.append(offer)
+                continue
+            merged.append({**offer, "available": new.get("available"), "price": new.get("price")})
+        if merged != held:
+            patch["offers"] = merged
+    return patch
+
+
 def has_photograph(record: dict) -> bool:
     """Whether a product has anything to show. A tile with no image is not a product
     anyone can shop; it stays in the catalogue and the site's routes leave it out."""
@@ -305,8 +358,11 @@ class Catalog:
         row["exit_status"] = exit_status
         row["coverage"] = json.loads(coverage.model_dump_json()) if coverage else None
         self._write(f"runs/{domain}/{run_id}.json", row)
-        if row.get("mode") == "learn":
-            return  # nothing in the catalogue moved; the fleet line stays the last real run's
+        if row.get("mode") in ("learn", "sweep"):
+            # A learn run moved nothing in the catalogue; a sweep moved only stock,
+            # and wrote it as it went. Neither is a covered run, and the fleet line
+            # (verdict, freshness, coverage) stays the last real run's.
+            return
 
         # Membership is stamped here, not in record_product, and only by a run that
         # earned coverage. psylos1 recorded 4,740 products and then died when the
@@ -541,6 +597,46 @@ class Catalog:
             if url in products:
                 products[url]["last_seen_run"] = run_id
         self._dirty.add(domain)
+
+    def update_stock(self, domain: str, run_id: str, updates: list[dict]) -> int:
+        """A sweep's write: the stock fields of products already here. Returns how
+        many products changed.
+
+        Nothing is added or removed, no run stamp moves, photographs are untouched.
+        A product the catalogue does not hold is ignored — it is the next delta run's
+        to add. A watched field that moved leaves an observation, as record_product's
+        would, so the price line and the changes list see it.
+        """
+        from backend.archive.domain.product import WATCHED_FIELDS
+
+        products = self._catalogue(domain)["products"]
+        changed = 0
+        for update in updates:
+            row = products.get(update.get("itemurl") or "")
+            if row is None:
+                continue
+            record = row["record"]
+            patch = stock_patch(record, update)
+            if not patch:
+                continue
+            record.update(patch)
+            changed += 1
+            if any(f in patch for f in WATCHED_FIELDS):
+                self._pending_observations.setdefault((domain, run_id), []).append(
+                    {
+                        "itemurl": update["itemurl"],
+                        "price": record.get("price"),
+                        "full_price": record.get("full_price"),
+                        "in_stock": None
+                        if record.get("in_stock") is None
+                        else int(record["in_stock"]),
+                        "size_availability": record.get("size_availability"),
+                    }
+                )
+        if changed:
+            self._dirty.add(domain)
+            self.flush()
+        return changed
 
     def get_change_hints(self, domain: str) -> dict[str, str]:
         return {

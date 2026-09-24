@@ -106,8 +106,10 @@ Buttons and what they do:
 | resume | paused | back on its cadence; an overdue brand runs at once |
 | release | worker dead (no beat for 12 min) | hands the brand back; the run starts over |
 | learn fields | idle | a finder-only run: a spread of product pages is read, rules are written, nothing is stored, the scheduled turn is kept; *retry searched fields* asks again about fields given up on |
+| sweep (`POST …/sweep`) | idle | a stock-only run: the bulk feed is re-read and only what is in stock, and at what price, is updated on products already held; no pages, no images, nothing added or removed, the scheduled turn is kept. `POST …/sweep_seconds {"seconds": n}` sets a per-brand sweep cadence (0 = off); rows carry `last_sweep` |
 
-From the terminal the same run is `cli scrape X --learn [--retry-searched]`.
+From the terminal the same runs are `cli scrape X --learn [--retry-searched]` and
+`cli scrape X --sweep`; `cli brands sweep X --every 900` sets the sweep cadence.
 
 ## Running the scraper by hand
 

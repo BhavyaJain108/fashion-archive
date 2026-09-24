@@ -259,3 +259,85 @@ def test_boot_backfill_resumes_the_brands_without_a_finished_row(tmp_path, pool,
     bf.backfill(store, pg, bf.missing_domains(store, pg), log=lambda *_: None)
     assert bf.missing_domains(store, pg) == []
     pg.close()
+
+
+def test_a_sweep_updates_stock_in_place_and_nothing_else(tmp_path, pool, clean):
+    store = DirectoryObjectStore(tmp_path)
+    cat = PgCatalog(store, pool=pool)
+    url = "https://x.com/products/denim-jacket"
+    other = "https://x.com/products/wool-sweater"
+    run = cat.open_run("x.com", "full")
+    cat.record_product(
+        "x.com",
+        run,
+        _record(
+            url,
+            "Denim Jacket",
+            300,
+            size_info="S, M",
+            size_availability="in_stock, in_stock",
+            offers=[
+                {"size": "S", "variant_id": "1", "available": True, "price": 300.0},
+                {"size": "M", "variant_id": "2", "available": True, "price": 300.0},
+            ],
+        ),
+        "h1",
+    )
+    cat.record_product("x.com", run, _record(other, "Wool Sweater", 200), "h2")
+    cat.finalize_run(run, 0, _coverage(), domain="x.com")
+    before = {r["itemurl"]: r for r in cat.current_products("x.com")}
+
+    sweep = cat.open_run("x.com", "sweep")
+    n = cat.update_stock(
+        "x.com",
+        sweep,
+        [
+            {
+                "itemurl": url,
+                "size_info": "S, M",
+                "in_stock": True,
+                "size_availability": "in_stock, out_of_stock",
+                "size_stock_counts": "4, 0",
+                "price": 250.0,
+                "full_price": 300.0,
+                "promotion_type": "sale",
+                "currency": "USD",
+                "offers": [{"variant_id": "2", "available": False, "price": 250.0}],
+            },
+            {"itemurl": other, "price": 200.0, "in_stock": True},  # unchanged
+            {"itemurl": "https://x.com/products/new", "price": 1.0},  # not held: ignored
+        ],
+    )
+    assert n == 1
+    cat.finalize_run(sweep, 0, None, domain="x.com")
+
+    after = {r["itemurl"]: r for r in cat.current_products("x.com")}
+    assert set(after) == set(before)
+    jacket = after[url]
+    assert (jacket["price"], jacket["full_price"], jacket["promotion_type"]) == (
+        250.0,
+        300.0,
+        "sale",
+    )
+    assert jacket["size_availability"] == "in_stock, out_of_stock"
+    assert jacket["offers"][1]["available"] is False and jacket["offers"][0]["available"] is True
+    assert jacket["product_title"] == "Denim Jacket"
+    assert jacket["all_images"] == before[url]["all_images"]
+    assert jacket["raw"] == {"src": "test"}
+    assert after[other] == before[other]
+    # The typed columns moved with the record; the stamps and the hint did not.
+    with pool.connection() as conn:
+        row = conn.execute(
+            "SELECT price, full_price, in_stock, size_availability, size_stock_counts, "
+            "change_hint, last_seen_run, last_covered_run FROM products WHERE itemurl = %s",
+            (url,),
+        ).fetchone()
+    assert row == (250.0, 300.0, True, "in_stock, out_of_stock", "4, 0", "h1", run, run)
+    assert cat._latest_covered_run("x.com") == run
+    assert cat.observation_count("x.com") == 3  # two first sightings + the sweep's price move
+    with pool.connection() as conn:
+        obs = conn.execute(
+            "SELECT price, in_stock FROM product_observations WHERE run_id = %s", (sweep,)
+        ).fetchall()
+    assert obs == [(250.0, True)]
+    cat.close()

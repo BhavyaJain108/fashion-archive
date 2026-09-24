@@ -32,7 +32,7 @@ from psycopg_pool import ConnectionPool
 from backend.archive import storefront as shop
 from backend.archive.domain.product import WATCHED_FIELDS
 from backend.archive.domain.run import Coverage
-from backend.archive.store.catalog import FLUSH_EVERY, Catalog, _now
+from backend.archive.store.catalog import FLUSH_EVERY, Catalog, _now, stock_patch
 from backend.archive.store.objects import ObjectStore
 
 _MAX_LEVELS = 10
@@ -413,6 +413,69 @@ class PgCatalog(Catalog):
             )
         self._open.pop(domain, None)
 
+    def update_stock(self, domain: str, run_id: str, updates: list[dict]) -> int:
+        """A sweep's write: one UPDATE per product whose stock moved, all in one
+        transaction. `record` is patched in place and the typed stock columns set;
+        no run stamp, photograph or search text is touched, and a product the
+        table does not hold is ignored."""
+        self.flush()
+        urls = [u["itemurl"] for u in updates if u.get("itemurl")]
+        if not urls:
+            return 0
+        changed = 0
+        with self._pg() as conn:
+            held = dict(
+                conn.execute(
+                    "SELECT itemurl, record FROM products WHERE brand = %s AND itemurl = ANY(%s)",
+                    (domain, urls),
+                ).fetchall()
+            )
+            with conn.cursor() as cur:
+                for update in updates:
+                    record = held.get(update.get("itemurl") or "")
+                    if record is None:
+                        continue
+                    patch = stock_patch(record, update)
+                    if not patch:
+                        continue
+                    merged = {**record, **patch}
+                    cur.execute(
+                        "UPDATE products SET record = record || %s, price = %s, full_price = %s, "
+                        "currency = %s, in_stock = %s, size_availability = %s, "
+                        "size_stock_counts = %s, updated_at = now() "
+                        "WHERE brand = %s AND itemurl = %s",
+                        (
+                            Jsonb(patch),
+                            _num(merged.get("price")),
+                            _num(merged.get("full_price")),
+                            _text(merged.get("currency")),
+                            _bool(merged.get("in_stock")),
+                            _text(merged.get("size_availability")),
+                            _text(merged.get("size_stock_counts")),
+                            domain,
+                            update["itemurl"],
+                        ),
+                    )
+                    changed += 1
+                    if any(f in patch for f in WATCHED_FIELDS):
+                        cur.execute(
+                            "INSERT INTO product_observations "
+                            "(brand, itemurl, run_id, price, full_price, in_stock, size_availability) "
+                            "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                            (
+                                domain,
+                                update["itemurl"],
+                                run_id,
+                                _num(merged.get("price")),
+                                _num(merged.get("full_price")),
+                                _bool(merged.get("in_stock")),
+                                _text(merged.get("size_availability")),
+                            ),
+                        )
+        self._open.pop(domain, None)
+        self._watched_rows.pop(domain, None)
+        return changed
+
     def rewrite_field(self, domain: str, field: str, value) -> int:
         self.flush()
         with self._pg() as conn:
@@ -483,8 +546,8 @@ class PgCatalog(Catalog):
         row["exit_status"] = exit_status
         row["coverage"] = json.loads(coverage.model_dump_json()) if coverage else None
         self._write(f"runs/{domain}/{run_id}.json", row)
-        if row.get("mode") == "learn":
-            return
+        if row.get("mode") in ("learn", "sweep"):
+            return  # neither is a covered run; a sweep's stock writes already landed
         self.flush()
         if coverage is not None and exit_status in (0, 1):
             with self._pg() as conn:

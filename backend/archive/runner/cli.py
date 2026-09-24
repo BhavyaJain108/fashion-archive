@@ -24,7 +24,7 @@ from backend.archive.score import score
 from backend.archive.store.catalog import Catalog
 from backend.archive.store.factory import open_catalog
 from backend.archive.store.objects import ObjectStore, R2ObjectStore, object_store
-from backend.archive.transport import HttpxTransport, Transport
+from backend.archive.transport import HttpxTransport, Transport, for_level
 
 _DEFAULT_BRANDS = Path(__file__).parent.parent / "brands.yml"
 # Where objects go when neither --objects nor R2 says otherwise; object_store() owns
@@ -441,10 +441,16 @@ def main(argv: list[str] | None = None) -> int:
             sp.add_argument("--all", action="store_true", help="every failed run, not only ours")
         if name == "brands":
             sp.add_argument(
-                "action", choices=["add", "drop", "pause", "resume", "cadence", "seed", "list"]
+                "action",
+                choices=["add", "drop", "pause", "resume", "cadence", "sweep", "seed", "list"],
             )
             sp.add_argument("domain", nargs="?")
-            sp.add_argument("--every", type=int, default=86400, help="cadence in seconds")
+            sp.add_argument(
+                "--every",
+                type=int,
+                default=86400,
+                help="cadence in seconds (with `sweep`: seconds between stock sweeps, 0 = off)",
+            )
         if name == "coverage":
             sp.add_argument("domain", nargs="*")
             sp.add_argument("--all", action="store_true", help="every brand in brands.yml")
@@ -523,6 +529,12 @@ def main(argv: list[str] | None = None) -> int:
                 "--learn",
                 action="store_true",
                 help="finder only: read a spread of pages, write rules, store no products",
+            )
+            group.add_argument(
+                "--sweep",
+                action="store_true",
+                help="stock only: re-read the bulk feed and update what is in stock and "
+                "at what price; no product pages, no images, nothing added or removed",
             )
             sp.add_argument(
                 "--retry-searched",
@@ -634,6 +646,35 @@ def main(argv: list[str] | None = None) -> int:
             if carried:
                 print(f"  standing down on {carried} host(s) refused recently")
             transport = HttpxTransport(sink=requests_log, budget=host_budget)
+            if args.sweep:
+                # Stock only, from the feed. No scorecard and no image pass: nothing
+                # a card measures moved, and no photograph was read.
+                from backend.archive.runner.sweep import sweep_brand
+
+                worst = 0
+                for i, b in enumerate(targets):
+                    if i and args.pause:
+                        time.sleep(args.pause)
+                    code = sweep_brand(
+                        b,
+                        catalog,
+                        transport,
+                        locks_dir=args.locks,
+                        log_dir=args.logs,
+                        transport_factory=lambda level: for_level(
+                            level, sink=requests_log, budget=host_budget
+                        ),
+                    )
+                    run = catalog.latest_run(b.domain) or {}
+                    print(
+                        f"{b.domain}  exit={code}  sweep  {run.get('checked', 0)} checked  "
+                        f"{run.get('changed', 0)} changed  {run.get('seconds', 0)} s"
+                        f"{'  (' + run['reason'] + ')' if run.get('reason') else ''}"
+                    )
+                    worst = max(worst, code)
+                requests_log.flush()
+                catalog.close()
+                return worst
             # Probing asks a brand that may refuse, on purpose, and a refusal there is the
             # answer rather than a reason to stand the host down for a quarter of an hour.
             probe_transport = HttpxTransport(
@@ -963,15 +1004,19 @@ def main(argv: list[str] | None = None) -> int:
                 sched.add(args.domain, args.every)
             elif args.action == "cadence":
                 sched.set_cadence(args.domain, args.every)
+            elif args.action == "sweep":
+                sched.set_sweep(args.domain, args.every)
             elif args.action in ("drop", "pause"):
                 sched.set_enabled(args.domain, False)
             else:
                 sched.set_enabled(args.domain, True)
-            print(f"{'DOMAIN':<28}{'ON':<4}{'EVERY':>8}  NEXT DUE")
+            print(f"{'DOMAIN':<28}{'ON':<4}{'EVERY':>8}{'SWEEP':>7}  NEXT DUE")
             for r in sched.rows():
+                sweep = r.get("sweep_seconds") or 0
                 print(
                     f"{r['domain']:<28}{'y' if r['enabled'] else 'n':<4}"
-                    f"{r['cadence_seconds']:>8}  {r['next_due'][:19]}"
+                    f"{r['cadence_seconds']:>8}{(str(sweep) if sweep else '—'):>7}  "
+                    f"{r['next_due'][:19]}"
                     f"{'  (running)' if r['claimed_by'] else ''}"
                 )
             return 0
@@ -1047,14 +1092,32 @@ def main(argv: list[str] | None = None) -> int:
                         cap.charge(spend.usd - before)
 
                 def do_brand(brand, mode="delta", retry_searched=False):
-                    from backend.archive.transport import for_level
-
                     spent_before = spend.usd
                     # What the sites answered, kept with the catalogue: the deck's
                     # per-host latency and refusal counts come from this ledger, and
                     # until today the daemon's transport had no sink, so those
                     # numbers only ever existed for scrapes run by hand.
                     requests_log = RequestLog(cat)
+                    if mode == "sweep":
+                        # Stock from the feed and nothing else: no pages, no images,
+                        # no finder, no scorecard.
+                        from backend.archive.runner.sweep import sweep_brand
+
+                        try:
+                            sweep_brand(
+                                brand,
+                                cat,
+                                HttpxTransport(sink=requests_log, budget=budget),
+                                locks_dir=args.locks if hasattr(args, "locks") else Path("locks"),
+                                log_dir=Path("backend/archive/data/logs"),
+                                browser_transport_factory=_browser_factory,
+                                transport_factory=lambda level: for_level(
+                                    level, sink=requests_log, budget=budget
+                                ),
+                            )
+                        finally:
+                            requests_log.flush()
+                        return None, 0.0
                     try:
                         run_brand(
                             brand,

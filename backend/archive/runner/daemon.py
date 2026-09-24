@@ -128,9 +128,12 @@ def run_once(catalog: Catalog, scheduler: Scheduler, do_brand, log=print) -> boo
 
     threading.Thread(target=beat, daemon=True).start()
     learning = due.mode == "learn"
+    sweeping = due.mode == "sweep"
     try:
         if learning:
             records, cost = do_brand(brand, mode="learn", retry_searched=due.retry_searched)
+        elif sweeping:
+            records, cost = do_brand(brand, mode="sweep")
         else:
             records, cost = do_brand(brand)
     except ChannelBusy as e:
@@ -140,6 +143,8 @@ def run_once(catalog: Catalog, scheduler: Scheduler, do_brand, log=print) -> boo
         beat_off.set()
         if learning:
             scheduler.release_after_learn(due.domain, not_before=BUSY_BACKOFF)
+        elif sweeping:
+            scheduler.release_after_sweep(due.domain, not_before=BUSY_BACKOFF)
         else:
             scheduler.defer(due.domain, BUSY_BACKOFF)
         return True
@@ -148,11 +153,24 @@ def run_once(catalog: Catalog, scheduler: Scheduler, do_brand, log=print) -> boo
         beat_off.set()
         if learning:
             scheduler.release_after_learn(due.domain)
+        elif sweeping:
+            scheduler.release_after_sweep(due.domain)
         else:
             scheduler.release(due.domain, due.cadence_seconds)
         return True
 
     beat_off.set()
+    if sweeping:
+        # No scorecard and no photographs: only stock moved, and the brand's real
+        # turn is where it was. The run row says what was checked and what changed.
+        run = catalog.latest_run(due.domain) or {}
+        log(
+            f"{due.domain} sweep done: {run.get('checked', 0)} checked, "
+            f"{run.get('changed', 0)} changed, {run.get('seconds', 0)} s"
+        )
+        scheduler.release_after_sweep(due.domain)
+        catalog.release_products(due.domain)
+        return True
     if learning:
         # No scorecard: nothing was stored, so there is nothing to score, and a card
         # of zero products would read as a failed gate on the deck. The run row

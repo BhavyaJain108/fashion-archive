@@ -21,6 +21,10 @@ from backend.archive.store.objects import Conflict, ObjectStore, dumps, loads
 
 DEFAULT_CADENCE = 86_400  # a day
 
+# A sweep is not offered this close to the brand's real turn: the delta run that
+# follows re-reads everything a sweep would have, so the sweep would be paid twice.
+SWEEP_CLEARANCE_SECONDS = 600
+
 # How long a claim stands without a heartbeat before another worker may take the
 # brand. A live worker beats every five minutes, so three missed beats is dead. It
 # was an hour: every deploy replaced the container mid-run, and the brands it held
@@ -43,8 +47,10 @@ def _iso(dt: datetime) -> str:
 class Due:
     domain: str
     cadence_seconds: int
-    # "delta" (the usual run) or "learn": read a sample of pages for the finder only,
-    # store nothing. Set by the owner for the next claim and cleared by it.
+    # "delta" (the usual run); "learn": read a sample of pages for the finder only,
+    # store nothing; "sweep": re-read the cheapest stock source and update only what
+    # is in stock and at what price. learn is set by the owner for the next claim and
+    # cleared by it; sweep is offered on its own cadence between real turns.
     mode: str = "delta"
     # A learn run that may ask again about fields already searched and not found.
     retry_searched: bool = False
@@ -96,6 +102,8 @@ class Scheduler:
                 # Adding a brand that is already here keeps its pause.
                 "enabled": row.get("enabled", 1) if row else 1,
                 "cadence_seconds": cadence_seconds,
+                # Stock sweeps between real runs, off until the owner sets a cadence.
+                "sweep_seconds": int(row.get("sweep_seconds") or 0),
                 "next_due": row.get("next_due") or _iso(now or _now()),
                 "claimed_by": row.get("claimed_by"),
                 "claimed_at": row.get("claimed_at"),
@@ -180,6 +188,43 @@ class Scheduler:
 
     def set_cadence(self, domain: str, cadence_seconds: int) -> None:
         self._amend(domain, cadence_seconds=cadence_seconds)
+
+    def set_sweep(self, domain: str, sweep_seconds: int) -> None:
+        """How often the brand's stock is swept between real runs. 0 is off, and
+        the default: a sweep is a cost the owner opts a brand into."""
+        self._amend(domain, sweep_seconds=max(0, int(sweep_seconds)))
+
+    def sweep_now(self, domain: str, now: datetime | None = None) -> str:
+        """Ask for one sweep of this brand on the next poll, whatever its sweep
+        cadence and however close its real turn is. Same answers as run_now; a
+        paused brand is swept this once and stays paused."""
+        now = now or _now()
+        row, _ = self._read(self._key(domain))
+        if not row:
+            return "unknown"
+        if row.get("claimed_by") is not None:
+            stale = _iso(now - timedelta(seconds=self.stale_claim_seconds))
+            return "held" if (row.get("claimed_at") or "") >= stale else "dead"
+        self._amend(domain, sweep_asap=1, sweep_not_before=None)
+        return "queued" if row.get("enabled") else "queued_once"
+
+    def _sweep_due(self, row: dict, now: datetime) -> bool:
+        """Whether a sweep is wanted now: asked for by the owner, or on its cadence
+        with the brand's real turn not close and the host not asking us to wait."""
+        if row.get("sweep_asap"):
+            return True
+        every = int(row.get("sweep_seconds") or 0)
+        if every <= 0 or not row.get("enabled"):
+            return False
+        if row.get("next_mode"):
+            return False  # a learn run is queued; it goes first
+        if (row.get("sweep_not_before") or "") > _iso(now):
+            return False
+        clearance = _iso(now + timedelta(seconds=SWEEP_CLEARANCE_SECONDS))
+        if (row.get("next_due") or "") <= clearance:
+            return False
+        last = row.get("last_sweep")
+        return not last or last <= _iso(now - timedelta(seconds=every))
 
     def row(self, domain: str) -> dict | None:
         """One brand's row, one read. rows() lists every brand to find one."""
@@ -268,6 +313,7 @@ class Scheduler:
         now = now or _now()
         stale = _iso(now - timedelta(seconds=self.stale_claim_seconds))
         candidates = []
+        sweeps = []
         # Read the rows at once. They are independent reads of small objects, and a
         # round trip to the bucket is ~400ms: at 32 brands that was 13 seconds of
         # waiting before a worker could start anything, paid again on every poll by
@@ -277,15 +323,19 @@ class Scheduler:
         with ThreadPoolExecutor(max_workers=min(16, max(1, len(keys)))) as pool:
             rows = list(pool.map(self._read, keys))
         for key, (row, etag) in zip(keys, rows, strict=True):
-            # A paused brand is skipped unless the owner asked for one run of it.
-            if not row or not (row.get("enabled") or row.get("run_once")):
-                continue
-            if row["next_due"] > _iso(now):
+            if not row:
                 continue
             held = row.get("claimed_by") is not None and (row.get("claimed_at") or "") >= stale
             if held:
                 continue
-            candidates.append((row["next_due"], key, row, etag))
+            # A paused brand is skipped unless the owner asked for one run of it.
+            wanted = row.get("enabled") or row.get("run_once")
+            if wanted and row["next_due"] <= _iso(now):
+                candidates.append((row["next_due"], key, row, etag))
+            elif self._sweep_due(row, now):
+                # Real turns first: a sweep is the cheap thing done while nothing
+                # else is due, never in front of a run that is.
+                sweeps.append((row.get("last_sweep") or "", key, row, etag))
 
         for _due, key, row, etag in sorted(candidates):
             row["claimed_by"] = self.worker_id
@@ -302,6 +352,20 @@ class Scheduler:
             except Conflict:
                 continue  # someone else got this brand; try the next
             return Due(row["domain"], row["cadence_seconds"], mode=mode, retry_searched=retry)
+
+        for _last, key, row, etag in sorted(sweeps):
+            row["claimed_by"] = self.worker_id
+            row["claimed_at"] = _iso(now)
+            row["claimed_since"] = _iso(now)
+            row["claimed_mode"] = "sweep"
+            row["sweep_asap"] = 0  # the one sweep asked for is this one
+            # next_due, run_once and next_mode are left alone: a sweep is not the
+            # brand's turn, and release_after_sweep hands it back as it was.
+            try:
+                self._write(key, row, etag)
+            except Conflict:
+                continue
+            return Due(row["domain"], row["cadence_seconds"], mode="sweep")
         return None
 
     def touch(self, domain: str, now: datetime | None = None) -> bool:
@@ -370,6 +434,23 @@ class Scheduler:
             due_after_learn=None,
             next_due=kept
             or _iso(now + timedelta(seconds=row.get("cadence_seconds") or DEFAULT_CADENCE)),
+        )
+
+    def release_after_sweep(
+        self, domain: str, now: datetime | None = None, not_before: int = 0
+    ) -> None:
+        """Hand the brand back after a sweep. Its real turn is untouched; the sweep
+        is stamped so the next one waits its cadence, or longer when the host asked
+        us to wait (`not_before` seconds)."""
+        now = now or _now()
+        self._amend(
+            domain,
+            claimed_by=None,
+            claimed_at=None,
+            claimed_since=None,
+            claimed_mode=None,
+            last_sweep=_iso(now),
+            sweep_not_before=_iso(now + timedelta(seconds=not_before)) if not_before else None,
         )
 
     def defer(self, domain: str, seconds: int, now: datetime | None = None) -> None:

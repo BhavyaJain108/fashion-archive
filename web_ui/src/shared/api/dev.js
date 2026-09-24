@@ -120,6 +120,16 @@ export class DevEndpoints {
     return command(`${brand(domain)}/learn`, 'Could not queue a learn run', { retry_searched: !!retrySearched });
   }
 
+  // One stock sweep now: the bulk feed is re-read and only stock and price move.
+  static sweep(domain) {
+    return command(`${brand(domain)}/sweep`, 'Could not queue a sweep');
+  }
+
+  // How often the brand's stock is swept between real runs; 0 turns it off.
+  static setSweep(domain, seconds) {
+    return command(`${brand(domain)}/sweep_seconds`, 'Could not set the sweep cadence', { seconds: Number(seconds) || 0 });
+  }
+
   static pause(domain) {
     return command(`${brand(domain)}/pause`, 'Could not pause');
   }

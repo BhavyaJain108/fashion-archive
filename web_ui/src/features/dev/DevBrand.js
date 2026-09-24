@@ -413,6 +413,11 @@ function RunRow({ domain, run }) {
       const gained = (run.fields_gained || []).length;
       verdict = `learned · ${n(run.rules || 0)} rules from ${n(run.pages || 0)} pages`
         + (gained ? ` · ${gained} new field${gained === 1 ? '' : 's'}` : ' · no new fields');
+    } else if (run.mode === 'sweep' && run.exit_status != null) {
+      // Stock only: what the feed said, and how much of it moved.
+      verdict = run.reason
+        ? `sweep · skipped · ${run.reason}`
+        : `sweep · ${n(run.checked || 0)} checked · ${n(run.changed || 0)} changed · ${Math.round(run.seconds || 0)} s`;
     } else if (run.abandoned) verdict = 'lost · worker gone';
     else if (run.exit_status == null) verdict = 'running';
     else if (run.reason) verdict = `no verdict · ${run.reason}`;
@@ -424,7 +429,7 @@ function RunRow({ domain, run }) {
         <td>{dateShort(run.started_at)} <span className="dev-muted">{ago(run.started_at)}</span></td>
         <td>{run.mode}</td>
         <td>{took(run)}</td>
-        <td className={cov.verdict === 'ok' || run.mode === 'learn' ? 'wrap' : 'wrap dev-strong'}>
+        <td className={cov.verdict === 'ok' || run.mode === 'learn' || run.mode === 'sweep' ? 'wrap' : 'wrap dev-strong'}>
           {verdict}
           {(cov.reasons || []).length > 0 && <div className="dev-why">{cov.reasons.join(' · ')}</div>}
         </td>
