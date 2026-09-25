@@ -201,11 +201,28 @@ def run_brand(
         if calibrating or wants_finder or learning:
             if calibrating:
                 catalog.set_brand_state(brand.domain, "calibrating")
-            sample = refs[:sample_size]
+            # Spread through the sitemap, not its first pages: Entire Studios' sitemap
+            # opens with retired products, and a sample of those alone says nothing
+            # about the channel.
+            sample = _spread(refs, sample_size)
+            declined = 0
             try:
-                sample_records = [connector.fetch(r, work_transport) for r in sample]
+                for r in sample:
+                    try:
+                        sample_records.append(connector.fetch(r, work_transport))
+                    except SkipProduct:
+                        # A page the connector declines is not a channel failure — a
+                        # retired product with no price is exactly what it should
+                        # decline. The channel fails only when it declines them all.
+                        declined += 1
             except Exception as e:  # calibration failure is cheap information, not damage
                 return fail_plan(plan, f"calibration fetch failed: {e}")
+            if sample and not sample_records:
+                return fail_plan(
+                    plan, f"calibration: none of {len(sample)} sample pages held a product"
+                )
+            if declined:
+                log("calibration-declined", pages=declined, of=len(sample))
             if calibrating:
                 if sample and not all(r.product_title for r in sample_records):
                     return fail_plan(plan, "calibration: empty product_title in sample")

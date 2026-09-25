@@ -1300,3 +1300,63 @@ def test_a_failing_mapper_does_not_fail_the_scrape(env):
     )
     assert code == 0
     assert len(cat.current_products("kuurth.com")) == 1
+
+
+@pytest.mark.unit
+def test_calibration_survives_a_page_the_connector_declines(env):
+    # Entire Studios' first sample page was a retired product with no price; the
+    # connector declined it and the whole plan was marked failed (2026-09-25). A
+    # declined page is information about that page, not about the channel.
+    from backend.archive.connectors.base import SkipProduct
+
+    cat, locks, logs = env
+
+    class Declining(FakeConnector):
+        def fetch(self, r, transport):
+            if r.url.endswith("/a"):
+                raise SkipProduct("no product data")
+            return super().fetch(r, transport)
+
+    conn = Declining([ref("a", "h1"), ref("b", "h2"), ref("c", "h3")])
+    code = run_brand(
+        BRAND,
+        cat,
+        transport=None,
+        mode="full",
+        locks_dir=locks,
+        log_dir=logs,
+        prober=lambda d, t: OPEN_CAP,
+        composer=compose_plan,
+        connector_factory=lambda plan, sitemap_url=None, limit=None: conn,
+    )
+    assert code in (0, 1)
+    # Calibrated and run; the verdict then grades it, and a skipped page reads as
+    # degraded, not as a plan that needs a human.
+    assert cat.get_brand_state("kuurth.com") in ("active", "degraded")
+    assert len(cat.current_products("kuurth.com")) == 2  # the declined page is not stored
+
+
+@pytest.mark.unit
+def test_calibration_fails_only_when_every_sample_page_is_declined(env):
+    from backend.archive.connectors.base import SkipProduct
+
+    cat, locks, logs = env
+
+    class AllDeclined(FakeConnector):
+        def fetch(self, r, transport):
+            raise SkipProduct("no product data")
+
+    conn = AllDeclined([ref("a", "h1"), ref("b", "h2")])
+    run_brand(
+        BRAND,
+        cat,
+        transport=None,
+        mode="full",
+        locks_dir=locks,
+        log_dir=logs,
+        prober=lambda d, t: OPEN_CAP,
+        composer=compose_plan,
+        connector_factory=lambda plan, sitemap_url=None, limit=None: conn,
+    )
+    assert cat.get_brand_state("kuurth.com") == "needs_attention"
+    assert "none of 2 sample pages" in cat.load_plan("kuurth.com").tried[-1].reason
