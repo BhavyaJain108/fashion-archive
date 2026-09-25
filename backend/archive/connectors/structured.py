@@ -4,7 +4,7 @@ with OpenGraph fallback. Paired with sitemap discovery (M2 plan Task 3)."""
 import json
 import re
 
-from backend.archive.connectors.base import SkipProduct
+from backend.archive.connectors.base import NotAProduct, SkipProduct
 from backend.archive.connectors.sitemap import SitemapConnector
 from backend.archive.domain.brand import Brand
 from backend.archive.domain.product import (
@@ -97,7 +97,7 @@ def parse_ldjson_product(html: str, url: str) -> ProductRecord:
             **pack_sizes(sizes_from_dom(html)),
             raw={"source": "og_meta"},
         )
-    raise SkipProduct(f"no product data on {url} (no JSON-LD Product, no price)")
+    raise NotAProduct(f"no product data on {url} (no JSON-LD Product, no price)")
 
 
 def _money(value: str | None) -> float | None:

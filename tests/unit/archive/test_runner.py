@@ -1363,3 +1363,36 @@ def test_calibration_with_every_sample_page_declined_still_lets_the_run_go_ahead
     assert cat.load_plan("kuurth.com").tried == []
     assert cat.get_brand_state("kuurth.com") != "needs_attention"
     assert cat.current_products("kuurth.com") == []
+
+
+@pytest.mark.unit
+def test_a_page_that_is_not_a_product_leaves_the_catalogue_without_marking_the_run(env):
+    """Entire Studios, 2026-09-25: 987 of 1,377 sitemap pages are retired products with
+    no price. Read fine and declined, they are not a challenge: the run that reads the
+    other 390 is complete, becomes the reference, and the 987 stop being live."""
+    from backend.archive.connectors.base import NotAProduct
+
+    cat, locks, logs = env
+    refs = [ref(x, f"h{x}") for x in "abcdefghij"]
+    kwargs = dict(
+        locks_dir=locks,
+        log_dir=logs,
+        prober=lambda d, t: OPEN_CAP,
+        composer=compose_plan,
+        connector_factory=lambda plan, sitemap_url=None, limit=None: conn,
+    )
+    conn = FakeConnector(refs)
+    assert run_brand(BRAND, cat, None, mode="full", **kwargs) == 0
+    assert len(cat.current_products("kuurth.com")) == 10
+
+    class Retired(FakeConnector):
+        def fetch(self, r, transport):
+            if r.url[-1] in "abcdefg":  # seven of ten retired
+                raise NotAProduct("no product data")
+            return super().fetch(r, transport)
+
+    conn = Retired(refs)
+    code = run_brand(BRAND, cat, None, mode="full", **kwargs)
+    coverage = cat.latest_run("kuurth.com")["coverage"]
+    assert coverage["extracted"] == 3 and coverage["verdict"] == "ok" and code == 0
+    assert sorted(p["itemurl"][-1] for p in cat.current_products("kuurth.com")) == ["h", "i", "j"]

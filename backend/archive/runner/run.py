@@ -10,7 +10,7 @@ from pathlib import Path
 
 from backend.archive import taxonomy, taxonomy_llm
 from backend.archive.connectors import get_connector
-from backend.archive.connectors.base import ChannelBlocked, ChannelBusy, SkipProduct
+from backend.archive.connectors.base import ChannelBlocked, ChannelBusy, NotAProduct, SkipProduct
 from backend.archive.domain.brand import Brand, PlanAttempt, TransportLevel, shop_target
 from backend.archive.domain.product import (
     E0005_FIELDS,
@@ -270,7 +270,7 @@ def run_brand(
 
         deadline = clock() + time_budget if time_budget else None
         unreached = 0
-        records, errors, skipped = [], 0, 0
+        records, errors, skipped, declined_pages = [], 0, 0, 0
         failed: set[str] = set()  # products this run tried to read and could not
         imaged_products = 0
         learned_this_run = 0
@@ -317,6 +317,14 @@ def run_brand(
             catalog.report_progress(brand.domain, phase, index, len(to_fetch))
             try:
                 rec = connector.fetch(r, work_transport)
+            except NotAProduct as e:
+                # Read fine, not a product. Out of the catalogue (a retired item
+                # leaves), and out of the denominator: 390 products read out of 390
+                # is a complete run, whatever else the sitemap lists.
+                declined_pages += 1
+                failed.add(r.url)
+                log("not-a-product", url=r.url, reason=str(e))
+                continue
             except SkipProduct as e:
                 # A page the connector could not read is a page this run did not
                 # see. Gentle Monster's AWS WAF answered 1,063 of 1,332 product pages
@@ -530,8 +538,8 @@ def run_brand(
         log("evidence-recorded", entries=len(search))
 
         coverage = assess(
-            len(refs) - unreached - errors - skipped,
-            {connector.kind: len(refs)},
+            len(refs) - unreached - errors - skipped - declined_pages,
+            {connector.kind: len(refs) - declined_pages},
             field_fill_rates(records),
         )
         if finder_failures and not rules_added and coverage.verdict == "ok":
@@ -548,6 +556,7 @@ def run_brand(
             verdict=coverage.verdict,
             errors=errors,
             skipped=skipped,
+            declined=declined_pages,
             extracted=len(records),
         )
         return exit_status

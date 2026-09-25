@@ -25,6 +25,14 @@ class SkipProduct(Exception):
     """This ref should be skipped without failing the run."""
 
 
+class NotAProduct(SkipProduct):
+    """The page was read fine and is not a product: a retired item with no price, a
+    category page in a product sitemap. Unlike a challenge or an HTTP error it says
+    nothing about our access, so a run may decline a thousand of them and still be
+    a complete read of the catalogue (Entire Studios: 987 of 1,377, 2026-09-25).
+    """
+
+
 class Connector(Protocol):
     kind: str
 
