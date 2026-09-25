@@ -320,3 +320,72 @@ def test_a_product_the_vocabulary_cannot_place_says_nothing_rather_than_guessing
 
     _, body = get(client, "/api/archive/products?brand_id=shown.com")
     assert all(p[taxonomy.TYPE_FIELD] is None for p in body["products"])
+
+
+# --- the vocabulary shaping what a reader sees ------------------------------------
+
+
+@pytest.fixture()
+def placed(tmp_path, client, monkeypatch):
+    """A book that places this shop's products, and knows a gift card when it sees one."""
+    from backend.archive import taxonomy
+
+    objects = DirectoryObjectStore(tmp_path / "objects")
+    catalog = Catalog(objects)
+    # A whole run, not just the card: only the latest covered run's products are live,
+    # so recording one product alone would retire the other three.
+    run = catalog.open_run("shown.com", "full")
+    catalog.record_product("shown.com", run, product("tee", "Cotton Tee", "TOPS", "TEES"), None)
+    catalog.record_product("shown.com", run, product("cap", "Wool Cap", "ACCESSORIES"), None)
+    catalog.record_product("shown.com", run, product("odd", "Unfiled Thing"), None)
+    catalog.record_product("shown.com", run, product("card", "Digital Gift Card"), None)
+    catalog.finalize_run(run, 0, COV)
+    catalog.close()
+
+    book = taxonomy.PhraseBook({})
+    book.learn(
+        {
+            "tees": ["t-shirts"],
+            "cap": ["hats"],
+            "thing": ["accessories"],
+            "digital gift card": [taxonomy.NOT_A_PRODUCT],
+        },
+        model="m",
+    )
+    taxonomy.save(objects, book)
+    monkeypatch.setattr(archive_routes, "_book_cache", None)
+    return client
+
+
+@pytest.mark.unit
+def test_a_gift_card_is_not_shown_to_a_reader(placed):
+    """It stays in the archive — the deck still shows it — and off the page."""
+    _, body = get(placed, "/api/archive/products?brand_id=shown.com")
+    titles = [p["product_title"] for p in body["products"]]
+    assert "Digital Gift Card" not in titles
+    assert "Cotton Tee" in titles
+
+
+@pytest.mark.unit
+def test_a_product_the_shop_never_filed_is_shelved_under_what_it_is(placed):
+    """"Unfiled Thing" has no category path. Before the vocabulary it sat in
+    (uncategorised) with every other unfiled product in the archive."""
+    _, body = get(placed, "/api/archive/brands/shown.com/categories/hierarchy")
+    names = [n["name"] for n in body["hierarchy"]]
+    assert "accessories" in names
+    assert "(uncategorised)" not in names
+
+
+@pytest.mark.unit
+def test_the_shops_own_path_still_wins_where_it_published_one(placed):
+    _, body = get(placed, "/api/archive/brands/shown.com/categories/hierarchy")
+    tops = next(n for n in body["hierarchy"] if n["name"] == "TOPS")
+    assert [c["name"] for c in tops["children"]] == ["TEES"]
+
+
+@pytest.mark.unit
+def test_counting_and_filtering_agree_with_the_tree(placed):
+    _, counts = get(placed, "/api/archive/products/counts?brand_id=shown.com")
+    assert counts["counts"]["accessories"] == 1
+    _, body = get(placed, "/api/archive/products?brand_id=shown.com&category=accessories")
+    assert [p["product_title"] for p in body["products"]] == ["Unfiled Thing"]

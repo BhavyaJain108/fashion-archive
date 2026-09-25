@@ -120,3 +120,74 @@ def test_a_record_without_offers_has_sizes_without_ids():
     )
     assert t["platform"] is None and t["offers"] == []
     assert t["sizes"] == [{"size": "S", "available": True}]
+
+
+# --- the shared vocabulary reaching the shop front --------------------------------
+
+
+def test_the_book_places_what_the_keyword_list_has_no_word_for():
+    """Socks, fragrance and scarves have no keyword bucket, so 822 products the
+    archive could already name were landing in Everything else."""
+    from backend.archive import taxonomy
+
+    book = taxonomy.PhraseBook({"shawl": ["scarves"], "long johns": ["underwear"]})
+    assert sf.classify({"product_title": "Lawrence Shawl"}, book) == (
+        "Accessories",
+        "Scarves & gloves",
+    )
+    assert sf.classify({"product_title": "Long Johns"}, book) == ("Clothing", "Underwear & swim")
+
+
+def test_the_keyword_list_still_answers_when_the_book_cannot():
+    from backend.archive import taxonomy
+
+    empty = taxonomy.PhraseBook({})
+    assert sf.classify({"product_title": "Navy Denim Jacket"}, empty) == (
+        "Clothing",
+        "Jackets & coats",
+    )
+
+
+def test_the_shops_own_category_still_outranks_the_book():
+    """A shop that says JACKETS is better evidence than a word in the title."""
+    from backend.archive import taxonomy
+
+    book = taxonomy.PhraseBook({"denim": ["jeans"]})
+    assert sf.classify({"category1": "JACKETS", "product_title": "Blue denim"}, book) == (
+        "Clothing",
+        "Jackets & coats",
+    )
+
+
+def test_every_type_in_the_vocabulary_has_somewhere_to_go():
+    """A type with no bucket would quietly land in Everything else — the bug this
+    whole change exists to fix."""
+    from backend.archive import taxonomy
+
+    missing = [
+        t
+        for t in taxonomy.TYPES
+        if t not in (taxonomy.NOT_A_GARMENT, taxonomy.NOT_A_PRODUCT)
+        and t not in sf.BUCKET_OF_TYPE
+    ]
+    assert missing == []
+
+
+def test_a_keyword_the_list_knows_beats_the_books_drawer_word():
+    """bode files nine barrettes under ACCESSORIES. "Hair" is the better shelf, and
+    the keyword list has always known the word — the book must not talk over it."""
+    from backend.archive import taxonomy
+
+    book = taxonomy.PhraseBook({"accessories": ["accessories"]})
+    record = {"category1": "ACCESSORIES", "product_title": "Floral Bow Barrette"}
+    assert sf.classify(record, book) == ("Accessories", "Hair")
+
+
+def test_the_drawer_word_is_still_better_than_everything_else():
+    """No keyword in the title, so the shop's drawer is all anyone has — and a drawer
+    beats Everything else."""
+    from backend.archive import taxonomy
+
+    book = taxonomy.PhraseBook({"accessories": ["accessories"]})
+    record = {"category1": "ACCESSORIES", "product_title": "Bayou Trinket"}
+    assert sf.classify(record, book) == ("Accessories", "Accessories")

@@ -40,6 +40,10 @@ KEY = "taxonomy/phrases.json"
 # invents drifts every run, and the whole point is that twenty brands answer to the
 # same word. `not_a_garment` is a real answer, not a failure to answer.
 NOT_A_GARMENT = "not_a_garment"
+# Not merchandise at all: a gift card, a shipping fee, a tax line, "Price difference".
+# Distinct from not_a_garment on purpose — `FW26` is not a garment and the products
+# filed under it are real, while nobody should meet a tax line on the page.
+NOT_A_PRODUCT = "not_a_product"
 TYPES = (
     "t-shirts",
     "shirts",
@@ -77,6 +81,7 @@ TYPES = (
     "kidswear",
     "petwear",
     NOT_A_GARMENT,
+    NOT_A_PRODUCT,
 )
 VALID = frozenset(TYPES)
 
@@ -101,13 +106,23 @@ def _get(record: Any, field: str):
     return record.get(field) if isinstance(record, dict) else getattr(record, field, None)
 
 
-def phrases(record: Any) -> list[str]:
-    """Everything worth asking about this product, best answer first.
+def title_phrase(record: Any) -> str:
+    """The whole title as one phrase — the last resort, and the weakest evidence.
+
+    `Romance solitaire 1.00 carat DVVS1` says ring to a reader and nothing to a word
+    list. Learning it costs a question per product rather than per word, so it is asked
+    only when everything else has failed — but once learned it is read like any other.
+    """
+    return _norm(_get(record, "product_title") or "")
+
+
+def phrases(record: Any, whole_title: bool = True) -> list[str]:
+    """Everything this product can be recognised by, best evidence first.
 
     Order is the whole argument: the deepest category level (the leaf says what the
     thing *is*, the root says which part of the shop it sits in), then the rest of the
-    path, then the title's trailing words nearest-last. A `ProductRecord` or the dict
-    the store holds; both are read the same way.
+    path, then the title's trailing words nearest-last, then — weakest, last — the whole
+    title. A `ProductRecord` or the dict the store holds; both are read the same way.
     """
     out: list[str] = []
     path = [_norm(_get(record, f"category{i}") or "") for i in range(1, 11)]
@@ -115,7 +130,9 @@ def phrases(record: Any) -> list[str]:
     out.extend(reversed(path))
     words = _norm(_get(record, "product_title") or "").split()
     out.extend(reversed(words[-TITLE_WORDS:]))
-    return list(dict.fromkeys(out))
+    if whole_title:
+        out.append(title_phrase(record))
+    return [p for p in dict.fromkeys(out) if p]
 
 
 class PhraseBook:
@@ -129,16 +146,15 @@ class PhraseBook:
             for phrase, value in (entries or {}).items()
         }
 
-    def types_for(self, record: Any) -> list[str]:
-        """The canonical types this product answers to, or nothing.
+    def _read(self, record: Any) -> tuple[list[str], bool, bool]:
+        """Walk a product's phrases once: (types, is_merchandise, answered_specifically).
 
-        The first phrase the book knows decides it — and a phrase known to be
-        `not_a_garment` decides it too, by handing the question to the next phrase.
+        The first phrase that says something decisive settles it. `not_a_garment` is not
+        decisive — it hands the question on, which is what lets a product filed under
+        `FW26` still be placed by its title.
 
-        With one exception, which the first live pass earned: some phrases describe a
-        drawer rather than a thing, and a precise word elsewhere in the product beats
-        them. Two kinds, both held as a fallback and used only if nothing better turns
-        up — an answer, but the last one asked:
+        Two kinds of answer are held rather than returned, because they name a drawer
+        rather than a thing, and anything precise beats them:
 
           a catch-all *type* — eightonline files a necklace under `Accessories`, and
           answering "accessories" when the title says *necklace* is worse than the
@@ -154,13 +170,30 @@ class PhraseBook:
             types = [t for t in known.get("types", []) if t != NOT_A_GARMENT]
             if not types:
                 continue
+            if NOT_A_PRODUCT in types:
+                # Decisive, and it stops the walk: this is a gift card or a shipping
+                # line. A garment word *earlier* in the walk has already won by now.
+                return [], False, True
             if known.get("weak") or all(t in CATCH_ALL for t in types):
                 fallback = fallback or types
                 continue
-            return types
-        return fallback
+            return types, True, True
+        return fallback, True, False
 
-    def unknown(self, records: list[Any]) -> list[str]:
+    def types_for(self, record: Any) -> list[str]:
+        """The canonical types this product answers to, or nothing."""
+        return self._read(record)[0]
+
+    def is_product(self, record: Any) -> bool:
+        """Whether this is merchandise at all.
+
+        A gift card, a shipping fee, a tax line and "Price difference" are rows in a
+        shop's catalogue that no one should meet on the page. Unknown means yes: a blank
+        is not evidence, and treating it as one would empty the archive.
+        """
+        return self._read(record)[1]
+
+    def unknown(self, records: list[Any], last_resort: bool = False) -> list[str]:
         """The phrases worth asking about next, deduplicated.
 
         Lazy on purpose, and the fleet's numbers are why. Asking about every phrase in
@@ -168,25 +201,36 @@ class PhraseBook:
         like `1776`, `cricket` and `quilt`, asked about products bode already files under
         `MENS SHIRTS`. So:
 
-          a product the book can already place is asked about nothing;
-          an unplaced one offers its *first* unknown phrase and stops, because the answer
-          to that one may place it and make the rest moot.
+          a product answered specifically is asked about nothing;
+          a product answered only by a drawer word is still asked, because "accessories"
+          does not say what a barrette is — nine of bode's sat under it with `barrette`
+          never once asked about;
+          an open product offers its *first* unknown phrase and stops, because the answer
+          to that one may settle it and make the rest moot.
 
-        A caller that wants a brand fully placed asks again after learning — each round
-        is one cheap call, and the rounds stop as soon as nothing is left to ask.
+        `last_resort` adds the whole title for a product nothing else could place — one
+        question per product, which is what this design avoids everywhere else, so it is
+        the caller's deliberate final round rather than a phrase like the others.
         """
         out: list[str] = []
         seen: set[str] = set()
+
+        def offer(phrase: str) -> None:
+            if phrase and phrase not in self.entries and phrase not in seen:
+                seen.add(phrase)
+                out.append(phrase)
+
         for record in records:
-            for phrase in phrases(record):
-                known = self.entries.get(phrase)
-                if known is None:
-                    if phrase not in seen:
-                        seen.add(phrase)
-                        out.append(phrase)
+            _, _, specific = self._read(record)
+            if specific:
+                continue  # settled, one way or the other
+            if last_resort:
+                offer(title_phrase(record))  # stop nibbling words; ask about the thing
+                continue
+            for phrase in phrases(record, whole_title=False):
+                if phrase not in self.entries:
+                    offer(phrase)
                     break  # its answer may settle this product; the rest can wait
-                if [t for t in known.get("types", []) if t != NOT_A_GARMENT]:
-                    break  # already placed
         return out
 
     def learn(self, decided: dict[str, list[str]], model: str) -> int:

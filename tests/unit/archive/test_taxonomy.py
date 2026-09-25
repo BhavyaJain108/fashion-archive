@@ -192,3 +192,75 @@ def test_a_weak_entry_yields_to_anything_more_specific():
     )
     assert book.types_for(rec(product_title="Chichi Bikini Set")) == ["swimwear"]
     assert book.types_for(rec(product_title="ADRIA SET")) == ["tops", "trousers"]
+
+
+# --- what is not merchandise at all ----------------------------------------------
+
+
+@pytest.mark.unit
+def test_a_gift_card_is_not_merchandise():
+    """Not the same as "not a garment": FW26 is not a garment and its products are
+    real. A gift card is a row in the shop that nobody should see on the page."""
+    book = taxonomy.PhraseBook({"digital gift card": [taxonomy.NOT_A_PRODUCT]})
+    r = rec(product_title="Digital Gift Card")
+    assert book.is_product(r) is False
+    assert book.types_for(r) == []
+
+
+@pytest.mark.unit
+def test_a_garment_is_merchandise():
+    book = taxonomy.PhraseBook({"skirt": ["skirts"]})
+    assert book.is_product(rec(product_title="Slit Skirt")) is True
+
+
+@pytest.mark.unit
+def test_a_product_nobody_has_placed_is_merchandise_until_shown_otherwise():
+    """A blank is not evidence. Hiding an unplaced product would empty the archive."""
+    assert taxonomy.PhraseBook({}).is_product(rec()) is True
+
+
+@pytest.mark.unit
+def test_a_garment_word_earlier_in_the_title_beats_a_later_fee_word():
+    """"Card Holder" is a wallet; the word "card" alone must not hide it."""
+    book = taxonomy.PhraseBook({"holder": ["wallets"], "card": [taxonomy.NOT_A_PRODUCT]})
+    assert book.is_product(rec(product_title="Leather Card Holder")) is True
+
+
+# --- asking past a vague answer ---------------------------------------------------
+
+
+@pytest.mark.unit
+def test_a_product_placed_only_by_a_drawer_word_keeps_being_asked_about():
+    """bode files a barrette under ACCESSORIES. "accessories" is not an answer to
+    what the thing is, so the question stays open."""
+    book = taxonomy.PhraseBook({"accessories": ["accessories"]})
+    r = rec(category1="ACCESSORIES", product_title="Sequin Pony Barrette")
+    assert book.types_for(r) == ["accessories"]  # still answers, for now
+    assert "barrette" in book.unknown([r])  # but has not stopped asking
+
+
+@pytest.mark.unit
+def test_a_specific_answer_closes_the_question():
+    book = taxonomy.PhraseBook({"accessories": ["accessories"], "barrette": ["hair-accessories"]})
+    r = rec(category1="ACCESSORIES", product_title="Sequin Pony Barrette")
+    assert book.unknown([r]) == []
+    assert book.types_for(r) == ["hair-accessories"]
+
+
+# --- the last resort --------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_the_whole_title_is_offered_only_when_asked_for():
+    """Asking about every title would be one question per product — the thing this
+    design exists to avoid. It is the final fallback, not a phrase like the others."""
+    r = rec(product_title="Romance Solitaire 1.00 Carat DVVS1")
+    book = taxonomy.PhraseBook({})
+    assert "romance solitaire 1 00 carat dvvs1" not in book.unknown([r])
+    assert "romance solitaire 1 00 carat dvvs1" in book.unknown([r], last_resort=True)
+
+
+@pytest.mark.unit
+def test_a_placed_product_is_not_asked_about_by_title_even_at_the_last_resort():
+    book = taxonomy.PhraseBook({"skirt": ["skirts"]})
+    assert book.unknown([rec(product_title="Slit Skirt")], last_resort=True) == []

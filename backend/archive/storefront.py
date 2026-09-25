@@ -27,6 +27,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
+from backend.archive import taxonomy
 from backend.archive.store.catalog import has_photograph
 
 # --- taxonomy ---------------------------------------------------------------
@@ -302,16 +303,86 @@ def _has(text: str, word: str) -> bool:
     return re.search(rf"(?<![a-z]){re.escape(word)}(?:s|es)?(?![a-z])", text) is not None
 
 
-def classify(record: dict) -> tuple[str, str]:
-    """(group, bucket) for a product. The shop's own category outranks the title."""
+# Where each of the archive's own types hangs on this page. The phrase book names
+# things in one vocabulary across every brand (backend/archive/taxonomy.py); this is
+# the only place that vocabulary meets the shop front's coarser shelves. Every type
+# must appear here — a missing one would fall silently into Everything else, which is
+# the bug this map exists to prevent, and a test holds the two lists together.
+BUCKET_OF_TYPE: dict[str, tuple[str, str]] = {
+    "t-shirts": ("Clothing", "Tees"),
+    "shirts": ("Clothing", "Shirts"),
+    "tops": ("Clothing", "Tops"),
+    "knitwear": ("Clothing", "Knitwear"),
+    "sweatshirts": ("Clothing", "Hoodies & sweatshirts"),
+    "trousers": ("Clothing", "Pants"),
+    "jeans": ("Clothing", "Jeans"),
+    "shorts": ("Clothing", "Shorts"),
+    "skirts": ("Clothing", "Skirts"),
+    "dresses": ("Clothing", "Dresses"),
+    "outerwear": ("Clothing", "Jackets & coats"),
+    "suits": ("Clothing", "Jackets & coats"),
+    "jumpsuits": ("Clothing", "Sets"),
+    "underwear": ("Clothing", "Underwear & swim"),
+    "swimwear": ("Clothing", "Underwear & swim"),
+    "sleepwear": ("Clothing", "Underwear & swim"),
+    "activewear": ("Clothing", "Tops"),
+    "shoes": ("Shoes", "Shoes"),
+    "bags": ("Bags", "Bags"),
+    "wallets": ("Bags", "Bags"),
+    "hats": ("Accessories", "Hats"),
+    "belts": ("Accessories", "Belts"),
+    "scarves": ("Accessories", "Scarves & gloves"),
+    "gloves": ("Accessories", "Scarves & gloves"),
+    "socks": ("Accessories", "Accessories"),
+    "jewellery": ("Accessories", "Jewellery"),
+    "watches": ("Accessories", "Watches"),
+    "eyewear": ("Accessories", "Eyewear"),
+    "hair-accessories": ("Accessories", "Hair"),
+    "accessories": ("Accessories", "Accessories"),
+    "homeware": ("Everything else", "Home"),
+    "fragrance": ("Accessories", "Accessories"),
+    "beauty": ("Accessories", "Accessories"),
+    "kidswear": ("Clothing", "Tops"),
+    "petwear": ("Everything else", "Home"),
+}
+
+
+def classify(record: dict, book=None) -> tuple[str, str]:
+    """(group, bucket) for a product.
+
+    Three sources, in the order of how much they are worth. The shop's own category
+    path is the best evidence and goes first. The archive's shared vocabulary goes
+    next: it has been taught what a shawl and a pair of long johns are, while the
+    keyword list below never had a word for socks, fragrance or scarves and dropped
+    822 nameable products into Everything else. The keyword list is the last resort,
+    for products nobody has taught the book about yet.
+    """
     path = " ".join(_category_path(record)).lower()
-    title = str(record.get("product_title") or "").lower()
-    for text in (path, title):
-        if not text:
+    for group, bucket, words in _TAXONOMY:
+        if path and any(_has(path, w) for w in words):
+            return group, bucket
+
+    kinds = book.types_for(record) if book is not None else []
+    # A type that names a drawer rather than a thing is held back, exactly as the book
+    # holds it back: the keyword list below knows "barrette" and would say Hair, which
+    # beats answering Accessories to a product the shop merely filed under Accessories.
+    vague = [k for k in kinds if k in taxonomy.CATCH_ALL]
+    for kind in kinds:
+        if kind in vague:
             continue
-        for group, bucket, words in _TAXONOMY:
-            if any(_has(text, w) for w in words):
-                return group, bucket
+        shelf = BUCKET_OF_TYPE.get(kind)
+        if shelf:
+            return shelf
+
+    title = str(record.get("product_title") or "").lower()
+    for group, bucket, words in _TAXONOMY:
+        if title and any(_has(title, w) for w in words):
+            return group, bucket
+
+    for kind in vague:  # better than Everything else, and the last thing tried
+        shelf = BUCKET_OF_TYPE.get(kind)
+        if shelf:
+            return shelf
     return OTHER
 
 
@@ -425,11 +496,12 @@ def tile(
     first_seen: str | None,
     archived: list[str],
     history: dict | None = None,
+    book=None,
 ) -> dict:
     """One product as the page sees it. Carries everything the product page shows
     too (all images, description, material) so opening a product is answered
     from memory; `slim` strips those for the grid."""
-    group, bucket = classify(record)
+    group, bucket = classify(record, book)
     price, full = _num(record.get("price")), _num(record.get("full_price"))
     sale = bool(price and full and full > price)
     images = record.get("all_images")
@@ -504,6 +576,8 @@ class Index:
 def build(catalog, roster: Iterable) -> Index:
     tiles: list[dict] = []
     brands: list[dict] = []
+    # One read for the whole grid: the vocabulary every brand's products are named in.
+    book = taxonomy.load(catalog.store)
     for entry in roster:
         domain = entry.domain
         # A password-gated brand keeps its old products in the archive and off the
@@ -511,7 +585,11 @@ def build(catalog, roster: Iterable) -> Index:
         if catalog.get_brand_state(domain) == "gated":
             brands.append({"brand_id": domain, "name": entry.name, "products": 0})
             continue
-        records = [r for r in catalog.current_products(domain) if has_photograph(r)]
+        # A gift card, a shipping fee and a tax line are rows in a shop's catalogue
+        # that nobody came here to look at. The archive keeps them; the grid does not.
+        records = [
+            r for r in catalog.current_products(domain) if has_photograph(r) and book.is_product(r)
+        ]
         if not records:
             brands.append({"brand_id": domain, "name": entry.name, "products": 0})
             continue
@@ -527,6 +605,7 @@ def build(catalog, roster: Iterable) -> Index:
                     first_seen=(history.get(url) or {}).get("first_seen"),
                     archived=archived.get(url, []),
                     history=history.get(url),
+                    book=book,
                 )
             )
         brands.append({"brand_id": domain, "name": entry.name, "products": len(records)})

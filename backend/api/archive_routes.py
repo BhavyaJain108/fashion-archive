@@ -83,17 +83,33 @@ def _category_path(record: dict) -> list[str]:
     return levels
 
 
-def _leaf_key(record: dict) -> str:
-    path = _category_path(record)
-    return "/".join(path) if path else UNCATEGORISED
+def _category_paths(record: dict, book) -> list[list[str]]:
+    """Where this product hangs in a brand's tree — one place, or several.
+
+    The shop's own path wins wherever it published one. Where it published none, the
+    archive's own word for the thing stands in: half the fleet publishes no categories
+    at all, and before this psylos1's 7,939 products were one undifferentiated heap
+    called (uncategorised). A product may answer to two types ("set" is a top and a
+    bottom) and then hangs in both, which is what a shop's own filter does too.
+    """
+    shop = _category_path(record)
+    if shop:
+        return [shop]
+    return [[t] for t in book.types_for(record)] or [[UNCATEGORISED]]
 
 
-def _matches(record: dict, category: str) -> bool:
-    """A product belongs to a category if that category is its path or a parent of it."""
+def _leaf_keys(record: dict, book) -> list[str]:
+    return ["/".join(path) for path in _category_paths(record, book)]
+
+
+def _matches(record: dict, category: str, book) -> bool:
+    """A product belongs to a category if that category is one of its paths, or a
+    parent of one."""
     if category in ("", ALL):
         return True
-    leaf = _leaf_key(record)
-    return leaf == category or leaf.startswith(category + "/")
+    return any(
+        leaf == category or leaf.startswith(category + "/") for leaf in _leaf_keys(record, book)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -117,7 +133,11 @@ def _visible(records: list[dict]) -> list[dict]:
 def _shop_products(domain: str, catalog: Catalog) -> list[dict]:
     if not _open(domain, catalog):
         return []
-    return _visible(catalog.current_products(domain))
+    # A gift card, a shipping fee, a tax line and "Price difference" are real rows in a
+    # shop's catalogue and not things anyone came here to look at. The archive keeps
+    # them and the deck still shows them; the window does not.
+    book = _phrase_book(catalog)
+    return [r for r in _visible(catalog.current_products(domain)) if book.is_product(r)]
 
 
 # ---------------------------------------------------------------------------
@@ -219,23 +239,26 @@ def _field_fill(records: list[dict]) -> dict[str, float]:
 
 
 def get_hierarchy(brand_id):
-    """GET /api/archive/brands/<brand_id>/categories/hierarchy — the brand's own taxonomy.
+    """GET /api/archive/brands/<brand_id>/categories/hierarchy — how this brand is shelved.
 
     Built from the category1..category10 columns rather than stored separately: those
     columns are what the scraper actually recorded, so the tree can never claim a
-    category no product is in.
+    category no product is in. Where a shop published no columns at all, the archive's
+    own word for each product stands in — otherwise half the fleet is one heap.
     """
     catalog = _catalog()
     try:
         records = _shop_products(brand_id, catalog)
+        book = _phrase_book(catalog)
     finally:
         catalog.close()
 
     tree: dict[str, Any] = {}
     for record in records:
-        node = tree
-        for level in _category_path(record) or [UNCATEGORISED]:
-            node = node.setdefault(level, {})
+        for path in _category_paths(record, book):
+            node = tree
+            for level in path:
+                node = node.setdefault(level, {})
 
     def build(node: dict, prefix: list[str]) -> list[dict]:
         out = []
@@ -308,7 +331,8 @@ def get_products():
 
     catalog = _catalog()
     try:
-        records = [r for r in _shop_products(brand_id, catalog) if _matches(r, category)]
+        book = _phrase_book(catalog)
+        records = [r for r in _shop_products(brand_id, catalog) if _matches(r, category, book)]
         page = records[offset : offset + limit]
         return jsonify(
             {
@@ -330,16 +354,19 @@ def get_counts():
     catalog = _catalog()
     try:
         records = _shop_products(brand_id, catalog)
+        book = _phrase_book(catalog)
     finally:
         catalog.close()
 
     counts: dict[str, int] = {ALL: len(records)}
     for record in records:
-        path = _category_path(record) or [UNCATEGORISED]
-        # Every ancestor counts it too, so a collapsed parent still shows a total.
-        for depth in range(1, len(path) + 1):
-            key = "/".join(path[:depth])
-            counts[key] = counts.get(key, 0) + 1
+        # A product in two places is counted in both, and once under "all" — the same
+        # arithmetic a shop's own filter bar does.
+        for path in _category_paths(record, book):
+            # Every ancestor counts it too, so a collapsed parent still shows a total.
+            for depth in range(1, len(path) + 1):
+                key = "/".join(path[:depth])
+                counts[key] = counts.get(key, 0) + 1
     return jsonify({"counts": counts})
 
 

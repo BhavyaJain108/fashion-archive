@@ -624,8 +624,12 @@ def _place_phrases(catalog: Catalog, records: list, mapper, log) -> None:
         # is what makes the next question — this product's title — worth asking. Three
         # is enough for a category path plus a title word; a brand needing more is
         # served by its next run rather than by a longer loop here.
-        for _ in range(TAXONOMY_ROUNDS):
-            unseen = book.unknown(records)
+        #
+        # The final round is the last resort: whatever is still unplaced is asked about
+        # by its whole title, which is a question per product rather than per word and
+        # so goes last, on the residue, once the cheap questions are spent.
+        for round_number in range(1, TAXONOMY_ROUNDS + 1):
+            unseen = book.unknown(records, last_resort=round_number == TAXONOMY_ROUNDS)
             if not unseen:
                 break
             asked += len(unseen)
