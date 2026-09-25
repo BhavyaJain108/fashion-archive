@@ -40,7 +40,8 @@ function ProductPage({ currentPage, onPageSwitch, currentUser, onLogout, navigat
     const { tile: t, more } = res;
     const images = t.images && t.images.length ? t.images : (t.image ? [t.image] : []);
     const desc = String(t.description || '').split(/\n+|(?<=\.)\s+(?=[A-Z])/).map((x) => x.trim()).filter(Boolean);
-    const imgW = typeof window !== 'undefined' && window.innerWidth < 900 ? window.innerWidth : 900;
+    // The column is 640px wide on a desktop and the viewport's width below 1100px.
+    const imgW = typeof window !== 'undefined' && window.innerWidth < 1100 ? Math.min(640, window.innerWidth - 32) : 640;
     body = (
       <>
         <div className="shop-product">
