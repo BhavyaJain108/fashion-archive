@@ -859,7 +859,8 @@ def register_dev_routes(app: Flask) -> None:
         # The deck's idea of a dead worker (no beat for twelve minutes) is the one
         # the answer must agree with, so the schedule is asked with that limit.
         sched = Scheduler(_store(), stale_claim_seconds=HEARTBEAT_GRACE_MINUTES * 60)
-        outcome = sched.run_now(brand_id)
+        body = request.get_json(silent=True) or {}
+        outcome = sched.run_now(brand_id, full=bool(body.get("full")))
         if outcome == "unknown":
             return jsonify(
                 {"success": False, "error": "not on the schedule", "code": "NOT_FOUND"}

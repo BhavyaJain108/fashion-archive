@@ -135,7 +135,10 @@ def run_once(catalog: Catalog, scheduler: Scheduler, do_brand, log=print) -> boo
         elif sweeping:
             records, cost = do_brand(brand, mode="sweep")
         else:
-            records, cost = do_brand(brand)
+            # "full" when the row asked for one (run now with the full option, or the
+            # CLI); every other turn is a delta. Dropping the mode here is why a
+            # queued full run for Entire Studios came out as a delta (2026-09-25).
+            records, cost = do_brand(brand, mode="full") if due.mode == "full" else do_brand(brand)
     except ChannelBusy as e:
         # Not a failure of the brand or of our code: the host wants us to wait, and it
         # must not consume the brand's turn in the rotation.

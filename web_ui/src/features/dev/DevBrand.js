@@ -102,6 +102,15 @@ export default function DevBrand({ domain, go }) {
               <button
                 type="button"
                 className="dev-act"
+                disabled={busy || !!data.brand.claimed_by || data.brand.next_mode === 'full'}
+                title="Re-read every page, not only the changed ones. The way a rule about a page reaches products whose hints never moved."
+                onClick={() => act((d) => DevEndpoints.runNow(d, true))}
+              >
+                {data.brand.next_mode === 'full' ? 'full run queued' : 'run full'}
+              </button>
+              <button
+                type="button"
+                className="dev-act"
                 disabled={busy || !!data.brand.claimed_by || data.brand.next_mode === 'learn'}
                 title="The finder reads a spread of product pages and writes rules. Nothing is stored; the scheduled run is kept."
                 onClick={() => act((d) => DevEndpoints.learn(d, retrySearched))}

@@ -689,3 +689,16 @@ def test_a_sweep_is_queued_from_the_deck_with_the_same_refusals_as_run(client, t
     dr._forget_overview()  # the release came from a worker, not through the API's cache
     brand = json.loads(c.get("/api/dev/overview").data)["brands"][0]
     assert brand["last_sweep"] and brand["sweep_queued"] is False
+
+
+@pytest.mark.unit
+def test_run_now_can_ask_for_a_full_run(client, tmp_path):
+    from backend.archive.scheduler import Scheduler
+
+    c, mp = client
+    Scheduler(DirectoryObjectStore(tmp_path)).set_cadence("kuurth.com", 86400)
+    mp.setenv("ADMIN_EMAILS", "owner@example.com")
+    _as(mp, "owner@example.com")
+
+    assert c.post("/api/dev/brands/kuurth.com/run", json={"full": True}).status_code == 200
+    assert Scheduler(DirectoryObjectStore(tmp_path)).row("kuurth.com")["next_mode"] == "full"

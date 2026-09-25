@@ -47,11 +47,16 @@ COPY config config
 # Unbuffered, or a long pass's progress sits in a pipe until it finishes.
 ENV PYTHONUNBUFFERED=1
 
-# Root, for now. Running as pwuser (2026-09-23) left both workers hung in the
-# browser step of the first gated brand — the driver never came up under that
-# user in this container — and a non-root worker was worth less than a working
-# one. Revisit with a stack dump from the watchdog in daemon.py.
-RUN mkdir -p backend/archive/data/logs backend/archive/data/locks locks
+# Not root. The 2026-09-23 hang blamed on pwuser turned out to be the probe
+# sharing the paced transport's host budget (fixed in effef52c); the user was
+# never the cause. The image is Playwright's, which ships pwuser with the browsers
+# installed for it, so the browser lane needs nothing more. Chromium still runs
+# without its sandbox (Render has no user namespaces); dropping root is the other
+# half of that boundary. The watchdog in daemon.py dumps the run thread's stack
+# after ten quiet minutes, so a repeat would say where it stuck.
+RUN mkdir -p backend/archive/data/logs backend/archive/data/locks locks \
+    && chown -R pwuser:pwuser /app
+USER pwuser
 
 ENTRYPOINT ["python", "-m", "backend.archive.runner.cli"]
 CMD ["status"]

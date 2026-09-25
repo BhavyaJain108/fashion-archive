@@ -136,8 +136,10 @@ class Scheduler:
         finishes its run. Pausing also withdraws a one-off run still waiting."""
         self._amend(domain, enabled=1 if enabled else 0, run_once=0)
 
-    def run_now(self, domain: str, now: datetime | None = None) -> str:
-        """Ask for this brand on the next poll. Says what happened:
+    def run_now(self, domain: str, now: datetime | None = None, full: bool = False) -> str:
+        """Ask for this brand on the next poll. `full` re-reads every page instead of
+        only the changed ones — the way to make a product-level rule (a skipped page,
+        a new field) reach products whose hints never moved. Says what happened:
 
         "queued"      due now; a worker takes it on its next poll.
         "queued_once" the brand is paused, so it runs this once and stays paused —
@@ -153,10 +155,11 @@ class Scheduler:
         if row.get("claimed_by") is not None:
             stale = _iso(now - timedelta(seconds=self.stale_claim_seconds))
             return "held" if (row.get("claimed_at") or "") >= stale else "dead"
+        mode = {"next_mode": "full"} if full else {}
         if row.get("enabled"):
-            self._amend(domain, next_due=_iso(now))
+            self._amend(domain, next_due=_iso(now), **mode)
             return "queued"
-        self._amend(domain, next_due=_iso(now), run_once=1)
+        self._amend(domain, next_due=_iso(now), run_once=1, **mode)
         return "queued_once"
 
     def learn_now(

@@ -671,3 +671,32 @@ def test_learn_now_keeps_the_brands_turn_and_the_daemon_writes_no_scorecard(tmp_
     assert due is not None and due.mode == "learn" and due.retry_searched is False
     sched.release_after_learn("kuurth.com")
     assert sched.row("kuurth.com")["enabled"] == 0
+
+
+@pytest.mark.unit
+def test_run_now_with_full_reaches_the_daemon_as_a_full_run(tmp_path):
+    # A queued full run for Entire Studios came out as a delta (2026-09-25): the
+    # daemon only looked at the mode for learn and sweep. The row's word now reaches
+    # do_brand, and a plain turn is still a delta.
+    store = DirectoryObjectStore(tmp_path)
+    cat = Catalog(store)
+    cat.upsert_brand(Brand(domain="kuurth.com", homepage_url="https://kuurth.com"))
+    sched = Scheduler(store, worker_id="w1")
+    sched.add("kuurth.com", cadence_seconds=3600)
+
+    assert sched.run_now("kuurth.com", full=True) == "queued"
+    assert sched.row("kuurth.com")["next_mode"] == "full"
+
+    seen: list[tuple] = []
+
+    def do_brand(brand, mode="delta", retry_searched=False):
+        seen.append((brand.domain, mode))
+        return [], 0.0
+
+    assert run_once(cat, sched, do_brand, log=lambda *a: None) is True
+    assert seen == [("kuurth.com", "full")]
+    assert sched.row("kuurth.com")["next_mode"] is None
+
+    sched.run_now("kuurth.com")
+    run_once(cat, sched, do_brand, log=lambda *a: None)
+    assert seen[-1] == ("kuurth.com", "delta")

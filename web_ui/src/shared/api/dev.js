@@ -112,8 +112,10 @@ export class DevEndpoints {
 
   // Commands. Each is an edit to the schedule object the daemon already reads,
   // so nothing here talks to a worker directly.
-  static runNow(domain) {
-    return command(`${brand(domain)}/run`, 'Could not schedule');
+  static runNow(domain, full) {
+    // full: every page is re-read, not only the changed ones — how a rule about a
+    // page (skip it, a new field) reaches products whose hints never moved.
+    return command(`${brand(domain)}/run`, 'Could not schedule', full ? { full: true } : undefined);
   }
 
   static learn(domain, retrySearched) {
