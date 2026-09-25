@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import TopBar from '../../shared/ui/TopBar';
 import ArchiveAPI from '../../shared/api/brands';
 import { Tile } from './Storefront';
+import JustifiedGrid from './JustifiedGrid';
 import { formatPrice, shopFigure, fallbackOnError, sized } from './shop';
 import { useMoney } from '../../shared/money';
 import './storefront.css';
@@ -90,9 +91,7 @@ function ProductPage({ currentPage, onPageSwitch, currentUser, onLogout, navigat
         {more && more.length > 0 && (
           <div className="shop-more-from">
             <div className="shop-h">More from {t.brand}</div>
-            <div className="shop-grid shop-grid-row">
-              {more.map((m) => <Tile key={m.url} tile={m} onOpen={() => openTile(m)} />)}
-            </div>
+            <JustifiedGrid items={more} keyOf={(m) => `${m.brand_id}|${m.url}`} renderTile={(m, box) => <Tile tile={m} box={box} onOpen={() => openTile(m)} />} />
           </div>
         )}
       </>

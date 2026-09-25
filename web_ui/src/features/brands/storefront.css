@@ -130,55 +130,18 @@
 .shop-total { font-size: var(--ar-fs-micro); color: var(--ar-ink-3); }
 
 .shop-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 32px 16px;
+  width: 100%;
   transition: opacity var(--ar-base) ease;
 }
 
 .shop-grid.is-loading { opacity: 0.4; }
-.shop-grid-row { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .shop-filters-toggle { display: none; }
 
-/* --- other displays ---------------------------------------------------
-   Wide: four columns. Under 1100px the filter columns fold into a panel
-   under the sub-row, opened by a Filters button. Under 700px, two columns
-   of photographs and the product page stacks. */
-
-@media (min-width: 1700px) {
-  .shop-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .shop-grid-row { grid-template-columns: repeat(6, minmax(0, 1fr)); }
-}
-
-@media (max-width: 1099px) {
-  .shop-body { grid-template-columns: minmax(0, 1fr); gap: 0; }
-  .shop-left, .shop-right { display: none; position: static; max-height: none; }
-  .shop-body.filters-open .shop-left,
-  .shop-body.filters-open .shop-right {
-    display: block;
-    padding-bottom: 16px;
-    margin-bottom: 16px;
-    border-bottom: var(--ar-hairline) solid var(--ar-line);
-  }
-  .shop-filters-toggle { display: inline-block; }
-  .shop-search { width: 160px; }
-  .shop-grid-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .shop-product { grid-template-columns: minmax(0, 640px); gap: 24px; }
-  .shop-product-info { position: static; }
-}
-
-@media (max-width: 699px) {
-  .shop-subnav { padding: 0 16px; height: auto; flex-wrap: wrap; gap: 8px 16px; padding-top: 8px; padding-bottom: 8px; }
-  .shop-modes { gap: 16px; }
-  .shop-search { width: 100%; }
-  .shop-searchform { order: 3; width: 100%; }
-  .shop-body { padding: 16px 16px 32px; }
-  .shop-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px 12px; }
-  .shop-grid-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .shop-product { padding: 16px 16px 0; }
-  .shop-more-from { padding: 32px 16px; }
-  .shop-tile-name { -webkit-line-clamp: 3; }
-}
+/* A justified row: one height, widths from the solver, no whitespace. The
+   last row may be ragged (left-aligned at the target height) when what is
+   left cannot fill the width inside the height band. */
+.jg-row { display: flex; align-items: flex-start; }
+.jg-row.ragged { justify-content: flex-start; }
 
 .shop-tile {
   appearance: none;
@@ -190,21 +153,25 @@
   cursor: pointer;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  flex: 0 0 auto;
   min-width: 0;
 }
 
 .shop-tile-img {
   display: block;
   width: 100%;
-  aspect-ratio: 3 / 4;
   background: var(--ar-bg-sunk);
   overflow: hidden;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
-.shop-tile-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* contain, never cover: the box is the photograph's own proportions once
+   measured, and until then a guess that must not distort or crop it. */
+.shop-tile-img img { width: 100%; height: 100%; object-fit: contain; display: block; }
 .shop-tile-none { display: flex; height: 100%; align-items: center; justify-content: center; font-size: var(--ar-fs-label); letter-spacing: var(--ar-track-label); text-transform: uppercase; color: var(--ar-ink-4); }
+
+/* Captions are one fixed height so every tile in a row ends on the same line. */
+.shop-tile-cap { display: flex; flex-direction: column; gap: 2px; height: 56px; overflow: hidden; width: 100%; }
 
 .shop-tile-brand {
   font-size: var(--ar-fs-ui);
@@ -219,9 +186,8 @@
   color: var(--ar-ink-2);
   line-height: var(--ar-lh-ui);
   overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .shop-tile-price { font-size: var(--ar-fs-ui); color: var(--ar-ink); line-height: var(--ar-lh-ui); display: flex; gap: 8px; }

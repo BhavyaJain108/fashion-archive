@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import TopBar from '../../shared/ui/TopBar';
 import ArchiveAPI from '../../shared/api/brands';
 import { formatPrice, count, fallbackOnError, sized } from './shop';
+import JustifiedGrid from './JustifiedGrid';
 import { CURRENCIES, useMoney } from '../../shared/money';
 import './storefront.css';
 
@@ -178,9 +179,12 @@ function Storefront({ currentPage, onPageSwitch, currentUser, onLogout, navigate
             {state === 'ready' && tiles.length === 0 && (
               <div className="ar-empty"><span className="headline">Nothing here</span><span>Clear a filter or search for something else.</span></div>
             )}
-            <div className={`shop-grid ${state === 'loading' ? 'is-loading' : ''}`}>
-              {tiles.map((t) => <Tile key={`${t.brand_id}|${t.url}`} tile={t} onOpen={() => openProduct(t)} />)}
-            </div>
+            <JustifiedGrid
+              className={state === 'loading' ? 'is-loading' : ''}
+              items={tiles}
+              keyOf={(t) => `${t.brand_id}|${t.url}`}
+              renderTile={(t, box) => <Tile tile={t} box={box} onOpen={() => openProduct(t)} />}
+            />
             {state === 'ready' && tiles.length < total && (
               <div className="shop-more">
                 <span className="shop-total">Showing {count(tiles.length)} of {count(total)}</span>
@@ -219,29 +223,38 @@ function Storefront({ currentPage, onPageSwitch, currentUser, onLogout, navigate
   );
 }
 
-// The widest a grid column gets at each layout, so the request matches the paint.
-function columnWidth() {
-  if (typeof window === 'undefined') return 400;
-  const w = window.innerWidth;
-  if (w >= 1700) return (w - 48 - 392) / 4;
-  if (w >= 1100) return (w - 48 - 392) / 3;
-  if (w >= 700) return (w - 48) / 3;
-  return (w - 32) / 2;
-}
-
-export function Tile({ tile, onOpen }) {
+// One photograph in a justified row. `box` is the width and height the row
+// solver gave it — the image's own proportions, so nothing is cropped. Until
+// the image has loaded and reported its ratio the box is a 3:4 guess, and
+// object-fit: contain keeps even that guess from distorting anything.
+export function Tile({ tile, onOpen, box }) {
   const [hover, setHover] = useState(false);
-  const src = sized(hover && tile.image2 ? tile.image2 : tile.image, columnWidth());
+  const w = box ? box.width : 200;
+  const h = box ? box.height : 267;
+  const src = sized(hover && tile.image2 ? tile.image2 : tile.image, w);
+  const measured = (e) => {
+    const img = e.currentTarget;
+    if (box && img.naturalWidth && img.naturalHeight && !hover) box.onRatio(img.naturalWidth / img.naturalHeight);
+  };
   return (
-    <button type="button" className="shop-tile" onClick={onOpen} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
-      <span className="shop-tile-img">
-        {src ? <img src={src} alt="" loading="lazy" onError={fallbackOnError(tile.archived)} /> : <span className="shop-tile-none">No image</span>}
+    <button
+      type="button"
+      className="shop-tile"
+      style={{ width: w }}
+      onClick={onOpen}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+    >
+      <span className="shop-tile-img" style={{ height: h }}>
+        {src ? <img src={src} alt="" loading="lazy" onLoad={measured} onError={fallbackOnError(tile.archived)} /> : <span className="shop-tile-none">No image</span>}
       </span>
-      <span className="shop-tile-brand">{tile.brand}</span>
-      <span className="shop-tile-name">{tile.title}</span>
-      <span className="shop-tile-price">
-        {tile.price !== null && tile.price !== undefined ? formatPrice(tile.price, tile.currency) : <span className="shop-tile-noprice">Price on site</span>}
-        {tile.sale && <span className="shop-tile-strike">{formatPrice(tile.full_price, tile.currency)}</span>}
+      <span className="shop-tile-cap">
+        <span className="shop-tile-brand">{tile.brand}</span>
+        <span className="shop-tile-name">{tile.title}</span>
+        <span className="shop-tile-price">
+          {tile.price !== null && tile.price !== undefined ? formatPrice(tile.price, tile.currency) : <span className="shop-tile-noprice">Price on site</span>}
+          {tile.sale && <span className="shop-tile-strike">{formatPrice(tile.full_price, tile.currency)}</span>}
+        </span>
       </span>
     </button>
   );

@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import JustifiedGrid from '../brands/JustifiedGrid';
+import { Tile } from '../brands/Storefront';
 import './StyleguidePage.css';
 
 // The design language, rendered. Every token in archive.css and every .ar-*
@@ -73,6 +75,23 @@ const MOTION = [
   ['--ar-slow', 'a panel sliding or resizing'],
 ];
 
+// Real photographs of mixed proportions, for the grid demonstration.
+const PHOTOS = [
+  ['Amiri', 'Spring / Summer 2027', 'runway/Amiri/000_9196775.jpg'],
+  ['Amiri', 'Spring / Summer 2027', 'runway/Amiri/003_9196778.jpg'],
+  ['Amiri', 'Spring / Summer 2027', 'runway/Amiri/008_9196783.jpg'],
+  ['Amiri', 'Fall / Winter 2026', 'runway/Amiri/000_9133363.jpg'],
+  ['Amiri', 'Fall / Winter 2026', 'runway/Amiri/003_9133366.jpg'],
+  ['Amiri', 'Spring / Summer 2027', 'runway/Amiri/011_9196786.jpg'],
+  ['Amiri', 'Spring / Summer 2027', 'runway/Amiri/026_9196801.jpg'],
+  ['Amiri', 'Fall / Winter 2026', 'runway/Amiri/001_9133364.jpg'],
+  ['Amiri', 'Spring / Summer 2027', 'runway/Amiri/017_9196792.jpg'],
+  ['Amiri', 'Fall / Winter 2026', 'runway/Amiri/002_9133365.jpg'],
+].map(([brand, title, key], i) => ({
+  brand_id: 'amiri', url: key, brand, title, price: null, currency: 'USD', sale: false,
+  image: `https://images.premiumpropogandafashion.studio/${key}`, image2: null, archived: [],
+}));
+
 const RULES = [
   'Black means selected or active. Nothing else is black.',
   'Colour means destructive. One hue, one control: confirming a delete.',
@@ -84,6 +103,7 @@ const RULES = [
   'Weight: 400 text, 600 emphasis, 700 selected.',
   'Motion is functional. Nothing bounces.',
   'Readable text meets WCAG AA. No word is ever ink-4. Keyboard focus is a 1px black outline.',
+  'A photograph is never cropped. A grid is justified rows: one height per row, widths that fill it exactly, row height held between limits.',
 ];
 
 function tokenValue(name) {
@@ -325,6 +345,14 @@ export default function StyleguidePage() {
               <span className="sg-note">{parts}</span>
             </div>
           ))}
+        </Section>
+
+        <Section title="Photograph grid">
+          <div className="sg-note sg-lead">Justified rows. Each row has one height, each photograph keeps its own proportions, and the widths add up to the row exactly. Row height is chosen between 240 and 440px on a desktop (150–280 on a phone), as close to 320 as the photographs allow. Only a final row that cannot fill the width is left ragged.</div>
+          <div className="sg-grid-demo">
+            <JustifiedGrid items={PHOTOS} keyOf={(t) => t.url} renderTile={(t, box) => <Tile tile={t} box={box} onOpen={() => {}} />} />
+          </div>
+          <code className="sg-name">JustifiedGrid · justified.js — layoutRows(ratios, width, limits)</code>
         </Section>
 
         <Section title="Scrollbar">
