@@ -28,6 +28,8 @@ GRAPH_LD = """<html><head>
 OG_ONLY = """<html><head><title>t</title>
 <meta property="og:title" content="Silver Ring"/>
 <meta property="og:image" content="https://xsai.vision/r.jpg"/>
+<meta property="product:price:amount" content="5990"/>
+<meta property="product:price:currency" content="RUB"/>
 </head><body>z</body></html>"""
 
 
@@ -67,7 +69,7 @@ def test_og_fallback_when_no_ldjson():
     )
     assert rec.product_title == "Silver Ring"
     assert rec.main_image_url == "https://xsai.vision/r.jpg"
-    assert rec.price is None  # honest: OG carries no price
+    assert (rec.price, rec.currency) == (5990.0, "RUB")  # Open Graph's commerce tags
 
 
 @pytest.mark.unit
@@ -460,9 +462,10 @@ def test_a_variant_that_is_not_a_colour_is_still_recorded_as_a_variant():
 
 @pytest.mark.unit
 def test_a_page_with_only_a_title_is_not_a_product():
-    # entirestudios.com/products/a-4-bomber-army: 200, og:title, "currently
-    # unavailable", nothing else. A record with a name and no data is not kept.
-    html = '<html><head><meta property="og:title" content="A-4 Bomber Army"></head><body>This product is currently unavailable.</body></html>'
+    # entirestudios.com/product/a-4-bomber-army: 200, og:title, "currently
+    # unavailable", no price. A record with a name and no price is not kept — with or
+    # without a photograph (the 2026-09-25 full run kept all 987 because they had one).
+    html = '<html><head><meta property="og:title" content="A-4 Bomber Army"><meta property="og:image" content="https://cdn.sanity.io/x.jpg"></head><body>This product is currently unavailable.</body></html>'
     with pytest.raises(SkipProduct) as e:
         parse_ldjson_product(html, "https://www.entirestudios.com/products/a-4-bomber-army")
     assert "no product data" in str(e.value)

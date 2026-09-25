@@ -18,6 +18,10 @@ from backend.archive.transport import Transport
 
 _LD_BLOCK = re.compile(r'<script[^>]*type="application/ld\+json"[^>]*>(.*?)</script>', re.S | re.I)
 _OG = re.compile(r'<meta[^>]*property="og:(title|image)"[^>]*content="([^"]*)"', re.I)
+# Open Graph's commerce extension: the one place a page without JSON-LD states a price.
+_OG_PRICE = re.compile(
+    r'<meta[^>]*property="(?:product|og):price:(amount|currency)"[^>]*content="([^"]*)"', re.I
+)
 
 # DOM size fallback: most storefronts render sizes as a <select> of options or a group of
 # buttons/labels carrying a data-size/data-value attribute. Deliberately conservative —
@@ -76,20 +80,33 @@ def parse_ldjson_product(html: str, url: str) -> ProductRecord:
     if node:
         return _map_product_node(node, url, html)
     og = dict(_OG.findall(html))
-    # A title alone is not a product. Entire Studios' sitemap lists 987 retired pages
-    # that say "currently unavailable" and carry og:title and nothing else; storing
-    # them made 72% of the brand's live count out of pages nobody could buy from.
-    # With a photograph there is at least something to show; without one, skip, and
-    # the page is picked up the day it comes back with data.
-    if og.get("title") and og.get("image"):
+    money = dict(_OG_PRICE.findall(html))
+    # A page with no Product JSON-LD is a product only if it at least names a price.
+    # Entire Studios' sitemap lists 987 retired pages that say "currently unavailable"
+    # and carry og:title, sometimes a photograph, and never a price; stored, they were
+    # 72% of the brand's live count and nothing on them could be bought. Skipped, a page
+    # is picked up the day it comes back with data.
+    price = _money(money.get("amount"))
+    if og.get("title") and price is not None:
         return ProductRecord(
             itemurl=url,
             product_title=og["title"],
+            price=price,
+            currency=(money.get("currency") or "").strip().upper() or None,
             **pack_images([og["image"]] if og.get("image") else []),
             **pack_sizes(sizes_from_dom(html)),
             raw={"source": "og_meta"},
         )
-    raise SkipProduct(f"no product data on {url} (no JSON-LD Product, no og:image)")
+    raise SkipProduct(f"no product data on {url} (no JSON-LD Product, no price)")
+
+
+def _money(value: str | None) -> float | None:
+    if not value:
+        return None
+    try:
+        return float(value.replace(",", ""))
+    except ValueError:
+        return None
 
 
 def sizes_from_dom(html: str) -> list[dict]:
