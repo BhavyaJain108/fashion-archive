@@ -1337,7 +1337,7 @@ def test_calibration_survives_a_page_the_connector_declines(env):
 
 
 @pytest.mark.unit
-def test_calibration_fails_only_when_every_sample_page_is_declined(env):
+def test_calibration_with_every_sample_page_declined_still_lets_the_run_go_ahead(env):
     from backend.archive.connectors.base import SkipProduct
 
     cat, locks, logs = env
@@ -1358,5 +1358,8 @@ def test_calibration_fails_only_when_every_sample_page_is_declined(env):
         composer=compose_plan,
         connector_factory=lambda plan, sitemap_url=None, limit=None: conn,
     )
-    assert cat.get_brand_state("kuurth.com") == "needs_attention"
-    assert "none of 2 sample pages" in cat.load_plan("kuurth.com").tried[-1].reason
+    # No plan attempt is recorded: declined pages say nothing about the channel. The
+    # run found nothing, and that is the verdict's to grade, not the planner's.
+    assert cat.load_plan("kuurth.com").tried == []
+    assert cat.get_brand_state("kuurth.com") != "needs_attention"
+    assert cat.current_products("kuurth.com") == []

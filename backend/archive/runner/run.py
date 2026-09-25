@@ -217,17 +217,17 @@ def run_brand(
                         declined += 1
             except Exception as e:  # calibration failure is cheap information, not damage
                 return fail_plan(plan, f"calibration fetch failed: {e}")
-            if sample and not sample_records:
-                return fail_plan(
-                    plan, f"calibration: none of {len(sample)} sample pages held a product"
-                )
             if declined:
+                # Even all of them: Entire Studios is 72% retired pages, so five
+                # misses in a row is a one-in-five event, and a plan that fails on it
+                # fails on luck. With nothing to calibrate on, the run goes ahead and
+                # the verdict judges what it found.
                 log("calibration-declined", pages=declined, of=len(sample))
             if calibrating:
-                if sample and not all(r.product_title for r in sample_records):
+                if sample_records and not all(r.product_title for r in sample_records):
                     return fail_plan(plan, "calibration: empty product_title in sample")
                 catalog.set_brand_state(brand.domain, "active")
-                log("calibrated", sample=len(sample))
+                log("calibrated", sample=len(sample_records), declined=declined)
 
         # A delta run leaves untouched products as they were, which is right when only
         # the shop has changed and wrong when we have: the Woo mapper stopped calling an
