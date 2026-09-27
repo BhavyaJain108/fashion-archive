@@ -203,6 +203,13 @@ class _Body:
         except LookupError:
             self.text = content.decode("utf-8", errors="replace")
 
+    def json(self) -> Any:
+        """Parsed like an httpx response; a JSON lane over the browser-handshake rung
+        read .json() and found no such method (LUAR's page-data recipe, 2026-09-27)."""
+        import json
+
+        return json.loads(self.text)
+
 
 # The egress proxy, when the owner has one: a URL with its credentials in it,
 # http://user:pass@host:port. Unset, the proxied rung does not exist. A country's own
