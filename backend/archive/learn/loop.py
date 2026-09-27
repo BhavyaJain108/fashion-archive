@@ -325,6 +325,33 @@ class Loop:
 
     # --- the tick ----------------------------------------------------------------------------
 
+    _EASY_NOTE = ("shopify",)
+    _HARD_NOTE = (
+        "cloudflare", "waf", "403", "challenge", "geo", "proxy", "salesforce", "sfcc",
+        "gatsby", "cargo", "haravan", "next", "headless", "custom", "squarespace",
+        "webflow", "woo", "magento", "bigcommerce", "wix", "blocked", "enterprise",
+    )  # fmt: skip
+
+    def _ease(self, domain: str, notes: str | None) -> int:
+        """0 hard, 1 unknown, 2 easy — from the roster's own note and the plan the shelf
+        already holds. Unknown is nearer hard than easy: nobody has looked."""
+        note = (notes or "").lower()
+        if any(w in note for w in self._HARD_NOTE):
+            return 0
+        try:
+            plan = self.catalog.load_plan(domain)
+        except Exception:  # noqa: BLE001
+            plan = None
+        if (
+            plan is not None
+            and plan.status == "ready"
+            and plan.discovery == DiscoveryChannel.BULK_JSON
+        ):
+            return 2
+        if any(w in note for w in self._EASY_NOTE) and plan is None:
+            return 2
+        return 1
+
     def tick(self) -> dict:
         started = self._clock()
         summary: dict = {
@@ -339,8 +366,13 @@ class Loop:
         shown = {e.domain for e in app_roster(self.brands_path, store=self.store)}
         have = set(self.dossiers.domains())
 
-        # 1. onboard what has no dossier, a few per tick, shown brands first
-        missing = sorted(roster.keys() - have, key=lambda d: (d not in shown, d))
+        # 1. onboard what has no dossier, a few per tick: the hard ones first. A brand
+        # the shelf already reads over its bulk feed costs nothing to learn from; the
+        # loop exists for the other kind, so those go to the front of the queue.
+        missing = sorted(
+            roster.keys() - have,
+            key=lambda d: (self._ease(d, roster[d].notes), d not in shown, d),
+        )
         for domain in missing[:ONBOARD_PER_TICK]:
             try:
                 self.onboard(domain, name=roster[domain].name)
