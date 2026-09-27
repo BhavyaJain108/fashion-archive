@@ -94,6 +94,8 @@ def fetch_image(url: str, width: int = IMAGE_WIDTH) -> tuple[bytes, str] | None:
         return data, "image/webp"
     if data[:3] == b"\xff\xd8\xff":
         return data, "image/jpeg"
+    if data[:6] in (b"GIF87a", b"GIF89a"):
+        return data, "image/gif"  # some jewellery shops publish a turning-ring animation
     return None
 
 
@@ -163,21 +165,32 @@ class Tagger:
 # --- the database side --------------------------------------------------------
 
 _CANDIDATES = """
-SELECT brand, itemurl, title, description, price, currency, material_info, main_image_url
+SELECT brand, itemurl, title, description, price, currency, material_info, main_image_url, stored_url
 FROM (
   SELECT p.brand, p.itemurl, p.title, p.description, p.price, p.currency, p.material_info,
-         p.main_image_url,
+         COALESCE(p.main_image_url, p.all_images->>0) AS main_image_url,
+         (SELECT i.stored_url FROM product_images i
+            WHERE i.brand = p.brand AND i.itemurl = p.itemurl AND i.stored_url IS NOT NULL
+            ORDER BY (i.url = p.main_image_url) DESC, i.updated_at LIMIT 1) AS stored_url,
          row_number() OVER (PARTITION BY p.brand ORDER BY p.first_seen_run DESC, p.itemurl) AS n
   FROM products p
   JOIN catalogue_brands b ON b.brand = p.brand AND b.live_run = p.last_covered_run
   LEFT JOIN product_tags t ON t.brand = p.brand AND t.itemurl = p.itemurl AND t.version = %(version)s
-  WHERE t.brand IS NULL AND p.main_image_url IS NOT NULL
+  WHERE t.brand IS NULL AND (p.main_image_url IS NOT NULL OR jsonb_array_length(p.all_images) > 0)
     AND (%(brands)s::text[] IS NULL OR p.brand = ANY(%(brands)s::text[]))
 ) c
 WHERE n <= %(per_brand)s
 ORDER BY n, brand
 LIMIT %(limit)s
 """
+
+
+def photo_sources(row: dict) -> list[str]:
+    """Where to read the photograph from, in order: the shop's own CDN (Shopify
+    resizes it for us), then our archived copy — which is what a shop that answers
+    403 or times out (viviennewestwood, vancleefarpels) leaves us with."""
+    return [u for u in (row.get("main_image_url"), row.get("stored_url")) if u]
+
 
 _UPSERT = """
 INSERT INTO product_tags (brand, itemurl, version, tags, model, image_url, input_tokens, output_tokens)
@@ -200,6 +213,7 @@ def candidates(pool, *, limit: int, per_brand: int, brands: list[str] | None = N
         "currency",
         "material_info",
         "main_image_url",
+        "stored_url",
     )
     with pool.connection() as conn:
         rows = conn.execute(
@@ -240,9 +254,19 @@ def run(
     def one(row: dict) -> None:
         nonlocal done, failed, tin, tout
         try:
-            image = fetch_image(row["main_image_url"])
+            image, seen, why = None, "", "no photograph"
+            for src in photo_sources(row):
+                try:
+                    image = fetch_image(src)
+                except Exception as e:  # noqa: BLE001 — try the next source
+                    why = f"{type(e).__name__}: {e}"
+                    continue
+                if image is not None:
+                    seen = src
+                    break
+                why = "not an image we can read"
             if image is None:
-                raise RuntimeError("no usable photograph")
+                raise RuntimeError(f"no usable photograph ({why})")
             got = tagger.tag(row, image)
             with pool.connection() as conn:
                 conn.execute(
@@ -253,7 +277,7 @@ def run(
                         "version": VERSION,
                         "tags": got["tags"],
                         "model": model,
-                        "image_url": row["main_image_url"],
+                        "image_url": seen,
                         "in": got["input_tokens"],
                         "out": got["output_tokens"],
                     },
