@@ -96,6 +96,7 @@ def test_the_gate_replays_then_reads_live_then_asks_the_neighbours():
         transport_factory=lambda: transport(routes("y.com")),
     )
     assert result.passed and [s["step"] for s in result.steps] == ["replay", "live", "neighbours"]
+    assert result.scope == "signature"
     assert result.products == 6 and result.verdict in ("full", "partial")
 
 
@@ -108,7 +109,7 @@ def test_the_gate_stops_at_the_first_proof_that_fails():
 
 
 @pytest.mark.unit
-def test_a_neighbour_the_recipe_cannot_read_fails_the_gate():
+def test_a_neighbour_the_recipe_cannot_read_keeps_it_a_lane_for_its_brand():
     result = gate.prove(
         recipe(),
         BRAND,
@@ -117,7 +118,8 @@ def test_a_neighbour_the_recipe_cannot_read_fails_the_gate():
         neighbour_brands=[Brand(domain="z.com", homepage_url="https://z.com")],
         transport_factory=lambda: transport(routes("z.com", broken=True)),
     )
-    assert not result.passed and result.steps[-1]["step"] == "neighbours"
+    assert result.passed and result.scope == "brand"
+    assert result.steps[-1]["step"] == "neighbours" and result.steps[-1]["passed"] is False
 
 
 @pytest.mark.unit

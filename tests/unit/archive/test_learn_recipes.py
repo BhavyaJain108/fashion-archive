@@ -372,18 +372,16 @@ def test_a_sitemap_recipe_may_filter_its_urls_with_a_pattern(monkeypatch):
     from backend.archive.learn import recipes as mod
     from backend.archive.learn.recipes import Discover, Fetch, LaneRecipe, RecipeConnector
 
-    class FakeSitemap:
-        def __init__(self, url, prefix, limit):
-            self.limit = limit
+    def fake_discover(self, brand, transport):
+        found = [
+            ProductRef(url="https://g.com/us/en/stores"),
+            ProductRef(url="https://g.com/us/en/item/ABC/jennie"),
+            ProductRef(url="https://g.com/us/en/item/DEF/zen"),
+        ]
+        kept = [x for x in found if self._is_product(x.url)]
+        return kept[: self.limit] if self.limit else kept
 
-        def discover(self, brand, transport):
-            return [
-                ProductRef(url="https://g.com/us/en/stores"),
-                ProductRef(url="https://g.com/us/en/item/ABC/jennie"),
-                ProductRef(url="https://g.com/us/en/item/DEF/zen"),
-            ]
-
-    monkeypatch.setattr(mod, "SitemapConnector", FakeSitemap)
+    monkeypatch.setattr(mod._PatternSitemap, "discover", fake_discover)
     r = LaneRecipe(
         id="t",
         signature="s",

@@ -43,10 +43,14 @@ class GateResult:
     products: int = 0
     verdict: str = "untested"
     fill: dict[str, float] = field(default_factory=dict)
+    # "brand": proven on the brand it was written for; "signature": on its neighbours
+    # too, so it may stand as a rule for the shape. A lane never needs the second.
+    scope: str = "brand"
 
     def as_dict(self) -> dict:
         return {
             "passed": self.passed,
+            "scope": self.scope,
             "steps": self.steps,
             "products": self.products,
             "verdict": self.verdict,
@@ -223,22 +227,22 @@ def prove(
     if not steps[-1]["passed"]:
         return GateResult(False, steps, verdict=steps[-1].get("verdict", "blocked"))
     live_step = steps[-1]
+    scope = "brand"
     if neighbour_brands and transport_factory is not None:
+        # The neighbours decide the recipe's reach, not whether it lands: a recipe that
+        # reads its own brand is a lane for that brand (Tansan's Cafe24 recipe does not
+        # read psylos1, which merely shares its six words); one that reads the
+        # neighbours too may stand as a rule for the signature.
         steps.append(neighbours(recipe, neighbour_brands, transport_factory))
-        if steps[-1]["passed"] is False:
-            return GateResult(
-                False,
-                steps,
-                products=live_step["found"],
-                verdict=live_step["verdict"],
-                fill=live_step["fill"],
-            )
+        if steps[-1]["passed"] is True:
+            scope = "signature"
     return GateResult(
         True,
         steps,
         products=live_step["found"],
         verdict=live_step["verdict"],
         fill=live_step["fill"],
+        scope=scope,
     )
 
 

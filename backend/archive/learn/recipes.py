@@ -214,6 +214,19 @@ def path_get(data: Any, path: str | None) -> Any:
     return current
 
 
+class _PatternSitemap(SitemapConnector):
+    """A sitemap walk whose product test is a recipe's regex."""
+
+    def __init__(self, url: str, prefix: str | None, limit: int | None, keep: re.Pattern | None):
+        super().__init__(url, prefix, limit)
+        self._keep = keep
+
+    def _is_product(self, url: str) -> bool:
+        if self._keep is not None:
+            return bool(self._keep.search(url))
+        return super()._is_product(url)
+
+
 def _find_typed_node(html: str, root: str) -> dict | None:
     """The first JSON-LD node of the type a recipe names ("@type==ProductGroup" or just
     "ProductGroup"); a dotted root instead walks the first Product node found."""
@@ -278,19 +291,12 @@ class RecipeConnector:
                     if "/" in prefix.split("://", 1)[1]
                     else None
                 )
-            # A regex beside a sitemap filters its URLs (Gentle Monster's model-written
-            # recipe named the product URL shape as a pattern, not a prefix). The walk
-            # then needs headroom past the limit: landing pages sort first in a sitemap.
+            # A regex beside a sitemap says which of its URLs are products (Gentle
+            # Monster's model-written recipe named the shape as a pattern, not a prefix):
+            # it replaces the connector's built-in guess at what a product URL looks like.
             keep = re.compile(d.link_pattern, re.I) if d.link_pattern and not prefix else None
-            walk = (
-                None if self.limit is None else (max(self.limit * 20, 500) if keep else self.limit)
-            )
             try:
-                refs = SitemapConnector(url, prefix, walk).discover(brand, transport)
-                if keep:
-                    refs = [r for r in refs if keep.search(r.url)]
-                    refs = refs[: self.limit] if self.limit is not None else refs
-                return refs
+                return _PatternSitemap(url, prefix, self.limit, keep).discover(brand, transport)
             except ChannelBlocked:
                 # A child sitemap named without the query its index gives it (Shopify's
                 # sitemap_products_1.xml?from=..&to=..) refuses; the index never does.
