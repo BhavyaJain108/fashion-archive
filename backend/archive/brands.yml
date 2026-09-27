@@ -137,16 +137,16 @@ brands:
   - {domain: naomitarazi.com, homepage_url: "https://naomitarazi.com", display_name: "Naomi Tarazi", size: small}
   - {domain: lilcacti.com, homepage_url: "https://lilcacti.com", display_name: "Lil Cacti", size: small}
   - {domain: laurenmanoogian.com, homepage_url: "https://laurenmanoogian.com", display_name: "Lauren Manoogian", size: small}
+  - {domain: us.ohpolly.com, homepage_url: "https://us.ohpolly.com", display_name: "Oh Polly", size: mid, notes: large house shown by the owner's choice}
+  - {domain: us.sandro-paris.com, homepage_url: "https://us.sandro-paris.com", display_name: "Sandro", size: mid, notes: large house shown by the owner's choice}
+  - {domain: www.acnestudios.com, homepage_url: "https://www.acnestudios.com", display_name: "Acne Studios", size: mid, notes: large house shown by the owner's choice}
+  - {domain: www.ripcurl.com, homepage_url: "https://www.ripcurl.com", display_name: "Rip Curl", size: mid, notes: large house shown by the owner's choice}
+  - {domain: yeezy.com, homepage_url: "https://yeezy.com", display_name: "YEEZY", size: mid, notes: large house shown by the owner's choice}
+  - {domain: www.marni.com, homepage_url: "https://www.marni.com", display_name: "Marni", size: mid, notes: large house shown by the owner's choice}
 
   # Kept for the scraper, withheld from the page.
   - {domain: www.viviennewestwood.com, homepage_url: "https://www.viviennewestwood.com", display_name: "Vivienne Westwood", size: large, notes: enterprise 403 to plain http}
   - {domain: www.vancleefarpels.com, homepage_url: "https://www.vancleefarpels.com", display_name: "Van Cleef & Arpels", size: large, notes: TLS-level block}
   - {domain: vondutch.com, homepage_url: "https://vondutch.com", display_name: "Von Dutch", size: large}
   - {domain: www.gentlemonster.com, homepage_url: "https://www.gentlemonster.com", display_name: "Gentle Monster", size: large, notes: enterprise challenge}
-  - {domain: us.ohpolly.com, homepage_url: "https://us.ohpolly.com", display_name: "Oh Polly", size: large}
-  - {domain: us.sandro-paris.com, homepage_url: "https://us.sandro-paris.com", display_name: "Sandro", size: large}
-  - {domain: www.acnestudios.com, homepage_url: "https://www.acnestudios.com", display_name: "Acne Studios", size: large}
-  - {domain: www.ripcurl.com, homepage_url: "https://www.ripcurl.com", display_name: "Rip Curl", size: large}
-  - {domain: yeezy.com, homepage_url: "https://yeezy.com", display_name: "YEEZY", size: large}
-  - {domain: www.marni.com, homepage_url: "https://www.marni.com", display_name: "Marni", size: large}
   - {domain: emurj.com, homepage_url: "https://emurj.com", display_name: "EMURJ", size: multi_brand}
