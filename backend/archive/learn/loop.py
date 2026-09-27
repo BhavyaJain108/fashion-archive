@@ -30,6 +30,7 @@ import time
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any, cast
 
 from backend.archive.access.bench import sweep
 from backend.archive.access.strategy import get as get_strategy
@@ -106,10 +107,26 @@ class Loop:
 
     # --- onboarding: the stepper -----------------------------------------------------------
 
+    def _logged_steps(self, ds: DossierStore, domain: str) -> DossierStore:
+        """The same store, with every onboarding step also said out loud, so a tick
+        streams in the worker's log as it goes and not only in the dossier."""
+        log = self.log
+
+        class Loud:
+            def __getattr__(self, item: str) -> Any:
+                return getattr(ds, item)
+
+            def onboarding_step(self, d: str, step: str, status: str, text: str = "") -> None:
+                ds.onboarding_step(d, step, status, text)
+                if status != "running":
+                    log(f"{d}: {step} {status}{' — ' + text if text else ''}")
+
+        return cast(DossierStore, Loud())
+
     def onboard(self, domain: str, name: str | None = None) -> Dossier:
         """Probe, sign, classify, plan, read a sample, verdict — each step written as it
         happens. Idempotent: onboarding a brand again re-runs the steps and appends."""
-        ds = self.dossiers
+        ds = self._logged_steps(self.dossiers, domain)
         meter = Meter(prices=self.prices)
         started = time.monotonic()
         ds.onboarding_start(domain, name=name)
