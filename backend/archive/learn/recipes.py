@@ -114,7 +114,7 @@ class LaneRecipe(BaseModel):
 
 # --- paths and templates ---------------------------------------------------------------
 
-_STEP = re.compile(r"([^.\[\]]+)|\[(\*|-?\d+)\]")
+_STEP = re.compile(r"([^.\[\]]+)|\[(\*|-?\d+)\]|\[([^=\]]+)=([^\]]*)\]")
 
 
 def path_get(data: Any, path: str | None) -> Any:
@@ -123,8 +123,19 @@ def path_get(data: Any, path: str | None) -> Any:
         return data
     current: Any = data
     for m in _STEP.finditer(path):
-        key, index = m.group(1), m.group(2)
-        if key is not None:
+        key, index, pick_key, pick_value = m.group(1), m.group(2), m.group(3), m.group(4)
+        if pick_key is not None:
+            # [name=Tags]: the first item of a list whose key reads that value
+            items = current if isinstance(current, list) else [current]
+            current = next(
+                (
+                    c
+                    for c in items
+                    if isinstance(c, dict) and str(c.get(pick_key.strip())) == pick_value.strip()
+                ),
+                None,
+            )
+        elif key is not None:
             if isinstance(current, list):
                 picked: list[Any] = [c.get(key) if isinstance(c, dict) else None for c in current]
                 # A key read across a fanned-out list of lists flattens one level:
@@ -153,6 +164,29 @@ def path_get(data: Any, path: str | None) -> Any:
         if current is None:
             return None
     return current
+
+
+def _find_typed_node(html: str, root: str) -> dict | None:
+    """The first JSON-LD node of the type a recipe names ("@type==ProductGroup" or just
+    "ProductGroup"); a dotted root instead walks the first Product node found."""
+    from backend.archive.connectors.structured import _LD_BLOCK, _iter_nodes
+
+    want = root.split("==", 1)[1].strip() if "==" in root else root.strip()
+    if "." in want or "[" in want:
+        node = _find_product_node(html)
+        got = path_get(node, want) if node else None
+        return got if isinstance(got, dict) else node
+    for block in _LD_BLOCK.findall(html):
+        try:
+            data = json.loads(block.strip())
+        except json.JSONDecodeError:
+            continue
+        for node in _iter_nodes(data):
+            types = node.get("@type", "")
+            types = types if isinstance(types, list) else [types]
+            if want in types:
+                return node
+    return None
 
 
 def render(template: str, **values: Any) -> str:
@@ -188,7 +222,15 @@ class RecipeConnector:
         d = self.recipe.discover
         if d.kind == "sitemap":
             url = render(d.url or "", domain=brand.domain)
-            refs = SitemapConnector(url, d.prefix, self.limit).discover(brand, transport)
+            prefix = render(d.prefix, domain=brand.domain) if d.prefix else None
+            if prefix and "://" in prefix:
+                # the connector filters on the path; a recipe may say the whole URL
+                prefix = (
+                    "/" + prefix.split("://", 1)[1].split("/", 1)[1]
+                    if "/" in prefix.split("://", 1)[1]
+                    else None
+                )
+            refs = SitemapConnector(url, prefix, self.limit).discover(brand, transport)
             return refs
         if d.kind == "json_list":
             return self._json_list(brand, transport)
@@ -284,7 +326,7 @@ class RecipeConnector:
                 raise SkipProduct(f"{url}: nothing at {f.root!r}")
             return self._from_values(ref.url, root)
         if f.kind == "jsonld":
-            node = _find_product_node(resp.text)
+            node = _find_typed_node(resp.text, f.root) if f.root else _find_product_node(resp.text)
             if not node:
                 raise NotAProduct(f"{url}: no Product JSON-LD")
             merged = {**node}
@@ -343,7 +385,12 @@ class RecipeConnector:
         cats = [str(c) for c in _list(cats) if c]
         stock = v.get("in_stock")
         if f.in_stock_when is not None and stock is not None:
-            in_stock: bool | None = str(stock) == f.in_stock_when
+            want = f.in_stock_when.strip().lower()
+            quoted = re.findall(r"['\"]([^'\"]+)['\"]", want)
+            if quoted:  # a sentence with the word in quotes: the last quoted word is it
+                want = quoted[-1].lower()
+            values = stock if isinstance(stock, list) else [stock]
+            in_stock: bool | None = any(want in str(v).lower() for v in values if v is not None)
         elif isinstance(stock, bool):
             in_stock = stock
         elif isinstance(stock, str):

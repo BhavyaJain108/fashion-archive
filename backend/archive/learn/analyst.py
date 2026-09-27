@@ -216,8 +216,16 @@ Rules you must keep:
 - Prefer the cheapest rung that works: a JSON endpoint over a page, a page over a browser.
 - Report exactly what you saw. A field you cannot see is "absent" if the shop plainly does
   not publish it, "unread" if it is there and no rule reads it.
-- A recipe's paths are dotted, [n] indexes, [*] fans out. Templates take {domain}, {url},
-  {handle}, and any key of the item discovery found the product in.
+- A recipe's grammar is exactly this and nothing else. Paths: dotted keys, [n] indexes,
+  [*] fans out into a list, [key=value] picks the first list item whose key reads value
+  (additionalProperty[name=Size].value). No functions, no comparisons, no "any"/"or".
+  fetch.root: a path to the product object, or for jsonld the node's @type
+  ("ProductGroup"). fetch.in_stock_when: one word the in_stock value must contain
+  ("InStock"); a list is in stock when any element does; leave null when the value is
+  a boolean or a count. Templates take {domain}, {url}, {handle}, and any key of the
+  item discovery found the product in — in discover.url, discover.prefix and
+  fetch.url_template; discover.link_pattern is a plain regex with one group. discover.prefix is the product
+  URL path prefix ("/products/").
 - Placeholders (no price, no photograph, unavailable) are not products.
 - Be concrete in "learning": the evidence and the rule, one paragraph, the way a lab
   notebook is written."""
@@ -348,6 +356,8 @@ def analyse(
     the reason, never an exception, so a bad answer is a fact in the dossier."""
     spend = spend or Spend(INPUT_RATE, OUTPUT_RATE)
     client = client or default_client(spend)
+    if getattr(client, "_spend", None) is not spend and hasattr(client, "_spend"):
+        client._spend = spend  # a shared client meters each analysis on its own
     prompt = bundle(kind, dossier, pages, neighbours, rules, extra)
     at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     ident = f"{at[:10]}-{secrets.token_hex(3)}"

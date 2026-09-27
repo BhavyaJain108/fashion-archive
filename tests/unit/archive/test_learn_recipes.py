@@ -44,6 +44,12 @@ def test_paths_walk_dots_indexes_and_fan_out():
     assert path_get(data, "result.pageContext.retailers[*].draws[*].slug") == ["a", "b", "c"]
     assert path_get(data, "result.nothing.here") is None
     assert path_get({"a": [1, 2]}, "a[-1]") == 2
+    props = {
+        "additionalProperty": [{"name": "Tags", "value": ["x", "y"]}, {"name": "Size", "value": 8}]
+    }
+    assert path_get(props, "additionalProperty[name=Size].value") == 8
+    assert path_get(props, "additionalProperty[name=Tags].value[*]") == ["x", "y"]
+    assert path_get(props, "additionalProperty[name=Colour].value") is None
     assert (
         render(
             "https://{domain}/page-data/{country}/{slug}/page-data.json",
