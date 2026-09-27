@@ -278,8 +278,19 @@ class RecipeConnector:
                     if "/" in prefix.split("://", 1)[1]
                     else None
                 )
+            # A regex beside a sitemap filters its URLs (Gentle Monster's model-written
+            # recipe named the product URL shape as a pattern, not a prefix). The walk
+            # then needs headroom past the limit: landing pages sort first in a sitemap.
+            keep = re.compile(d.link_pattern, re.I) if d.link_pattern and not prefix else None
+            walk = (
+                None if self.limit is None else (max(self.limit * 20, 500) if keep else self.limit)
+            )
             try:
-                return SitemapConnector(url, prefix, self.limit).discover(brand, transport)
+                refs = SitemapConnector(url, prefix, walk).discover(brand, transport)
+                if keep:
+                    refs = [r for r in refs if keep.search(r.url)]
+                    refs = refs[: self.limit] if self.limit is not None else refs
+                return refs
             except ChannelBlocked:
                 # A child sitemap named without the query its index gives it (Shopify's
                 # sitemap_products_1.xml?from=..&to=..) refuses; the index never does.

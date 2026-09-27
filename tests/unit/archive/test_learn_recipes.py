@@ -363,3 +363,37 @@ def test_a_listing_that_captures_bare_ids_places_them_with_the_template():
         "https://y.com/api/products/6904bd75cf2f2e0012ba2399",
     ]
     assert refs[0].payload["id"] == "6904bd75cf2f2e0012ba2388"
+
+
+@pytest.mark.unit
+def test_a_sitemap_recipe_may_filter_its_urls_with_a_pattern(monkeypatch):
+    from backend.archive.domain.brand import Brand
+    from backend.archive.domain.product import ProductRef
+    from backend.archive.learn import recipes as mod
+    from backend.archive.learn.recipes import Discover, Fetch, LaneRecipe, RecipeConnector
+
+    class FakeSitemap:
+        def __init__(self, url, prefix, limit):
+            self.limit = limit
+
+        def discover(self, brand, transport):
+            return [
+                ProductRef(url="https://g.com/us/en/stores"),
+                ProductRef(url="https://g.com/us/en/item/ABC/jennie"),
+                ProductRef(url="https://g.com/us/en/item/DEF/zen"),
+            ]
+
+    monkeypatch.setattr(mod, "SitemapConnector", FakeSitemap)
+    r = LaneRecipe(
+        id="t",
+        signature="s",
+        description="",
+        discover=Discover(
+            kind="sitemap", url="https://{domain}/sitemap.xml", link_pattern=r"/item/([A-Z0-9]+)/"
+        ),
+        fetch=Fetch(kind="jsonld"),
+    )
+    refs = RecipeConnector(r, limit=1).discover(
+        Brand(domain="g.com", homepage_url="https://g.com"), None
+    )
+    assert [x.url for x in refs] == ["https://g.com/us/en/item/ABC/jennie"]
