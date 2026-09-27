@@ -205,3 +205,10 @@ def test_page_data_composes_the_runfair_lane():
     assert plan.status == "ready"
     assert plan.composition == "t0×page_data×platform_json×per_item"
     assert isinstance(get_connector(plan), RunfairConnector)
+
+
+@pytest.mark.unit
+def test_a_brand_that_answered_only_through_the_proxy_gets_a_cheap_plan_at_that_rung():
+    plan = compose_plan(cap(transport=TransportLevel.T1P, bulk_json=True), now=NOW)
+    assert plan.status == "ready"
+    assert plan.composition == "t1p×bulk_json×platform_json×per_item"

@@ -14,7 +14,7 @@ from backend.archive.domain.product import (
     pack_offers,
     pack_sizes,
 )
-from backend.archive.transport import Transport
+from backend.archive.transport import Transport, retry_after
 
 _TAG_RE = re.compile(r"<[^>]+>")
 
@@ -147,10 +147,12 @@ class ShopifyConnector:
         self.market = market
 
     def _page(self, url: str, transport: Transport):
-        """One page of the feed, with one patient retry when the store says slow down."""
+        """One page of the feed, with one patient retry when the store says slow down —
+        for as long as it says. Bronze Snake answers 429 around page 15 of 16
+        (2026-09-27); two seconds was not always enough, and the run read as blocked."""
         resp = transport.get(url)
         if resp.status_code in _BUSY:
-            time.sleep(self.retry_pause)
+            time.sleep(_pause(resp, self.retry_pause))
             resp = transport.get(url)
         if resp.status_code in _BUSY:
             raise ChannelBusy(f"{url} → HTTP {resp.status_code}")
@@ -224,7 +226,7 @@ class ShopifyPageConnector:
         url = ref.url.split("?")[0].rstrip("/") + ".json"
         resp = transport.get(url)
         if resp.status_code in _BUSY:
-            time.sleep(self.retry_pause)
+            time.sleep(_pause(resp, self.retry_pause))
             resp = transport.get(url)
         if resp.status_code in _BUSY:
             raise ChannelBusy(f"{url} → HTTP {resp.status_code}")
@@ -260,6 +262,15 @@ def with_page_images(record: ProductRecord, transport: Transport) -> ProductReco
     if not images:
         return record
     return record.model_copy(update=pack_images(images))
+
+
+_LONGEST_PAUSE = 30.0
+
+
+def _pause(resp, default: float) -> float:
+    """How long to wait before asking again: what the host said, within reason."""
+    asked = retry_after(resp)
+    return min(float(asked), _LONGEST_PAUSE) if asked else default
 
 
 def _hint(updated_at: str | None, market: str | None) -> str | None:

@@ -119,3 +119,33 @@ class BrowserStub:
 
     def close(self):
         pass
+
+
+@pytest.mark.unit
+def test_the_proxy_is_climbed_to_only_when_there_is_one(monkeypatch):
+    """yeezy.com: refused at T0 and T1 alike — the address, not the handshake."""
+    from backend.archive.escalate import cheap_levels
+
+    monkeypatch.delenv("ARCHIVE_PROXY_URL", raising=False)
+    assert cheap_levels() == (TransportLevel.T1,)
+    seen = []
+    base = scripted(
+        {TransportLevel.T0: cap(challenged=True), TransportLevel.T1: cap(challenged=True)}, seen
+    )
+    got = escalating_prober(base=base)("yeezy.com", HttpxStub())
+    assert seen == [TransportLevel.T0, TransportLevel.T1] and not got.readable()
+
+    monkeypatch.setenv("ARCHIVE_PROXY_URL", "http://u:p@proxy.example:8080")
+    assert cheap_levels() == (TransportLevel.T1, TransportLevel.T1P)
+    seen.clear()
+    base = scripted(
+        {
+            TransportLevel.T0: cap(challenged=True),
+            TransportLevel.T1: cap(challenged=True),
+            TransportLevel.T1P: cap(bulk_json=True),
+        },
+        seen,
+    )
+    got = escalating_prober(base=base)("yeezy.com", HttpxStub())
+    assert seen == [TransportLevel.T0, TransportLevel.T1, TransportLevel.T1P]
+    assert got.transport is TransportLevel.T1P and got.bulk_json

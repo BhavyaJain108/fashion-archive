@@ -70,8 +70,9 @@ def compose_plan(
     # The cheap ladder: each rung is skipped when its capability is absent or its
     # composition has already failed for this brand (spec §4.3b). It is built on whichever
     # level actually answered — T0, or T1 when the brand refused Python's TLS handshake and
-    # a browser-shaped one got in. Both are one request per page; neither renders anything.
-    if cap.transport in (TransportLevel.T0, TransportLevel.T1):
+    # a browser-shaped one got in, or T1P when only another address got in. All are one
+    # request per page; none renders anything.
+    if cap.transport in (TransportLevel.T0, TransportLevel.T1, TransportLevel.T1P):
         cheap = cap.transport
         rungs = []
         if cap.bulk_json:

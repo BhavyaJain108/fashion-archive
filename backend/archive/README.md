@@ -47,6 +47,7 @@ and carries the shop host as `shop_domain`; only discovery addresses it.
 |---|---|---|---|
 | **T0** | Python's own HTTP | one request | most brands need nothing more |
 | **T1** | the same request with a real browser's TLS handshake (`curl_cffi`) | one request | our headers said Chrome while our handshake said Python, and a WAF hashes the handshake before it reads a header. Vivienne Westwood 403 → 200, Van Cleef timeout → 200 |
+| **T1P** | the T1 handshake through an egress proxy (`ARCHIVE_PROXY_URL`) | one request, paid for | a rule about our address rather than our handshake: yeezy.com's Cloudflare blocks the datacenter ASN before reading anything. Exists only when the owner has configured a proxy; `ARCHIVE_PROXY_URL_<CC>` names a country's own exit |
 | **T2** | a real browser, which runs the page's own challenge script | ~3s and a browser | a JavaScript challenge, or a page whose products only exist after it renders |
 
 A timeout counts as a refusal: a WAF that drops the connection without answering looks

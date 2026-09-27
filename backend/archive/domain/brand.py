@@ -11,6 +11,11 @@ MARKET_HREFLANG = "en-us"
 class TransportLevel(str, Enum):
     T0 = "t0"  # plain HTTP
     T1 = "t1"  # browser-grade headers
+    # T1 through an egress proxy: the same request from an address the site does not
+    # class as a datacenter. yeezy.com's Cloudflare rule blocks our ASN outright, before
+    # any handshake or header is read (2026-09-27); no fingerprint answers that, only a
+    # different address does. Costs money per request, so it is its own rung.
+    T1P = "t1p"
     T2 = "t2"  # real browser + stealth
     # A T3 ("browser-only, TLS fingerprinting") sat here. Nothing ever produced or read
     # it — T1 turned out to be what that rung was for.

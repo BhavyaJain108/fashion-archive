@@ -432,3 +432,27 @@ def test_a_feed_product_with_photographs_costs_no_page():
     c = ShopifyConnector()
     rec = c.fetch(c.discover(BRAND, t)[0], t)
     assert rec.main_image_url and all(p == "/products.json" for p in asked)
+
+
+@pytest.mark.unit
+def test_the_feed_walk_waits_as_long_as_the_store_asks(monkeypatch):
+    """Bronze Snake: a 429 around page 15 of 16, with a Retry-After."""
+    import backend.archive.connectors.shopify as shopify
+
+    slept = []
+    monkeypatch.setattr(shopify.time, "sleep", lambda s: slept.append(s))
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return httpx.Response(429, headers={"retry-after": "7"})
+        if request.url.params.get("page") == "1":
+            return httpx.Response(
+                200, json=json.loads((FIX / "shopify_products_page1.json").read_text())
+            )
+        return httpx.Response(200, json={"products": []})
+
+    t = HttpxTransport(client=httpx.Client(transport=httpx.MockTransport(handler)))
+    refs = ShopifyConnector().discover(BRAND, t)
+    assert len(refs) == 2 and slept == [7.0]

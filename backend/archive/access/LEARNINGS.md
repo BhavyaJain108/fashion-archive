@@ -343,6 +343,26 @@ first capability run and "no-answer" on a second run minutes later, from the sam
 address. The bench already knew this (a brand held by our worker is not a clean reading);
 it is as true of two probes by hand. Re-probe with a gap before calling a brand blocked.
 
+### 21. A block on the address is not a block on the handshake — 2026-09-27
+yeezy.com answers every rung with Cloudflare's "Sorry, you have been blocked" — a WAF
+*block*, not a challenge: no script to run, no cookie to mint, `cf-ray` and a 403 from the
+edge. Every transport we own leaves from the same datacenter address, so every rung was
+the same question asked of a rule about the address. The classifier already said so
+(`waf_403` at `httpx`, `cffi:chrome142`, `cffi:safari184` alike); the ladder had nothing
+above T1 that changed the thing being judged.
+
+Rung added: T1P, the T1 handshake through an egress proxy the owner configures
+(`ARCHIVE_PROXY_URL`; `ARCHIVE_PROXY_URL_<CC>` for a country's own exit). It is tier 2 on
+the shelf because each request is paid for, it exists only when the variable is set, and
+the prober climbs to it only after T1 has been refused. Not yet measured against yeezy.com:
+there is no proxy to measure with. `cli access yeezy.com` says the moment there is.
+Code: `transport.CurlCffiTransport(proxy=)`, `transport.for_level`, `escalate.cheap_levels`,
+`access/strategy` (`cffi:chrome142@proxy`).
+
+604service.com and 604service-en.com serve a static "접근 제한" (access restricted) page
+from S3 through CloudFront, to every rung. That is a rule about where the visitor is —
+a KR exit is the test — and until one exists the brand stays on the roster, unread.
+
 ### Not a shop
 bellaspantzel.com is a Cargo portfolio (`hasShopModel: false`, pages `/` and `/about`,
 credits for Rick Owens, Robert Wun, Heliot Emil). There is nothing to sell and nothing to
@@ -366,6 +386,10 @@ Next, in the order they look worth doing:
 
 - **robots.txt disallows `/api/*` on Gentle Monster**, so its JSON API is off limits even
   though the page calls it. Everything here comes from product pages and sitemaps.
+- **T1P has not been measured.** yeezy.com is the brand to measure it on, 604SERVICE
+  the one that wants a Korean exit; both wait on an egress proxy being configured.
+- **A browser through the proxy (T2P)** does not exist yet: a site that blocks the address
+  *and* runs a challenge would need it. None on the roster does today.
 - **The browser lane is not in the scraper image.** Gentle Monster needs `--browser`, which
   playwright provides locally and the deployed worker does not have. Turning it on means a
   larger image and roughly 1.3 GB of egress per full pass at ~1 MB a page.

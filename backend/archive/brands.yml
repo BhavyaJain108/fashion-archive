@@ -141,10 +141,10 @@ brands:
   - {domain: us.sandro-paris.com, homepage_url: "https://us.sandro-paris.com", display_name: "Sandro", size: mid, notes: salesforce commerce; large house shown by the owner's choice}
   - {domain: www.acnestudios.com, homepage_url: "https://www.acnestudios.com", display_name: "Acne Studios", size: mid, notes: salesforce commerce; large house shown by the owner's choice}
   - {domain: www.ripcurl.com, homepage_url: "https://www.ripcurl.com", display_name: "Rip Curl", size: mid, notes: large house shown by the owner's choice}
-  - {domain: yeezy.com, homepage_url: "https://yeezy.com", display_name: "YEEZY", size: mid, notes: 403 to plain http; large house shown by the owner's choice}
+  - {domain: yeezy.com, homepage_url: "https://yeezy.com", display_name: "YEEZY", size: mid, notes: cloudflare blocks the address (waf_403 at every rung); needs T1P; large house shown by the owner's choice}
   - {domain: www.marni.com, homepage_url: "https://www.marni.com", display_name: "Marni", size: mid, notes: salesforce commerce; large house shown by the owner's choice}
   - {domain: kwameadusei.com, homepage_url: "https://kwameadusei.com", display_name: "Kwame Adusei", size: small}
-  - {domain: www.604service-en.com, homepage_url: "https://www.604service-en.com", display_name: "604SERVICE", size: small, notes: english store of 604service.com; 403 to plain http}
+  - {domain: www.604service-en.com, homepage_url: "https://www.604service-en.com", display_name: "604SERVICE", size: small, notes: english store of 604service.com; static access-restricted page from cloudfront; needs a KR exit}
 
   # Kept for the scraper, withheld from the page.
   - {domain: www.viviennewestwood.com, homepage_url: "https://www.viviennewestwood.com", display_name: "Vivienne Westwood", size: large, notes: enterprise 403 to plain http}

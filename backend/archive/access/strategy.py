@@ -14,6 +14,7 @@ strategy unavailable; it must never stop the CLI from listing the shelf.
 """
 
 import importlib.util
+import os
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Literal
@@ -35,6 +36,7 @@ class Strategy:
     requires: str | None  # the import that must exist, if any
     factory: Callable[[], object] = field(repr=False)
     seq: int = 0  # position on the shelf, set at registration
+    env: str | None = None  # the environment variable that must be set, if any
 
     @property
     def rank(self) -> tuple[int, int]:
@@ -45,10 +47,14 @@ class Strategy:
 
     @property
     def available(self) -> bool:
-        return self.requires is None or _installed(self.requires)
+        if self.requires is not None and not _installed(self.requires):
+            return False
+        return self.env is None or bool(os.environ.get(self.env, "").strip())
 
     def build(self):
         if not self.available:
+            if self.env and not os.environ.get(self.env, "").strip():
+                raise StrategyUnavailable(f"{self.name} needs {self.env} set, and it is not")
             raise StrategyUnavailable(
                 f"{self.name} needs {self.requires!r}, which is not installed"
             )
@@ -77,6 +83,23 @@ def _cffi(profile: str):
     return make
 
 
+def _proxied(profile: str):
+    def make():
+        from backend.archive.transport import CurlCffiTransport, proxy_url
+
+        return CurlCffiTransport(impersonate=profile, level=TransportLevel.T1P, proxy=proxy_url())
+
+    return make
+
+
+def _usd_per_1k() -> float:
+    """What the owner's proxy charges, per thousand requests, when they have said."""
+    try:
+        return float(os.environ.get("ARCHIVE_PROXY_USD_PER_1K", "0") or 0)
+    except ValueError:
+        return 0.0
+
+
 def _browser(driver: str):
     def make():
         # The challenge-aware subclass rather than the bare transport: a browser that
@@ -99,6 +122,19 @@ _SHELF = (
     Strategy("cffi:chrome142", 1, "http", TransportLevel.T1, 0.0, "curl_cffi", _cffi("chrome142")),
     Strategy("cffi:chrome131", 1, "http", TransportLevel.T1, 0.0, "curl_cffi", _cffi("chrome131")),
     Strategy("cffi:safari184", 1, "http", TransportLevel.T1, 0.0, "curl_cffi", _cffi("safari184")),
+    # The same handshake from another address. Tier 2: it is one request a page, but each
+    # request is paid for, and a brand that only needs a handshake must not be sent
+    # through it. Exists only when the owner has configured an egress proxy.
+    Strategy(
+        "cffi:chrome142@proxy",
+        2,
+        "http",
+        TransportLevel.T1P,
+        _usd_per_1k(),
+        "curl_cffi",
+        _proxied("chrome142"),
+        env="ARCHIVE_PROXY_URL",
+    ),
     # T2 so fingerprint.probe pays for its deep probes: once a browser has loaded the
     # page anyway, that is the only way a challenged brand's URL shape is ever learned.
     Strategy(

@@ -62,6 +62,12 @@ services:
       # this market's own prices; the rest keep their currency and the site converts.
       - key: ARCHIVE_MARKET
         value: "US"
+      # An egress proxy, http://user:pass@host:port, for the brands that block our
+      # address rather than our handshake (yeezy.com's Cloudflare rule blocks the
+      # ASN). Unset, the proxied rung does not exist and those brands stay blocked.
+      # ARCHIVE_PROXY_URL_KR and the like name a country's own exit.
+      - key: ARCHIVE_PROXY_URL
+        sync: false
       # The catalogue's rows live in Postgres; runs and plans stay in R2.
       - key: CATALOG_BACKEND
         value: pg

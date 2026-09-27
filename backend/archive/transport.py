@@ -1,5 +1,6 @@
 """Transports: how requests are made. Injected into connectors, never owned by them (spec §4.0)."""
 
+import os
 import time
 from typing import Any, Protocol
 from urllib.parse import urlparse
@@ -156,7 +157,7 @@ class HttpxTransport(LedgeredTransport):
         )
 
 
-def _retry_after(resp) -> int | None:
+def retry_after(resp) -> int | None:
     """How long the host asked us to wait, when it says so."""
     value = resp.headers.get("retry-after")
     if not value:
@@ -165,6 +166,9 @@ def _retry_after(resp) -> int | None:
         return int(float(value))
     except ValueError:
         return None  # an HTTP-date form; the number is the useful case
+
+
+_retry_after = retry_after
 
 
 # --- T1: plain HTTP in a real browser's accent -------------------------------------
@@ -200,8 +204,27 @@ class _Body:
             self.text = content.decode("utf-8", errors="replace")
 
 
+# The egress proxy, when the owner has one: a URL with its credentials in it,
+# http://user:pass@host:port. Unset, the proxied rung does not exist. A country's own
+# exit goes in ARCHIVE_PROXY_URL_<CC> (a site that serves one country only wants a
+# visitor from there, not a visitor from anywhere else).
+PROXY_ENV = "ARCHIVE_PROXY_URL"
+
+
+def proxy_url(country: str | None = None) -> str | None:
+    if country:
+        specific = os.environ.get(f"{PROXY_ENV}_{country.upper()}", "").strip()
+        if specific:
+            return specific
+    return os.environ.get(PROXY_ENV, "").strip() or None
+
+
 class CurlCffiTransport(LedgeredTransport):
-    """T1 transport whose TLS handshake is indistinguishable from the named browser."""
+    """T1 transport whose TLS handshake is indistinguishable from the named browser.
+
+    With `proxy`, the same handshake leaves from that address instead of ours, which
+    is the T1P rung: what a site blocks by ASN, not by fingerprint, it answers to.
+    """
 
     def __init__(
         self,
@@ -210,9 +233,11 @@ class CurlCffiTransport(LedgeredTransport):
         sink=None,
         budget=None,
         session=None,
+        proxy: str | None = None,
     ):
         super().__init__(level=level, sink=sink, budget=budget)
         self.impersonate = impersonate
+        self.proxy = proxy
         # Injected in tests; built lazily otherwise so importing this module never
         # requires curl_cffi to be installed.
         self._session = session
@@ -221,7 +246,11 @@ class CurlCffiTransport(LedgeredTransport):
         if self._session is None:
             from curl_cffi import requests as cffi_requests
 
-            self._session = cffi_requests.Session(impersonate=self.impersonate, timeout=TIMEOUT)
+            self._session = cffi_requests.Session(
+                impersonate=self.impersonate,
+                timeout=TIMEOUT,
+                proxies={"http": self.proxy, "https": self.proxy} if self.proxy else None,
+            )
         return self._session
 
     def _fetch(self, url: str):
@@ -258,4 +287,9 @@ def for_level(level: TransportLevel, sink=None, budget=None):
         return ChallengeAwareBrowser()
     if level == TransportLevel.T1:
         return CurlCffiTransport(sink=sink, budget=budget)
+    if level == TransportLevel.T1P:
+        proxy = proxy_url()
+        if not proxy:
+            raise RuntimeError(f"a {level.value} plan needs {PROXY_ENV} set, and it is not")
+        return CurlCffiTransport(sink=sink, budget=budget, level=level, proxy=proxy)
     return HttpxTransport(sink=sink, budget=budget)

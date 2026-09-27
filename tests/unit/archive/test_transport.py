@@ -69,3 +69,52 @@ def test_a_gzipped_page_is_read_once_and_a_huge_one_is_refused():
     assert "content-encoding" not in resp.headers
     with pytest.raises(ResponseTooLarge):
         t.get("https://example.com/big")
+
+
+# --- T1P: the same handshake from another address (2026-09-27) ---
+
+
+@pytest.mark.unit
+def test_the_proxied_rung_does_not_exist_without_a_proxy(monkeypatch):
+    from backend.archive.transport import PROXY_ENV, for_level, proxy_url
+
+    monkeypatch.delenv(PROXY_ENV, raising=False)
+    assert proxy_url() is None
+    with pytest.raises(RuntimeError, match=PROXY_ENV):
+        for_level(TransportLevel.T1P)
+
+
+@pytest.mark.unit
+def test_the_proxied_rung_leaves_through_the_configured_proxy(monkeypatch):
+    from backend.archive.transport import PROXY_ENV, CurlCffiTransport, for_level, proxy_url
+
+    monkeypatch.setenv(PROXY_ENV, "http://u:p@proxy.example:8080")
+    monkeypatch.setenv(f"{PROXY_ENV}_KR", "http://u:p@kr.example:8080")
+    assert proxy_url() == "http://u:p@proxy.example:8080"
+    assert proxy_url("kr") == "http://u:p@kr.example:8080"
+    assert proxy_url("FR") == "http://u:p@proxy.example:8080"  # no French exit: the default
+    t = for_level(TransportLevel.T1P)
+    assert isinstance(t, CurlCffiTransport)
+    assert t.level == TransportLevel.T1P and t.proxy == "http://u:p@proxy.example:8080"
+
+
+@pytest.mark.unit
+def test_the_proxy_reaches_the_session(monkeypatch):
+    cffi = pytest.importorskip("curl_cffi")
+    built = {}
+
+    class FakeSession:
+        def __init__(self, **kw):
+            built.update(kw)
+
+    from backend.archive.transport import CurlCffiTransport
+
+    monkeypatch.setattr(cffi.requests, "Session", FakeSession)
+    CurlCffiTransport(proxy="http://u:p@proxy.example:8080")._ensure_session()
+    assert built["proxies"] == {
+        "http": "http://u:p@proxy.example:8080",
+        "https": "http://u:p@proxy.example:8080",
+    }
+    built.clear()
+    CurlCffiTransport()._ensure_session()
+    assert built["proxies"] is None
