@@ -591,7 +591,10 @@ class Loop:
             a.gate = {"passed": False, "note": "; ".join(problems)}
             return a
         brand = self._brand(domain, d.name)
-        transport = self.transport_factory(TransportLevel.T1)
+        # The brand's own open rung, not a fixed one: Gentle Monster challenges the
+        # browser handshake and lets plain HTTP through, the inverse of the usual.
+        rung = _open_rung(d)
+        transport = self.transport_factory(rung)
         meter = Meter(prices=self.prices)
         meter.track(transport)
         try:
@@ -604,7 +607,7 @@ class Loop:
                 transport,
                 pages=pages,
                 neighbour_brands=neighbour_brands,
-                transport_factory=lambda: meter.track(self.transport_factory(TransportLevel.T1)),
+                transport_factory=lambda: meter.track(self.transport_factory(rung)),
             )
         finally:
             closer = getattr(transport, "close", None)
@@ -612,6 +615,9 @@ class Loop:
                 closer()
             self._charge(domain, "discretionary", meter)
         a.gate = result.as_dict()
+        if result.passed and not _better(d, result):
+            result.passed = False
+            a.gate = {**result.as_dict(), "note": "reads no better than the lane the brand has"}
         if not result.passed:
             a.status = "rejected"
             self.dossiers.event(
@@ -952,6 +958,23 @@ def recipe_plan(domain: str, recipe: LaneRecipe, transport: TransportLevel) -> S
         recipe=recipe.model_dump(),
         currency=recipe.fetch.currency,
     )
+
+
+def _better(d: Dossier, result) -> bool:
+    """A landing must gain something: more core fill than the brand's best lane, or a
+    field that lane leaves blank now read. By Fonseca's recipe read title and price and
+    no photograph where the built-in lane read all three; it must not replace it."""
+    lane = d.best_lane()
+    if lane is None or lane.verdict not in ("full", "partial", "ok"):
+        return True
+    have = lane.fill or {}
+    new = result.fill or {}
+    core = ("product_title", "price", "in_stock", "all_images")
+    if any((new.get(f) or 0) + 0.05 < (have.get(f) or 0) for f in core):
+        return False  # loses a core field
+    if any((new.get(f) or 0) > (have.get(f) or 0) + 0.05 for f in new):
+        return True  # reads something the lane did not
+    return False
 
 
 def _open_rung(d: Dossier) -> TransportLevel:
