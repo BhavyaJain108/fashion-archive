@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from backend.archive.capability import CORE_FIELDS, classify
-from backend.archive.connectors.base import SkipProduct
+from backend.archive.connectors.base import ChannelBlocked, SkipProduct
 from backend.archive.domain.brand import Brand
 from backend.archive.domain.product import ProductRef
 from backend.archive.learn.recipes import LaneRecipe, RecipeConnector
@@ -123,6 +123,14 @@ def replay(recipe: LaneRecipe, brand: Brand, pages: dict[str, str]) -> dict:
         return {"step": "replay", "passed": None, "note": "no pages captured; nothing to replay"}
     try:
         found, records, errors = sample_read(recipe, brand, _Canned(pages), sample=SAMPLE)
+    except ChannelBlocked as e:
+        # Discovery asked for a page nobody captured (a sitemap, a feed): the canned
+        # transport cannot answer, which proves nothing either way.
+        return {
+            "step": "replay",
+            "passed": None,
+            "note": f"discovery needs a page that was not captured: {e}"[:200],
+        }
     except Exception as e:  # noqa: BLE001
         return {"step": "replay", "passed": False, "note": f"{type(e).__name__}: {e}"[:200]}
     if not records:
