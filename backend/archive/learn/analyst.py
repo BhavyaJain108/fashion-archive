@@ -101,7 +101,9 @@ _RECIPE_SCHEMA = {
 PROPOSAL_TOOL = {
     "name": "report_analysis",
     "description": "Report what kind of shop this is, what stands in the way, and how to read it.",
-    "strict": True,
+    # Not strict: the schema's enums and nesting compile to a grammar the API refuses as
+    # too large. The proposal is checked on our side instead — a recipe is parsed as a
+    # LaneRecipe and a signature as a Signature before anything is written.
     "input_schema": {
         "type": "object",
         "properties": {
