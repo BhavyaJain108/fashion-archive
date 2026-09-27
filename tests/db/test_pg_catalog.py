@@ -244,13 +244,15 @@ def test_sql_shop_front_matches_the_index_shape(tmp_path, pool, clean):
         one["tile"]["title"] == "Denim Jacket" and one["tile"]["images"] and len(one["more"]) == 2
     )
     assert one["tile"]["tags"] == []
+    from backend.archive import tagging
+
     with pool.connection() as conn:
         conn.execute(
             "INSERT INTO product_tags (brand, itemurl, version, tags, model) VALUES (%s, %s, %s, %s, %s)",
             (
                 "x.com",
                 "https://x.com/products/denim-jacket",
-                "1",
+                tagging.VERSION,
                 ["denim jacket", "indigo"],
                 "test",
             ),
@@ -260,8 +262,6 @@ def test_sql_shop_front_matches_the_index_shape(tmp_path, pool, clean):
     )
     assert one["tile"]["tags"] == ["denim jacket", "indigo"]
     # the tagger's candidate query runs against the same rows: the untagged two remain
-    from backend.archive import tagging
-
     todo = tagging.candidates(pool, limit=10, per_brand=10)
     assert {r["title"] for r in todo} == {"Wool Sweater", "Leather Boot"}
     assert tagging.tagged_count(pool) == 1

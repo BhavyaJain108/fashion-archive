@@ -24,8 +24,10 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, cast
 
+from psycopg.types.json import Jsonb
+
 MODEL = os.getenv("TAGGER_MODEL", "claude-haiku-4-5")
-VERSION = "1"  # bump when the prompt changes; products are re-tagged under the new version
+VERSION = "2"  # bump when the prompt changes; products are re-tagged under the new version
 IMAGE_WIDTH = 400
 IMAGE_BYTES_MAX = 2_000_000
 # Haiku 4.5 list prices, dollars per million tokens, for the summary line only.
@@ -34,9 +36,14 @@ _USD_IN, _USD_OUT = 1.0, 5.0
 PROMPT = """Tag this fashion product for a searchable archive. Give as many short lowercase
 tags (single words or 2-3 word phrases) as truthfully describe it: garment type, cut
 and fit, silhouette, length, collar or neckline, sleeve, closure, fabric look, pattern,
-every colour you can see, details, style or mood, occasion, season, and the gender it
-is presented for. Only what is visible in the photograph or stated in the text. Do not
+the garment's colours, details, style or mood, occasion, season, and the gender it is
+presented for. Only what is visible in the photograph or stated in the text. Do not
 guess fabric from a picture. No brand names, no sentences.
+
+Leave out words that fit almost anything: casual, unisex, contemporary, modern, everyday,
+stylish, versatile. Use one spelling: singular parts (long sleeve, short sleeve, crew
+neck), "oversized" not "oversized fit", "women" and "men" not possessives, "grey" not
+"gray", "t-shirt" not "tee". Name only the garment's colours, never the background.
 
 Shop title: {title}
 Price: {price}
@@ -97,6 +104,43 @@ def fetch_image(url: str, width: int = IMAGE_WIDTH) -> tuple[bytes, str] | None:
     if data[:6] in (b"GIF87a", b"GIF89a"):
         return data, "image/gif"  # some jewellery shops publish a turning-ring animation
     return None
+
+
+def colours(data: bytes, keep: int = 3) -> list[list]:
+    """The garment's own colours from the pixels: drop everything near the border
+    colour (the studio background), quantise the rest, keep the biggest `keep` as
+    [hex, share]. Deterministic and free; a black coat on white stays black, but a
+    model's skin or a prop counts as garment — the tags say which."""
+    import io
+    from collections import Counter
+
+    from PIL import Image
+
+    im = Image.open(io.BytesIO(data)).convert("RGB")
+    im.thumbnail((80, 80))
+    w, h = im.size
+    px = list(im.getdata())
+    border = (
+        px[:w]
+        + px[(h - 1) * w :]
+        + [px[r * w] for r in range(h)]
+        + [px[r * w + w - 1] for r in range(h)]
+    )
+    bg = tuple(sorted(c[k] for c in border)[len(border) // 2] for k in range(3))
+    kept = [c for c in px if sum((a - b) ** 2 for a, b in zip(c, bg, strict=True)) > 40**2]
+    if len(kept) < 20:
+        return []
+    strip = Image.new("RGB", (len(kept), 1))
+    strip.putdata(kept)
+    q = strip.quantize(colors=4, method=Image.Quantize.MEDIANCUT)
+    pal = q.getpalette() or []
+    counts = Counter(q.getdata())
+    total = sum(counts.values())
+    out = []
+    for idx, n in counts.most_common(keep):
+        r, g, b = pal[idx * 3 : idx * 3 + 3]
+        out.append([f"#{r:02x}{g:02x}{b:02x}", round(n / total, 2)])
+    return out
 
 
 class Tagger:
@@ -193,10 +237,10 @@ def photo_sources(row: dict) -> list[str]:
 
 
 _UPSERT = """
-INSERT INTO product_tags (brand, itemurl, version, tags, model, image_url, input_tokens, output_tokens)
-VALUES (%(brand)s, %(itemurl)s, %(version)s, %(tags)s, %(model)s, %(image_url)s, %(in)s, %(out)s)
+INSERT INTO product_tags (brand, itemurl, version, tags, colours, model, image_url, input_tokens, output_tokens)
+VALUES (%(brand)s, %(itemurl)s, %(version)s, %(tags)s, %(colours)s, %(model)s, %(image_url)s, %(in)s, %(out)s)
 ON CONFLICT (brand, itemurl, version) DO UPDATE SET
-  tags = EXCLUDED.tags, model = EXCLUDED.model, image_url = EXCLUDED.image_url,
+  tags = EXCLUDED.tags, colours = EXCLUDED.colours, model = EXCLUDED.model, image_url = EXCLUDED.image_url,
   input_tokens = EXCLUDED.input_tokens, output_tokens = EXCLUDED.output_tokens, tagged_at = now()
 """
 
@@ -268,6 +312,10 @@ def run(
             if image is None:
                 raise RuntimeError(f"no usable photograph ({why})")
             got = tagger.tag(row, image)
+            try:
+                swatches = colours(image[0])
+            except Exception:  # noqa: BLE001 — a photograph Pillow cannot open still gets its tags
+                swatches = []
             with pool.connection() as conn:
                 conn.execute(
                     _UPSERT,
@@ -276,6 +324,7 @@ def run(
                         "itemurl": row["itemurl"],
                         "version": VERSION,
                         "tags": got["tags"],
+                        "colours": Jsonb(swatches),
                         "model": model,
                         "image_url": seen,
                         "in": got["input_tokens"],

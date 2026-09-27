@@ -139,3 +139,6 @@ CREATE TABLE IF NOT EXISTS product_tags (
     PRIMARY KEY (brand, itemurl, version)
 );
 CREATE INDEX IF NOT EXISTS product_tags_tags ON product_tags USING gin (tags);
+-- The garment's own colours, read off the photograph's pixels once the background
+-- is dropped: up to three [hex, share] pairs, biggest first. No model involved.
+ALTER TABLE product_tags ADD COLUMN IF NOT EXISTS colours jsonb NOT NULL DEFAULT '[]';
