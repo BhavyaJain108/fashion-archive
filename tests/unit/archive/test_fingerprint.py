@@ -791,3 +791,25 @@ def test_an_index_of_many_unnamed_children_stays_the_sitemap_to_read():
     got = widen_to_the_biggest_url_family(had, t)
     assert got.product_url_prefix == "/us/en/"
     assert got.sitemap_url == "https://acne.com/sitemap_index.xml"
+
+
+SG_WALL = (
+    '<html><head><link rel="icon" href="data:;"><meta http-equiv="refresh" '
+    'content="0;/.well-known/sgcaptcha/?r=%2F&y=ipr:1.2.3.4:1790541378"></meta></head></html>'
+)
+
+
+@pytest.mark.unit
+def test_a_sitegrounds_captcha_wall_is_a_challenge_not_an_empty_room():
+    t = make_transport(
+        {
+            "/robots.txt": httpx.Response(202, text=SG_WALL),
+            "/sitemap.xml": httpx.Response(202, text=SG_WALL),
+            "/products.json": httpx.Response(202, text=SG_WALL),
+            "/": httpx.Response(202, text=SG_WALL),
+            **NO_WOO,
+        }
+    )
+    cap = probe("wiacollections.com", t, retry_pause=0)
+    assert cap.challenged is True and cap.transport == TransportLevel.T2
+    assert not cap.readable()

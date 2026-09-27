@@ -7,7 +7,16 @@ from backend.archive.domain.brand import MARKET_HREFLANG, Capability, TransportL
 from backend.archive.transport import Transport
 
 # Interstitials say so in the body; block pages say so in the <title>.
-_CHALLENGE_MARKERS = ("verifying your connection", "checking your browser")
+# SiteGround's anti-bot wall answers 202 with a meta refresh to /.well-known/sgcaptcha/
+# and a "Robot Challenge Screen" that a script must solve (wiacollections.com,
+# 2026-09-27): a challenge, not an empty room, so the ladder climbs to a browser.
+_CHALLENGE_MARKERS = (
+    "verifying your connection",
+    "checking your browser",
+    "robot challenge screen",
+    "/.well-known/sgcaptcha/",
+    "/.well-known/captcha/",
+)
 _BLOCK_TITLES = ("access denied", "attention required", "just a moment", "forbidden")
 _PASSWORD_MARKERS = ("password", "opening soon", "coming soon")
 # Statuses that mean "the edge is deciding about you", not "no". Worth exactly one retry:
