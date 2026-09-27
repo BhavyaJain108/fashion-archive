@@ -21,7 +21,7 @@ import json
 import re
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from backend.archive.connectors.base import ChannelBlocked, NotAProduct, SkipProduct
 from backend.archive.connectors.sitemap import SitemapConnector
@@ -57,6 +57,42 @@ FIELDS = (
 )
 
 
+# The catalogue's own names for the same things, so a proposal written in E0005 words is
+# not refused over a name. Unknown names are still refused: they are not read by anything.
+ALIASES = {
+    "all_images": "images",
+    "main_image_url": "images",
+    "image": "images",
+    "size_info": "sizes",
+    "size_availability": "sizes",
+    "category1": "categories",
+    "category": "categories",
+    "color": "color_info",
+    "colour": "color_info",
+    "colour_info": "color_info",
+    "material": "material_info",
+    "tags": "additional_tags",
+    "title": "product_title",
+    "name": "product_title",
+    "sku": "product_code",
+    "code": "product_code",
+    "url": "itemurl",
+    "itemurl": "itemurl",
+    "availability": "in_stock",
+    "stock": "in_stock",
+}
+
+
+def _canonical_fields(fields: dict[str, str]) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for name, path in fields.items():
+        canon = ALIASES.get(name, name)
+        if canon == "itemurl":
+            continue  # the URL is the ref's; never a field to read
+        out.setdefault(canon, path)  # the first spelling wins (all_images before image)
+    return out
+
+
 class Discover(BaseModel):
     kind: str
     url: str | None = None  # the list endpoint or sitemap; may carry {page}
@@ -74,6 +110,12 @@ class Fetch(BaseModel):
     url_template: str | None = None  # json: where the product's data is
     root: str | None = None  # json: path to the product object
     fields: dict[str, str] = Field(default_factory=dict)  # FIELDS -> path or regex
+
+    @field_validator("fields", mode="before")
+    @classmethod
+    def _aliases(cls, v: Any) -> Any:
+        return _canonical_fields(v) if isinstance(v, dict) else v
+
     in_stock_when: str | None = None  # a value of the in_stock path that means in stock
     currency: str | None = None  # a fixed currency, when the data states none
 

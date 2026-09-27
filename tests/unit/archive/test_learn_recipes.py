@@ -316,3 +316,11 @@ def test_a_paged_list_walks_until_empty_and_a_payload_fetch_needs_no_request():
     assert [r.url for r in refs] == ["https://x.com/p/1", "https://x.com/p/2"]
     rec = c.fetch(refs[1], None)  # payload: no HTTP
     assert rec.product_title == "B" and rec.price == 6.0 and rec.main_image_url == "https://x/b.jpg"
+
+
+@pytest.mark.unit
+def test_a_recipe_written_in_the_catalogues_field_names_is_read_as_ours():
+    from backend.archive.learn.recipes import Fetch
+
+    f = Fetch(kind="json", fields={"all_images": "image[*]", "size_info": "sizes", "sku": "id"})
+    assert f.fields == {"images": "image[*]", "sizes": "sizes", "product_code": "id"}
