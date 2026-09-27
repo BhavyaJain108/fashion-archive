@@ -230,8 +230,15 @@ class RecipeConnector:
                     if "/" in prefix.split("://", 1)[1]
                     else None
                 )
-            refs = SitemapConnector(url, prefix, self.limit).discover(brand, transport)
-            return refs
+            try:
+                return SitemapConnector(url, prefix, self.limit).discover(brand, transport)
+            except ChannelBlocked:
+                # A child sitemap named without the query its index gives it (Shopify's
+                # sitemap_products_1.xml?from=..&to=..) refuses; the index never does.
+                root = f"https://{brand.domain}/sitemap.xml"
+                if url == root:
+                    raise
+                return SitemapConnector(root, prefix, self.limit).discover(brand, transport)
         if d.kind == "json_list":
             return self._json_list(brand, transport)
         if d.kind == "listing":

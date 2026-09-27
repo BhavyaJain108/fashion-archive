@@ -225,7 +225,8 @@ Rules you must keep:
   a boolean or a count. Templates take {domain}, {url}, {handle}, and any key of the
   item discovery found the product in — in discover.url, discover.prefix and
   fetch.url_template; discover.link_pattern is a plain regex with one group. discover.prefix is the product
-  URL path prefix ("/products/").
+  URL path prefix ("/products/"); discover.url for a sitemap is the root index
+  (https://{domain}/sitemap.xml) — the engine walks it, never a child file by name.
 - Placeholders (no price, no photograph, unavailable) are not products.
 - Be concrete in "learning": the evidence and the rule, one paragraph, the way a lab
   notebook is written."""
