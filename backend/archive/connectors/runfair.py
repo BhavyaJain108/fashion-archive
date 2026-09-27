@@ -85,9 +85,17 @@ def map_draw(draw: dict, url: str, now: datetime | None = None) -> ProductRecord
     # The inventory names the variants (one draw sold "Snake"); which axis they are
     # is not stated, so they go in the field for axes that are neither size nor colour.
     variants = [i.get("name") for i in draw.get("inventory") or [] if i.get("name")]
+    # A draw names its brand as an object or a string; a store that does not is one
+    # brand's own subdomain, and the subdomain is the brand.
+    raw_brand = draw.get("brand")
+    brand = raw_brand.get("name") if isinstance(raw_brand, dict) else raw_brand
+    if not brand:
+        host = url.split("/")[2] if url.count("/") >= 2 else ""
+        brand = host.split(".")[0].upper() if host.endswith(".runfair.com") else None
     return ProductRecord(
         itemurl=url,
         product_title=title,
+        brand=brand or None,
         product_code=draw.get("sku") or None,
         description=(draw.get("description") or "").strip() or None,
         price=float(price) if price is not None else None,
