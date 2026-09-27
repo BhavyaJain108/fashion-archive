@@ -338,13 +338,22 @@ class RecipeConnector:
         refs: list[ProductRef] = []
         seen: set[str] = set()
         for m in pattern.finditer(resp.text or ""):
-            link = m.group(1) if m.groups() else m.group(0)
-            if link.startswith("/"):
-                link = f"https://{brand.domain}{link}"
+            got = m.group(1) if m.groups() else m.group(0)
+            payload: dict[str, Any] = {"match": got, "id": got, "handle": got}
+            if got.startswith("/"):
+                link = f"https://{brand.domain}{got}"
+            elif "://" in got:
+                link = got
+            else:
+                # A bare id or handle (YEEZY's Swell object ids): the template says
+                # where it lives; without one it is a path off the root.
+                link = render(
+                    d.url_template or "https://{domain}/{match}", domain=brand.domain, **payload
+                )
             if link in seen:
                 continue
             seen.add(link)
-            refs.append(ProductRef(url=link))
+            refs.append(ProductRef(url=link, payload=payload))
             if self.limit is not None and len(refs) >= self.limit:
                 break
         return refs
@@ -353,13 +362,16 @@ class RecipeConnector:
 
     def fetch(self, ref: ProductRef, transport: Transport) -> ProductRecord:
         f = self.recipe.fetch
-        domain = ref.url.split("/")[2]
+        parts = ref.url.split("/")
+        if len(parts) < 3 or not parts[2]:
+            raise SkipProduct(f"{ref.url!r} is not a URL")
+        domain = parts[2]
         values = {k: v for k, v in (ref.payload or {}).items() if isinstance(v, (str, int, float))}
         if f.kind == "payload":
             return self._from_values(ref.url, ref.payload or {})
-        url = render(
-            f.url_template or "{url}", domain=domain, url=ref.url, handle=_handle(ref.url), **values
-        )
+        words: dict[str, Any] = {"domain": domain, "url": ref.url, "handle": _handle(ref.url)}
+        words.update(values)  # what discovery found the product in wins over the URL's tail
+        url = render(f.url_template or "{url}", **words)
         resp = transport.get(url)
         if resp.status_code == 404:
             raise NotAProduct(f"{url}: gone")

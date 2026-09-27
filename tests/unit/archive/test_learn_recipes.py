@@ -324,3 +324,38 @@ def test_a_recipe_written_in_the_catalogues_field_names_is_read_as_ours():
 
     f = Fetch(kind="json", fields={"all_images": "image[*]", "size_info": "sizes", "sku": "id"})
     assert f.fields == {"images": "image[*]", "sizes": "sizes", "product_code": "id"}
+
+
+@pytest.mark.unit
+def test_a_listing_that_captures_bare_ids_places_them_with_the_template():
+    from backend.archive.domain.brand import Brand
+    from backend.archive.learn.recipes import Discover, Fetch, LaneRecipe, RecipeConnector
+
+    class T:
+        def get(self, url):
+            class R:
+                status_code = 200
+                text = 'x data-id="6904bd75cf2f2e0012ba2388" y data-id="6904bd75cf2f2e0012ba2399"'
+
+            return R()
+
+    r = LaneRecipe(
+        id="t",
+        signature="s",
+        description="",
+        discover=Discover(
+            kind="listing",
+            url="https://{domain}/",
+            link_pattern=r'data-id="([0-9a-f]{24})"',
+            url_template="https://{domain}/api/products/{id}",
+        ),
+        fetch=Fetch(kind="json", fields={"product_title": "name"}),
+    )
+    refs = RecipeConnector(r, limit=None).discover(
+        Brand(domain="y.com", homepage_url="https://y.com"), T()
+    )
+    assert [x.url for x in refs] == [
+        "https://y.com/api/products/6904bd75cf2f2e0012ba2388",
+        "https://y.com/api/products/6904bd75cf2f2e0012ba2399",
+    ]
+    assert refs[0].payload["id"] == "6904bd75cf2f2e0012ba2388"
