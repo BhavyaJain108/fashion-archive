@@ -29,6 +29,9 @@ class DiscoveryChannel(str, Enum):
     # A Gatsby site's page data: every page as JSON beside the page. EQL's launch
     # platform (runfair) lists a retailer's products in the index's data.
     PAGE_DATA = "page_data"
+    # Swell's storefront API (connectors/swell.py): the catalogue behind a headless
+    # site, read with the publishable key the site's own page carries.
+    SWELL_API = "swell_api"
     # A lane described as data (learn/recipes.py): discovery and fetch the model
     # proposed and the gate proved, run by a connector that already exists.
     RECIPE = "recipe"
@@ -61,6 +64,10 @@ class Capability(BaseModel):
     product_json: bool = False
     # A Gatsby site whose index page-data lists the products (runfair).
     page_data: bool = False
+    # A Swell storefront: the store id (cdn.swell.store/<store>/) and the publishable
+    # key the page embeds; together they open <store>.swell.store/api/products.
+    swell_store: str | None = None
+    swell_key: str | None = None
     product_url_prefix: str | None = None  # learned, e.g. '/products/' or '/assets/'
     sitemap_url: str | None = None
     password_gated: bool = False
@@ -80,6 +87,7 @@ class Capability(BaseModel):
             or self.ldjson_product
             or self.product_json
             or self.page_data
+            or bool(self.swell_store and self.swell_key)
         )
 
 
@@ -108,6 +116,8 @@ class ScrapePlan(BaseModel):
     stale: bool = False
     sitemap_url: str | None = None  # carried for sitemap-discovery connectors
     product_url_prefix: str | None = None  # learned product URL shape
+    swell_store: str | None = None  # carried for the Swell connector
+    swell_key: str | None = None
     currency: str | None = None  # the store's currency, where it states one
     shop_domain: str | None = None  # the host discovery reads, when not the brand's own
     # The lane recipe, when discovery is RECIPE: carried on the plan so the connector

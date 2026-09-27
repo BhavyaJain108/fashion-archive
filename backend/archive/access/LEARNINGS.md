@@ -399,3 +399,21 @@ Next, in the order they look worth doing:
 - **The browser lane is not in the scraper image.** Gentle Monster needs `--browser`, which
   playwright provides locally and the deployed worker does not have. Turning it on means a
   larger image and roughly 1.3 GB of egress per full pass at ~1 MB a page.
+
+### 22. A headless site's catalogue lives on its platform's host, not its own — 2026-09-27
+yeezy.com is a Svelte app on Swell (swell.is): every image URL names the store
+(`cdn.swell.store/yzy-prod/…`) and the page embeds the store's publishable key
+(`pk_…`) beside its Google Pay config — the same key the site's own JavaScript sends to
+`yzy-prod.swell.store/api/products`. That host is under no Cloudflare rule about our
+address: it answers plain httpx with the whole catalogue (35 products, price, sale price,
+SKU, stock, options, photographs), paginated, with the key as HTTP basic auth
+(`store:key`). The rung that "needed a proxy" (entry 21) needed no proxy at all; the
+brand host was never where the products were.
+
+Rule, keyed on the shape: a page naming `cdn.swell.store/<store>/` and carrying a
+`pk_` key is a Swell storefront; the probe confirms it with one API request and the
+planner takes `swell_api` before anything else, whatever the brand host says. A
+challenge on the brand host is not a wall for this lane (`challenged` is cleared when
+the API answers). Verified: the model's own analysis of yeezy.com found the same tell
+and proposed the API path, guessing `/api/products/{id}` on the brand host (404); the
+lane in code is the version that reads.

@@ -29,6 +29,12 @@ def get_connector(plan: ScrapePlan, sitemap_url: str | None = None, limit: int |
         return WooConnector()
     if plan.discovery == DiscoveryChannel.PAGE_DATA:
         return RunfairConnector(market=market())
+    if plan.discovery == DiscoveryChannel.SWELL_API:
+        from backend.archive.connectors.swell import SwellConnector
+
+        if not (plan.swell_store and plan.swell_key):
+            raise ValueError("a swell plan carries no store and key")
+        return SwellConnector(plan.swell_store, plan.swell_key, currency=plan.currency, limit=limit)
     if plan.discovery == DiscoveryChannel.RECIPE:
         from backend.archive.learn.recipes import LaneRecipe, RecipeConnector
 

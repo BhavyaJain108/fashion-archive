@@ -20,6 +20,7 @@ from backend.archive.domain.brand import Capability, TransportLevel
 
 PLATFORMS = (
     "shopify",
+    "swell",
     "haravan",
     "woocommerce",
     "wordpress",
@@ -31,7 +32,7 @@ PLATFORMS = (
     "webflow",
     "custom",
 )
-FEEDS = ("open", "per-product", "woo", "page-data", "closed")
+FEEDS = ("open", "per-product", "woo", "page-data", "api", "closed")
 SITEMAPS = ("none", "flat", "index", "named-product", "multi-locale", "alternates")
 PAGES = ("jsonld", "productgroup", "og", "none")
 DEFENCES = ("none", "rate", "tls", "address", "challenge", "geo", "password")
@@ -91,7 +92,9 @@ def signature_of(cap: Capability, ladder: list[dict] | None = None) -> Signature
         cap.platform if cap.platform in PLATFORMS else ("custom" if cap.platform else "custom")
     )
 
-    if cap.bulk_json:
+    if cap.swell_store and cap.swell_key:
+        feed = "api"
+    elif cap.bulk_json:
         feed = "open"
     elif cap.product_json:
         feed = "per-product"

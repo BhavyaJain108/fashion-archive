@@ -141,7 +141,7 @@ brands:
   - {domain: us.sandro-paris.com, homepage_url: "https://us.sandro-paris.com", display_name: "Sandro", size: mid, notes: salesforce commerce; large house shown by the owner's choice}
   - {domain: www.acnestudios.com, homepage_url: "https://www.acnestudios.com", display_name: "Acne Studios", size: mid, notes: salesforce commerce; large house shown by the owner's choice}
   - {domain: www.ripcurl.com, homepage_url: "https://www.ripcurl.com", display_name: "Rip Curl", size: mid, notes: large house shown by the owner's choice}
-  - {domain: yeezy.com, homepage_url: "https://yeezy.com", display_name: "YEEZY", size: mid, notes: cloudflare blocks the address (waf_403 at every rung); needs T1P; large house shown by the owner's choice}
+  - {domain: yeezy.com, homepage_url: "https://yeezy.com", display_name: "YEEZY", size: mid, notes: swell storefront; catalogue on yzy-prod.swell.store with the page's publishable key, cloudflare blocks the brand host; large house shown by the owner's choice}
   - {domain: www.marni.com, homepage_url: "https://www.marni.com", display_name: "Marni", size: mid, notes: salesforce commerce; large house shown by the owner's choice}
   - {domain: kwameadusei.com, homepage_url: "https://kwameadusei.com", display_name: "Kwame Adusei", size: small}
   - {domain: www.604service-en.com, homepage_url: "https://www.604service-en.com", display_name: "604SERVICE", size: small, notes: english store of 604service.com; static access-restricted page from cloudfront; needs a KR exit}

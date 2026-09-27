@@ -87,6 +87,23 @@ def probe(
 
     platform = _platform(body) if served else None
 
+    # A Swell storefront names its store in every image URL and embeds its publishable
+    # key in the page; the API on <store>.swell.store then lists the whole catalogue
+    # (yeezy.com, 2026-09-27, whose own host blocks our address on every other path).
+    swell_store, swell_key = _swell(home.text) if served else (None, None)
+    if swell_store and swell_key:
+        from backend.archive.connectors.swell import api_url
+
+        sw = get(api_url(swell_store, swell_key, "products?limit=1"))
+        ok = sw.status_code == 200 and '"results"' in sw.text[:400]
+        evidence["swell"] = f"{sw.status_code}-{swell_store}" if ok else f"{sw.status_code}-refused"
+        if not ok:
+            swell_store = swell_key = None
+        else:
+            # The catalogue is read from the API's host, which the brand host's
+            # defence never sees; a challenge there is not a wall for this lane.
+            challenged = False
+
     # Deep probes: only pay for them when the free Shopify feed is closed and the door is open.
     woo_api = False
     ldjson_product = False
@@ -146,6 +163,8 @@ def probe(
         ldjson_product=ldjson_product,
         product_json=product_json,
         page_data=page_data,
+        swell_store=swell_store,
+        swell_key=swell_key,
         product_url_prefix=product_url_prefix,
         sitemap_url=sitemap_url,
         password_gated=password_gated,
@@ -175,6 +194,7 @@ def probe(
 # What a homepage says about the software behind it, cheapest tell first. The words
 # are what each platform leaves in every page it serves; none is a brand's own.
 _PLATFORM_TELLS = (
+    ("swell", ("cdn.swell.store", ".swell.store")),
     ("haravan", ("myharavan.com", "hstatic.net", "haravan.")),
     ("shopify", ("cdn.shopify", "myshopify.com")),
     ("woocommerce", ("woocommerce",)),
@@ -186,6 +206,17 @@ _PLATFORM_TELLS = (
     ("webflow", ("webflow.com", "w-webflow", "website-files.com")),
     ("nextjs", ("__next_data__", "/_next/static", "__next")),
 )
+
+
+_SWELL_STORE = re.compile(r"cdn\.swell\.store/([a-z0-9][a-z0-9\-]*)/", re.I)
+_SWELL_KEY = re.compile(r"\b(pk_[A-Za-z0-9]{16,})\b")
+
+
+def _swell(html: str) -> tuple[str | None, str | None]:
+    """The store id and publishable key a Swell storefront's page carries, or Nones."""
+    store = _SWELL_STORE.search(html or "")
+    key = _SWELL_KEY.search(html or "")
+    return (store.group(1) if store else None, key.group(1) if key else None)
 
 
 def _platform(body: str) -> str | None:

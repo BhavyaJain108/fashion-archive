@@ -56,6 +56,8 @@ def compose_plan(
             product_url_prefix=cap.product_url_prefix,
             currency=cap.currency,
             shop_domain=cap.shop_domain,
+            swell_store=cap.swell_store,
+            swell_key=cap.swell_key,
         )
 
     if cap.password_gated:
@@ -75,6 +77,17 @@ def compose_plan(
     if cap.transport in (TransportLevel.T0, TransportLevel.T1, TransportLevel.T1P):
         cheap = cap.transport
         rungs = []
+        # A storefront API is the whole catalogue in a few requests, cheapest of all.
+        if cap.swell_store and cap.swell_key:
+            rungs.append(
+                plan(
+                    cheap,
+                    DiscoveryChannel.SWELL_API,
+                    FetchChannel.PLATFORM_JSON,
+                    ChangeSignal.PER_ITEM,
+                    "ready",
+                )
+            )
         if cap.bulk_json:
             rungs.append(
                 plan(
