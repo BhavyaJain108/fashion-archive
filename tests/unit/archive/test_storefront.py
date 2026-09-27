@@ -167,8 +167,7 @@ def test_every_type_in_the_vocabulary_has_somewhere_to_go():
     missing = [
         t
         for t in taxonomy.TYPES
-        if t not in (taxonomy.NOT_A_GARMENT, taxonomy.NOT_A_PRODUCT)
-        and t not in sf.BUCKET_OF_TYPE
+        if t not in (taxonomy.NOT_A_GARMENT, taxonomy.NOT_A_PRODUCT) and t not in sf.BUCKET_OF_TYPE
     ]
     assert missing == []
 

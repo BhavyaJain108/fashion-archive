@@ -221,7 +221,7 @@ def test_a_product_nobody_has_placed_is_merchandise_until_shown_otherwise():
 
 @pytest.mark.unit
 def test_a_garment_word_earlier_in_the_title_beats_a_later_fee_word():
-    """"Card Holder" is a wallet; the word "card" alone must not hide it."""
+    """ "Card Holder" is a wallet; the word "card" alone must not hide it."""
     book = taxonomy.PhraseBook({"holder": ["wallets"], "card": [taxonomy.NOT_A_PRODUCT]})
     assert book.is_product(rec(product_title="Leather Card Holder")) is True
 

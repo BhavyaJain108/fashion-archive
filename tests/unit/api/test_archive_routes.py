@@ -368,7 +368,7 @@ def test_a_gift_card_is_not_shown_to_a_reader(placed):
 
 @pytest.mark.unit
 def test_a_product_the_shop_never_filed_is_shelved_under_what_it_is(placed):
-    """"Unfiled Thing" has no category path. Before the vocabulary it sat in
+    """ "Unfiled Thing" has no category path. Before the vocabulary it sat in
     (uncategorised) with every other unfiled product in the archive."""
     _, body = get(placed, "/api/archive/brands/shown.com/categories/hierarchy")
     names = [n["name"] for n in body["hierarchy"]]
