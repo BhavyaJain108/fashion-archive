@@ -16,6 +16,8 @@ const PAGE = 60;
 // left: same tiles, same scroll offset. One entry; a different view replaces it.
 let remembered = null;
 const SORTS = [
+  ['type', 'Type'],
+  ['colour', 'Colour'],
   ['latest', 'Latest arrivals'],
   ['price-asc', 'Price: low to high'],
   ['price-desc', 'Price: high to low'],
@@ -198,7 +200,7 @@ function Storefront({ currentPage, onPageSwitch, currentUser, onLogout, navigate
             <div className="shop-h">Sort</div>
             <ul className="shop-list">
               {SORTS.map(([v, label]) => (
-                <li key={v}><button type="button" className={`shop-link ${(shop.sort || 'latest') === v ? 'on' : ''}`} onClick={() => go({ sort: v })}>{label}</button></li>
+                <li key={v}><button type="button" className={`shop-link ${(shop.sort || 'type') === v ? 'on' : ''}`} onClick={() => go({ sort: v })}>{label}</button></li>
               ))}
             </ul>
             {facets.colours.length > 0 && (

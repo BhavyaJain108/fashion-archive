@@ -86,6 +86,10 @@ services:
         fromDatabase:
           name: fashion-archive-db
           property: connectionString
+      # How many live products the tagger reads at boot until this many carry
+      # tags (backend/archive/tagging.py). A trial size; raise it for the catalogue.
+      - key: TAG_TRIAL
+        value: "200"
 
       # 0.0.0.0, or the health check cannot reach the process and the deploy fails.
       - key: HOST

@@ -282,6 +282,17 @@
 
 .shop-open { margin: 8px 0 8px; text-decoration: none; }
 
+/* open tags from the tagger: what the photograph and the shop's words say it is */
+.shop-tags { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 0; }
+.shop-tag {
+  font-size: var(--ar-fs-label);
+  letter-spacing: var(--ar-track-ui);
+  text-transform: uppercase;
+  padding: 4px 8px;
+  border: var(--ar-hairline) solid var(--ar-line);
+  color: var(--ar-ink-2);
+}
+
 .shop-facts { list-style: none; margin: 0; padding: 0; font-size: var(--ar-fs-body); line-height: var(--ar-lh-body); color: var(--ar-ink-2); }
 .shop-facts li + li { margin-top: 2px; }
 .shop-facts-quiet { color: var(--ar-ink-3); font-size: var(--ar-fs-micro); line-height: var(--ar-lh-ui); }

@@ -79,6 +79,14 @@ function ProductPage({ currentPage, onPageSwitch, currentUser, onLogout, navigat
               <li>{t.group} · {t.bucket}</li>
               {t.code && <li>{t.code}</li>}
             </ul>
+            {t.tags && t.tags.length > 0 && (
+              <>
+                <div className="shop-h">Tags</div>
+                <div className="shop-tags">
+                  {t.tags.map((x) => <span key={x} className="shop-tag">{x}</span>)}
+                </div>
+              </>
+            )}
             <div className="shop-h">In the archive</div>
             <ul className="shop-facts shop-facts-quiet">
               {t.first_seen && <li>First seen {t.first_seen}</li>}
