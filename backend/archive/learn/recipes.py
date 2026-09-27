@@ -114,6 +114,12 @@ class Fetch(BaseModel):
     @field_validator("fields", mode="before")
     @classmethod
     def _aliases(cls, v: Any) -> Any:
+        if isinstance(v, list):  # the tool's shape: [{name, path}, ...]
+            v = {
+                str(e.get("name")): str(e.get("path"))
+                for e in v
+                if isinstance(e, dict) and e.get("name") and e.get("path")
+            }
         return _canonical_fields(v) if isinstance(v, dict) else v
 
     in_stock_when: str | None = None  # a value of the in_stock path that means in stock

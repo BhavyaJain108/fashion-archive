@@ -324,6 +324,10 @@ def test_a_recipe_written_in_the_catalogues_field_names_is_read_as_ours():
 
     f = Fetch(kind="json", fields={"all_images": "image[*]", "size_info": "sizes", "sku": "id"})
     assert f.fields == {"images": "image[*]", "sizes": "sizes", "product_code": "id"}
+    as_list = Fetch(
+        kind="json", fields=[{"name": "title", "path": "name"}, {"name": "price", "path": "p"}]
+    )
+    assert as_list.fields == {"product_title": "name", "price": "p"}
 
 
 @pytest.mark.unit

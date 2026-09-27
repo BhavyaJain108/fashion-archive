@@ -83,9 +83,14 @@ _RECIPE_SCHEMA = {
                 "url_template": {"type": ["string", "null"]},
                 "root": {"type": ["string", "null"]},
                 "fields": {
-                    "type": "object",
-                    "description": "field name -> path; names: " + ", ".join(FIELDS),
-                    "additionalProperties": {"type": "string"},
+                    "type": "array",
+                    "description": "one entry per field read; names: " + ", ".join(FIELDS),
+                    "items": {
+                        "type": "object",
+                        "properties": {"name": {"type": "string"}, "path": {"type": "string"}},
+                        "required": ["name", "path"],
+                        "additionalProperties": False,
+                    },
                 },
                 "in_stock_when": {"type": ["string", "null"]},
                 "currency": {"type": ["string", "null"]},
@@ -224,7 +229,7 @@ Rules you must keep:
   fetch.root: a path to the product object, or for jsonld the node's @type
   ("ProductGroup"). fetch.in_stock_when: one word the in_stock value must contain
   ("InStock"); a list is in stock when any element does; leave null when the value is
-  a boolean or a count. Templates take {domain}, {url}, {handle}, and any key of the
+  a boolean or a count. fetch.fields is a list of {name, path} entries. Templates take {domain}, {url}, {handle}, and any key of the
   item discovery found the product in — in discover.url, discover.prefix and
   fetch.url_template; discover.link_pattern is a plain regex with one group. discover.prefix is the product
   URL path prefix ("/products/"); discover.url for a sitemap is the root index
