@@ -65,6 +65,37 @@ function ScrapingNow({ data, go }) {
   );
 }
 
+// The loop's line on the overview: walls by type (click one to filter the table),
+// today's spend against the ceiling, and what the last tick did. Three numbers from
+// three small objects; the detail is a page of its own.
+function LearningStrip({ data, go }) {
+  const walls = Object.entries(data.walls || {}).filter(([k]) => k !== 'open').sort((a, b) => b[1] - a[1]);
+  const l = data.learning || {};
+  const b = data.budget || {};
+  return (
+    <section className="dev-learnstrip" aria-label="Learning">
+      <div className="dev-learnstrip-row">
+        <span className="dev-now-k">Walls</span>
+        {walls.length === 0 ? <span className="dev-muted">every brand open</span> : walls.map(([k, v]) => (
+          <button key={k} type="button" className={`dev-pill wall ${k}`} onClick={() => go({ category: 'learning' })}>{k} · {v}</button>
+        ))}
+        <span className="dev-pill idle">open · {(data.walls || {}).open || 0}</span>
+      </div>
+      <div className="dev-learnstrip-row">
+        <span className="dev-now-k">Budget</span>
+        <span>{usd(b.spent_usd, 3)} <span className="dev-muted">of {usd(b.ceiling_usd_day, 2)} today</span></span>
+        {b.stretch && b.stretch > 1 && <span className="dev-pill stalled">cadences stretched ×{b.stretch}</span>}
+        <span className="dev-now-k" style={{ marginLeft: 16 }}>Loop</span>
+        <span className="dev-muted">
+          {l.at ? `last tick ${ago(l.at)} · ${l.actions} actions · ${l.analyses} analyses · ${l.landed} landed` : 'no tick yet'}
+          {l.clusters ? ` · ${l.clusters} shapes` : ''}
+        </span>
+        <button type="button" className="dev-link" onClick={() => go({ category: 'learning' })}>learning →</button>
+      </div>
+    </section>
+  );
+}
+
 function gateCell(b) {
   if (b.gate === true) return <span>pass</span>;
   if (b.gate === false) return <span className="dev-strong">fail</span>;
@@ -76,11 +107,13 @@ function gateCell(b) {
 const COLUMNS = [
   { key: 'name', label: 'Brand', value: (b) => b.name.toLowerCase() },
   { key: 'status', label: '', value: (b) => (b.claimed_by ? 0 : b.enabled ? 1 : 2) },
+  { key: 'wall', label: 'Wall', value: (b) => b.wall || null },
   { key: 'live_products', label: 'Products', n: true },
   { key: 'gate', label: 'Gate', value: (b) => (b.gate == null ? null : b.gate ? 1 : 0) },
   { key: 'fields_filled', label: 'Fields', n: true },
   { key: 'seconds_per_product', label: 's / product', n: true },
   { key: 'cost_usd', label: '$ run', n: true },
+  { key: 'predicted_usd_day', label: '$ / day', n: true },
   { key: 'last_run', label: 'Last run' },
   { key: 'next_due', label: 'Next' },
 ];
@@ -117,7 +150,7 @@ function readSort() {
 // A brand joins by its domain. It is on the schedule and due at once from the
 // moment this returns; "show on the site" is whether the public My Brands page
 // lists it, which is the roster's business and not the scraper's.
-function AddBrand({ onAdded }) {
+function AddBrand({ onAdded, go }) {
   const [open, setOpen] = useState(false);
   const [domain, setDomain] = useState('');
   const [name, setName] = useState('');
@@ -144,6 +177,9 @@ function AddBrand({ onAdded }) {
     setDomain('');
     setName('');
     await onAdded();
+    // Straight to the brand's page: a worker takes it within ten seconds and the
+    // dossier's onboarding steps are written there as they happen.
+    if (go) go({ brandId: r.domain || d });
   };
 
   return (
@@ -260,6 +296,7 @@ export default function DevOverview({ go }) {
             </div>
           </div>
 
+          <LearningStrip data={data} go={go} />
           <ScrapingNow data={data} go={go} />
 
           {data.workers.stalled.length > 0 && (
@@ -273,7 +310,7 @@ export default function DevOverview({ go }) {
           )}
 
           <DevGlossary />
-          <AddBrand onAdded={reload} />
+          <AddBrand onAdded={reload} go={go} />
 
           <div className="dev-bulk" role="group" aria-label="Selected brands">
             <span className="dev-bulk-k">{picked.size} selected</span>
@@ -326,11 +363,13 @@ export default function DevOverview({ go }) {
                       {note[b.domain] && <div className="dev-why dev-strong">{note[b.domain]}</div>}
                     </td>
                     <td>{statusPill(b)}</td>
+                    <td>{b.wall ? <span className={`dev-wall ${b.wall}`}>{b.wall}</span> : <span className="dev-muted">—</span>}</td>
                     <td className="n">{n(b.live_products)}</td>
                     <td>{gateCell(b)}</td>
                     <td className="n">{pct(b.fields_filled)}</td>
                     <td className="n">{secs(b.seconds_per_product)}</td>
                     <td className="n">{usd(b.cost_usd)}</td>
+                    <td className="n">{b.predicted_usd_day != null ? usd(b.predicted_usd_day, 4) : '—'}</td>
                     <td>{ago(b.last_run)}{b.last_mode ? ` (${b.last_mode})` : ''}</td>
                     <td>{due(b.next_due)}</td>
                     <td className="dev-actions">

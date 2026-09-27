@@ -157,6 +157,7 @@ export function parseRoute(pathname, search) {
   // slots My Brands uses, so no page needs a route shape of its own.
   if (head === 'dev') {
     if (rest[0] === 'costs') return { ...EMPTY, filters, page: 'dev', category: 'costs' };
+    if (rest[0] === 'learning') return { ...EMPTY, filters, page: 'dev', category: 'learning' };
     if (rest[0] === 'brands' && rest[1]) {
       // A run id after /products opens the catalogue as of that run. It rides in
       // `token`, the slot share links use — the two never appear on one route.
@@ -221,7 +222,9 @@ export function buildRoute(route) {
       if (tail && r.token) tail += `/${encodeURIComponent(r.token)}`;
       return `/dev/brands/${encodeURIComponent(r.brandId)}${tail}`;
     }
-    return r.category === 'costs' ? '/dev/costs' : '/dev';
+    if (r.category === 'costs') return '/dev/costs';
+    if (r.category === 'learning') return '/dev/learning';
+    return '/dev';
   }
 
   if (r.page === 'shared' && r.token) {

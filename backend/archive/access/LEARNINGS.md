@@ -9,6 +9,12 @@ and `access/learned.py`, where they were first proved, no longer exists.
 
 ## Adding a learning — the procedure
 
+Since 2026-09-27 the loop in `learn/` does steps 1–7 on its own for the mechanical cases
+and asks the model for the rest (README, "The learning loop"): a brand's dossier holds
+what it found, the Learning page shows the walls, and `learn/learnings.jsonl` holds what
+the model wrote down when a recipe landed. This section is still the procedure — the
+loop follows it, and so does a person picking up a wall the loop could not open.
+
 Anyone can do this. It needs no credentials and touches no live data: every command below
 reads brands and writes nothing.
 

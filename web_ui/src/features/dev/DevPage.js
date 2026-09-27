@@ -4,6 +4,7 @@ import DevOverview from './DevOverview';
 import DevBrand from './DevBrand';
 import DevProducts from './DevProducts';
 import DevCosts from './DevCosts';
+import DevLearning from './DevLearning';
 import DevNotes from './DevNotes';
 import './DevPage.css';
 
@@ -21,6 +22,7 @@ export default function DevPage({ route, navigate }) {
   if (route.brandId && route.category === 'products') view = 'products';
   else if (route.brandId) view = 'brand';
   else if (route.category === 'costs') view = 'costs';
+  else if (route.category === 'learning') view = 'learning';
 
   return (
     <div className="dev-frame ar-scroll">
@@ -34,6 +36,14 @@ export default function DevPage({ route, navigate }) {
           onClick={() => go({})}
         >
           Brands
+        </button>
+        <button
+          type="button"
+          className={`dev-nav-item${view === 'learning' ? ' selected' : ''}`}
+          aria-pressed={view === 'learning'}
+          onClick={() => go({ category: 'learning' })}
+        >
+          Learning
         </button>
         <button
           type="button"
@@ -69,6 +79,7 @@ export default function DevPage({ route, navigate }) {
         <main className="dev-main">
           {view === 'overview' && <DevOverview go={go} />}
           {view === 'costs' && <DevCosts />}
+          {view === 'learning' && <DevLearning go={go} />}
           {view === 'brand' && <DevBrand domain={route.brandId} go={go} />}
           {view === 'products' && <DevProducts domain={route.brandId} run={route.token} go={go} />}
         </main>

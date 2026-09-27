@@ -91,14 +91,23 @@ def superseded(mine: str, stored: str | None) -> bool:
     return bool(mine and stored) and mine != "unknown" and stored != "unknown" and mine != stored
 
 
-def run_once(catalog: Catalog, scheduler: Scheduler, do_brand, log=print) -> bool:
-    """Claim one due brand and scrape it. False when nothing was due."""
+def run_once(catalog: Catalog, scheduler: Scheduler, do_brand, log=print, before=None) -> bool:
+    """Claim one due brand and scrape it. False when nothing was due.
+
+    `before(domain)` runs once the brand is claimed and before it is scraped: the
+    learning loop uses it to onboard a brand that has no dossier yet, so the deck
+    watches the probe, the signature and the wall before the first run's progress."""
     due = scheduler.claim_next()
     if due is None:
         return False
     started = time.monotonic()
     brand = catalog.get_brand(due.domain)
     beat_off = threading.Event()
+    if before is not None:
+        try:
+            before(due.domain)
+        except Exception as e:  # noqa: BLE001 — onboarding must never cost the run
+            log(f"{due.domain}: before-run hook: {type(e).__name__}: {e}")
 
     run_thread = threading.current_thread()
 
@@ -218,7 +227,40 @@ def _score_and_release(catalog, scheduler, due, records, cost, started, log) -> 
     scheduler.release(due.domain, wait)
 
 
-def worker(store_factory, worker_id: str, do_brand_factory, version: str, log=print) -> None:
+def learner(store_factory, loop_factory, version: str, every: int, log=print) -> None:
+    """The learning loop's own thread: one tick every `every` seconds, until the daemon
+    stops or a newer one is up. A tick that fails is logged and the next one runs;
+    the loop is bookkeeping and probing, never the scrape itself."""
+    store: ObjectStore = store_factory()
+    catalog = open_catalog(store)
+    scheduler = Scheduler(store)
+    loop = loop_factory(store, catalog)
+    try:
+        while True:
+            if scheduler.should_stop() or superseded(version, scheduler.code_version()):
+                return
+            try:
+                summary = loop.tick()
+                log(
+                    f"learn: {len(summary.get('onboarded', []))} onboarded, "
+                    f"{len(summary.get('actions', []))} actions, "
+                    f"{len(summary.get('analyses', []))} analyses, "
+                    f"{len(summary.get('landed', []))} landed, {summary.get('seconds')}s"
+                )
+            except Exception as e:  # noqa: BLE001
+                log(f"learn: tick failed: {type(e).__name__}: {e}")
+            # Sleep in short steps so a stop flag is seen within a poll.
+            for _ in range(max(1, every // POLL_SECONDS)):
+                if scheduler.should_stop():
+                    return
+                time.sleep(POLL_SECONDS)
+    finally:
+        catalog.close()
+
+
+def worker(
+    store_factory, worker_id: str, do_brand_factory, version: str, log=print, before_factory=None
+) -> None:
     """One worker: claim, scrape, release, until told to stop or the code changes.
 
     Each worker builds its own store, because a store holds a network client and the
@@ -229,6 +271,7 @@ def worker(store_factory, worker_id: str, do_brand_factory, version: str, log=pr
     catalog = open_catalog(store)
     scheduler = Scheduler(store, worker_id=worker_id)
     do_brand = do_brand_factory(catalog)
+    before = before_factory(store, catalog) if before_factory is not None else None
     # The date this worker last looked at the backup claim. It looks once per day,
     # not once per poll: the claim is one object in the bucket and every worker
     # reading it every ten seconds would be most of the daemon's requests.
@@ -249,7 +292,7 @@ def worker(store_factory, worker_id: str, do_brand_factory, version: str, log=pr
                     # The first worker to see the date change takes the day's backup;
                     # the claim on control/backup.json is what stops a second one.
                     daily_backup(store, catalog, worker_id, log=log)
-                if not run_once(catalog, scheduler, do_brand, log=log):
+                if not run_once(catalog, scheduler, do_brand, log=log, before=before):
                     time.sleep(POLL_SECONDS)
             except Exception as e:  # noqa: BLE001 — a transient must not end the worker
                 # Before this, any store error outside do_brand (a 503 from the
@@ -261,24 +304,45 @@ def worker(store_factory, worker_id: str, do_brand_factory, version: str, log=pr
         catalog.close()
 
 
-def serve(store_factory, do_brand_factory, workers: int = 1, log=print) -> None:
+def serve(
+    store_factory,
+    do_brand_factory,
+    workers: int = 1,
+    log=print,
+    loop_factory=None,
+    before_factory=None,
+    learn_every: int = 900,
+) -> None:
     """Run N workers over one schedule until the stop flag is set.
 
     Takes a callable that makes a store rather than a directory, because in production
-    the store is a bucket and a bucket has no path on disk."""
+    the store is a bucket and a bucket has no path on disk. With a `loop_factory` the
+    learning loop ticks in a thread of its own beside the workers."""
     version = code_version()
     Scheduler(store_factory()).set_code_version(version)
-    log(f"daemon up: {workers} worker(s) on {version[:8]} at {datetime.now(timezone.utc):%H:%M}")
+    log(
+        f"daemon up: {workers} worker(s){' + learning loop' if loop_factory else ''} "
+        f"on {version[:8]} at {datetime.now(timezone.utc):%H:%M}"
+    )
 
     threads = [
         threading.Thread(
             target=worker,
             args=(store_factory, f"worker-{i + 1}", do_brand_factory, version),
-            kwargs={"log": log},
+            kwargs={"log": log, "before_factory": before_factory},
             daemon=True,
         )
         for i in range(workers)
     ]
+    if loop_factory is not None:
+        threads.append(
+            threading.Thread(
+                target=learner,
+                args=(store_factory, loop_factory, version, learn_every),
+                kwargs={"log": log},
+                daemon=True,
+            )
+        )
     for t in threads:
         t.start()
     for t in threads:

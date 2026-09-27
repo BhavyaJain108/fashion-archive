@@ -376,6 +376,23 @@ def _access(args, store: ObjectStore, brands: list[Brand]) -> int:
 
     results = sweep(domains, strategies, on_result=line, budget=budget)
 
+    from backend.archive.access.strategy import get as get_strategy
+    from backend.archive.learn.dossier import DossierStore
+
+    dossiers = DossierStore(store)
+    for r in results:
+        try:
+            dossiers.rung(
+                r.domain,
+                get_strategy(r.strategy).level.value,
+                r.outcome.value,
+                r.statuses,
+                r.seconds,
+                r.note,
+            )
+        except Exception as e:  # noqa: BLE001
+            print(f"  (dossier not written for {r.domain}: {e})", file=sys.stderr)
+
     held_after = _held(store)
     if held_before is None or held_after is None:
         contended = None  # could not tell, which is not the same as "no"
@@ -394,6 +411,164 @@ def _access(args, store: ObjectStore, brands: list[Brand]) -> int:
         at = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
         access_store.save_sweep(store, results, at=at)
         print(f"\nrecorded as access/sweeps/{at}.json")
+    return 0
+
+
+def _analyst_client():
+    """The model, when there is a key; None keeps the loop mechanical."""
+    from backend.archive.finder_llm import _api_key
+
+    if not _api_key():
+        return None
+    from backend.archive.learn.analyst import default_client
+
+    try:
+        return default_client()
+    except Exception as e:  # noqa: BLE001
+        print(f"analyst unavailable: {e}", file=sys.stderr)
+        return None
+
+
+def _names_for(brands_path: Path) -> dict[str, str]:
+    from backend.archive.roster import load_roster
+
+    try:
+        return {e.domain: e.name for e in load_roster(brands_path)}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _learn_commands(args, store: ObjectStore, catalog: Catalog) -> int:
+    from backend.archive.learn.budget import FleetBudget
+    from backend.archive.learn.dossier import DossierStore
+    from backend.archive.learn.loop import Loop
+
+    ds = DossierStore(store)
+    if args.cmd == "dossier":
+        d = ds.load(args.domain)
+        if d is None:
+            print(f"no dossier for {args.domain}")
+            return 1
+        print(f"{d.domain}  {d.name or ''}")
+        print(f"  signature  {d.signature or '—'}")
+        w = d.wall or {}
+        print(f"  wall       {w.get('type', '—')} → {w.get('action', '—')}  ({w.get('why', '')})")
+        for r in d.ladder[-6:]:
+            print(
+                f"  rung       {r.at[:19]}  {r.level:<4} {r.outcome:<12} {r.statuses[:6]} {r.note}"
+            )
+        for lane in d.lanes[-4:]:
+            print(
+                f"  lane       {lane.at[:19]}  {lane.composition}  {lane.verdict}  {lane.products}"
+            )
+        p = d.predicted or {}
+        print(
+            f"  predicted  ${p.get('per_day_usd', 0) or 0:.4f}/day  ({p.get('composition')})  spent {d.cost(7):.4f} over 7d"
+        )
+        unread = [f for f, g in d.gaps.items() if g.get("state") == "unread"]
+        if unread:
+            print(f"  unread     {', '.join(unread)}")
+        for a in d.analyses[-3:]:
+            print(
+                f"  analysis   {a.at[:19]}  {a.kind:<8} {a.status:<9} ${a.usd:.3f}  {a.reasoning[:100]}"
+            )
+        for e in d.events[-args.events :]:
+            print(f"  {e.at[:19]}  {e.kind:<18} {e.text}")
+        return 0
+    if args.cmd == "walls":
+        rows = ds.load_all()
+        print(f"{'BRAND':<28}{'SIGNATURE':<52}{'WALL':<12}{'NEXT':<12}WHY")
+        for d in sorted(rows, key=lambda d: ((d.wall or {}).get("type") or "", d.domain)):
+            w = d.wall or {}
+            if not args.all and w.get("type") in ("open", None):
+                continue
+            print(
+                f"{d.domain:<28}{(d.signature or '—')[:50]:<52}{w.get('type', '—'):<12}{w.get('action', '—'):<12}{w.get('why', '')[:60]}"
+            )
+        return 0
+    if args.cmd == "budget":
+        s = FleetBudget(store).summary()
+        print(
+            f"day {s['day']}  baseline ${s['baseline_usd_day'] or 0:.4f}  ceiling ${s['ceiling_usd_day'] or 0:.4f}  ×{s['multiplier']}  stretch {s['stretch']}"
+        )
+        for pool, p in s["pools"].items():
+            print(f"  {pool:<14} ${p.get('spent', 0):.4f} of ${p.get('cap', 0):.4f}")
+        top = sorted(
+            s["by_brand"].items(),
+            key=lambda kv: -(kv[1].get("recurring", 0) + kv[1].get("discretionary", 0)),
+        )[:10]
+        for domain, line in top:
+            print(
+                f"  {domain:<28} recurring ${line.get('recurring', 0):.4f}  discretionary ${line.get('discretionary', 0):.4f}"
+            )
+        return 0
+    if args.cmd == "signatures":
+        from backend.archive.store.objects import loads
+
+        found = store.get("control/signatures.json")
+        row = loads(found[0]) if found else {"clusters": []}
+        for c in row.get("clusters", []):
+            print(f"{c['count']:>4}  {c['signature']:<60} {c['verdicts']}  {c['walls']}")
+        return 0
+    loop = Loop(
+        store,
+        catalog,
+        brands_path=args.brands,
+        analyst=_analyst_client(),
+        browser_available=args.browser,
+        log=print,
+    )
+    if args.action == "tick":
+        s = loop.tick()
+        print(f"onboarded {s['onboarded']}\nactions {len(s['actions'])}")
+        for a in s["actions"]:
+            print(f"  {a['domain']:<28}{a['wall']:<12}{a['action']:<12}{a['did']}")
+        if s["errors"]:
+            print("errors:")
+            for e in s["errors"]:
+                print(f"  {e}")
+        print(f"budget {s.get('budget')}  {s['seconds']}s")
+        return 0
+    if args.action == "onboard":
+        if not args.domain:
+            print("say which brand", file=sys.stderr)
+            return 2
+        d = loop.onboard(args.domain, name=_names_for(args.brands).get(args.domain))
+        for step in d.onboarding.steps if d and d.onboarding else []:
+            print(f"  {step.name:<12}{step.status:<8}{step.text}")
+        return 0
+    if args.action == "analyse":
+        if not args.domain:
+            print("say which brand", file=sys.stderr)
+            return 2
+        if loop.analyst is None:
+            print("no model: set ANTHROPIC_API_KEY", file=sys.stderr)
+            return 2
+        a = loop.analyse(args.domain, kind=args.kind)
+        print(f"{a.id}  {a.status}  ${a.usd:.3f}\n{a.reasoning}")
+        if a.gate:
+            print(f"gate: {a.gate}")
+        return 0
+    if args.action == "apply":
+        if not args.domain:
+            print("say which proposal", file=sys.stderr)
+            return 2
+        for path in loop.apply_code(args.domain, args.root):
+            print(f"wrote {path}")
+        return 0
+    if args.action == "proposals":
+        for p in loop.proposals():
+            print(
+                f"{p['id']}  {p['domain']:<26} {p.get('branch') or 'filed'}  {p.get('summary', '')[:80]}"
+            )
+        return 0
+    s = loop.status()
+    last = s.get("last") or {}
+    print(
+        f"last tick {last.get('at', '—')}: {len(last.get('actions', []))} actions, {len(last.get('onboarded', []))} onboarded, {len(last.get('landed', []))} landed"
+    )
+    for a in last.get("actions", [])[:20]:
+        print(f"  {a['domain']:<28}{a['wall']:<12}{a['action']:<12}{a['did']}")
     return 0
 
 
@@ -418,6 +593,11 @@ def main(argv: list[str] | None = None) -> int:
         "periods",
         "backup",
         "restore",
+        "learn",
+        "dossier",
+        "walls",
+        "budget",
+        "signatures",
     ):
         sp = sub.add_parser(name)
         sp.add_argument(
@@ -455,6 +635,21 @@ def main(argv: list[str] | None = None) -> int:
             sp.add_argument(
                 "--dry-run", action="store_true", help="say how much is outstanding, fetch nothing"
             )
+        if name == "learn":
+            sp.add_argument(
+                "action", choices=["tick", "onboard", "analyse", "apply", "proposals", "status"]
+            )
+            sp.add_argument(
+                "domain", nargs="?", help="brand (onboard, analyse) or proposal id (apply)"
+            )
+            sp.add_argument("--kind", default="brand", help="analyse: brand | failure | cheapen")
+            sp.add_argument("--browser", action="store_true", help="a browser rung is available")
+            sp.add_argument("--root", type=Path, default=Path("."), help="apply: the working tree")
+        if name == "dossier":
+            sp.add_argument("domain")
+            sp.add_argument("--events", type=int, default=20)
+        if name == "walls":
+            sp.add_argument("--all", action="store_true", help="every dossier, not only the walls")
         if name == "show":
             sp.add_argument("domain")
             sp.add_argument("--limit", type=int, default=3)
@@ -462,6 +657,17 @@ def main(argv: list[str] | None = None) -> int:
         if name == "daemon":
             sp.add_argument("action", choices=["start", "stop", "status"])
             sp.add_argument("--workers", type=int, default=1)
+            sp.add_argument(
+                "--no-learn",
+                action="store_true",
+                help="run the workers without the learning loop's thread",
+            )
+            sp.add_argument(
+                "--learn-every",
+                type=int,
+                default=int(os.getenv("LEARN_TICK_SECONDS", "900") or 900),
+                help="seconds between the learning loop's ticks",
+            )
             sp.add_argument(
                 "--no-images",
                 action="store_true",
@@ -662,7 +868,12 @@ def main(argv: list[str] | None = None) -> int:
     store: ObjectStore = object_store(args.objects)
     catalog = open_catalog(store)
     try:
-        brands = _seed(catalog, args.brands) if args.brands.exists() else []
+        # Read-only looks at the loop's own objects do not wait for the roster seed —
+        # 137 upserts over the network is two minutes nobody asked for.
+        looking = args.cmd in ("walls", "budget", "signatures", "dossier") or (
+            args.cmd == "learn" and getattr(args, "action", None) == "status"
+        )
+        brands = _seed(catalog, args.brands) if args.brands.exists() and not looking else []
 
         if args.cmd == "periods":
             return _periods(args, catalog, brands)
@@ -936,6 +1147,9 @@ def main(argv: list[str] | None = None) -> int:
 
                 return ChallengeAwareBrowser(headless=not args.headful)
 
+            from backend.archive.learn.dossier import DossierStore
+
+            dossiers = DossierStore(store)
             for b in targets:
                 t: Transport = _capability_browser() if args.browser else HttpxTransport()
                 try:
@@ -953,6 +1167,12 @@ def main(argv: list[str] | None = None) -> int:
                         t.close()
                 reports.append(rep)
                 print(f"  probed {b.domain:<26} {rep.verdict}", flush=True)
+                try:
+                    dossiers.lane(
+                        b.domain, rep.lane, rep.verdict, rep.catalog_size, rep.fill, rep.note
+                    )
+                except Exception as e:  # noqa: BLE001 — the matrix is the output; the record is a bonus
+                    print(f"  (dossier not written: {e})", file=sys.stderr)
             print()
             print(format_matrix(reports, show_gated=args.show_gated))
             return 0
@@ -1181,8 +1401,48 @@ def main(argv: list[str] | None = None) -> int:
                     finally:
                         cap.charge(spend.usd - before)
 
+                from backend.archive.learn.budget import FleetBudget
+                from backend.archive.learn.dossier import DossierStore
+                from backend.archive.learn.meter import Meter, Prices, today
+
+                dossiers = DossierStore(cat.store)
+                fleet_budget = FleetBudget(cat.store)
+                prices = Prices.from_env()
+
+                def _record_run(brand, meter, mode, started):
+                    """What the run cost and what it read, into the dossier and the
+                    recurring pool. Never allowed to fail the run."""
+                    try:
+                        meter.wall_seconds = time.monotonic() - started
+                        meter.runs = 1
+                        snap = meter.snapshot()
+                        dossiers.meter_add(brand.domain, today(), snap)
+                        if snap.get("usd"):
+                            fleet_budget.charge(brand.domain, "recurring", snap["usd"])
+                        run = cat.latest_run(brand.domain) or {}
+                        cov = run.get("coverage") or {}
+                        plan = cat.load_plan(brand.domain)
+                        if mode != "sweep" and plan is not None:
+                            dossiers.lane(
+                                brand.domain,
+                                plan.composition,
+                                cov.get("verdict")
+                                or ("busy" if "wait" in str(run.get("reason") or "") else "failed"),
+                                cov.get("extracted"),
+                                cov.get("field_fill") or {},
+                                str(run.get("reason") or "")[:120],
+                            )
+                    except Exception as e:  # noqa: BLE001
+                        print(
+                            f"{brand.domain}: dossier not written: {type(e).__name__}: {e}",
+                            file=sys.stderr,
+                        )
+
                 def do_brand(brand, mode="delta", retry_searched=False):
                     spent_before = spend.usd
+                    calls_before_run = spend.calls
+                    meter = Meter(prices=prices)
+                    run_started = time.monotonic()
                     # What the sites answered, kept with the catalogue: the deck's
                     # per-host latency and refusal counts come from this ledger, and
                     # until today the daemon's transport had no sink, so those
@@ -1197,16 +1457,17 @@ def main(argv: list[str] | None = None) -> int:
                             sweep_brand(
                                 brand,
                                 cat,
-                                HttpxTransport(sink=requests_log, budget=budget),
+                                meter.track(HttpxTransport(sink=requests_log, budget=budget)),
                                 locks_dir=args.locks if hasattr(args, "locks") else Path("locks"),
                                 log_dir=Path("backend/archive/data/logs"),
-                                browser_transport_factory=_browser_factory,
-                                transport_factory=lambda level: for_level(
-                                    level, sink=requests_log, budget=budget
+                                browser_transport_factory=lambda: meter.track(_browser_factory()),
+                                transport_factory=lambda level: meter.track(
+                                    for_level(level, sink=requests_log, budget=budget)
                                 ),
                             )
                         finally:
                             requests_log.flush()
+                            _record_run(brand, meter, "sweep", run_started)
                         return None, 0.0
                     try:
                         run_brand(
@@ -1215,14 +1476,16 @@ def main(argv: list[str] | None = None) -> int:
                             # Paced and stood down like the hand-run scrape: without
                             # the budget a 429 mid-run was followed by the next
                             # request at once, for every product left.
-                            HttpxTransport(sink=requests_log, budget=budget),
+                            meter.track(HttpxTransport(sink=requests_log, budget=budget)),
                             mode=mode,
                             retry_searched=retry_searched,
                             locks_dir=args.locks if hasattr(args, "locks") else Path("locks"),
                             log_dir=Path("backend/archive/data/logs"),
                             browser=True,
-                            browser_transport_factory=_browser_factory,
-                            prober=escalating_prober(browser_factory=_browser_factory),
+                            browser_transport_factory=lambda: meter.track(_browser_factory()),
+                            prober=escalating_prober(
+                                browser_factory=lambda: meter.track(_browser_factory())
+                            ),
                             # Probing asks a brand that may refuse, on purpose. On the
                             # paced transport a refusal stands the host down for a
                             # quarter of an hour and the probe then sleeps on its own
@@ -1245,8 +1508,8 @@ def main(argv: list[str] | None = None) -> int:
                             # is $1.50 — one brand cannot spend the fleet's day; what a
                             # page did not yield is asked again on a later run.
                             learn_budget=15,
-                            transport_factory=lambda level: for_level(
-                                level, sink=requests_log, budget=budget
+                            transport_factory=lambda level: meter.track(
+                                for_level(level, sink=requests_log, budget=budget)
                             ),
                             # A brand cannot hold a worker for a day: 20,000 products,
                             # six hours, then the rest is reported as missing coverage.
@@ -1255,6 +1518,10 @@ def main(argv: list[str] | None = None) -> int:
                         )
                     finally:
                         requests_log.flush()
+                        meter.note_llm(
+                            spend.usd - spent_before, calls=spend.calls - calls_before_run
+                        )
+                        _record_run(brand, meter, mode, run_started)
                     if mode == "learn":
                         # Nothing stored, nothing to photograph or score.
                         return None, spend.usd - spent_before
@@ -1279,8 +1546,50 @@ def main(argv: list[str] | None = None) -> int:
 
                 return do_brand
 
-            serve(lambda: object_store(args.objects), factory, workers=args.workers)
+            def loop_factory(st, cat):
+                from backend.archive.learn.loop import Loop
+
+                return Loop(
+                    st,
+                    cat,
+                    brands_path=args.brands,
+                    analyst=_analyst_client(),
+                    browser_available=True,
+                    log=print,
+                )
+
+            def before_factory(st, cat):
+                from backend.archive.learn.dossier import DossierStore
+                from backend.archive.learn.loop import Loop
+
+                ds = DossierStore(st)
+                loop = Loop(
+                    st,
+                    cat,
+                    brands_path=args.brands,
+                    analyst=None,
+                    browser_available=True,
+                    log=print,
+                )
+
+                def before(domain: str) -> None:
+                    if ds.load(domain) is None:
+                        loop.onboard(domain, name=_names_for(args.brands).get(domain))
+
+                return before
+
+            serve(
+                lambda: object_store(args.objects),
+                factory,
+                workers=args.workers,
+                loop_factory=None if args.no_learn else loop_factory,
+                before_factory=before_factory,
+                learn_every=args.learn_every,
+            )
             return 0
+
+        if args.cmd in ("learn", "dossier", "walls", "budget", "signatures"):
+            return _learn_commands(args, store, catalog)
 
         # status
         rows = catalog.status_rows()

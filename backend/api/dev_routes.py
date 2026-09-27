@@ -37,6 +37,9 @@ from backend.archive import facets, roster, taxonomy
 from backend.archive.audit import CLASSES
 from backend.archive.domain.product import E0005_FIELDS
 from backend.archive.evidence import describe
+from backend.archive.learn.budget import FleetBudget
+from backend.archive.learn.dossier import DossierStore
+from backend.archive.learn.loop import Loop
 from backend.archive.roster import load_roster
 from backend.archive.scheduler import Scheduler
 from backend.archive.spend_cap import DailyCap
@@ -422,6 +425,106 @@ def _brand_row(domain: str, row: dict, meta: dict, name: str, catalog: Catalog) 
     }
 
 
+def _read_json(store: ObjectStore, key: str):
+    found = store.get(key)
+    return loads(found[0]) if found else None
+
+
+def _read_lines(store: ObjectStore, key: str) -> list[dict]:
+    found = store.get(key)
+    if not found:
+        return []
+    out = []
+    for line in found[0].decode().splitlines():
+        try:
+            out.append(json.loads(line))
+        except ValueError:
+            continue
+    return out
+
+
+def _learning_summary(store: ObjectStore, brands: list[dict]) -> dict:
+    """What the overview says about the loop: per-brand signature, wall and cost from
+    the map and the budget, the wall counts, today's spend, the last tick."""
+    smap = _read_json(store, "control/signatures.json") or {}
+    status = _read_json(store, "control/learning.json") or {}
+    try:
+        budget = FleetBudget(store).summary()
+    except Exception:  # noqa: BLE001
+        budget = {}
+    by_domain: dict[str, dict] = {}
+    for c in smap.get("clusters", []):
+        for b in c.get("brands", []):
+            by_domain[b["domain"]] = {**b, "signature": c["signature"]}
+    spent = budget.get("by_brand") or {}
+    predicted = budget.get("predicted_by_brand") or {}
+    walls: dict[str, int] = {}
+    for b in brands:
+        m = by_domain.get(b["domain"]) or {}
+        b["signature"] = m.get("signature")
+        b["wall"] = m.get("wall")
+        line = spent.get(b["domain"]) or {}
+        b["spent_today_usd"] = (
+            round(float(line.get("recurring", 0)) + float(line.get("discretionary", 0)), 6)
+            if line
+            else None
+        )
+        b["predicted_usd_day"] = predicted.get(b["domain"])
+        wall = m.get("wall") or "unknown"
+        walls[wall] = walls.get(wall, 0) + 1
+    last = status.get("last") or {}
+    return {
+        "walls": walls,
+        "status": {
+            "at": last.get("at"),
+            "onboarded": len(last.get("onboarded") or []),
+            "actions": len(last.get("actions") or []),
+            "analyses": len(last.get("analyses") or []),
+            "landed": len(last.get("landed") or []),
+            "errors": len(last.get("errors") or []),
+            "seconds": last.get("seconds"),
+            "clusters": len(smap.get("clusters") or []),
+            "map_at": smap.get("at"),
+        },
+        "budget": {
+            "day": budget.get("day"),
+            "spent_usd": budget.get("spent_usd"),
+            "ceiling_usd_day": budget.get("ceiling_usd_day"),
+            "baseline_usd_day": budget.get("baseline_usd_day"),
+            "pools": budget.get("pools"),
+            "stretch": budget.get("stretch"),
+        },
+    }
+
+
+def _dossier_view(d, full: bool = False) -> dict:
+    """The dossier as the deck reads it: the record, with the long lists cut unless asked."""
+    n_events = None if full else 30
+    return {
+        "domain": d.domain,
+        "name": d.name,
+        "created_at": d.created_at,
+        "updated_at": d.updated_at,
+        "signature": d.signature,
+        "signature_history": d.signature_history[-10:],
+        "wall": d.wall,
+        "ladder": [r.model_dump() for r in (d.ladder if full else d.ladder[-12:])],
+        "lanes": [lane.model_dump() for lane in (d.lanes if full else d.lanes[-8:])],
+        "gaps": d.gaps,
+        "meter": {k: v.model_dump() for k, v in sorted(d.meter.items())[-30:]},
+        "cost": {"today": d.cost(1), "week": d.cost(7), "month": d.cost(30)},
+        "predicted": d.predicted,
+        "analyses": [a.model_dump() for a in (d.analyses if full else d.analyses[-5:])],
+        "rules": [r.model_dump() for r in d.rules],
+        "events": [
+            e.model_dump() for e in (d.events if n_events is None else d.events[-n_events:])
+        ],
+        "onboarding": d.onboarding.model_dump() if d.onboarding else None,
+        "pages": d.pages,
+        "notes": d.notes,
+    }
+
+
 def register_dev_routes(app: Flask) -> None:
     def _build_overview() -> dict:
         store = _store()
@@ -457,6 +560,11 @@ def register_dev_routes(app: Flask) -> None:
             if b["claimed_by"]:
                 (running if b["worker_alive"] else stalled).append(domain)
 
+        # What the learning loop knows, from its own rolled-up objects: the signature
+        # map names every brand's signature, wall and predicted cost; the budget names
+        # today's spend; the status names the last tick. Three reads, not one per brand.
+        learning = _learning_summary(store, brands)
+
         # Where each running scrape is. Only the held brands, read together — a
         # small object each, rewritten by the worker every twenty seconds.
         held = [b for b in brands if b["claimed_by"]]
@@ -487,6 +595,9 @@ def register_dev_routes(app: Flask) -> None:
             "workers": {"running": running, "stalled": stalled, "seen": workers_seen},
             "finder": finder,
             "brands": brands,
+            "walls": learning["walls"],
+            "learning": learning["status"],
+            "budget": learning["budget"],
         }
 
     @app.route("/api/dev/overview", methods=["GET"])
@@ -529,6 +640,7 @@ def register_dev_routes(app: Flask) -> None:
             evidence_f = pool.submit(catalog.load_evidence, brand_id)
             book_f = pool.submit(catalog.load_recipe_book, brand_id)
             recs_f = pool.submit(catalog.load_recommendations, brand_id)
+            dossier_f = pool.submit(DossierStore(store).load, brand_id)
             row = row_f.result()
             known = brand_f.result()
             fleet = fleet_f.result()
@@ -538,6 +650,7 @@ def register_dev_routes(app: Flask) -> None:
             evidence = evidence_f.result()
             book = book_f.result()
             recommendations = recs_f.result()
+            dossier = dossier_f.result()
         if row is None and known is None:
             return jsonify({"success": False, "error": "no such brand", "code": "NOT_FOUND"}), 404
         meta = fleet.get(brand_id) or {}
@@ -643,6 +756,7 @@ def register_dev_routes(app: Flask) -> None:
                 else None,
                 "recommendations": recommendations,
                 "last_actions": last_actions,
+                "dossier": _dossier_view(dossier) if dossier else None,
             }
         )
 
@@ -1052,6 +1166,168 @@ def register_dev_routes(app: Flask) -> None:
             }
         )
 
+    # --- the learning loop ---------------------------------------------------------------
+
+    @app.route("/api/dev/learning", methods=["GET"])
+    def dev_learning():
+        """The space map, the walls, the loop's last tick, the proposals, the rules."""
+        if not _is_owner():
+            return _forbidden()
+        store = _store()
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            map_f = pool.submit(
+                lambda: _read_json(store, "control/signatures.json") or {"clusters": []}
+            )
+            status_f = pool.submit(lambda: _read_json(store, "control/learning.json") or {})
+            budget_f = pool.submit(FleetBudget(store).summary)
+            proposals_f = pool.submit(
+                Loop(store, open_catalog(store), analyst=None, log=lambda *a: None).proposals
+            )
+            smap = map_f.result()
+            status = status_f.result()
+            budget = budget_f.result()
+            proposals = proposals_f.result()
+        names = _names()
+        walls: list[dict] = []
+        rules: list[dict] = []
+        for c in smap.get("clusters", []):
+            for b in c.get("brands", []):
+                if b.get("wall") not in (None, "open"):
+                    walls.append(
+                        {
+                            **b,
+                            "name": names.get(b["domain"], b.get("name") or b["domain"]),
+                            "signature": c["signature"],
+                        }
+                    )
+            for r in c.get("rules", []):
+                rules.append({**r, "signature": c["signature"]})
+        learnings = _read_lines(store, "learn/learnings.jsonl")[-20:]
+        return _reply(
+            {
+                "success": True,
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "map": smap,
+                "walls": sorted(walls, key=lambda w: (w.get("wall") or "", w["domain"])),
+                "status": status.get("last") or {},
+                "history": status.get("history") or [],
+                "budget": budget,
+                "proposals": proposals,
+                "rules": rules,
+                "learnings": learnings,
+                "model": bool(
+                    os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("CLAUDE_API_KEY")
+                ),
+                "proxy": bool(os.environ.get("ARCHIVE_PROXY_URL")),
+            }
+        )
+
+    @app.route("/api/dev/brands/<brand_id>/dossier", methods=["GET"])
+    def dev_dossier(brand_id):
+        if not _is_owner():
+            return _forbidden()
+        if bad := _bad_domain(brand_id):
+            return bad
+        d = DossierStore(_store()).load(brand_id)
+        if d is None:
+            return jsonify({"success": False, "error": "no dossier yet", "code": "NOT_FOUND"}), 404
+        return _reply(
+            {
+                "success": True,
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "dossier": _dossier_view(d, full=True),
+            }
+        )
+
+    def _learn_action(brand_id, action):
+        if not _is_owner():
+            return _forbidden()
+        if not _from_our_site():
+            return _cross_site()
+        if bad := _bad_domain(brand_id):
+            return bad
+        store = _store()
+        loop = Loop(
+            store,
+            open_catalog(store),
+            analyst=None,
+            browser_available=False,
+            log=current_app.logger.info,
+        )
+        # The work runs in a thread: a probe up the ladder takes seconds to minutes, and
+        # the deck watches the dossier fill rather than waiting on the request.
+        if action == "reprobe":
+            threading.Thread(
+                target=loop.onboard,
+                args=(brand_id,),
+                kwargs={"name": _names().get(brand_id)},
+                daemon=True,
+            ).start()
+            return jsonify({"success": True, "domain": brand_id, "started": "onboarding"})
+        if action == "analyse":
+            from backend.archive.finder_llm import _api_key
+
+            if not _api_key():
+                return jsonify(
+                    {
+                        "success": False,
+                        "error": "no model: set ANTHROPIC_API_KEY on the API",
+                        "code": "NO_MODEL",
+                    }
+                ), 409
+            from backend.archive.learn.analyst import default_client
+
+            loop.analyst = default_client()
+            kind = str((request.get_json(silent=True) or {}).get("kind") or "brand")
+            threading.Thread(
+                target=loop.analyse, args=(brand_id,), kwargs={"kind": kind}, daemon=True
+            ).start()
+            return jsonify({"success": True, "domain": brand_id, "started": f"analysis ({kind})"})
+        if action == "climb":
+            level = str((request.get_json(silent=True) or {}).get("level") or "t1")
+            from backend.archive.learn.walls import Action
+
+            want = {"t1": Action.CLIMB_T1, "t1p": Action.CLIMB_T1P, "t2": Action.CLIMB_T2}.get(
+                level
+            )
+            if want is None:
+                return jsonify(
+                    {"success": False, "error": "level is t1, t1p or t2", "code": "BAD_LEVEL"}
+                ), 400
+            d = loop.dossiers.open(brand_id, name=_names().get(brand_id))
+            threading.Thread(target=loop._climb_one, args=(d, want), daemon=True).start()
+            return jsonify({"success": True, "domain": brand_id, "started": f"climb to {level}"})
+        return jsonify({"success": False, "error": "unknown action", "code": "BAD_ACTION"}), 400
+
+    @app.route("/api/dev/brands/<brand_id>/reprobe", methods=["POST"])
+    def dev_reprobe(brand_id):
+        return _learn_action(brand_id, "reprobe")
+
+    @app.route("/api/dev/brands/<brand_id>/analyse", methods=["POST"])
+    def dev_analyse(brand_id):
+        return _learn_action(brand_id, "analyse")
+
+    @app.route("/api/dev/brands/<brand_id>/climb", methods=["POST"])
+    def dev_climb(brand_id):
+        return _learn_action(brand_id, "climb")
+
+    @app.route("/api/dev/learning/tick", methods=["POST"])
+    def dev_learning_tick():
+        if not _is_owner():
+            return _forbidden()
+        if not _from_our_site():
+            return _cross_site()
+        store = _store()
+        loop = Loop(
+            store,
+            open_catalog(store),
+            analyst=None,
+            browser_available=False,
+            log=current_app.logger.info,
+        )
+        threading.Thread(target=loop.tick, daemon=True).start()
+        return jsonify({"success": True, "started": "tick"})
+
     @app.route("/api/dev/notes", methods=["GET"])
     def dev_notes():
         if not _is_owner():
@@ -1173,21 +1449,42 @@ def register_dev_routes(app: Flask) -> None:
             )
         # Three providers, three round trips to three continents: asked together,
         # the page waits for the slowest rather than the sum.
-        with ThreadPoolExecutor(max_workers=4) as pool:
+        with ThreadPoolExecutor(max_workers=5) as pool:
             finder_f = pool.submit(DailyCap(store, finder_cap).summary)
             anthropic_f = pool.submit(providers.anthropic_costs)
             cloudflare_f = pool.submit(providers.cloudflare_r2)
             render_f = pool.submit(providers.render_services)
+            budget_f = pool.submit(FleetBudget(store).summary)
             finder = finder_f.result()
             anthropic = anthropic_f.result()
             cloudflare = cloudflare_f.result()
             render = render_f.result()
+            budget = budget_f.result()
+        by_brand = budget.get("by_brand") or {}
+        predicted = budget.get("predicted_by_brand") or {}
+        budget["brands"] = sorted(
+            (
+                {
+                    "domain": d,
+                    "name": names.get(d, d),
+                    "spent_usd": round(
+                        float(line.get("recurring", 0)) + float(line.get("discretionary", 0)), 6
+                    ),
+                    "recurring_usd": line.get("recurring", 0),
+                    "discretionary_usd": line.get("discretionary", 0),
+                    "predicted_usd_day": predicted.get(d),
+                }
+                for d, line in {**{k: {} for k in predicted}, **by_brand}.items()
+            ),
+            key=lambda r: -r["spent_usd"],
+        )
         return _reply(
             {
                 "success": True,
                 "generated_at": datetime.now(timezone.utc).isoformat(),
                 "finder": finder,
                 "brands": brands,
+                "budget": budget,
                 "providers": {"anthropic": anthropic, "cloudflare": cloudflare, "render": render},
             }
         )

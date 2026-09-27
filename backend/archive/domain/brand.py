@@ -29,6 +29,9 @@ class DiscoveryChannel(str, Enum):
     # A Gatsby site's page data: every page as JSON beside the page. EQL's launch
     # platform (runfair) lists a retailer's products in the index's data.
     PAGE_DATA = "page_data"
+    # A lane described as data (learn/recipes.py): discovery and fetch the model
+    # proposed and the gate proved, run by a connector that already exists.
+    RECIPE = "recipe"
     CATEGORY_PAGES = "category_pages"
     AGENT = "agent"
 
@@ -107,6 +110,9 @@ class ScrapePlan(BaseModel):
     product_url_prefix: str | None = None  # learned product URL shape
     currency: str | None = None  # the store's currency, where it states one
     shop_domain: str | None = None  # the host discovery reads, when not the brand's own
+    # The lane recipe, when discovery is RECIPE: carried on the plan so the connector
+    # needs no second read to run it.
+    recipe: dict | None = None
 
     @property
     def composition(self) -> str:

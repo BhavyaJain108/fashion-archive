@@ -64,7 +64,50 @@ const brand = {
   hosts: [],
 };
 
+const learning = {
+  success: true,
+  generated_at: new Date().toISOString(),
+  map: { at: new Date().toISOString(), clusters: [
+    { signature: 'shopify·open·index·jsonld·none·none', count: 2, verdicts: { full: 2 }, walls: { open: 2 }, median_per_product_usd: 0.00001, rules: [], brands: [{ domain: 'huelleyrose.com', name: 'Huelley Rose', verdict: 'full', wall: 'open', per_day_usd: 0.002 }] },
+    { signature: 'custom·closed·none·none·address·none', count: 1, verdicts: { none: 1 }, walls: { address: 1 }, median_per_product_usd: null, rules: [], brands: [{ domain: 'yeezy.com', name: 'YEEZY', verdict: 'none', wall: 'address', per_day_usd: null }] },
+  ] },
+  walls: [{ domain: 'yeezy.com', name: 'YEEZY', verdict: 'none', wall: 'address', signature: 'custom·closed·none·none·address·none', per_day_usd: null }],
+  status: { at: new Date().toISOString(), onboarded: ['yeezy.com'], actions: [{ domain: 'yeezy.com', wall: 'address', action: 'watch', did: 'needs an egress proxy' }], analyses: [], landed: [], seconds: 12.5 },
+  history: [],
+  budget: { day: '2026-09-27', multiplier: 1.5, baseline_usd_day: 0.4, ceiling_usd_day: 5, spent_usd: 0.12, stretch: 1.0, brands: 3, pools: { recurring: { spent: 0.1, cap: 3.33 }, discretionary: { spent: 0.02, cap: 1.67 } }, history: {} },
+  proposals: [],
+  rules: [],
+  learnings: [],
+  model: false,
+  proxy: false,
+};
+
+const dossier = {
+  domain: 'huelleyrose.com', name: 'Huelley Rose', created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+  signature: 'shopify·open·index·jsonld·none·none', signature_history: [],
+  wall: { type: 'open', action: 'none', why: 'reads', since: new Date().toISOString(), attempts: 0 },
+  ladder: [{ at: new Date().toISOString(), level: 't0', outcome: 'ok', statuses: [200, 200], seconds: 1.2, note: '' }],
+  lanes: [{ at: new Date().toISOString(), composition: 't0×bulk_json×platform_json×per_item', verdict: 'full', products: 381, fill: { product_title: 1, price: 1, in_stock: 1, all_images: 1 }, note: '' }],
+  gaps: { size_info: { state: 'unread', why: 'blank on every sampled product' }, material_info: { state: 'absent', why: 'not published' } },
+  meter: { '2026-09-27': { requests: { t0: 40 }, bytes: { t0: 900000 }, proxy_requests: 0, browser_seconds: 0, llm_calls: 0, llm_tokens: 0, llm_usd: 0, wall_seconds: 30, runs: 1, probes: 1, usd: 0 } },
+  cost: { today: 0, week: 0, month: 0 },
+  predicted: { per_day_usd: 0.0021, measured: false },
+  analyses: [], rules: [],
+  events: [{ at: new Date().toISOString(), kind: 'opened', text: 'dossier opened' }, { at: new Date().toISOString(), kind: 'rung', text: 'asked over t0: ok' }],
+  onboarding: { started_at: new Date().toISOString(), finished_at: null, steps: [
+    { name: 'probe', status: 'done', at: new Date().toISOString(), text: 't0 ok' },
+    { name: 'signature', status: 'running', at: null, text: '' },
+    { name: 'wall', status: 'pending' }, { name: 'plan', status: 'pending' }, { name: 'first-read', status: 'pending' }, { name: 'verdict', status: 'pending' },
+  ] },
+  pages: {},
+  notes: null,
+};
+
 beforeEach(() => {
+  DevEndpoints.getLearning.mockResolvedValue(learning);
+  DevEndpoints.getDossier.mockResolvedValue({ success: true, dossier });
+  DevEndpoints.learningTick.mockResolvedValue({ success: true, started: 'tick' });
+  DevEndpoints.reprobe.mockResolvedValue({ success: true, started: 'onboarding' });
   DevEndpoints.getNotes.mockResolvedValue({ success: true, notes: [{ id: '1', text: 'sort by cost', at: new Date().toISOString(), done: false }] });
   DevEndpoints.addNote.mockResolvedValue({ success: true });
   DevEndpoints.addBrand.mockResolvedValue({ success: true, domain: 'new.com', name: 'New', shown: true, already_scheduled: false });
@@ -242,4 +285,42 @@ test('someone who is not the owner sees a plain notice', async () => {
   DevEndpoints.getOverview.mockResolvedValue({ forbidden: true });
   render(<DevPage route={{ page: 'dev', brandId: null, category: null }} navigate={() => {}} />);
   expect(await screen.findByText(/for the archive’s owner/)).toBeInTheDocument();
+});
+
+
+test('the learning page shows the space, the walls, the budget and the last tick', async () => {
+  const navigate = jest.fn();
+  render(<DevPage route={{ page: 'dev', brandId: null, category: 'learning' }} navigate={navigate} />);
+  expect(await screen.findByText(/shopify·open·index·jsonld·none·none/)).toBeInTheDocument();
+  expect(screen.getByText('needs an egress proxy')).toBeInTheDocument();
+  expect(screen.getByText(/keeping every brand fresh/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'tick now' }));
+  await waitFor(() => expect(DevEndpoints.learningTick).toHaveBeenCalled());
+  fireEvent.click(screen.getByRole('button', { name: 'YEEZY' }));
+  expect(navigate).toHaveBeenCalledWith({ page: 'dev', brandId: 'yeezy.com' });
+});
+
+test('the overview carries the walls strip and a wall per row', async () => {
+  DevEndpoints.getOverview.mockResolvedValue({
+    ...overview,
+    walls: { open: 1, address: 1 },
+    learning: { at: new Date().toISOString(), actions: 1, analyses: 0, landed: 0, clusters: 2 },
+    budget: { spent_usd: 0.12, ceiling_usd_day: 5, stretch: 1 },
+    brands: [{ ...overview.brands[0], wall: 'open', signature: 'shopify·open·index·jsonld·none·none', predicted_usd_day: 0.002 }, { ...overview.brands[1], wall: 'address' }],
+  });
+  render(<DevPage route={{ page: 'dev', brandId: null, category: null }} navigate={() => {}} />);
+  expect(await screen.findByRole('button', { name: 'address · 1' })).toBeInTheDocument();
+  expect(screen.getByText(/last tick/)).toBeInTheDocument();
+  expect(screen.getByText('$0.0020')).toBeInTheDocument();
+});
+
+test('the brand page shows the dossier and the onboarding steps while they run', async () => {
+  DevEndpoints.getBrand.mockResolvedValue({ ...brand, dossier, learning: { model: false, proxy: false } });
+  render(<DevPage route={{ page: 'dev', brandId: 'huelleyrose.com', category: null }} navigate={() => {}} />);
+  expect(await screen.findByText(/onboarding · signing/)).toBeInTheDocument();
+  expect(screen.getByText('open — reads')).toBeInTheDocument();
+  expect(screen.getByText(/the page has not been read for it/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'probe again' }));
+  await waitFor(() => expect(DevEndpoints.reprobe).toHaveBeenCalledWith('huelleyrose.com'));
+  expect(screen.getByRole('button', { name: 'ask the model' })).toBeDisabled();
 });

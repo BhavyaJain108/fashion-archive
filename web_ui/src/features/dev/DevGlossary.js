@@ -25,6 +25,13 @@ const TERMS = [
   ['Took', 'Start to finish, including the photographs pass.'],
   ['Hosts', 'How the brand’s servers answered over the last week: requests, OK, refused (401/403 — a bot verdict, needs a different transport), slow down (429/503), errored, and average latency.'],
   ['Progress bar', 'The phase a running scrape is in and how far along: fetching products, finalising, then photographs. Updated every twenty seconds.'],
+  ['Signature', 'Six words the probe reads off a shop: platform · feed · sitemap · page · defence · locale. Rules and regression sets hang on signatures, never on brands, so the roster reads as clusters on the Learning page.'],
+  ['Wall', 'What stands between us and the products, in one word, decided from the dossier: open, field_gap, busy, rate_limited, tls, address, challenge, geo, gated, unreadable, not_a_shop, expensive. Each wall names its next action; the mechanical ones the loop takes on its own, “analyse” goes to the model.'],
+  ['Dossier', 'Everything known about one brand, unbounded and dated: every rung ever tried, every lane, the field gaps (unread, unsought, absent), what it cost by day, what the model said, the rules applied, and the timeline. Opened at the brand’s first turn.'],
+  ['Onboarding', 'A new brand’s first minutes as six steps: probe → signature → wall → plan → first read → verdict, written to the dossier as they happen. Add a brand and its page shows them filling in.'],
+  ['Budget', 'Two pools under one ceiling. Recurring keeps every brand fresh at its cadence; discretionary is probes, the proxy and the model — poured into walls. The ceiling is the roster’s predicted daily cost times a multiplier; over it, cadences stretch and no brand is dropped.'],
+  ['$ / day', 'What the brand should cost per day on its lane at its cadences — estimated from size and lane until the meter has measured two cycles, then measured.'],
+  ['Learning loop', 'The tick: onboards new brands, classifies every wall, climbs rungs and paces on its own, asks the model where a rule cannot be written by a rule, and lands a recipe only when the gate proves it on the brand and its neighbours. Runs in the daemon every fifteen minutes; “tick now” on the Learning page.'],
   ['Finder', 'The one part that costs money: a model reads a product page and proposes rules for the fields still blank. A rule is kept only if replaying it on that page reproduces the value. Capped per day across the fleet; a field it could not find is left for fourteen days, then tried again.'],
 ];
 

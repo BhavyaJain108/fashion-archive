@@ -85,13 +85,7 @@ def probe(
         or any(m in _title(body) for m in _BLOCK_TITLES)
     )
 
-    platform = None
-    if served and ("cdn.shopify" in body or "myshopify.com" in body):
-        platform = "shopify"
-    elif served and "woocommerce" in body:
-        platform = "woocommerce"
-    elif served and "wp-content" in body:
-        platform = "wordpress"
+    platform = _platform(body) if served else None
 
     # Deep probes: only pay for them when the free Shopify feed is closed and the door is open.
     woo_api = False
@@ -176,6 +170,29 @@ def probe(
                     }
                 )
     return _sharpen_discovery(cap, transport)
+
+
+# What a homepage says about the software behind it, cheapest tell first. The words
+# are what each platform leaves in every page it serves; none is a brand's own.
+_PLATFORM_TELLS = (
+    ("haravan", ("myharavan.com", "hstatic.net", "haravan.")),
+    ("shopify", ("cdn.shopify", "myshopify.com")),
+    ("woocommerce", ("woocommerce",)),
+    ("wordpress", ("wp-content",)),
+    ("sfcc", ("demandware.static", "demandware.store", "/on/demandware")),
+    ("squarespace", ("squarespace.com", "static1.squarespace", "squarespace-cdn")),
+    ("cargo", ("cargo.site", "freight.cargo")),
+    ("gatsby", ("___gatsby", "/page-data/")),
+    ("webflow", ("webflow.com", "w-webflow", "website-files.com")),
+    ("nextjs", ("__next_data__", "/_next/static", "__next")),
+)
+
+
+def _platform(body: str) -> str | None:
+    for name, tells in _PLATFORM_TELLS:
+        if any(t in body for t in tells):
+            return name
+    return None
 
 
 def _sharpen_discovery(cap: Capability, transport: Transport) -> Capability:
@@ -393,7 +410,10 @@ def _probe_ldjson(
     So cluster the sitemap by first path segment and test the plausible clusters rather
     than assuming /products/. Costs at most 3 page fetches.
     """
-    urls = _one_market(_sitemap_urls(sitemap_url, transport))
+    listed = _sitemap_urls(sitemap_url, transport, evidence=evidence)
+    urls = _one_market(listed)
+    if len(urls) != len(listed):
+        evidence["sitemap_locales"] = f"{len(listed)}→{len(urls)}"
     if not urls:
         return False, None
 
@@ -435,7 +455,15 @@ def _probe_ldjson(
             continue
         if "application/ld+json" in page.text and '"Product"' in page.text:
             evidence["ldjson_sample"] = sample
+            has_product = (
+                re.search(r'"@type"\s*:\s*(?:"Product"|\[[^\]]*"Product")', page.text) is not None
+            )
+            evidence["ldjson_kind"] = "jsonld" if has_product else "productgroup"
             return True, prefix
+        if 'property="og:' in page.text and (
+            "price:amount" in page.text or "og:price" in page.text
+        ):
+            evidence["ldjson_kind"] = "og"
     return False, None
 
 
@@ -465,18 +493,29 @@ def _probe_product_json(sitemap_url: str, get, evidence: dict[str, str]) -> bool
     return opened
 
 
-def _sitemap_urls(sitemap_url: str, transport: Transport, depth: int = 0) -> list[str]:
+def _sitemap_urls(
+    sitemap_url: str, transport: Transport, depth: int = 0, evidence: dict[str, str] | None = None
+) -> list[str]:
     resp = transport.get(sitemap_url)
     if resp.status_code != 200:
         return []
     text = resp.text
     if "<sitemapindex" in text and depth == 0:
+        if evidence is not None:
+            evidence["sitemap_shape"] = "index"
         children = _CHILD_SITEMAP.findall(text)
         preferred = [c for c in children if "product" in c.lower()] or children[:2]
         out: list[str] = []
         for child in preferred:
-            out.extend(_sitemap_urls(child, transport, depth + 1))
+            out.extend(_sitemap_urls(child, transport, depth + 1, evidence))
         return out
+    if evidence is not None:
+        evidence.setdefault("sitemap_shape", "flat")
+        alternates = len(_MARKET_ALTERNATE.findall(text))
+        if alternates:
+            evidence["sitemap_alternates"] = str(
+                int(evidence.get("sitemap_alternates", "0")) + alternates
+            )
     return _entries(text)
 
 

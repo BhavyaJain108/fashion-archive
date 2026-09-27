@@ -2,8 +2,10 @@ import React, { useState } from 'react';
 
 import DevEndpoints from '../../shared/api/dev';
 import useDevLoad, { Gate, Stamp } from './useDevLoad';
+import DevDossier from './DevDossier';
 import DevGlossary from './DevGlossary';
 import LiveState from './LiveState';
+import Onboarding from './Onboarding';
 import { ago, dateShort, due, hours, n, pct, secs, usd } from './format';
 
 // The newest run with a log, told as sentences: what it decided, found, read,
@@ -57,7 +59,8 @@ export default function DevBrand({ domain, go }) {
     () => DevEndpoints.getBrand(domain), [domain], held ? 15000 : MINUTE, `brand:${domain}`,
   );
   React.useEffect(() => {
-    setHeld(!!(data && data.brand && data.brand.claimed_by));
+    const onboarding = data && data.dossier && data.dossier.onboarding && !data.dossier.onboarding.finished_at;
+    setHeld(!!(data && data.brand && data.brand.claimed_by) || !!onboarding);
   }, [data]);
   const [note, setNote] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -141,6 +144,9 @@ export default function DevBrand({ domain, go }) {
           {note && <div className="dev-alarm">{note}</div>}
           <Stamp data={data} refreshing={refreshing} checkedAt={checkedAt} every={held ? 'checks every 15 s while held' : 'checks every minute'} />
           <LiveState brand={data.brand} size="hero" />
+          {data.dossier && data.dossier.onboarding && !data.dossier.onboarding.finished_at && (
+            <Onboarding onboarding={data.dossier.onboarding} />
+          )}
           <DevGlossary />
 
           <LastActions la={data.last_actions} />
@@ -334,6 +340,23 @@ export default function DevBrand({ domain, go }) {
             </p>
           </section>
 
+          <DevDossier
+            domain={domain}
+            dossier={data.dossier}
+            busy={busy}
+            model={data.learning ? data.learning.model : false}
+            proxy={data.learning ? data.learning.proxy : false}
+            onAct={async (fn, said) => {
+              if (busy) return { error: null };
+              setBusy(true);
+              setNote(null);
+              const r = await fn(domain);
+              setBusy(false);
+              if (r.error) setNote(r.error); else setNote(said);
+              await reload();
+              return r;
+            }}
+          />
           <Changes domain={domain} go={go} />
           <Hosts domain={domain} />
         </>

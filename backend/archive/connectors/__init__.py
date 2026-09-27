@@ -29,6 +29,12 @@ def get_connector(plan: ScrapePlan, sitemap_url: str | None = None, limit: int |
         return WooConnector()
     if plan.discovery == DiscoveryChannel.PAGE_DATA:
         return RunfairConnector(market=market())
+    if plan.discovery == DiscoveryChannel.RECIPE:
+        from backend.archive.learn.recipes import LaneRecipe, RecipeConnector
+
+        if not plan.recipe:
+            raise ValueError("a recipe plan carries no recipe")
+        return RecipeConnector(LaneRecipe(**plan.recipe), limit=limit, currency=plan.currency)
     if plan.discovery == DiscoveryChannel.SITEMAP:
         if not sitemap_url:
             raise ValueError("sitemap discovery requires a sitemap_url")
