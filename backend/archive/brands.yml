@@ -54,7 +54,7 @@ brands:
   - {domain: cilinochi.com, homepage_url: "https://cilinochi.com", display_name: "Cili Nochi", size: mid}
   - {domain: empathla.com, homepage_url: "https://empathla.com", display_name: "Empath", size: small}
   - {domain: thekriptstore.com, homepage_url: "https://thekriptstore.com", display_name: "The Kript", size: mid}
-  - {domain: fengofficiel.com, homepage_url: "https://fengofficiel.com", display_name: "Feng Officiel", size: small, notes: custom nextjs}
+  - {domain: fengofficiel.com, homepage_url: "https://fengofficiel.com", display_name: "Feng Officiel", size: small, notes: haravan (shopify-shaped); bulk feed off; per-product json}
   - {domain: vereya-archive.com, homepage_url: "https://vereya-archive.com", display_name: "Vereya", size: small}
   - {domain: www.byfonseca.com, homepage_url: "https://www.byfonseca.com", display_name: "Fonseca", size: small, notes: squarespace}
   - {domain: tigermist.com, homepage_url: "https://tigermist.com", display_name: "Tiger Mist", size: mid}
@@ -116,7 +116,7 @@ brands:
   - {domain: baroquegalleria.com, homepage_url: "https://baroquegalleria.com", display_name: "Baroque Galleria", size: small}
   - {domain: california-arts.com, homepage_url: "https://california-arts.com", display_name: "California Arts", size: small}
   - {domain: rcoutdoorsupply.com, homepage_url: "https://rcoutdoorsupply.com", display_name: "RC Outdoor Supply", size: small}
-  - {domain: luar.runfair.com, homepage_url: "https://luar.runfair.com", display_name: "LUAR", size: mid, notes: runfair storefront; gatsby}
+  - {domain: luar.runfair.com, homepage_url: "https://luar.runfair.com", display_name: "LUAR", size: mid, notes: runfair (EQL launch platform); page-data lane}
   - {domain: bronzesnake.com, homepage_url: "https://bronzesnake.com", display_name: "Bronze Snake", size: small}
   - {domain: coldral.com, homepage_url: "https://coldral.com", display_name: "Coldral", size: small}
   - {domain: www.wmnswear.com, homepage_url: "https://www.wmnswear.com", display_name: "WMNS Wear", size: small}
@@ -133,13 +133,13 @@ brands:
   - {domain: elysianclo.store, homepage_url: "https://elysianclo.store", display_name: "Elysian", size: small}
   - {domain: tankair.com, homepage_url: "https://tankair.com", display_name: "Tank Air", size: small}
   - {domain: jocacy.com, homepage_url: "https://jocacy.com", display_name: "Jocacy", size: small}
-  - {domain: bellaspantzel.com, homepage_url: "https://bellaspantzel.com", display_name: "Bella Spantzel", size: small, notes: cargo}
+  - {domain: bellaspantzel.com, homepage_url: "https://bellaspantzel.com", display_name: "Bella Spantzel", size: large, notes: cargo portfolio; no shop; nothing to read 2026-09-27}
   - {domain: naomitarazi.com, homepage_url: "https://naomitarazi.com", display_name: "Naomi Tarazi", size: small}
   - {domain: lilcacti.com, homepage_url: "https://lilcacti.com", display_name: "Lil Cacti", size: small}
   - {domain: laurenmanoogian.com, homepage_url: "https://laurenmanoogian.com", display_name: "Lauren Manoogian", size: small}
   - {domain: us.ohpolly.com, homepage_url: "https://us.ohpolly.com", display_name: "Oh Polly", size: mid, notes: large house shown by the owner's choice}
   - {domain: us.sandro-paris.com, homepage_url: "https://us.sandro-paris.com", display_name: "Sandro", size: mid, notes: salesforce commerce; large house shown by the owner's choice}
-  - {domain: www.acnestudios.com, homepage_url: "https://www.acnestudios.com", display_name: "Acne Studios", size: mid, notes: large house shown by the owner's choice}
+  - {domain: www.acnestudios.com, homepage_url: "https://www.acnestudios.com", display_name: "Acne Studios", size: mid, notes: salesforce commerce; large house shown by the owner's choice}
   - {domain: www.ripcurl.com, homepage_url: "https://www.ripcurl.com", display_name: "Rip Curl", size: mid, notes: large house shown by the owner's choice}
   - {domain: yeezy.com, homepage_url: "https://yeezy.com", display_name: "YEEZY", size: mid, notes: 403 to plain http; large house shown by the owner's choice}
   - {domain: www.marni.com, homepage_url: "https://www.marni.com", display_name: "Marni", size: mid, notes: salesforce commerce; large house shown by the owner's choice}

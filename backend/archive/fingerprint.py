@@ -3,7 +3,7 @@
 import re
 import time
 
-from backend.archive.domain.brand import Capability, TransportLevel
+from backend.archive.domain.brand import MARKET_HREFLANG, Capability, TransportLevel
 from backend.archive.transport import Transport
 
 # Interstitials say so in the body; block pages say so in the <title>.
@@ -55,7 +55,7 @@ def probe(
     if robots.status_code == 200:
         m = re.search(r"(?im)^sitemap:\s*(\S+)", robots.text)
         if m:
-            sitemap_url = m.group(1)
+            sitemap_url = _market_sitemap(m.group(1), get, evidence)
             evidence["robots"] = "sitemap"
     if sitemap_url is None:
         sm = get(f"{base}/sitemap.xml")
@@ -66,18 +66,6 @@ def probe(
     pj = get(f"{base}/products.json?limit=1")
     bulk_json = pj.status_code == 200 and '"products"' in pj.text[:200]
     evidence["products_json"] = f"{pj.status_code}-{'open' if bulk_json else 'closed'}"
-
-    # Shopify's product feed states prices without a currency; the store states it
-    # once, for every product, at /meta.json. One request per brand, only on Shopify.
-    currency = None
-    if bulk_json:
-        meta = get(f"{base}/meta.json")
-        if meta.status_code == 200:
-            try:
-                currency = (meta.json() or {}).get("currency") or None
-            except ValueError:
-                currency = None
-        evidence["meta_json"] = f"{meta.status_code}-{currency or 'no-currency'}"
 
     home = get(f"{base}/")
     evidence["homepage"] = str(home.status_code)
@@ -108,15 +96,45 @@ def probe(
     # Deep probes: only pay for them when the free Shopify feed is closed and the door is open.
     woo_api = False
     ldjson_product = False
+    product_json = False
+    page_data = False
     product_url_prefix = None
     # A challenged site is not worth extra plain-HTTP requests, but once a browser is
     # paying for the page anyway, look: that is the only way a blocked site's product
     # URL prefix is ever learned.
     level = getattr(transport, "level", TransportLevel.T0)
     if not bulk_json and not password_gated and (not challenged or level == TransportLevel.T2):
-        woo_api = _probe_woo(base, transport, evidence)
-        if not woo_api and sitemap_url:
+        # Shopify with the bulk feed switched off still answers for one product at a
+        # time: fengofficiel.com serves 404 at /products.json and the whole product at
+        # /products/<handle>.json (2026-09-27). Only a Shopify index names its product
+        # sitemap sitemap_products_N.xml, so this costs two requests there and none
+        # elsewhere.
+        if sitemap_url:
+            product_json = _probe_product_json(sitemap_url, get, evidence)
+        # A Gatsby site keeps every page's data as JSON beside the page, and on EQL's
+        # launch platform the index's data lists the retailer's products
+        # (luar.runfair.com, 2026-09-27, whose /sitemap.xml is an HTML page).
+        if served and not product_json and ("___gatsby" in body or "/page-data/" in body):
+            pd = get(f"{base}/page-data/index/page-data.json")
+            page_data = pd.status_code == 200 and '"draws"' in pd.text
+            evidence["page_data"] = f"{pd.status_code}-{'draws' if page_data else 'no-draws'}"
+        if not product_json and not page_data:
+            woo_api = _probe_woo(base, transport, evidence)
+        if not woo_api and not product_json and not page_data and sitemap_url:
             ldjson_product, product_url_prefix = _probe_ldjson(sitemap_url, transport, evidence)
+
+    # Shopify's product feed states prices without a currency; the store states it
+    # once, for every product, at /meta.json. One request per brand, only on Shopify —
+    # and a store with the bulk feed off keeps /meta.json open (fengofficiel.com, VND).
+    currency = None
+    if bulk_json or product_json:
+        meta = get(f"{base}/meta.json")
+        if meta.status_code == 200:
+            try:
+                currency = (meta.json() or {}).get("currency") or None
+            except ValueError:
+                currency = None
+        evidence["meta_json"] = f"{meta.status_code}-{currency or 'no-currency'}"
 
     if password_gated:
         transport_level = TransportLevel.T4
@@ -132,6 +150,8 @@ def probe(
         bulk_json=bulk_json,
         woo_api=woo_api,
         ldjson_product=ldjson_product,
+        product_json=product_json,
+        page_data=page_data,
         product_url_prefix=product_url_prefix,
         sitemap_url=sitemap_url,
         password_gated=password_gated,
@@ -139,17 +159,12 @@ def probe(
         currency=currency,
         evidence=evidence,
     )
-    if (
-        follow_shop
-        and served
-        and not password_gated
-        and not any((bulk_json, woo_api, ldjson_product))
-    ):
+    if follow_shop and served and not password_gated and not cap.readable():
         host = shop_link(home.text, domain)
         if host:
             evidence["shop_link"] = cap.evidence["shop_link"] = host
             shop = probe(host, transport, retry_pause, follow_shop=False)
-            if shop.bulk_json or shop.woo_api or shop.ldjson_product:
+            if shop.readable():
                 return shop.model_copy(
                     update={
                         "domain": domain,
@@ -186,6 +201,66 @@ def _sharpen_discovery(cap: Capability, transport: Transport) -> Capability:
 _LOC = re.compile(r"<loc>\s*([^<\s]+)\s*</loc>", re.I)
 # Which child of a multi-country sitemap index to read. We browse as a US visitor.
 _LOCALE_PREFERENCE = ("/us/", "/en-us/", "/int/", "/en/")
+# A path that opens with a locale: /en-us/… or /us/en/….
+_LOCALE_PATH = re.compile(r"^/(?:[a-z]{2}-[a-z]{2}|[a-z]{2}/[a-z]{2})/", re.I)
+# The locale segment of a sitemap URL, and the one we want it to be.
+_LOCALE_SEGMENT = re.compile(r"^(https?://[^/]+)/([a-z]{2}-[a-z]{2})/", re.I)
+_MARKET_LOCALE = "en-us"
+
+
+def _market_sitemap(url: str, get, evidence: dict[str, str]) -> str:
+    """The sitemap for the country whose prices the catalogue holds.
+
+    Marni's robots.txt names /en-ca/sitemap_index.xml — Canada's — and the same index
+    exists under /en-us/, with the same products at the prices the archive is for
+    (2026-09-27). One request, only when the named sitemap is another country's.
+    """
+    m = _LOCALE_SEGMENT.match(url)
+    if not m or m.group(2).lower() == _MARKET_LOCALE:
+        return url
+    ours = f"{m.group(1)}/{_MARKET_LOCALE}/" + url[m.end() :]
+    resp = get(ours)
+    if resp.status_code == 200 and "<" in resp.text[:200]:
+        evidence["sitemap_locale"] = f"{m.group(2)}→{_MARKET_LOCALE}"
+        return ours
+    return url
+
+
+def _paths(urls: list[str]) -> list[str]:
+    return ["/" + u.split("/", 3)[3] if u.count("/") >= 3 else "/" for u in urls]
+
+
+def _one_market(urls: list[str]) -> list[str]:
+    """One country's copy of a sitemap that lists every country's.
+
+    Acne Studios' sitemap_1.xml holds 10,992 URLs in forty locales — the same few
+    hundred products under /us/en/, /it/it/, /tw/zh/ … — so no folder holds half of
+    them and no family is ever found (2026-09-27). Keep the preferred country's URLs
+    when most of the list is localised; a list that is not comes back as it came.
+    """
+    paths = _paths(urls)
+    if sum(1 for p in paths if _LOCALE_PATH.match(p)) * 2 < len(urls):
+        return urls
+    for pref in _LOCALE_PREFERENCE:
+        kept = [u for u, p in zip(urls, paths, strict=True) if p.lower().startswith(pref)]
+        if kept:
+            return kept
+    return urls
+
+
+def _biggest_family(paths: list[str]) -> tuple[str, int] | None:
+    """The deepest folder holding at least half the paths, and how many it holds."""
+    counts: dict[str, int] = {}
+    for path in paths:
+        segs = [s for s in path.split("/") if s]
+        for depth in range(1, len(segs)):
+            folder = "/" + "/".join(segs[:depth]) + "/"
+            counts[folder] = counts.get(folder, 0) + 1
+    family = [f for f, n in counts.items() if n * 2 >= len(paths)]
+    if not family:
+        return None
+    best = max(family, key=lambda f: (f.count("/"), counts[f]))
+    return best, counts[best]
 
 
 def _trust_a_named_product_sitemap(cap: Capability, transport) -> Capability:
@@ -223,33 +298,34 @@ def _widen_to_the_biggest_url_family(cap: Capability, transport) -> Capability:
     its sitemap index has one child per country, of which the probe happened to read Korea.
     Of 1,395 URLs in the US sitemap, 1,332 share /us/en/item/.
 
-    Rule: read one sitemap (the named product one, else the US one, else the first), find
-    the deepest folder that holds at least half its URLs, and use it if it matches more
-    URLs than the pattern we had. A prefix of "/" means an earlier learning already found
-    a sitemap of nothing but products, so there is nothing to widen.
+    Rule: read one sitemap (the named product one, else the US one, else the biggest of
+    two or three, else the first), keep our country's URLs, find the deepest folder that
+    holds at least half of them, and use it if it matches more URLs than the pattern we
+    had. A prefix of "/" means an earlier learning already found a sitemap of nothing
+    but products, so there is nothing to widen.
+
+    A child sitemap that holds nothing but the family is adopted even when the prefix
+    stands: Marni's index (2026-09-27) has one child of 72 looks and editorials and one
+    of 1,838 products, both under /en-us/, and reading the index reads the looks too.
     """
     if not cap.sitemap_url or cap.product_url_prefix == "/":
         return cap
-    sitemap_url, urls = _one_sitemap(cap.sitemap_url, transport)
-    if len(urls) < 20:
+    sitemap_url, listed = _one_sitemap(cap.sitemap_url, transport)
+    if len(listed) < 20:
         return cap
 
-    paths = ["/" + u.split("/", 3)[3] if u.count("/") >= 3 else "/" for u in urls]
-    counts: dict[str, int] = {}
-    for path in paths:
-        segs = [s for s in path.split("/") if s]
-        for depth in range(1, len(segs)):
-            folder = "/" + "/".join(segs[:depth]) + "/"
-            counts[folder] = counts.get(folder, 0) + 1
-    family = [f for f, n in counts.items() if n * 2 >= len(urls)]
-    if not family:
+    urls = _one_market(listed)
+    paths = _paths(urls)
+    found = _biggest_family(paths)
+    if not found:
         return cap
-    best = max(family, key=lambda f: (f.count("/"), counts[f]))
+    best, n = found
 
     current = sum(p.startswith(cap.product_url_prefix or "\0") for p in paths)
-    if counts[best] <= current:
+    whole = n == len(listed) and sitemap_url != cap.sitemap_url
+    if n <= current and not whole:
         return cap
-    evidence = {**cap.evidence, "learned_family": f"{best} ({counts[best]} of {len(urls)})"}
+    evidence = {**cap.evidence, "learned_family": f"{best} ({n} of {len(listed)})"}
     return cap.model_copy(
         update={"sitemap_url": sitemap_url, "product_url_prefix": best, "evidence": evidence}
     )
@@ -261,11 +337,24 @@ def _one_sitemap(url: str, transport, depth: int = 0) -> tuple[str, list[str]]:
         return url, []
     locs = _LOC.findall(resp.text)
     if "<sitemapindex" not in resp.text or depth > 0:
-        return url, [u for u in locs if not u.endswith(".xml")]
+        return url, _entries(resp.text)
     named = [u for u in locs if "product" in u.rsplit("/", 1)[-1].lower()]
     by_locale = [u for pref in _LOCALE_PREFERENCE for u in locs if pref in u]
-    chosen = (named or by_locale or locs or [None])[0]
-    return _one_sitemap(chosen, transport, depth + 1) if chosen else (url, [])
+    candidates = named or by_locale or locs
+    if not candidates:
+        return url, []
+    # Two or three children and nothing to tell them apart by name: read them and take
+    # the biggest. Products are the biggest family of URLs (learning 7), and that holds
+    # between a store's sitemaps as it does within one. Marni: 72 against 1,838.
+    if 2 <= len(candidates) <= 3:
+        read = [_one_sitemap(c, transport, depth + 1) for c in candidates]
+        return max(read, key=lambda r: len(r[1]))
+    if not named and not by_locale:
+        # Many children, none of them telling: the first one is a sample of the family,
+        # and the index stays the sitemap to read. Acne Studios splits one catalogue
+        # over sitemap_1..5.xml; adopting sitemap_1 would have dropped four fifths of it.
+        return url, _one_sitemap(candidates[0], transport, depth + 1)[1]
+    return _one_sitemap(candidates[0], transport, depth + 1)
 
 
 def _probe_woo(base: str, transport: Transport, evidence: dict[str, str]) -> bool:
@@ -304,7 +393,7 @@ def _probe_ldjson(
     So cluster the sitemap by first path segment and test the plausible clusters rather
     than assuming /products/. Costs at most 3 page fetches.
     """
-    urls = _sitemap_urls(sitemap_url, transport)
+    urls = _one_market(_sitemap_urls(sitemap_url, transport))
     if not urls:
         return False, None
 
@@ -318,6 +407,18 @@ def _probe_ldjson(
             continue  # a top-level page has no parent path to learn from
         prefix = "/" + "/".join(segments[:-1]) + "/"
         clusters.setdefault(prefix, []).append(u)
+    # A store that gives each product its own folder (/us/en/<slug>/<CODE>.html on Acne
+    # Studios, 2026-09-27) has no parent path shared by more than one product, and the
+    # biggest clusters are its category pages. The family the products do share — the
+    # deepest folder holding half the URLs — is then the cluster worth sampling.
+    found = _biggest_family(_paths(urls))
+    if found:
+        # Everything under the folder, not just the pages directly in it — as a parent
+        # path, /us/en/ names the category pages; as a family, it names the products.
+        folder = found[0]
+        clusters[folder] = [
+            u for u, p in zip(urls, _paths(urls), strict=True) if p.startswith(folder)
+        ]
     if not clusters:
         return False, None
 
@@ -326,13 +427,42 @@ def _probe_ldjson(
 
     ranked = sorted(clusters.items(), key=lambda kv: (not conventional(kv[0]), -len(kv[1])))
     for prefix, members in ranked[:3]:
-        page = transport.get(members[0])
+        # A landing page is first in a sitemap (learning 11); in a big cluster the middle
+        # is where a product is.
+        sample = members[len(members) // 2] if len(members) >= 20 else members[0]
+        page = transport.get(sample)
         if page.status_code != 200:
             continue
         if "application/ld+json" in page.text and '"Product"' in page.text:
-            evidence["ldjson_sample"] = members[0]
+            evidence["ldjson_sample"] = sample
             return True, prefix
     return False, None
+
+
+_SHOPIFY_PRODUCT_SITEMAP = re.compile(
+    r"<loc>\s*(https?://[^<\s]*sitemap_products_\d+\.xml[^<\s]*)", re.I
+)
+
+
+def _probe_product_json(sitemap_url: str, get, evidence: dict[str, str]) -> bool:
+    """Does this store answer /products/<handle>.json for one product? Only asked of an
+    index that names its product sitemap the way Shopify does."""
+    index = get(sitemap_url)
+    if index.status_code != 200:
+        return False
+    m = _SHOPIFY_PRODUCT_SITEMAP.search(index.text)
+    if not m:
+        return False
+    products = get(m.group(1))
+    if products.status_code != 200:
+        return False
+    handle_url = next((u for u in _LOC.findall(products.text) if "/products/" in u), None)
+    if not handle_url:
+        return False
+    one = get(handle_url.split("?")[0].rstrip("/") + ".json")
+    opened = one.status_code == 200 and '"product"' in one.text[:200]
+    evidence["product_json"] = f"{one.status_code}-{'open' if opened else 'closed'}"
+    return opened
 
 
 def _sitemap_urls(sitemap_url: str, transport: Transport, depth: int = 0) -> list[str]:
@@ -347,7 +477,28 @@ def _sitemap_urls(sitemap_url: str, transport: Transport, depth: int = 0) -> lis
         for child in preferred:
             out.extend(_sitemap_urls(child, transport, depth + 1))
         return out
-    return [u for u in _LOC.findall(text) if not u.endswith(".xml")]
+    return _entries(text)
+
+
+_URL_BLOCK = re.compile(r"<url>(.*?)</url>", re.S | re.I)
+_MARKET_ALTERNATE = re.compile(
+    r'<xhtml:link\b(?=[^>]*\bhreflang="' + MARKET_HREFLANG + r'")[^>]*\bhref="([^"]+)"', re.I
+)
+
+
+def _entries(text: str) -> list[str]:
+    """One URL per sitemap entry: the market's hreflang alternate where the entry lists
+    one, else its loc (see connectors.sitemap.market_link)."""
+    blocks = _URL_BLOCK.findall(text)
+    if not blocks:
+        return [u for u in _LOC.findall(text) if not u.endswith(".xml")]
+    out: list[str] = []
+    for block in blocks:
+        m = _MARKET_ALTERNATE.search(block)
+        loc = m.group(1) if m else next(iter(_LOC.findall(block)), None)
+        if loc and not loc.endswith(".xml"):
+            out.append(loc.strip())
+    return out
 
 
 def _title(body: str) -> str:

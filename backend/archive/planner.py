@@ -94,6 +94,28 @@ def compose_plan(
                     "ready",
                 )
             )
+        # The store's own JSON, one product at a time, outranks reading its pages: the
+        # feed is the whole record and the page is whatever the theme chose to print.
+        if cap.sitemap_url and cap.product_json:
+            rungs.append(
+                plan(
+                    cheap,
+                    DiscoveryChannel.SITEMAP,
+                    FetchChannel.PLATFORM_JSON,
+                    ChangeSignal.PER_ITEM,
+                    "ready",
+                )
+            )
+        if cap.page_data:
+            rungs.append(
+                plan(
+                    cheap,
+                    DiscoveryChannel.PAGE_DATA,
+                    FetchChannel.PLATFORM_JSON,
+                    ChangeSignal.PER_ITEM,
+                    "ready",
+                )
+            )
         if cap.sitemap_url and cap.ldjson_product:
             rungs.append(
                 plan(

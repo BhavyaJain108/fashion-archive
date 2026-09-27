@@ -100,6 +100,20 @@ def parse_ldjson_product(html: str, url: str) -> ProductRecord:
     raise NotAProduct(f"no product data on {url} (no JSON-LD Product, no price)")
 
 
+def page_images(html: str) -> list[str]:
+    """Every photograph a page states for its product: the JSON-LD node's, then
+    og:image — without duplicates, in that order."""
+    out: list[str] = []
+    node = _find_product_node(html)
+    for url in _images(node.get("image")) if node else []:
+        if url not in out:
+            out.append(url)
+    for kind, url in _OG.findall(html):
+        if kind.lower() == "image" and url and url not in out:
+            out.append(url)
+    return out
+
+
 def _money(value: str | None) -> float | None:
     if not value:
         return None

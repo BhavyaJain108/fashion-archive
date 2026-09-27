@@ -4,6 +4,9 @@ from enum import Enum
 
 from pydantic import BaseModel, Field
 
+# The hreflang of the market whose prices the catalogue holds. We browse as a US visitor.
+MARKET_HREFLANG = "en-us"
+
 
 class TransportLevel(str, Enum):
     T0 = "t0"  # plain HTTP
@@ -18,6 +21,9 @@ class DiscoveryChannel(str, Enum):
     BULK_JSON = "bulk_json"
     WOO_API = "woo_api"
     SITEMAP = "sitemap"
+    # A Gatsby site's page data: every page as JSON beside the page. EQL's launch
+    # platform (runfair) lists a retailer's products in the index's data.
+    PAGE_DATA = "page_data"
     CATEGORY_PAGES = "category_pages"
     AGENT = "agent"
 
@@ -43,6 +49,10 @@ class Capability(BaseModel):
     bulk_json: bool = False
     woo_api: bool = False
     ldjson_product: bool = False
+    # Shopify with the bulk feed switched off still answers /products/<handle>.json.
+    product_json: bool = False
+    # A Gatsby site whose index page-data lists the products (runfair).
+    page_data: bool = False
     product_url_prefix: str | None = None  # learned, e.g. '/products/' or '/assets/'
     sitemap_url: str | None = None
     password_gated: bool = False
@@ -52,6 +62,17 @@ class Capability(BaseModel):
     # site is a portfolio and its "Shop" link goes to shop.laluneofficial.com.
     shop_domain: str | None = None
     evidence: dict[str, str] = Field(default_factory=dict)
+
+    def readable(self) -> bool:
+        """Did the probe find anything a connector could actually read? A sitemap does
+        not count: it lists URLs without making any of them parseable."""
+        return bool(
+            self.bulk_json
+            or self.woo_api
+            or self.ldjson_product
+            or self.product_json
+            or self.page_data
+        )
 
 
 class Brand(BaseModel):

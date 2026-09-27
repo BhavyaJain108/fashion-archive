@@ -324,3 +324,111 @@ def test_a_single_variant_product_offers_no_size():
     }
     rec = map_product(p, "kuurth.com")
     assert rec.offers == [{"size": None, "variant_id": "9", "available": True, "price": 80.0}]
+
+
+# --- the feed off, one product at a time (fengofficiel.com, 2026-09-27) ---
+
+PRODUCT_SITEMAP = (
+    '<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+    "<url><loc>https://feng.com/</loc></url>"
+    "<url><loc>https://feng.com/products/tights</loc><lastmod>2026-09-01</lastmod></url>"
+    "<url><loc>https://feng.com/products/gone</loc></url>"
+    "</urlset>"
+)
+
+
+def page_transport() -> HttpxTransport:
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/sitemap_products_1.xml":
+            return httpx.Response(200, text=PRODUCT_SITEMAP)
+        if path == "/products/tights.json":
+            product = json.loads((FIX / "shopify_products_page1.json").read_text())["products"][0]
+            return httpx.Response(
+                200, json={"product": product}, headers={"set-cookie": "cart_currency=EUR; path=/"}
+            )
+        if path == "/products.json":
+            return httpx.Response(404)
+        return httpx.Response(404)
+
+    return HttpxTransport(client=httpx.Client(transport=httpx.MockTransport(handler)))
+
+
+@pytest.mark.unit
+def test_page_connector_discovers_from_the_product_sitemap_and_reads_each_products_json():
+    from backend.archive.connectors.shopify import ShopifyPageConnector
+
+    c = ShopifyPageConnector("https://feng.com/sitemap_products_1.xml", "/")
+    refs = c.discover(Brand(domain="feng.com", homepage_url="https://feng.com"), page_transport())
+    assert [r.url for r in refs] == [
+        "https://feng.com/products/tights",
+        "https://feng.com/products/gone",
+    ]
+    rec = c.fetch(refs[0], page_transport())
+    assert rec.product_title == "Nemo Hoodie" and rec.price == 126.0
+    assert rec.currency == "EUR"  # the cookie names the currency of these prices
+    assert rec.market is None  # the shop's own figures; no market was asked for
+    assert rec.platform == "shopify"
+
+
+@pytest.mark.unit
+def test_a_handle_the_sitemap_still_lists_but_the_store_has_dropped_is_not_a_product():
+    from backend.archive.connectors.base import NotAProduct
+    from backend.archive.connectors.shopify import ShopifyPageConnector
+
+    c = ShopifyPageConnector("https://feng.com/sitemap_products_1.xml", "/")
+    refs = c.discover(Brand(domain="feng.com", homepage_url="https://feng.com"), page_transport())
+    with pytest.raises(NotAProduct):
+        c.fetch(refs[1], page_transport())
+
+
+# --- a feed without photographs: the page has them (cooperativeshop.us, 2026-09-27) ---
+
+COOP_PAGE = (
+    "<html><head>"
+    '<meta property="og:title" content="Homme Zip-Up Jacket">'
+    '<meta property="og:image" content="https://www.cooperativeshop.us/cdn/shop/files/IMG_6207.jpg?v=1">'
+    '<script type="application/ld+json">{"@type":"ProductGroup","name":"Homme Zip-Up Jacket"}</script>'
+    "</head><body></body></html>"
+)
+
+
+@pytest.mark.unit
+def test_a_feed_product_without_photographs_takes_the_pages():
+    asked = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        asked.append(request.url.path)
+        if request.url.path == "/products.json":
+            page = json.loads((FIX / "shopify_products_page1.json").read_text())
+            page["products"] = [{**page["products"][0], "images": [], "image": None}]
+            return httpx.Response(
+                200, json=page if request.url.params.get("page") == "1" else {"products": []}
+            )
+        if request.url.path == "/products/nemo-hoodie":
+            return httpx.Response(200, text=COOP_PAGE)
+        return httpx.Response(404)
+
+    t = HttpxTransport(client=httpx.Client(transport=httpx.MockTransport(handler)))
+    c = ShopifyConnector()
+    refs = c.discover(BRAND, t)
+    rec = c.fetch(refs[0], t)
+    assert rec.main_image_url == "https://www.cooperativeshop.us/cdn/shop/files/IMG_6207.jpg?v=1"
+    assert asked.count("/products/nemo-hoodie") == 1
+
+
+@pytest.mark.unit
+def test_a_feed_product_with_photographs_costs_no_page():
+    asked = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        asked.append(request.url.path)
+        page = json.loads((FIX / "shopify_products_page1.json").read_text())
+        return httpx.Response(
+            200, json=page if request.url.params.get("page") == "1" else {"products": []}
+        )
+
+    t = HttpxTransport(client=httpx.Client(transport=httpx.MockTransport(handler)))
+    c = ShopifyConnector()
+    rec = c.fetch(c.discover(BRAND, t)[0], t)
+    assert rec.main_image_url and all(p == "/products.json" for p in asked)

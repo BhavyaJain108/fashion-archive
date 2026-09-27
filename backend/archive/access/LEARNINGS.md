@@ -281,6 +281,73 @@ Worth generalising: when a defence produces a credential, the expensive tool is 
 Code: `browser/challenge.ChallengeAwareBrowser`, `render=True` to keep every request in the
 browser for a site whose products only exist after its JavaScript runs.
 
+### 15. robots.txt names one country's sitemap; ask for ours — 2026-09-27
+Marni's robots.txt points at `/en-ca/sitemap_index.xml`. The same index exists at
+`/en-us/`, with the same products at the prices the archive holds. The probe now tries the
+US locale's copy of any sitemap URL that carries another country's locale segment, one
+request, and keeps what robots named when there is none.
+Code: `fingerprint._market_sitemap`.
+
+### 16. Of two unnamed sitemaps, the bigger one is the products — 2026-09-27
+Marni's index has two children under `/en-us/`: `sitemap_0.xml` (72 URLs: looks, the
+collaborations, an awards page) and `sitemap-en-us.xml` (1,838 products). Neither name
+says "product", the locale rule matched both, and the first was read. Every look page
+carries a Product JSON-LD with no price and no image, so 69 "products" were found and every
+fetch was "no product data". Now two or three children with nothing to tell them apart by
+name are all read and the biggest is used — learning 7 applied between sitemaps instead of
+within one — and a child of nothing but the family is adopted even when the prefix stands.
+Measured: 917 products, 100% on title, price, stock and images.
+Code: `fingerprint._one_sitemap`, `_widen_to_the_biggest_url_family`.
+
+### 17. One entry, forty countries: read the market's alternate — 2026-09-27
+Acne Studios' five sitemaps hold 500 entries each. Each entry is one page with its
+hreflang alternates inline — forty `<xhtml:link>`s — and a canonical `<loc>` in whichever
+country the generator chose: of 500, 7 are US locs and 275 carry a US alternate. Reading
+locs alone found 7 products; the parent-path clustering then saw every product in a folder
+of its own (`/us/en/<slug>/<CODE>.html`) and the biggest clusters were the category pages.
+
+Three rules, each narrow: an entry's URL is its `en-us` alternate where it lists one, else
+its loc (the same fact as learning 10, stated the other way round); when a sitemap mixes
+locales as separate entries, only our country's are kept before any counting; and the
+family folder (the deepest holding half the URLs) is a cluster worth sampling, from its
+middle (learning 11: the landing page is first). The index stays the sitemap to read when
+its many children have no telling name — adopting `sitemap_1.xml` would have dropped four
+fifths of the catalogue. Measured: 598 products, 100% on every core field and sizes, over
+plain HTTP.
+Code: `connectors/sitemap.market_link`, `fingerprint._entries`, `_one_market`,
+`_biggest_family`, `_probe_ldjson`.
+
+### 18. A Gatsby site keeps its pages as JSON beside the pages — 2026-09-27
+LUAR sells through EQL's launch platform (luar.runfair.com). No sitemap (the URL answers
+with the app's HTML), no JSON-LD, no feed — and `/page-data/index/page-data.json`, which
+Gatsby writes for every page, lists the retailer's draws with a country and a slug, and
+`/page-data/us/<slug>/page-data.json` is the whole product: name, price, currency,
+description, photographs, SKU, and the window it sells in. A draw outside its window is
+out of stock whatever the page says. New lane: `page_data × platform_json`.
+Code: `connectors/runfair.py`, `fingerprint.probe` (`___gatsby` in the homepage).
+
+### 19. Shopify with the feed switched off still answers one product at a time — 2026-09-27
+fengofficiel.com — a Haravan store, Shopify's shape to the last field — serves 404 at
+`/products.json` and the whole product record at `/products/<handle>.json`. Only a
+Shopify-shaped index names its product sitemap `sitemap_products_N.xml`, so the probe
+asks for one product's JSON there and nowhere else. The per-product endpoint writes `tags`
+as one string or null, and takes no market, so the prices are the shop's own; `/meta.json`
+stays open and names the currency (VND). 8 of its 43 handles are placeholders — every
+variant at 0, unavailable, no photograph — and are not products. New lane:
+`sitemap × platform_json`, which outranks reading the pages.
+Code: `fingerprint._probe_product_json`, `connectors/shopify.ShopifyPageConnector`.
+
+### 20. Our own second probe is the 429 — 2026-09-27
+Maketh Thou, Cooperative, Oh Polly, JW PEI and Bronze Snake all produced products on a
+first capability run and "no-answer" on a second run minutes later, from the same
+address. The bench already knew this (a brand held by our worker is not a clean reading);
+it is as true of two probes by hand. Re-probe with a gap before calling a brand blocked.
+
+### Not a shop
+bellaspantzel.com is a Cargo portfolio (`hasShopModel: false`, pages `/` and `/about`,
+credits for Rick Owens, Robert Wun, Heliot Emil). There is nothing to sell and nothing to
+read; it is kept on the roster withheld from the page.
+
 ## Open
 
 Next, in the order they look worth doing:

@@ -27,7 +27,7 @@ CHEAP_LEVELS = (TransportLevel.T1,)
 
 def readable(cap: Capability) -> bool:
     """Did this probe find anything a connector could actually read?"""
-    return bool(cap.bulk_json or cap.woo_api or cap.ldjson_product)
+    return cap.readable()
 
 
 def escalating_prober(browser_factory=None, base=probe, levels=CHEAP_LEVELS, log=None):
