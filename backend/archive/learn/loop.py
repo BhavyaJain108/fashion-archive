@@ -592,7 +592,7 @@ class Loop:
         # land: file the recipe, write the plan, record the lane, the brand is due
         recipe.brands = [domain]
         self._save_recipe(recipe)
-        plan = recipe_plan(domain, recipe, TransportLevel.T1)
+        plan = recipe_plan(domain, recipe, _open_rung(d))
         self.catalog.save_plan(plan)
         self.catalog.set_brand_state(domain, "scoped")
         self.dossiers.lane(
@@ -920,6 +920,16 @@ def recipe_plan(domain: str, recipe: LaneRecipe, transport: TransportLevel) -> S
         recipe=recipe.model_dump(),
         currency=recipe.fetch.currency,
     )
+
+
+def _open_rung(d: Dossier) -> TransportLevel:
+    """The cheapest rung the ladder found open; the browser handshake when none is
+    recorded, since a recipe that needs a page is rarely read over plain HTTP."""
+    rungs = d.rung_outcomes()
+    for level in (TransportLevel.T0, TransportLevel.T1, TransportLevel.T1P, TransportLevel.T2):
+        if rungs.get(level.value) in ("ok", "ok_thin"):
+            return level
+    return TransportLevel.T1
 
 
 def gaps_from_fill(fill: dict[str, float]) -> dict[str, dict]:
