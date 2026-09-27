@@ -39,12 +39,12 @@ _PAGE_CAP = 60_000  # chars per page in the bundle; two pages and the rest fit w
 _SIGNATURE_SCHEMA = {
     "type": "object",
     "properties": {
-        "platform": {"type": "string", "enum": list(PLATFORMS)},
-        "feed": {"type": "string", "enum": list(FEEDS)},
-        "sitemap": {"type": "string", "enum": list(SITEMAPS)},
-        "page": {"type": "string", "enum": list(PAGES)},
-        "defence": {"type": "string", "enum": list(DEFENCES)},
-        "locale": {"type": "string", "enum": list(LOCALES)},
+        "platform": {"type": "string", "description": "one of " + ", ".join(PLATFORMS)},
+        "feed": {"type": "string", "description": "one of " + ", ".join(FEEDS)},
+        "sitemap": {"type": "string", "description": "one of " + ", ".join(SITEMAPS)},
+        "page": {"type": "string", "description": "one of " + ", ".join(PAGES)},
+        "defence": {"type": "string", "description": "one of " + ", ".join(DEFENCES)},
+        "locale": {"type": "string", "description": "one of " + ", ".join(LOCALES)},
     },
     "required": ["platform", "feed", "sitemap", "page", "defence", "locale"],
     "additionalProperties": False,
@@ -84,8 +84,8 @@ _RECIPE_SCHEMA = {
                 "root": {"type": ["string", "null"]},
                 "fields": {
                     "type": "object",
-                    "properties": {f: {"type": "string"} for f in FIELDS},
-                    "additionalProperties": False,
+                    "description": "field name -> path; names: " + ", ".join(FIELDS),
+                    "additionalProperties": {"type": "string"},
                 },
                 "in_stock_when": {"type": ["string", "null"]},
                 "currency": {"type": ["string", "null"]},
@@ -101,9 +101,11 @@ _RECIPE_SCHEMA = {
 PROPOSAL_TOOL = {
     "name": "report_analysis",
     "description": "Report what kind of shop this is, what stands in the way, and how to read it.",
-    # Not strict: the schema's enums and nesting compile to a grammar the API refuses as
-    # too large. The proposal is checked on our side instead — a recipe is parsed as a
-    # LaneRecipe and a signature as a Signature before anything is written.
+    # Strict, so the answer is always the shape below: without it the model answered
+    # twice (gentlemonster, tansan) with every nested object flattened to a string. The
+    # grammar is kept small for the API's limit — the field names and the signature's
+    # words are described, not enumerated, and checked on our side.
+    "strict": True,
     "input_schema": {
         "type": "object",
         "properties": {
@@ -245,7 +247,7 @@ class _Client:
         self._model = model
         self._spend = spend
 
-    def propose(self, prompt: str) -> dict:
+    def propose(self, prompt: str, _retry: bool = False) -> dict:
         msg = self._c.messages.create(
             model=self._model,
             max_tokens=16000,
@@ -263,8 +265,33 @@ class _Client:
             )
         for block in msg.content:
             if block.type == "tool_use":
-                return cast(dict, block.input)
+                answer = cast(dict, block.input)
+                if _well_formed(answer) or _retry:
+                    return answer
+                # once more, saying what was wrong; a second malformed answer stands
+                return self.propose(
+                    prompt + "\n\nYour previous answer was malformed: lane, signature, recipe and "
+                    "every gap must be JSON objects, not strings. Answer again.",
+                    _retry=True,
+                )
         return {}
+
+
+def _well_formed(answer: dict) -> bool:
+    """The shape the tool promises: lane an object with a kind; signature, when given,
+    an object; gaps, when given, a list of objects."""
+    lane = answer.get("lane")
+    if not isinstance(lane, dict) or not isinstance(lane.get("kind"), str):
+        return False
+    if lane.get("kind") == "recipe" and not isinstance(lane.get("recipe"), dict):
+        return False
+    sig = answer.get("signature")
+    if sig is not None and not isinstance(sig, dict):
+        return False
+    gaps = answer.get("gaps")
+    if gaps is not None and not (isinstance(gaps, list) and all(isinstance(g, dict) for g in gaps)):
+        return False
+    return True
 
 
 def default_client(spend: Spend | None = None) -> _Client:
@@ -380,6 +407,18 @@ def analyse(
             kind=kind,
             status="failed",
             reasoning="the model returned no proposal",
+            usd=spend.usd,
+        )
+    if not _well_formed(answer):
+        # Seen once on gentlemonster.com: the tool input came back flattened, every
+        # nested object a string with "<parameter>" fragments in it. A malformed
+        # answer is a failed analysis, recorded and charged, never a crash.
+        return Analysis(
+            id=ident,
+            at=at,
+            kind=kind,
+            status="failed",
+            reasoning="the model's answer was malformed: lane, signature or gaps is not an object",
             usd=spend.usd,
         )
     return Analysis(
