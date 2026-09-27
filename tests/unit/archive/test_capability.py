@@ -141,3 +141,22 @@ def test_gated_brands_are_collapsed_to_a_footnote_by_default():
 
     full = format_matrix(reps, show_gated=True)
     assert "locked.com" in full.split("full=")[0]  # rows restored on request
+
+
+@pytest.mark.unit
+def test_probe_reports_busy_not_blocked_when_the_store_asks_for_a_moment():
+    """Bronze Snake: a 429 on the feed after the probe's own requests (2026-09-27)."""
+    from backend.archive.connectors.base import ChannelBusy
+
+    class Busy(Conn):
+        def discover(self, brand, transport):
+            raise ChannelBusy("products.json → HTTP 429")
+
+    rep = probe_brand(
+        BRAND,
+        _t(),
+        prober=lambda d, t: OPEN,
+        composer=compose_plan,
+        connector_factory=lambda plan, sitemap_url=None, limit=None: Busy(),
+    )
+    assert rep.verdict == "busy" and "429" in rep.note

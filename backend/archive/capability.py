@@ -8,7 +8,7 @@ verdict. Cheap enough to run across the whole fleet in minutes.
 from dataclasses import dataclass, field
 
 from backend.archive.connectors import get_connector
-from backend.archive.connectors.base import ChannelBlocked, SkipProduct
+from backend.archive.connectors.base import ChannelBlocked, ChannelBusy, SkipProduct
 from backend.archive.domain.brand import Brand, Capability, ScrapePlan, shop_target
 from backend.archive.fingerprint import probe
 from backend.archive.planner import compose_plan
@@ -22,7 +22,7 @@ CORE_FIELDS = ("product_title", "price", "in_stock", "all_images")
 class CapabilityReport:
     domain: str
     lane: str = "-"
-    verdict: str = "untested"  # full | partial | poor | blocked | gated | unreachable
+    verdict: str = "untested"  # full | partial | poor | busy | blocked | gated | unreachable
     catalog_size: int | None = None
     sampled: int = 0
     fill: dict[str, float] = field(default_factory=dict)
@@ -83,6 +83,13 @@ def probe_brand(
         connector = connector_factory(plan)
         try:
             refs = connector.discover(shop_target(brand, plan), work)
+        except ChannelBusy as e:
+            # The channel is fine and said so. Bronze Snake's feed answers 429 to the
+            # request after the probe's (2026-09-27); a run paced by its budget comes
+            # back later, and "blocked" would send someone climbing a ladder for a
+            # brand that only wants a moment.
+            rep.verdict, rep.note = "busy", f"come back later: {e}"
+            return rep
         except ChannelBlocked as e:
             rep.verdict, rep.note = "blocked", f"discover: {e}"
             return rep
@@ -120,7 +127,15 @@ def format_matrix(reports: list[CapabilityReport], show_gated: bool = False) -> 
     Password-gated stores are collapsed to a footnote by default — there is nothing to
     measure until they open, and five identical rows every run is noise.
     """
-    order = {"full": 0, "partial": 1, "poor": 2, "blocked": 3, "gated": 4, "unreachable": 5}
+    order = {
+        "full": 0,
+        "partial": 1,
+        "poor": 2,
+        "busy": 3,
+        "blocked": 4,
+        "gated": 5,
+        "unreachable": 6,
+    }
     shown = reports if show_gated else [r for r in reports if r.verdict != "gated"]
     rows = sorted(shown, key=lambda r: (order.get(r.verdict, 9), r.domain))
     cols = ("product_title", "price", "in_stock", "size_info", "all_images")
