@@ -65,6 +65,16 @@ images/<sha256>                  photographs, content-addressed — nothing is s
 runs/ scores/ evidence/ logs/    what each run did, how it scored, where it searched
 ```
 
+**Adding a brand** is three writes, and the deck's *add a brand* does all three:
+the roster (`brands.yml`, or the deck's own additions in `control/roster.json`),
+the catalogue's brand record, and a schedule row. The daemon and the deck read
+the schedule and nothing else, so a brand listed in `brands.yml` but never seeded
+is a brand that never runs and never shows. After editing the file:
+
+```bash
+venv/bin/python -m backend.archive.runner.cli brands seed    # every shown brand onto the schedule
+```
+
 A **run** claims a brand from the schedule with a conditional write, probes it,
 follows the plan, writes products and photographs, scores the result against a
 gate (six fields a shop cannot sell without), records what to fix next, and
