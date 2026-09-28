@@ -204,3 +204,38 @@ def test_a_worker_stands_down_when_a_newer_daemon_announces_itself(tmp_path, mon
         log=lambda *a: None,
     )
     assert seen == []  # stood down before claiming anything
+
+
+@pytest.mark.unit
+def test_memory_is_read_from_the_cgroup_less_the_cache_it_can_drop(tmp_path):
+    import backend.archive.runner.daemon as d
+
+    (tmp_path / "memory.current").write_text(str(1800 * 2**20))
+    (tmp_path / "memory.stat").write_text(f"anon 1\ninactive_file {300 * 2**20}\nactive_file 5\n")
+    assert d.memory_mb(str(tmp_path)) == 1500
+    assert d.memory_mb(str(tmp_path / "absent")) is None
+
+
+@pytest.mark.unit
+def test_a_worker_over_the_memory_limit_stops_between_brands_and_tells_the_rest(tmp_path):
+    """On 2026-09-28 the host killed the worker at 2 GiB; leaving between brands
+    means no run is ever cut off."""
+    import backend.archive.runner.daemon as d
+
+    store = DirectoryObjectStore(tmp_path)
+    cat = Catalog(store)
+    cat.upsert_brand(Brand(domain="kuurth.com", homepage_url="https://kuurth.com"))
+    Scheduler(store).add("kuurth.com", cadence_seconds=3600)
+    drain = threading.Event()
+    seen: list[str] = []
+    d.worker(
+        lambda: DirectoryObjectStore(tmp_path),
+        "w1",
+        lambda _cat: lambda b: (seen.append(b.domain), ([rec()], 0.0))[1],
+        "abc123",
+        log=lambda *a: None,
+        drain=drain,
+        memory=lambda: d.MEMORY_RESTART_MB + 1.0,
+    )
+    assert seen == [] and drain.is_set()
+    assert Scheduler(store).claim_next() is not None  # the brand was left for the next daemon

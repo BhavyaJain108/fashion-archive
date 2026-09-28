@@ -48,6 +48,11 @@ BUSY_BACKOFF = 1800
 # just not every day.
 ATTENTION_PATIENCE = 3
 ATTENTION_MAX_FACTOR = 16
+# The container's memory, in MB, above which the daemon finishes the brands it is on
+# and exits so Render starts a fresh one. The instance has 2 GiB; on 2026-09-28 the
+# worker climbed from 0.9 to 2.0 GB over eight hours and was killed by the host, which
+# takes whatever run is in flight with it. Leaving on our own terms loses nothing.
+MEMORY_RESTART_MB = int(os.environ.get("ARCHIVE_MEMORY_RESTART_MB", "1600"))
 
 
 def _iso_ago(seconds: int) -> str:
@@ -84,6 +89,37 @@ def code_version() -> str:
         return out.stdout.strip() or "unknown"
     except Exception:
         return "unknown"
+
+
+def memory_mb(root: str = "/sys/fs/cgroup") -> float | None:
+    """What the container holds, as the host counts it before killing: all memory
+    charged to the cgroup less the file cache it can drop. Chromium's processes are
+    in the same cgroup, which is why this is read here and not from our own RSS.
+    None outside a container."""
+    for current, stat, cache_key in (
+        ("memory.current", "memory.stat", "inactive_file"),  # cgroup v2
+        ("memory/memory.usage_in_bytes", "memory/memory.stat", "total_inactive_file"),
+    ):
+        try:
+            with open(f"{root}/{current}") as f:
+                used = int(f.read().strip())
+            cache = 0
+            with open(f"{root}/{stat}") as f:
+                for line in f:
+                    key, _, value = line.partition(" ")
+                    if key == cache_key:
+                        cache = int(value)
+            return (used - cache) / 2**20
+        except (OSError, ValueError):
+            continue
+    return None
+
+
+def _held() -> str:
+    """The container's memory as a log suffix, so a climb can be pinned on the brand
+    run or the learning tick that made it (the 2026-09-28 leak)."""
+    held = memory_mb()
+    return "" if held is None else f", holding {held:.0f} MB"
 
 
 def superseded(mine: str, stored: str | None) -> bool:
@@ -218,7 +254,7 @@ def _score_and_release(catalog, scheduler, due, records, cost, started, log) -> 
         f"{due.domain} {card.products} products, "
         f"{'PASS' if card.required_ok else 'FAIL ' + ','.join(card.required_gaps)}, "
         f"{card.fields_filled:.0%} fields, {card.images_per_product} img/product, "
-        f"${card.cost_usd}, {card.seconds_per_product}s/product"
+        f"${card.cost_usd}, {card.seconds_per_product}s/product{_held()}"
     )
     streak, reason = catalog.attention(due.domain)
     wait = backoff(due.cadence_seconds, streak)
@@ -227,7 +263,7 @@ def _score_and_release(catalog, scheduler, due, records, cost, started, log) -> 
     scheduler.release(due.domain, wait)
 
 
-def learner(store_factory, loop_factory, version: str, every: int, log=print) -> None:
+def learner(store_factory, loop_factory, version: str, every: int, log=print, drain=None) -> None:
     """The learning loop's own thread: one tick every `every` seconds, until the daemon
     stops or a newer one is up. A tick that fails is logged and the next one runs;
     the loop is bookkeeping and probing, never the scrape itself."""
@@ -239,6 +275,8 @@ def learner(store_factory, loop_factory, version: str, every: int, log=print) ->
         while True:
             if scheduler.should_stop() or superseded(version, scheduler.code_version()):
                 return
+            if drain is not None and drain.is_set():
+                return
             try:
                 summary = loop.tick()
                 log(
@@ -246,12 +284,13 @@ def learner(store_factory, loop_factory, version: str, every: int, log=print) ->
                     f"{len(summary.get('actions', []))} actions, "
                     f"{len(summary.get('analyses', []))} analyses, "
                     f"{len(summary.get('landed', []))} landed, {summary.get('seconds')}s"
+                    f"{_held()}"
                 )
             except Exception as e:  # noqa: BLE001
                 log(f"learn: tick failed: {type(e).__name__}: {e}")
             # Sleep in short steps so a stop flag is seen within a poll.
             for _ in range(max(1, every // POLL_SECONDS)):
-                if scheduler.should_stop():
+                if scheduler.should_stop() or (drain is not None and drain.is_set()):
                     return
                 time.sleep(POLL_SECONDS)
     finally:
@@ -259,7 +298,14 @@ def learner(store_factory, loop_factory, version: str, every: int, log=print) ->
 
 
 def worker(
-    store_factory, worker_id: str, do_brand_factory, version: str, log=print, before_factory=None
+    store_factory,
+    worker_id: str,
+    do_brand_factory,
+    version: str,
+    log=print,
+    before_factory=None,
+    drain=None,
+    memory=memory_mb,
 ) -> None:
     """One worker: claim, scrape, release, until told to stop or the code changes.
 
@@ -284,6 +330,16 @@ def worker(
                 if superseded(version, scheduler.code_version()):
                     log(f"{worker_id}: a newer daemon is up; standing down")
                     return
+                if drain is not None:
+                    held = memory()
+                    if held is not None and held > MEMORY_RESTART_MB and not drain.is_set():
+                        log(
+                            f"{worker_id}: container holds {held:.0f} MB "
+                            f"(limit {MEMORY_RESTART_MB}); restarting between brands"
+                        )
+                        drain.set()
+                    if drain.is_set():
+                        return
                 # Seen recently, by the deck: a thread that died used to be invisible.
                 scheduler.beat_worker(worker_id)
                 today = datetime.now(timezone.utc).date().isoformat()
@@ -320,6 +376,14 @@ def serve(
     learning loop ticks in a thread of its own beside the workers."""
     version = code_version()
     Scheduler(store_factory()).set_code_version(version)
+    # Set by the first worker to see memory over the limit: each thread stops at its
+    # next gap between brands, serve returns, the process exits and Render restarts it.
+    drain = threading.Event()
+    held = memory_mb()
+    log(
+        f"memory: {'unreadable, no restart guard' if held is None else f'{held:.0f} MB'}"
+        f" (restart above {MEMORY_RESTART_MB} MB)"
+    )
     log(
         f"daemon up: {workers} worker(s){' + learning loop' if loop_factory else ''} "
         f"on {version[:8]} at {datetime.now(timezone.utc):%H:%M}"
@@ -329,7 +393,7 @@ def serve(
         threading.Thread(
             target=worker,
             args=(store_factory, f"worker-{i + 1}", do_brand_factory, version),
-            kwargs={"log": log, "before_factory": before_factory},
+            kwargs={"log": log, "before_factory": before_factory, "drain": drain},
             daemon=True,
         )
         for i in range(workers)
@@ -339,7 +403,7 @@ def serve(
             threading.Thread(
                 target=learner,
                 args=(store_factory, loop_factory, version, learn_every),
-                kwargs={"log": log},
+                kwargs={"log": log, "drain": drain},
                 daemon=True,
             )
         )
@@ -347,4 +411,4 @@ def serve(
         t.start()
     for t in threads:
         t.join()
-    log("daemon down")
+    log("daemon down" + (" to shed memory" if drain.is_set() else ""))
