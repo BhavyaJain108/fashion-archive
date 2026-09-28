@@ -31,7 +31,7 @@ It will prompt for the secrets, which never enter the repo:
 | `APPLE_TEAM_ID` | Apple Developer -> Membership |
 | `APPLE_KEY_ID` | Apple Developer -> Keys -> the Sign in with Apple key |
 | `APPLE_PRIVATE_KEY` | contents of that key's .p8 file |
-| `ANTHROPIC_API_KEY` | your existing key |
+| `ANTHROPIC_API_KEY` | your existing key; set it on the API and on the worker — the worker's learning loop asks the model by itself, the API answers the deck's *ask the model* button |
 | `R2_ACCOUNT_ID` | in the R2 endpoint URL |
 | `R2_ACCESS_KEY_ID` | R2 -> Manage R2 API Tokens |
 | `R2_SECRET_ACCESS_KEY` | same token, shown once |
@@ -41,6 +41,22 @@ It will prompt for the secrets, which never enter the repo:
 | `ANTHROPIC_ADMIN_KEY` | Anthropic console, an admin key, for the costs page |
 | `CLOUDFLARE_API_TOKEN` | Cloudflare, read access to R2 analytics, for the costs page |
 | `RENDER_API_KEY` | Render account settings, for the costs page |
+| `ARCHIVE_PROXY_URL` | an egress proxy as `http://user:password@host:port`, on both services, for the brands that refuse cloud addresses (see below); unset, the t1p rung does not exist |
+| `ARCHIVE_GIT_PUSH_URL` | optional, worker only: `https://<token>@github.com/<owner>/<repo>.git` so the loop puts the model's code proposals on a `learn/…` branch; unset, they are filed for `cli learn apply` |
+
+The loop's remaining knobs have defaults in `render.yaml`: `LEARN_TICK_SECONDS`,
+`ARCHIVE_BUDGET_MULTIPLIER`, `ARCHIVE_BUDGET_FLOOR_USD`, the meter's unit prices and
+`ANALYST_MODEL`. Raise the floor when the roster's predicted spend is small and the
+model is being refused for budget.
+
+**The proxy.** Some hosts (604SERVICE, Van Cleef & Arpels) refuse every cloud address
+and serve a home connection, so the exit has to be residential. A laptop is one:
+run a small HTTP proxy on it with a username and password (tinyproxy with
+`BasicAuth`), expose the port with an ngrok TCP tunnel, and set `ARCHIVE_PROXY_URL`
+to `http://user:password@0.tcp.ngrok.io:<port>`. The password lives in the Render
+variable and `config/.env` only, never in the repo. `ARCHIVE_PROXY_URL_<CC>` names a
+country's own exit for a shop that serves one country. Other people's devices are
+not an exit without their explicit consent.
 
 First build takes 5-15 minutes; the image contains Chromium.
 
@@ -95,9 +111,11 @@ Open the site and register. Confirm, in order:
 provider caches are module-level. A second gunicorn worker would answer half the
 polls from a cold cache. Concurrency comes from `--threads`.
 
-**Every push replaces the scraper's container.** A run in flight is lost; the
-brand shows "worker dead" on the deck for up to fifteen minutes, or press
-*release*. Batch pushes.
+**A worker deploy replaces the scraper's container.** A run in flight is lost;
+the brand shows "worker dead" on the deck for up to fifteen minutes, or press
+*release*. The worker has `autoDeploy: false` for this reason: a push to
+`master` deploys the API only, and the worker is deployed from the dashboard
+when the fleet is quiet.
 
 **`DEBUG` must stay false.** It serves the Werkzeug debugger, an interactive
 Python console, to anyone who can trigger a traceback.

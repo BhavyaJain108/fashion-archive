@@ -65,6 +65,12 @@ def classify(
     # only evidence there is — an interstitial served under HTTP 200.
     if 429 in statuses:
         return Outcome.RATE_429
+    # One refused request beside pages that answered and something readable on them is
+    # not a refusal. Van Cleef & Arpels 403s its homepage to us and serves its sitemap
+    # and every product page (2026-09-28): the fleet had read its whole catalogue daily
+    # while the learning loop, reading the one 403 as a wall, had it down as blocked.
+    if (403 in statuses or 401 in statuses) and 200 in statuses and cap.readable():
+        return Outcome.OK
     if 403 in statuses or 401 in statuses:
         return Outcome.WAF_403
     if cap.challenged:

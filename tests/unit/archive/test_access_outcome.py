@@ -76,6 +76,16 @@ def test_403_is_a_waf_refusal():
 
 
 @pytest.mark.unit
+def test_one_403_beside_readable_pages_is_not_a_refusal():
+    """Van Cleef 403s its homepage and serves its sitemap and product pages: the
+    fleet read its whole catalogue daily while the loop filed it as blocked."""
+    assert classify(cap(challenged=True), None, [403, 200, 404, 200, 200]) is Outcome.OK
+    # Nothing readable, or nothing answered: still a refusal.
+    assert classify(cap(bulk_json=False, challenged=True), None, [403, 200]) is Outcome.WAF_403
+    assert classify(cap(challenged=True), None, [403, 404]) is Outcome.WAF_403
+
+
+@pytest.mark.unit
 def test_401_is_also_a_waf_refusal():
     assert classify(cap(challenged=True), None, [401]) is Outcome.WAF_403
 

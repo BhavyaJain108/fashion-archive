@@ -394,13 +394,17 @@ Next, in the order they look worth doing:
 
 - **robots.txt disallows `/api/*` on Gentle Monster**, so its JSON API is off limits even
   though the page calls it. Everything here comes from product pages and sitemaps.
-- **T1P has not been measured.** yeezy.com is the brand to measure it on, 604SERVICE
-  the one that wants a Korean exit; both wait on an egress proxy being configured.
+- **T1P has not been measured.** yeezy.com no longer needs it (entry 22); 604SERVICE and
+  Van Cleef & Arpels do, and both want a residential exit rather than a country's — cloud
+  ranges are what they refuse. Both wait on `ARCHIVE_PROXY_URL` being set.
 - **A browser through the proxy (T2P)** does not exist yet: a site that blocks the address
   *and* runs a challenge would need it. None on the roster does today.
-- **The browser lane is not in the scraper image.** Gentle Monster needs `--browser`, which
-  playwright provides locally and the deployed worker does not have. Turning it on means a
-  larger image and roughly 1.3 GB of egress per full pass at ~1 MB a page.
+- **The browser lane costs egress.** The scraper image carries Chromium since 2026-09-22,
+  so a t2 rung runs deployed; a full pass at ~1 MB a page is roughly 1.3 GB out, which is
+  why the recipe the model landed for Gentle Monster (sitemap and JSON-LD over t1) is the
+  better lane.
+- **Recipes should prefer the US market's sitemap family.** Gentle Monster's landed recipe
+  counts all seven markets' product URLs, so its catalogue reads one product per market.
 
 ### 22. A headless site's catalogue lives on its platform's host, not its own — 2026-09-27
 yeezy.com is a Svelte app on Swell (swell.is): every image URL names the store

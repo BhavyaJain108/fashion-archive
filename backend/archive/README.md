@@ -11,13 +11,13 @@ Use these names when discussing the pipeline — every file belongs to exactly o
 |---|-------|-----------------|-------|
 | **S1** | **SCOPE** | *What kind of site is this, and what will it talk to?* | `fingerprint.py`, `escalate.py` |
 | **S2** | **PLAN** | *Which lane do we use on it?* | `planner.py` |
-| **S3** | **DISCOVER** | *What products exist?* (`connector.discover`) | `connectors/shopify.py`, `connectors/woocommerce.py`, `connectors/sitemap.py` |
-| **S4** | **FETCH** | *What are this product's fields?* (`connector.fetch`) | `connectors/shopify.py`, `connectors/woocommerce.py`, `connectors/structured.py` |
+| **S3** | **DISCOVER** | *What products exist?* (`connector.discover`) | `connectors/shopify.py`, `connectors/woocommerce.py`, `connectors/sitemap.py`, `connectors/runfair.py` (Gatsby page data), `connectors/swell.py` (Swell's storefront API), `learn/recipes.py` (a lane as data) |
+| **S4** | **FETCH** | *What are this product's fields?* (`connector.fetch`) | `connectors/shopify.py`, `connectors/woocommerce.py`, `connectors/structured.py`, `connectors/runfair.py`, `connectors/swell.py`, `learn/recipes.py` |
 | **S4b** | **FIND** | *The channel left a field empty — where is it on the page?* | `finder.py` (apply + validate), `finder_llm.py` (learn), `domain/recipe.py` |
 | **S4c** | **PLACE** | *What is this thing, in words every brand shares?* | `taxonomy.py` (the vocabulary and the phrase book), `taxonomy_llm.py` (ask) |
 | **S5** | **STORE** | *What do we keep, and what changed?* | `store/catalog.py`, `store/pg_catalog.py`, `store/periods.py`, `store/objects.py`, `images.py` |
 | **S6** | **VERIFY** | *Did we get it all, and is it any good?* | `verify.py`, `capability.py`, `score.py` (the scorecard per run) |
-| **S7** | **LEARN** | *Which of E0005's 42 fields are we still not getting, and why?* | `coverage.py`, `access/` (the bench), `access/LEARNINGS.md` (the record) |
+| **S7** | **LEARN** | *Which of E0005's 42 fields are we still not getting, and why?* | `learn/` (the loop), `coverage.py`, `access/` (the bench), `access/LEARNINGS.md` (the record) |
 
 S4c is the one layer that is *not* the brand's own words. `category1..10` stays exactly
 as the shop published it — bode's `MENS SHIRTS`, marrknull's `上衣` — and the shared
@@ -72,9 +72,9 @@ without it; `cli learn tick` by hand).
 | **meter** | requests and bytes by rung, proxy requests, browser seconds, model calls — a run's, a probe's, an analysis's — priced at `ARCHIVE_PRICE_*` | the dossier's `meter`, the budget |
 | **budget** | two pools under one ceiling: recurring (freshness at cadence) and discretionary (walls). Ceiling = the roster's predicted daily cost × `ARCHIVE_BUDGET_MULTIPLIER`. Over it, cadences stretch (`Scheduler.stretch`); nothing is dropped | `control/budget.json` |
 | **recipes** | a lane as data — discovery + fetch + field paths — run by `RecipeConnector` through the same seam as every connector. The model proposes recipes before code | `recipes/lanes/`, the plan (`discovery=recipe`) |
-| **gate** | no proposal lands without proof: replay over captured pages, a live sample on the brand, the same on the neighbours of its signature; and a baseline no brand may drop below | the analysis's `gate`; `control/baseline.json` |
+| **gate** | no proposal lands without proof: replay over captured pages, a live sample on the brand, the same on the neighbours of its signature. The neighbours decide the recipe's *scope* — proven on the brand only, or a rule for the signature — not whether it lands; a landing must also beat the lane the brand already had, and a baseline no brand may drop below | the analysis's `gate`; `control/baseline.json` |
 | **analyst** | the model at the three places a rule cannot be written by a rule: an unreadable brand, a failure, a consolidation. Forced tool use; a proposal, never a landing | the dossier's `analyses`; `learn/learnings.jsonl` |
-| **loop** | the tick: onboard (probe → signature → wall → plan → first read → verdict, each step written as it happens), classify, act, prove, land, price, map | `control/learning.json`, and all of the above |
+| **loop** | the tick: onboard (probe → signature → wall → plan → first read → verdict, each step written as it happens; the walled and off-platform brands before the ones a bulk feed already reads), classify, act, prove, land, price, map | `control/learning.json`, and all of the above |
 
 Recipes the gate proves land on their own. Code the model writes goes to a branch when
 the worker can push (`ARCHIVE_GIT_PUSH_URL`), else is filed under `learn/proposals/` for
@@ -83,7 +83,9 @@ the proposals and the budget; a brand's page shows its dossier and, while a new 
 being onboarded, the six steps filling in.
 
 Commands: `cli learn tick | onboard <domain> | analyse <domain> | proposals | apply <id> |
-status`, `cli dossier <domain>`, `cli walls`, `cli budget`, `cli signatures`.
+status`, `cli dossier <domain>`, `cli walls`, `cli budget`, `cli signatures` (examples in
+`SETUP.md`). Without `ANTHROPIC_API_KEY` the loop onboards, classifies and climbs but
+cannot ask; without `ARCHIVE_PROXY_URL` the T1P rung does not exist.
 
 Deferred, by agreement: the model inventing a *kind* of strategy the shelf does not have
 (a new transport, a new lane kind) rather than a recipe over existing ones.
@@ -184,7 +186,8 @@ the migration reads them.
 - All tests are hermetic (httpx.MockTransport, tmp_path). Live-site runs are announced first.
 - A rule learned on one brand lives in `access/` until it has been shown to hold on the
   brands that did *not* teach it; only then does it move into the connectors, where every
-  brand pays for it.
+  brand pays for it. A recipe the loop lands is held to the same rule by the gate: proven
+  on its neighbours it is a rule for the signature, otherwise it is that brand's alone.
 - S7 is a loop, not a step: `coverage` shows what is still missing, `access/LEARNINGS.md`
   holds the procedure for closing one gap and the record of every rule already closed —
   brand, date, evidence. Read it before adding a rule, and add to it after.
