@@ -21,5 +21,22 @@ venv/bin/python -m backend.archive.runner.cli show kuurth.com
 venv/bin/python -m backend.archive.runner.cli fleet-check                 # every brand, one table
 ```
 
-Do not run `scrape` or `daemon` against the bucket while the hosted daemon is up: the
-two would claim the same brands. Use `--objects DIR` for experiments.
+The learning loop by hand (README, "The learning loop"). The read-only commands skip
+the roster seed and answer in seconds:
+
+```bash
+venv/bin/python -m backend.archive.runner.cli learn status
+venv/bin/python -m backend.archive.runner.cli walls                        # every brand not simply open
+venv/bin/python -m backend.archive.runner.cli dossier kuurth.com --events 40
+venv/bin/python -m backend.archive.runner.cli budget
+venv/bin/python -m backend.archive.runner.cli signatures                   # the roster as clusters
+venv/bin/python -m backend.archive.runner.cli learn onboard example.com   # writes the dossier
+venv/bin/python -m backend.archive.runner.cli learn analyse example.com --kind brand   # one model call, then the gate
+venv/bin/python -m backend.archive.runner.cli learn proposals
+venv/bin/python -m backend.archive.runner.cli learn apply <id> --root .   # a filed code proposal into this tree
+```
+
+`learn onboard`, `learn analyse` and `learn tick` write to the bucket and spend money;
+`--browser` tells them a t2 rung is available here. Do not run `scrape`, `daemon` or
+`learn tick` against the bucket while the hosted daemon is up: the two would claim the
+same brands, and two loops would onboard the same ones. Use `--objects DIR` for experiments.
