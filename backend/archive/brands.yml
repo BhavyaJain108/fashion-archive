@@ -144,7 +144,7 @@ brands:
   - {domain: yeezy.com, homepage_url: "https://yeezy.com", display_name: "YEEZY", size: mid, notes: swell storefront; catalogue on yzy-prod.swell.store with the page's publishable key, cloudflare blocks the brand host; large house shown by the owner's choice}
   - {domain: www.marni.com, homepage_url: "https://www.marni.com", display_name: "Marni", size: mid, notes: salesforce commerce; large house shown by the owner's choice}
   - {domain: kwameadusei.com, homepage_url: "https://kwameadusei.com", display_name: "Kwame Adusei", size: small}
-  - {domain: www.604service-en.com, homepage_url: "https://www.604service-en.com", display_name: "604SERVICE", size: small, notes: english store of 604service.com; static access-restricted page from cloudfront; needs a KR exit}
+  - {domain: www.604service-en.com, homepage_url: "https://www.604service-en.com", display_name: "604SERVICE", size: small, notes: english store of 604service.com; cloudfront answers every cloud address with a static access-restricted page, a home connection gets in (owner, 2026-09-28); needs a residential exit (ARCHIVE_PROXY_URL)}
 
   # Kept for the scraper, withheld from the page.
   - {domain: www.viviennewestwood.com, homepage_url: "https://www.viviennewestwood.com", display_name: "Vivienne Westwood", size: large, notes: enterprise 403 to plain http}

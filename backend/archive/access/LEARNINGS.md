@@ -366,8 +366,10 @@ Code: `transport.CurlCffiTransport(proxy=)`, `transport.for_level`, `escalate.ch
 `access/strategy` (`cffi:chrome142@proxy`).
 
 604service.com and 604service-en.com serve a static "접근 제한" (access restricted) page
-from S3 through CloudFront, to every rung. That is a rule about where the visitor is —
-a KR exit is the test — and until one exists the brand stays on the roster, unread.
+from S3 through CloudFront, to every rung. First read as a rule about the country; the
+owner's home connection gets in (2026-09-28), so it is a rule about the kind of address —
+cloud ranges refused, residential ones served. A residential exit (ARCHIVE_PROXY_URL,
+not a KR one) is the test, and until one exists the brand stays on the roster, unread.
 
 ### Not a shop
 bellaspantzel.com is a Cargo portfolio (`hasShopModel: false`, pages `/` and `/about`,
