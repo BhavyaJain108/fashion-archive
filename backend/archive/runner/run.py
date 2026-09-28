@@ -691,6 +691,12 @@ def _learn_book(field_finder, brand, url, missing, transport, browser_factory, l
         return book
     if browser_factory is None:
         return book
+    if getattr(transport, "level", None) == TransportLevel.T2:
+        # The page was already rendered: a run whose book needs rendering escalates
+        # its transport before the loop. Starting a second browser here, in the same
+        # thread as the first, is the "Playwright Sync API inside the asyncio loop"
+        # error that failed every rendered retry on kuurth (2026-09-27).
+        return book
     rendered = browser_factory()
     try:
         log("finder-retry-rendered", url=url)

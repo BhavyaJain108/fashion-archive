@@ -69,8 +69,11 @@ def _index():
 
 def test_query_sorts_filters_and_counts():
     ix = _index()
-    latest = sf.query(ix)["products"]
+    latest = sf.query(ix, sort="latest")["products"]
     assert [t["title"] for t in latest] == ["Wool sweater", "Denim jacket", "Leather boot"]
+    # the default: buckets in the taxonomy's order — outerwear, knitwear, then shoes
+    typed = sf.query(ix)["products"]
+    assert [t["title"] for t in typed] == ["Denim jacket", "Wool sweater", "Leather boot"]
     cheap = sf.query(ix, sort="price-asc")["products"]
     assert [t["price"] for t in cheap] == [200.0, 300.0, 500.0]
     sale = sf.query(ix, sale=True)

@@ -1,0 +1,188 @@
+<title>Why We Dress</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap">
+<style>
+:root{
+  --bg:#ffffff; --bg-sub:#fafafa; --bg-sunk:#f5f5f5; --line:#e0e0e0; --line-soft:#ededed;
+  --ink:#000000; --ink-2:#666666; --ink-3:#767676; --ink-4:#949494;
+  --font:'JetBrains Mono','SF Mono','Menlo',monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#111111; --bg-sub:#161616; --bg-sunk:#1c1c1c; --line:#333333; --line-soft:#262626;
+    --ink:#ffffff; --ink-2:#bdbdbd; --ink-3:#9a9a9a; --ink-4:#6e6e6e;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#111111; --bg-sub:#161616; --bg-sunk:#1c1c1c; --line:#333333; --line-soft:#262626;
+  --ink:#ffffff; --ink-2:#bdbdbd; --ink-3:#9a9a9a; --ink-4:#6e6e6e;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink-2);font-family:var(--font);font-size:13px;line-height:20px;
+  padding-block:48px 96px;padding-inline:24px;-webkit-font-smoothing:antialiased}
+.page{max-width:720px;margin:0 auto}
+h1{font-size:24px;line-height:28px;font-weight:600;color:var(--ink);letter-spacing:.05em;margin:0 0 8px;text-wrap:balance}
+.lede{margin:0 0 6px;max-width:62ch}
+.meta{font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--ink-3);margin:0 0 48px}
+section{margin:0 0 48px}
+h2{font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--ink-3);font-weight:600;
+  margin:0 0 16px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+h3{font-size:12px;color:var(--ink);font-weight:600;letter-spacing:.05em;margin:20px 0 6px}
+p{margin:0 0 14px;max-width:62ch}
+strong{color:var(--ink);font-weight:600}
+a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--line)}
+a:hover{border-color:var(--ink)}
+table{border-collapse:collapse;width:100%;font-size:12px;line-height:16px;margin:0 0 14px;font-variant-numeric:tabular-nums}
+th{font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--ink-3);font-weight:600;
+  text-align:left;padding:0 12px 8px 0;border-bottom:1px solid var(--line)}
+td{padding:8px 12px 8px 0;border-bottom:1px solid var(--line-soft);vertical-align:top}
+td:first-child{color:var(--ink);white-space:nowrap}
+.wrap{overflow-x:auto}
+.voices{display:grid;grid-template-columns:1fr 1fr;gap:16px 32px}
+.voice{border-top:1px solid var(--line);padding-top:10px}
+.voice h3{margin:0 0 4px}
+.voice p{font-size:12px;line-height:18px;margin:0}
+.voice .who{font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--ink-3);margin-bottom:4px}
+.jobs{display:grid;grid-template-columns:repeat(5,1fr);gap:0;border:1px solid var(--line);margin:0 0 16px}
+.job{padding:12px;border-right:1px solid var(--line-soft)}
+.job:last-child{border-right:0}
+.job b{display:block;font-size:12px;color:var(--ink);letter-spacing:.05em;margin-bottom:4px}
+.job span{font-size:11px;line-height:16px;display:block}
+.scale{display:inline-block;font-size:11px;letter-spacing:.1em;color:var(--ink-3)}
+.scale i{font-style:normal;color:var(--ink)}
+.dossier{border:1px solid var(--line);padding:16px;margin:0 0 16px;background:var(--bg-sub)}
+.dossier dl{display:grid;grid-template-columns:140px 1fr;gap:4px 16px;margin:0;font-size:12px;line-height:16px}
+.dossier dt{font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--ink-3);padding-top:2px}
+.dossier dd{margin:0}
+.dossier dd em{font-style:normal;color:var(--ink-4)}
+ol,ul{padding-left:18px;margin:0 0 14px}
+li{margin:0 0 6px;max-width:62ch}
+.src{font-size:11px;line-height:16px;color:var(--ink-3)}
+.src li{margin:0 0 4px;max-width:none}
+.note{font-size:11px;line-height:16px;color:var(--ink-3);border-left:1px solid var(--line);padding-left:12px;max-width:62ch}
+@media (max-width:700px){
+  .voices{grid-template-columns:1fr}
+  .jobs{grid-template-columns:1fr}
+  .job{border-right:0;border-bottom:1px solid var(--line-soft)}
+  .job:last-child{border-bottom:0}
+  .dossier dl{grid-template-columns:1fr}
+  body{padding-block:32px 64px;padding-inline:16px}
+}
+</style>
+
+<div class="page">
+<h1>Why We Dress</h1>
+<p class="lede">A theory of what a garment does for the person wearing it, built from what designers and wearers actually say, and turned into judgements the archive can make and stand behind. With a second part on knowing the maker.</p>
+<p class="meta">Fashion Archive · 27 September 2026 · follows "How People Look for Clothes"</p>
+
+<section>
+<h2>The gap in tagging</h2>
+<p>Tags answer what a thing is: cropped, funnel neck, cream, cotton twill. They say nothing about why anyone would put it on. But the reasons people give for what they wear are remarkably consistent, and they are not about attributes. They are about what the garment does to their attention, their safety and their standing in a room. If the archive can judge that, grounded in what is visible, it can answer the questions people actually have.</p>
+</section>
+
+<section>
+<h2>What people say when they lie on the couch</h2>
+<p>Bella Freud opens every Fashion Neurosis episode by asking the guest what they are wearing and why. Read across the episodes and the interviews of the designers we stock, the answers fall into a small number of motives.</p>
+<div class="voices">
+  <div class="voice"><div class="who">Bella Freud · host</div><h3>Safety that frees attention</h3><p>Her stated thesis for the podcast: the right clothes make you feel safe enough to be bold, and once you stop thinking about yourself your intelligence is available for other things. Clothes, in her phrase, have your back.</p></div>
+  <div class="voice"><div class="who">Nick Cave · episode guest</div><h3>Ritual and uniform</h3><p>Puts on a suit every morning, same shoes, a vintage tie. The point is not the suit. It is a decision already made, a self already assembled before the day starts.</p></div>
+  <div class="voice"><div class="who">Kate Moss · episode guest</div><h3>Dressing for a room</h3><p>Says plainly she wants to please, to walk in and hear approval, and picks the outfit by where she is going and whom she will meet. The audience is part of the garment.</p></div>
+  <div class="voice"><div class="who">Jonathan Anderson · episode guest</div><h3>A uniform to save the new for the work</h3><p>Wears a pared-back uniform himself so that novelty is spent in the collections, not on his body. Sameness as an economy of attention.</p></div>
+  <div class="voice"><div class="who">Rick Owens · first guest</div><h3>Protest, and the body remade</h3><p>Talks about heels as protest against airport gloss, and about teenage shame at his own body, openly and without shame now. His clothes distort and exaggerate the form because he wanted to change himself and found he could change the silhouette instead.</p></div>
+  <div class="voice"><div class="who">Amelia Dimoldenberg · episode guest</div><h3>Colour as a way of being seen without being exposed</h3><p>Always in colour, and finds being sexy embarrassing. Visibility and exposure are different things, and clothes let you have one without the other.</p></div>
+  <div class="voice"><div class="who">Umberto Eco · Lumbar Thought, 1976</div><h3>Comfort is forgetting</h3><p>Wearing tight jeans, he found the garment imposed a demeanour and pulled his attention outward to how he moved. Clothes you forget leave your interior life alone. That is what comfort is, and it is not the same as softness.</p></div>
+  <div class="voice"><div class="who">Yohji Yamamoto · interviews</div><h3>Black as a boundary, wear as beauty</h3><p>Black, for him, says leave me alone and I will leave you alone. And he finds perfection ugly: he wants to see the scars, the wear, the disorder in what humans make. A garment can be a wall and a diary at once.</p></div>
+  <div class="voice"><div class="who">Miuccia Prada · interviews</div><h3>Ugly as intelligence</h3><p>Ugly is exciting because it is newer, and good and bad taste are useless terms because everything changes. Her clothes go against the clichés of beauty on purpose, as social comment.</p></div>
+  <div class="voice"><div class="who">Martin Margiela · interviews</div><h3>The garment before the maker</h3><p>Chose anonymity as protection and as a position: he wanted people to react to the clothes through their own taste, not through the person or the group who made them.</p></div>
+</div>
+<p style="margin-top:16px">The research literature says the same things in duller words. Adam and Galinsky's enclothed cognition holds that what we wear changes how we think through both the garment's meaning and its physical experience; the original lab-coat result did not replicate cleanly, but the conceptual replications hold. Entwistle calls dress a situated bodily practice: a body, in a situation, under a social order. Belk shows possessions become part of the self and carry memory and continuity. Simmel, a century earlier, saw fashion as imitation and differentiation happening at the same time.</p>
+</section>
+
+<section>
+<h2>The theory, in one page</h2>
+<p>Dressing does five jobs. They pull against each other, and every garment is a settlement between them. The settlement is what a person is buying.</p>
+<div class="jobs">
+  <div class="job"><b>Shelter</b><span>Physical: warmth, cover, weather. Psychological: safety, armour, somewhere to hide. Freud's safety, Owens's silhouette, Yamamoto's black.</span></div>
+  <div class="job"><b>Forgetting</b><span>The garment leaves your attention alone. Eco's inverse. Nothing rides up, nothing needs adjusting, nothing has to be decided. This is what comfort actually is.</span></div>
+  <div class="job"><b>Belonging</b><span>Imitation. The uniform, the code, the tribe, the ritual. Cave's suit, a chore coat in a studio, the logo that says which team.</span></div>
+  <div class="job"><b>Distinction</b><span>Differentiation. Protest, the strange proportion, the deliberate ugly, the new. Owens, Prada. The reason the thing nobody else has is worth more.</span></div>
+  <div class="job"><b>Continuity</b><span>Memory and the extended self. The leather that ages, the jeans that hold your shape, the thing you have worn for ten years. Belk's possessions, Yamamoto's scars.</span></div>
+</div>
+<p>One axis cuts across all five: <strong>audience</strong>. Who is the garment for? Only yourself, the people who know you, or a room of strangers? Moss dresses for the room. Yamamoto's black dresses against it. Same garment, different job, depending on where it is worn. So the archive should judge the garment's proposition, never the wearer.</p>
+<p>Comfort deserves its own line because people use the word for three different things: physical ease, forgetting, and safety. A structured wool suit fails the first, passes the second for Cave, and passes the third for most people who wear one to a difficult meeting. "Comfortable" in a search box could mean any of them, and the archive should be able to tell which it is answering.</p>
+</section>
+
+<section>
+<h2>From what it is to what it does</h2>
+<p>The five jobs become judgements only if they are grounded in things the tagger can see. Each job maps to observable, gradable properties of the garment. The tagger scores each job from 0 to 3 and names the property it saw. That keeps the judgement honest, cheap, and checkable by a person looking at the same photograph.</p>
+<div class="wrap">
+<table>
+<tr><th>Job</th><th>What the photograph and text show</th><th>Reads as</th><th>What someone might type</th></tr>
+<tr><td>Shelter</td><td>Coverage, weight, padding, structure, layers, collar height, hood, opacity, hardware</td><td>enveloping, padded, high collar, full coverage, armoured</td><td>"something to disappear into", "warm coat that isn't bulky"</td></tr>
+<tr><td>Forgetting</td><td>Stretch, soft handle, unlined, elastic waist, few closures, drape, washable, forgiving cut</td><td>easy, soft, unlined, forgiving, no fuss</td><td>"clothes I don't have to think about", "comfortable trousers for work"</td></tr>
+<tr><td>Belonging</td><td>Recognisable codes: the suit, the oxford, the chore coat, the tracksuit; visible logos; house signatures; subculture markers</td><td>classic, uniform piece, workwear code, logo, team</td><td>"a proper suit", "what everyone at the studio wears"</td></tr>
+<tr><td>Distinction</td><td>Exaggerated proportion, asymmetry, colour intensity, unusual construction, ugliness on purpose, novelty of shape</td><td>exaggerated, asymmetric, loud, strange, deliberate</td><td>"something nobody else has", "a weird jacket"</td></tr>
+<tr><td>Continuity</td><td>Materials that age well, visible construction, repairability, un-trended cut, weight of cloth, patina already present</td><td>ages well, patina, repairable, lifetime, timeless</td><td>"something I'll wear for ten years", "a jacket that gets better"</td></tr>
+<tr><td>Audience</td><td>Skin shown, closeness to the body, colour and print visibility, legibility of intent</td><td>exposed or covered, quiet or loud</td><td>"quiet", "for a date", "for a funeral"</td></tr>
+</table>
+</div>
+<p>Two rules keep this from becoming astrology. <strong>Judge the garment, hedge the claim.</strong> A jacket leans towards shelter; it is not "for anxious people". The score is a property of the object and the evidence is a property the tagger can point at. <strong>Never score what you cannot see.</strong> A tagger that cannot tell whether a knit is soft from one photograph says so, and forgetting stays unscored for that item rather than guessed.</p>
+<p>Cost: these six scores ride in the same tagging call as the open tags. About sixty more output tokens per product, a few dollars across the catalogue.</p>
+<p class="note">Example, the psylos1.com Harrington from the previous study. Shelter <span class="scale"><i>2</i>/3</span> (high snap collar, structured cloth, cropped so not enveloping). Forgetting <span class="scale"><i>1</i>/3</span> (structured, many closures). Belonging <span class="scale"><i>3</i>/3</span> (the Harrington is a code). Distinction <span class="scale"><i>1</i>/3</span> (only the plaid lining). Continuity <span class="scale"><i>2</i>/3</span> (cotton twill, classic cut, no trend markers). Audience: covered, quiet.</p>
+</section>
+
+<section>
+<h2>Knowing the maker</h2>
+<p>Margiela's argument cuts both ways. He hid so the garment would be judged on its own, and the fact that he hid is now the first thing anyone knows about the label. For a small brand the maker's position is most of what a buyer is buying: where it is made, by whom, out of what conviction, and what the price is paying for. The archive knows almost none of this today. The roster holds a domain, a homepage, a display name and a note.</p>
+<h3>The brand dossier</h3>
+<p>One record per brand, every field carrying its source and the date it was read. A field without a source stays empty. The brand's own words and third-party reporting are kept apart, because a label's About page is a claim and a Business of Fashion profile is a report.</p>
+<div class="dossier">
+<dl>
+  <dt>Founded</dt><dd>year, city <em>· About page, Wikipedia</em></dd>
+  <dt>Founders</dt><dd>names, what they did before, whose studio they came from <em>· press, Wikipedia</em></dd>
+  <dt>Based / made</dt><dd>where it is designed, where the clothes are made, if disclosed <em>· About page, product pages</em></dd>
+  <dt>Position</dt><dd>size band, price position relative to the roster, independent or group-owned <em>· catalogue, press</em></dd>
+  <dt>In their words</dt><dd>the brand's philosophy as the brand states it, kept verbatim and short <em>· About page, Instagram bio</em></dd>
+  <dt>Known for</dt><dd>signature pieces, materials, a recurring cut <em>· derived from our own catalogue, checked against press</em></dd>
+  <dt>Stance</dt><dd>production, materials, gender, pricing, anything they take a public position on <em>· About page, press</em></dd>
+  <dt>Leans towards</dt><dd>which of the five jobs the brand's language and products favour <em>· derived from the dossier plus the catalogue's job scores</em></dd>
+  <dt>Read on</dt><dd>date, and the hash of the About page so a rewrite triggers a refresh</dd>
+</dl>
+</div>
+<p>How it is built. One call per brand to a model with web search, given the homepage, the About page we can already crawl, and the brand's own product titles from our catalogue, asked to fill the dossier with a citation for every field and to leave a field blank rather than infer it. Roughly five to ten cents a brand. The whole roster of 38 costs under five dollars, and a brand is re-read only when its About page changes or a year has passed. "Known for" and "leans towards" are computed from our own data first and the model only confirms them, because we have the products and the press does not.</p>
+<h3>Where it shows</h3>
+<ul>
+  <li><strong>The brand page</strong> gets a header: founded, based, made in, one line of philosophy in the brand's own words, and what they are known for. This is the page's reason to exist beyond a grid.</li>
+  <li><strong>The product page</strong> gets one sentence under the price. Made in Portugal by a Lisbon label founded in 2019 around unlined tailoring. The product inherits the maker's position.</li>
+  <li><strong>Search and filters</strong> gain a lens nobody else offers well: by place and lineage. Portuguese brands, labels founded by Margiela alumni, independent labels making in their own city, brands under five years old.</li>
+  <li><strong>The five jobs</strong> get a prior. A brand that leans towards continuity makes its products' continuity scores more credible, and the product page can say so: this label makes things to be repaired, and this jacket is one of them.</li>
+</ul>
+</section>
+
+<section>
+<h2>What this adds up to</h2>
+<p>Three questions the archive could answer that no shop currently does, each grounded in evidence a person can check.</p>
+<ol>
+  <li><strong>What will this do for me?</strong> The six judgements on the product page, as a short strip, with the property each one rests on.</li>
+  <li><strong>Who made it and why?</strong> The dossier line under the price, and the brand page header.</li>
+  <li><strong>Find me something that does this.</strong> Search that understands "clothes I don't have to think about" as forgetting, "something to disappear into" as shelter, and "a jacket that gets better" as continuity, alongside the open tags for everything concrete.</li>
+</ol>
+<p>Order of building, each small: the dossier first, because it is 38 records and changes the brand page visibly in a day. Then the six scores added to the tagger prompt when the 200-product trial runs. Then the strip on the product page and a "For" filter group. Nothing here needs new infrastructure beyond the evidence table already proposed.</p>
+</section>
+
+<section>
+<h2>Sources</h2>
+<ul class="src">
+  <li>AnOther Magazine, interview with Bella Freud on Fashion Neurosis · <a href="https://www.anothermag.com/fashion-beauty/15915/bella-freud-interview-fashion-neurosis-rick-owens-kate-moss-zadie-smith">anothermag.com</a></li>
+  <li>RUSSH, "7 of the best Fashion Neurosis episodes" · <a href="https://www.russh.com/best-fashion-neurosis-episodes/">russh.com</a></li>
+  <li>Galaxus, "On the couch with Freud", episode notes with the Cave and Moss remarks · <a href="https://www.galaxus.fr/en/page/on-the-couch-with-freud-bella-freud-fashion-neurosis-is-the-podcast-for-fashion-fans--36520">galaxus.fr</a></li>
+  <li>Fashion Neurosis with Rick Owens, episode 1, October 2024 · <a href="https://podcasts.apple.com/us/podcast/fashion-neurosis-with-rick-owens/id1768794307?i=1000671481385">Apple Podcasts</a> · <a href="https://fashionneurosis.com/">fashionneurosis.com</a></li>
+  <li>Umberto Eco, "Lumbar Thought" (1976), in Faith in Fakes · <a href="https://nathanvaughanblog.wordpress.com/wp-content/uploads/2016/06/lumbarthought.pdf">PDF</a></li>
+  <li>Adam &amp; Galinsky, "Enclothed cognition", J. Exp. Soc. Psych. 2012 · <a href="https://www.sciencedirect.com/science/article/abs/pii/S0022103112000200">sciencedirect.com</a> · replication commentary, Burns et al. · <a href="https://www.sciencedirect.com/science/article/abs/pii/S0022103118308199">sciencedirect.com</a></li>
+  <li>Joanne Entwistle, The Fashioned Body, 3rd ed. 2023 · <a href="https://books.google.com/books/about/The_Fashioned_Body.html?id=b82_EAAAQBAJ">Google Books</a></li>
+  <li>Russell Belk, "Possessions and the extended self" (1988), summarised in BPS, "The psychology of stuff and things" · <a href="https://www.bps.org.uk/psychologist/psychology-stuff-and-things">bps.org.uk</a></li>
+  <li>AnOther, "Perpetual Revolution: The Paradox of Yohji Yamamoto" · <a href="https://www.anothermag.com/fashion-beauty/11129/perpetual-revolution-the-paradox-of-yohji-yamamoto">anothermag.com</a> · Yohji Yamamoto, Wikiquote · <a href="https://en.wikiquote.org/wiki/Yohji_Yamamoto">wikiquote.org</a></li>
+  <li>W Magazine, "Prada on Prada: Ten Quotes" · <a href="https://www.wmagazine.com/story/miuccia-prada-ugly-fashion">wmagazine.com</a> · SHOWstudio, "Why Does Miuccia Prada's 'Ugly' Still Bite?" · <a href="https://www.showstudio.com/news/all-in-bad-taste-why-does-miuccia-pradas-ugly-still-bite">showstudio.com</a></li>
+  <li>nss magazine, "Martin Margiela: Anonymity &amp; Design in Fashion" · <a href="https://www.nssmag.com/en/fashion/42452/martin-margiela-anonymity-design-miley-cyrus">nssmag.com</a> · hube magazine, "The art of absence" · <a href="https://hubemag.com/martin-margiela-the-art-of-absence">hubemag.com</a></li>
+</ul>
+</section>
+</div>

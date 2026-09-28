@@ -282,6 +282,7 @@
 
 .shop-open { margin: 8px 0 8px; text-decoration: none; }
 
+
 .shop-facts { list-style: none; margin: 0; padding: 0; font-size: var(--ar-fs-body); line-height: var(--ar-lh-body); color: var(--ar-ink-2); }
 .shop-facts li + li { margin-top: 2px; }
 .shop-facts-quiet { color: var(--ar-ink-3); font-size: var(--ar-fs-micro); line-height: var(--ar-lh-ui); }

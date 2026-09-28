@@ -431,7 +431,7 @@ def get_storefront():
         limit = min(max(1, int(a.get("limit", 60))), 240)
     except ValueError:
         return jsonify({"error": "offset and limit must be integers"}), 400
-    sort = a.get("sort", "latest")
+    sort = a.get("sort", "type")
     if sort not in storefront.SORTS:
         return jsonify({"error": f"sort must be one of {', '.join(storefront.SORTS)}"}), 400
     brand = a.get("brand", "")

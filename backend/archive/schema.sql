@@ -121,3 +121,24 @@ CREATE TABLE IF NOT EXISTS catalogue_brands (
     images        integer NOT NULL DEFAULT 0,
     updated_at    timestamptz NOT NULL DEFAULT now()
 );
+
+-- Open tags: short phrases a model read off one photograph plus the shop's own
+-- words (backend/archive/tagging.py). One row per product and prompt version, so
+-- a new prompt re-tags without losing the old answer. Free text on purpose: the
+-- vocabulary is learned from what appears often, not written in advance.
+CREATE TABLE IF NOT EXISTS product_tags (
+    brand         text NOT NULL,
+    itemurl       text NOT NULL,
+    version       text NOT NULL,                     -- tagging.VERSION at the time
+    tags          text[] NOT NULL DEFAULT '{}',
+    model         text NOT NULL,
+    image_url     text,                              -- the photograph the model saw
+    input_tokens  integer NOT NULL DEFAULT 0,
+    output_tokens integer NOT NULL DEFAULT 0,
+    tagged_at     timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (brand, itemurl, version)
+);
+CREATE INDEX IF NOT EXISTS product_tags_tags ON product_tags USING gin (tags);
+-- The garment's own colours, read off the photograph's pixels once the background
+-- is dropped: up to three [hex, share] pairs, biggest first. No model involved.
+ALTER TABLE product_tags ADD COLUMN IF NOT EXISTS colours jsonb NOT NULL DEFAULT '[]';

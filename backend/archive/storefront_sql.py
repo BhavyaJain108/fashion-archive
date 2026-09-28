@@ -17,7 +17,7 @@ import time
 from typing import Any
 
 from backend.archive import storefront as shop
-from backend.archive.storefront import _TAXONOMY, COLOURS, GROUPS, OTHER, slim
+from backend.archive.storefront import _TAXONOMY, BUCKET_ORDER, COLOURS, GROUPS, OTHER, slim
 
 _MAX_PRICE = 20000.0  # above this a "price" is a placeholder; see storefront._num
 
@@ -55,7 +55,11 @@ _FULL = "CASE WHEN p.full_price > %(max_price)s THEN NULL ELSE p.full_price END"
 _SALE = f"({_PRICE} IS NOT NULL AND {_FULL} IS NOT NULL AND {_FULL} > {_PRICE})"
 _DISCOUNT = f"CASE WHEN {_SALE} THEN ({_FULL} - {_PRICE}) / {_FULL} ELSE 0 END"
 
+_BY_TYPE = "array_position(%(bucket_order)s::text[], p.shop_bucket) NULLS LAST"
+_BY_COLOUR = "array_position(%(colour_order)s::text[], p.shop_colour) NULLS LAST"
 _ORDER = {
+    "type": f"{_BY_TYPE}, {_BY_COLOUR}, p.first_seen_run DESC, p.title",
+    "colour": f"{_BY_COLOUR}, {_BY_TYPE}, p.first_seen_run DESC, p.title",
     "latest": "p.first_seen_run DESC, p.title",
     "price-asc": f"{_PRICE} ASC NULLS LAST, p.title",
     "price-desc": f"{_PRICE} DESC NULLS LAST, p.title",
@@ -120,14 +124,19 @@ def query(
     sale: bool = False,
     colour: str = "",
     q: str = "",
-    sort: str = "latest",
+    sort: str = "type",
     offset: int = 0,
     limit: int = 60,
 ) -> dict:
     names = {e.domain: e.name for e in roster}
     f = dict(group=group, bucket=bucket, brand=brand, sale=sale, colour=colour, q=q)
-    base_params: dict[str, Any] = {"domains": list(domains), "max_price": _MAX_PRICE}
-    order = _ORDER.get(sort, _ORDER["latest"])
+    base_params: dict[str, Any] = {
+        "domains": list(domains),
+        "max_price": _MAX_PRICE,
+        "bucket_order": list(BUCKET_ORDER),
+        "colour_order": list(COLOURS),
+    }
+    order = _ORDER.get(sort, _ORDER["type"])
 
     with pool.connection() as conn:
         w, prm = _where(f)
@@ -209,6 +218,12 @@ def product(
     if row is None:
         return None
     t = _tile(row, names)
+    with pool.connection() as conn:
+        tagged = conn.execute(
+            "SELECT tags FROM product_tags WHERE brand = %s AND itemurl = %s",
+            (brand, t["url"]),
+        ).fetchone()
+    t["tags"] = list(tagged[0]) if tagged else []
     more = [
         m
         for m in query(pool, roster=roster, domains=domains, brand=brand, limit=9)["products"]

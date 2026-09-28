@@ -48,6 +48,7 @@ def pool():
 def clean(pool):
     with pool.connection() as conn:
         for t in (
+            "product_tags",
             "product_observations",
             "product_periods",
             "product_images",
@@ -220,6 +221,12 @@ def test_sql_shop_front_matches_the_index_shape(tmp_path, pool, clean):
 
     cheap = storefront_sql.query(pool, roster=roster, domains=domains, sort="price-asc")
     assert [t["price"] for t in cheap["products"]] == [200.0, 300.0, 500.0]
+    typed = storefront_sql.query(pool, roster=roster, domains=domains)  # the default order
+    assert [t["title"] for t in typed["products"]] == [
+        "Denim Jacket",
+        "Wool Sweater",
+        "Leather Boot",
+    ]
     shoes = storefront_sql.query(pool, roster=roster, domains=domains, group="Shoes")
     assert shoes["total"] == 1 and {c["group"] for c in shoes["facets"]["categories"]} == {
         "Clothing",
@@ -236,6 +243,28 @@ def test_sql_shop_front_matches_the_index_shape(tmp_path, pool, clean):
     assert (
         one["tile"]["title"] == "Denim Jacket" and one["tile"]["images"] and len(one["more"]) == 2
     )
+    assert one["tile"]["tags"] == []
+    from backend.archive import tagging
+
+    with pool.connection() as conn:
+        conn.execute(
+            "INSERT INTO product_tags (brand, itemurl, version, tags, model) VALUES (%s, %s, %s, %s, %s)",
+            (
+                "x.com",
+                "https://x.com/products/denim-jacket",
+                tagging.VERSION,
+                ["denim jacket", "indigo"],
+                "test",
+            ),
+        )
+    one = storefront_sql.product(
+        pool, roster=roster, domains=domains, brand="x.com", handle="denim-jacket"
+    )
+    assert one["tile"]["tags"] == ["denim jacket", "indigo"]
+    # the tagger's candidate query runs against the same rows: the untagged two remain
+    todo = tagging.candidates(pool, limit=10, per_brand=10)
+    assert {r["title"] for r in todo} == {"Wool Sweater", "Leather Boot"}
+    assert tagging.tagged_count(pool) == 1
     assert (
         storefront_sql.product(pool, roster=roster, domains=domains, brand="x.com", handle="nope")
         is None

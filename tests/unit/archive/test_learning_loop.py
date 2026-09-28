@@ -700,3 +700,50 @@ def test_run_now_with_full_reaches_the_daemon_as_a_full_run(tmp_path):
     sched.run_now("kuurth.com")
     run_once(cat, sched, do_brand, log=lambda *a: None)
     assert seen[-1] == ("kuurth.com", "delta")
+
+
+@pytest.mark.unit
+def test_a_page_already_rendered_is_not_retried_in_a_second_browser():
+    # kuurth, 2026-09-27: the book needed rendering, the run escalated to a browser,
+    # and the finder's rendered retry then started a second browser in the same
+    # thread — Playwright refuses that. Already rendered means no retry.
+    from backend.archive.domain.brand import TransportLevel
+    from backend.archive.runner.run import _learn_book
+
+    class Rendered:
+        level = TransportLevel.T2
+
+    class Plain:
+        level = TransportLevel.T0
+
+    calls: list[str] = []
+
+    def finder(domain, url, missing, transport):
+        calls.append(type(transport).__name__)
+        return None
+
+    def factory():
+        calls.append("browser-started")
+        return Rendered()
+
+    brand = Brand(domain="kuurth.com", homepage_url="https://kuurth.com")
+    _learn_book(
+        finder,
+        brand,
+        "https://kuurth.com/products/x",
+        {"material_info"},
+        Rendered(),
+        factory,
+        lambda *a, **k: None,
+    )
+    assert calls == ["Rendered"]  # one attempt, no second browser
+    _learn_book(
+        finder,
+        brand,
+        "https://kuurth.com/products/x",
+        {"material_info"},
+        Plain(),
+        factory,
+        lambda *a, **k: None,
+    )
+    assert calls[1:] == ["Plain", "browser-started", "Rendered"]  # static, then one rendered retry

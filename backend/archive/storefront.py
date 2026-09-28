@@ -284,6 +284,11 @@ _COLOURS: list[tuple[str, tuple[str, ...]]] = [
     ("Yellow", ("yellow", "gold", "mustard", "lemon", "butter")),
 ]
 COLOURS = tuple(name for name, _ in _COLOURS) + ("Multi",)
+# The page's default order: buckets as the taxonomy lists them (outerwear first,
+# the catch-all last), then the palette in the order above.
+BUCKET_ORDER = tuple(b for b in dict.fromkeys(b for _, b, _ in _TAXONOMY) if b != OTHER[1]) + (
+    OTHER[1],
+)
 
 _MAX_LEVELS = 10
 
@@ -677,7 +682,15 @@ def reset() -> None:
 
 # --- questions the page asks ------------------------------------------------
 
-SORTS = ("latest", "price-asc", "price-desc", "discount")
+SORTS = ("type", "colour", "latest", "price-asc", "price-desc", "discount")
+
+
+def _rank(order: tuple[str, ...], value) -> int:
+    """Position in a fixed order; anything unlisted (or missing) sorts last."""
+    try:
+        return order.index(value)
+    except ValueError:
+        return len(order)
 
 
 def _matches(t: dict, *, group, bucket, brand, sale, colour_, q) -> bool:
@@ -707,7 +720,7 @@ def query(
     sale: bool = False,
     colour_: str = "",
     q: str = "",
-    sort: str = "latest",
+    sort: str = "type",
     offset: int = 0,
     limit: int = 60,
 ) -> dict:
@@ -720,7 +733,13 @@ def query(
         "discount": lambda t: (-t["discount"], t["title"]),
     }
     key = keys.get(sort)
-    if sort == "latest" and key is not None:
+    if sort in ("type", "colour"):
+        # Newest first within a bucket and colour; the two stable sorts compose.
+        hits.sort(key=keys["latest"], reverse=True)
+        by_type = lambda t: (_rank(BUCKET_ORDER, t["bucket"]), _rank(COLOURS, t["colour"]))  # noqa: E731
+        by_colour = lambda t: (_rank(COLOURS, t["colour"]), _rank(BUCKET_ORDER, t["bucket"]))  # noqa: E731
+        hits.sort(key=by_type if sort == "type" else by_colour)
+    elif sort == "latest" and key is not None:
         hits.sort(key=key, reverse=True)
     elif key is not None:
         hits.sort(key=key)
