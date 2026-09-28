@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
 import DevPage from './DevPage';
 import DevEndpoints from '../../shared/api/dev';
@@ -216,8 +216,10 @@ test('a learn run is queued from the brand page and reads as what it learned', a
 test('every run is listed, and an unscored one opens its log', async () => {
   render(<DevPage route={{ page: 'dev', brandId: 'huelleyrose.com', category: null }} navigate={() => {}} />);
   await screen.findByText('t0×bulk_json×platform_json×per_item');
-  expect(screen.getByText(/degraded · no catalogue/)).toBeInTheDocument();
-  fireEvent.click(screen.getAllByRole('button', { name: 'log' })[1]);
+  // The unscored run's own row, not the second "log" button on the page: which
+  // button is second depends on how many rows have rendered when the click lands.
+  const row = screen.getByText(/degraded · no catalogue/).closest('tr');
+  fireEvent.click(within(row).getByRole('button', { name: 'log' }));
   expect(await screen.findByText('channel-busy')).toBeInTheDocument();
   expect(DevEndpoints.getRunLog).toHaveBeenCalledWith('huelleyrose.com', 'r0');
 });
