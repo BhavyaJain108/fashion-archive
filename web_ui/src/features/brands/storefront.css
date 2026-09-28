@@ -132,6 +132,7 @@
 .shop-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: start;
   gap: 32px 16px;
   transition: opacity var(--ar-base) ease;
 }
@@ -194,17 +195,29 @@
   min-width: 0;
 }
 
+/* The photograph keeps its own proportions everywhere: the column sets the width,
+   the picture sets the height. Nothing is cropped. The second photograph sits over
+   the first on hover, fitted inside the same box, so the tile never changes size. */
 .shop-tile-img {
   display: block;
+  position: relative;
   width: 100%;
-  aspect-ratio: 3 / 4;
   background: var(--ar-bg-sunk);
-  overflow: hidden;
   margin-bottom: 10px;
 }
 
-.shop-tile-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.shop-tile-none { display: flex; height: 100%; align-items: center; justify-content: center; font-size: var(--ar-fs-label); letter-spacing: var(--ar-track-label); text-transform: uppercase; color: var(--ar-ink-4); }
+.shop-tile-img img { width: 100%; height: auto; display: block; }
+.shop-tile-img .shop-tile-alt {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  object-fit: contain;
+  background: var(--ar-bg-sunk);
+  opacity: 0;
+  transition: opacity var(--ar-fast) ease;
+}
+.shop-tile:hover .shop-tile-alt { opacity: 1; }
+.shop-tile-none { display: flex; aspect-ratio: 3 / 4; align-items: center; justify-content: center; font-size: var(--ar-fs-label); letter-spacing: var(--ar-track-label); text-transform: uppercase; color: var(--ar-ink-4); }
 
 .shop-tile-brand {
   font-size: var(--ar-fs-ui);

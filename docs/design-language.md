@@ -50,6 +50,10 @@ note the user wrote).
 10. **Readable text meets WCAG AA.** Every word is at least 4.5:1 on its
     ground. Every focusable control shows the same 1px black outline under
     keyboard focus.
+11. **A photograph keeps its own proportions.** The column sets its width,
+    the picture sets its height. It is only ever scaled, never cropped: no
+    fixed-ratio box, no `object-fit: cover`. A fixed slot such as a filmstrip
+    thumbnail fits the picture inside it with `contain`.
 
 ---
 

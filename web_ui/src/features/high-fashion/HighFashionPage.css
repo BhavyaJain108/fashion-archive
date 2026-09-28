@@ -670,7 +670,7 @@
 .hf2-thumb img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
 }
 
 /* A look the stream has said to expect and has not delivered yet.
@@ -744,18 +744,14 @@
 
 .hf2-grid-image-wrapper {
   position: relative;      /* for the star in the corner */
-  aspect-ratio: 3/4;
-  overflow: hidden;
   background: var(--ar-bg-sunk);
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 
+/* the photograph keeps its own proportions: the column sets the width, the picture the height */
 .hf2-grid-image-wrapper img {
   width: 100%;
-  height: 100%;
-  object-fit: cover;
+  height: auto;
+  display: block;
   transition: opacity var(--ar-base) ease;
 }
 

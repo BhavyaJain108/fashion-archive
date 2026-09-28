@@ -9,6 +9,7 @@
 .shv-cap { font-size: var(--ar-fs-ui); color: var(--ar-ink-2); letter-spacing: var(--ar-track-tight); }
 .shv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; padding: 0 20px; }
 .shv-tile { display: flex; flex-direction: column; gap: 6px; }
-.shv-tile img, .shv-tile-blank { width: 100%; aspect-ratio: 3 / 4; object-fit: cover; border: 1px solid var(--ar-line); background: var(--ar-bg-sub); display: block; }
+.shv-tile img { width: 100%; height: auto; border: 1px solid var(--ar-line); background: var(--ar-bg-sub); display: block; }
+.shv-tile-blank { width: 100%; aspect-ratio: 3 / 4; border: 1px solid var(--ar-line); background: var(--ar-bg-sub); display: block; }
 .shv-tile-blank { display: flex; align-items: center; justify-content: center; font-size: var(--ar-fs-label); text-transform: uppercase; letter-spacing: var(--ar-track-ui); color: var(--ar-ink-3); }
 .shv-tile-cap { font-size: var(--ar-fs-label); color: var(--ar-ink-2); letter-spacing: var(--ar-track-tight); text-transform: uppercase; }

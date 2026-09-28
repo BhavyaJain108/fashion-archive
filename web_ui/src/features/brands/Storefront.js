@@ -232,12 +232,14 @@ function columnWidth() {
 }
 
 export function Tile({ tile, onOpen }) {
-  const [hover, setHover] = useState(false);
-  const src = sized(hover && tile.image2 ? tile.image2 : tile.image, columnWidth());
+  const width = columnWidth();
+  const src = sized(tile.image, width);
+  const alt = tile.image2 ? sized(tile.image2, width) : null;
   return (
-    <button type="button" className="shop-tile" onClick={onOpen} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
+    <button type="button" className="shop-tile" onClick={onOpen}>
       <span className="shop-tile-img">
         {src ? <img src={src} alt="" loading="lazy" onError={fallbackOnError(tile.archived)} /> : <span className="shop-tile-none">No image</span>}
+        {src && alt && <img className="shop-tile-alt" src={alt} alt="" loading="lazy" />}
       </span>
       <span className="shop-tile-brand">{tile.brand}</span>
       <span className="shop-tile-name">{tile.title}</span>

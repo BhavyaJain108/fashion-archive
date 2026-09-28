@@ -40,6 +40,10 @@
       glyph, and below the floor for a word — so no word is ever ink-4.
       Input borders are ink-4, not --ar-line, for the same reason. Every
       focusable thing shows a 1px black outline under keyboard focus.
+  11. A photograph keeps its own proportions. The column sets its width, the
+      picture sets its height. It is only ever scaled, never cropped: no
+      aspect-ratio box around a photograph, no object-fit: cover on one. A
+      fixed slot (a filmstrip thumbnail) fits the picture inside with contain.
 
    Every token and primitive below is rendered live at /styleguide.
    --------------------------------------------------------------------- */

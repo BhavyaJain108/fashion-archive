@@ -271,7 +271,7 @@
 .fav-thumb img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
 }
 
 /* --- Grid view ----------------------------------------------------- */
@@ -302,18 +302,14 @@
 }
 
 .fav-grid-image {
-  aspect-ratio: 3 / 4;
-  overflow: hidden;
   background: var(--ar-bg-sunk);
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 
+/* the photograph keeps its own proportions; nothing is cropped */
 .fav-grid-image img {
   width: 100%;
-  height: 100%;
-  object-fit: cover;
+  height: auto;
+  display: block;
   transition: opacity var(--ar-base) ease;
 }
 
@@ -401,19 +397,14 @@
 }
 
 .lib-show-image {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  aspect-ratio: 3 / 4;
-  overflow: hidden;
   background: var(--ar-bg-sub);
   border: 1px solid var(--ar-line);
 }
 
 .lib-show-image img {
   width: 100%;
-  height: 100%;
-  object-fit: cover;
+  height: auto;
+  display: block;
   transition: opacity var(--ar-base) ease;
 }
 

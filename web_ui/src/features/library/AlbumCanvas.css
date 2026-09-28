@@ -2,7 +2,7 @@
 .alb-canvas { position: relative; min-width: 100%; touch-action: none; user-select: none; }
 .alb-cv-tile { position: absolute; display: flex; flex-direction: column; background: var(--ar-bg); border: 1px solid var(--ar-line); cursor: grab; }
 .alb-cv-tile:active { cursor: grabbing; }
-.alb-cv-tile img, .alb-cv-blank { width: 100%; aspect-ratio: 3 / 4; object-fit: cover; display: block; pointer-events: none; }
+.alb-cv-tile img, .alb-cv-blank { width: 100%; aspect-ratio: 3 / 4; object-fit: contain; display: block; pointer-events: none; }
 .alb-cv-blank { display: flex; align-items: center; justify-content: center; font-size: var(--ar-fs-label); letter-spacing: var(--ar-track-ui); text-transform: uppercase; color: var(--ar-ink-3); background: var(--ar-bg-sub); }
 .alb-cv-cap { font-size: var(--ar-fs-label); letter-spacing: var(--ar-track-tight); text-transform: uppercase; color: var(--ar-ink-2); padding: 4px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .alb-cv-handle { position: absolute; right: -1px; bottom: -1px; width: 14px; height: 14px; cursor: nwse-resize; background: linear-gradient(135deg, transparent 50%, var(--ar-ink-4) 50%); }
