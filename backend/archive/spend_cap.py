@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from backend.archive.store.objects import Conflict, ObjectStore, dumps, loads
 
 KEY = "control/finder_spend.json"
+ONBOARD_KEY = "control/onboard_spend.json"
 # Days of per-day totals kept, so the deck can show what the finder has been costing.
 HISTORY_DAYS = 90
 # Conditional-write attempts before giving up on recording a charge. Two threads
@@ -31,16 +32,20 @@ class FinderBudgetSpent(RuntimeError):
 
 
 class DailyCap:
-    def __init__(self, store: ObjectStore, usd_per_day: float, clock=None):
+    def __init__(self, store: ObjectStore, usd_per_day: float, clock=None, key: str = KEY):
         self._store = store
         self.usd_per_day = float(usd_per_day)
         self._clock = clock or (lambda: datetime.now(timezone.utc))
+        # The finder's day and a first read's day are kept apart: a wave of new brands
+        # is paid from `ONBOARD_KEY`, so it neither spends nor is stopped by the
+        # finder's daily allowance for brands already read.
+        self.key = key
 
     def _today(self) -> str:
         return self._clock().date().isoformat()
 
     def _read(self) -> tuple[dict, str | None]:
-        found = self._store.get(KEY)
+        found = self._store.get(self.key)
         return (loads(found[0]), found[1]) if found else ({}, None)
 
     def spent_today(self) -> float:
@@ -74,7 +79,7 @@ class DailyCap:
             row["history"] = dict(sorted(history.items())[-HISTORY_DAYS:])
             row["cap_usd"] = self.usd_per_day
             try:
-                self._store.put(KEY, dumps(row), if_match=etag)
+                self._store.put(self.key, dumps(row), if_match=etag)
                 return row["usd"]
             except Conflict:
                 continue

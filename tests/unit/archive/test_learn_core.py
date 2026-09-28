@@ -391,3 +391,53 @@ def test_the_stretch_is_how_far_the_recurring_day_overshoots_its_pool(store, mon
     b.refresh({"a.com": 2.0})  # recurring cap 2.0
     assert b.stretch_factor(1.5) == 1.0
     assert b.stretch_factor(3.0) == 1.5
+
+
+# --- the onboarding pool ---------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_a_first_read_is_paid_from_the_onboarding_pool_beside_the_ceiling(store, monkeypatch):
+    """A wave of new brands must neither drain the day's recurring allowance nor be
+    stopped by it: onboarding has its own number, outside the ceiling."""
+    from backend.archive.learn.budget import BudgetSpent, FleetBudget
+
+    monkeypatch.setenv("ONBOARD_DAILY_USD", "1.0")
+    b = FleetBudget(store)
+    b.refresh({"a.com": 2.0})
+    b.charge("new.com", "onboarding", 0.6)
+    s = b.summary()
+    assert s["pools"]["onboarding"] == {"spent": 0.6, "cap": 1.0}
+    assert s["spent_usd"] == 0.0  # the ceiling's pools are untouched
+    assert s["by_brand"]["new.com"]["onboarding"] == 0.6
+    assert b.allow("onboarding", 0.3) and not b.allow("onboarding", 0.5)
+    with pytest.raises(BudgetSpent):
+        b.check("onboarding", 0.5)
+    # Still charged to the brand's line and the pool the next day rolls into history.
+    later = FleetBudget(store, clock=lambda: datetime(2030, 1, 2, tzinfo=timezone.utc))
+    assert later.summary()["history"][s["day"]]["onboarding"] == 0.6
+
+
+@pytest.mark.unit
+def test_the_daily_cap_keeps_a_first_reads_day_apart_from_the_finders(store):
+    from backend.archive.spend_cap import ONBOARD_KEY, DailyCap, FinderBudgetSpent
+
+    finder = DailyCap(store, 10.0)
+    onboard = DailyCap(store, 1.0, key=ONBOARD_KEY)
+    onboard.charge(0.95)
+    assert finder.spent_today() == 0.0 and onboard.spent_today() == 0.95
+    assert finder.allow(0.1)
+    with pytest.raises(FinderBudgetSpent):
+        onboard.check(0.1)
+
+
+@pytest.mark.unit
+def test_a_runs_verdict_is_written_in_the_lanes_words():
+    """Van Cleef read 1,258 products in a run called "ok" while its dossier called it
+    walled: the run's words and the probe's must classify alike."""
+    from backend.archive.learn.dossier import lane_verdict
+
+    assert lane_verdict("ok", 1258) == "ok"
+    assert lane_verdict("degraded", 40) == "partial"
+    assert lane_verdict("degraded", 0) == "failed"
+    assert lane_verdict("failed", None) == "failed"

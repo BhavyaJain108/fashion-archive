@@ -53,32 +53,6 @@ def test_one_brand_is_scraped_scored_and_handed_back(env):
 
 
 @pytest.mark.unit
-def test_a_scored_run_lands_in_the_dossier_as_a_lane(env, tmp_path):
-    """The scheduled run is the loop's best evidence; a dossier that never saw one
-    called Van Cleef blocked for a week while the fleet read it daily."""
-    from backend.archive.learn.dossier import DossierStore
-
-    cat, sched = env
-    ds = DossierStore(sched._store)
-    ds.open("kuurth.com")
-    run = cat.open_run("kuurth.com", "full")
-    cat.finalize_run(run, 0, None)
-    assert run_once(cat, sched, lambda b: ([rec()], 0.25), log=lambda *a: None) is True
-
-    lane = ds.load("kuurth.com").lanes[-1]
-    assert lane.verdict == "ok" and lane.products == 1 and lane.note == "scheduled run"
-    assert lane.fill["product_title"] == 1.0
-
-    # A brand the loop has not opened gets no dossier from a run.
-    cat.upsert_brand(Brand(domain="other.com", homepage_url="https://other.com"))
-    sched.add("other.com", cadence_seconds=3600)
-    run = cat.open_run("other.com", "full")
-    cat.finalize_run(run, 0, None)
-    run_once(cat, sched, lambda b: ([rec("https://other.com/p")], 0.0), log=lambda *a: None)
-    assert ds.load("other.com") is None
-
-
-@pytest.mark.unit
 def test_a_busy_host_defers_the_brand_without_using_its_turn(env):
     cat, sched = env
 

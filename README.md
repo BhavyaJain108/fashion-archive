@@ -155,7 +155,12 @@ Each tick:
    lane times `ARCHIVE_BUDGET_MULTIPLIER`, never below `ARCHIVE_BUDGET_FLOOR_USD`.
    The baseline is the **recurring** pool, the headroom the **discretionary**
    pool that probes, proxy sweeps and analyses spend; when recurring would be
-   exceeded, cadences stretch rather than brands drop.
+   exceeded, cadences stretch rather than brands drop. A brand's first read is
+   paid from a third pool, **onboarding** (`ONBOARD_DAILY_USD`), set aside from
+   the ceiling and from the finder's day: learning where a new brand's fields
+   live costs up to fifteen model calls once, and a wave of new brands should
+   neither drain the day's allowance for the brands already read nor be
+   stopped by it. A brand is onboarding until one of its runs has scored.
 
 Without `ANTHROPIC_API_KEY` the loop still onboards, classifies and climbs; it
 cannot ask, so walls that need the model stay where they are. Without

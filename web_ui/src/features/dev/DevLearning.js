@@ -16,6 +16,7 @@ function Budget({ b }) {
   if (!b || !b.pools) return <div className="dev-muted">no budget yet — written by the first tick</div>;
   const r = b.pools.recurring || {};
   const d = b.pools.discretionary || {};
+  const o = b.pools.onboarding || {};
   const bar = (spent, cap) => (
     <span className="dev-bar-track"><span className="dev-bar" style={{ width: `${cap ? Math.min(100, Math.round((spent / cap) * 100)) : 0}%` }} /></span>
   );
@@ -31,6 +32,7 @@ function Budget({ b }) {
         <tbody>
           <tr><td className="key">recurring</td><td className="bar">{bar(r.spent, r.cap)}</td><td className="n">{usd(r.spent, 3)} / {usd(r.cap, 2)}</td><td className="wrap dev-muted">keeping every brand fresh at its cadence</td></tr>
           <tr><td className="key">discretionary</td><td className="bar">{bar(d.spent, d.cap)}</td><td className="n">{usd(d.spent, 3)} / {usd(d.cap, 2)}</td><td className="wrap dev-muted">probes, proxy sweeps, the model — poured into walls</td></tr>
+          <tr><td className="key">onboarding</td><td className="bar">{bar(o.spent, o.cap)}</td><td className="n">{usd(o.spent, 3)} / {usd(o.cap, 2)}</td><td className="wrap dev-muted">a brand’s first read: learning where its fields live, paid once, set aside from the ceiling</td></tr>
         </tbody>
       </table>
     </div>

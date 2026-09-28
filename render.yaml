@@ -58,6 +58,11 @@ services:
         sync: false
       - key: FINDER_DAILY_USD
         value: "10"
+      # A brand's first read learns where its fields live: up to ~15 finder calls,
+      # $0.40–0.65, paid once. That comes from this pool, set aside from the finder's
+      # day above, so a wave of new brands neither drains it nor is stopped by it.
+      - key: ONBOARD_DAILY_USD
+        value: "5"
       # The country the catalogue is priced for: Shopify stores with Markets serve
       # this market's own prices; the rest keep their currency and the site converts.
       - key: ARCHIVE_MARKET
