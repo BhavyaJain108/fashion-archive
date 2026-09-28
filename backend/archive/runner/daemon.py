@@ -203,45 +203,11 @@ def run_once(catalog: Catalog, scheduler: Scheduler, do_brand, log=print, before
     return True
 
 
-def lane_verdict(card) -> str:
-    """A scorecard in the dossier's words: what the capability probe would have said
-    of a lane that read this many products this well."""
-    if not card.products:
-        return "failed"
-    return "ok" if card.required_ok else "partial"
-
-
-def record_lane(store, catalog, domain: str, card, log=print) -> None:
-    """The scheduled run is the loop's best evidence about a brand, and until
-    2026-09-28 it never saw one: a dossier written from a single probe stood for a
-    week while the fleet read the brand every day. Every scored run now lands in
-    the dossier as a lane, so the wall is classified from what actually happens."""
-    from backend.archive.learn.dossier import DossierStore
-
-    try:
-        ds = DossierStore(store)
-        if ds.load(domain) is None:
-            return  # the loop opens dossiers; a run does not decide who has one
-        plan = catalog.load_plan(domain)
-        ds.lane(
-            domain,
-            plan.composition if plan else "scheduled run",
-            lane_verdict(card),
-            products=card.products,
-            fill=card.field_fill,
-            note="scheduled run"
-            + ("" if card.required_ok else f"; gaps: {', '.join(sorted(card.required_gaps))}"),
-        )
-    except Exception as e:  # noqa: BLE001 — the dossier must never cost a run
-        log(f"{domain} dossier lane not recorded: {type(e).__name__}: {e}")
-
-
 def _score_and_release(catalog, scheduler, due, records, cost, started, log) -> None:
     card = score(records, seconds=time.monotonic() - started, cost_usd=cost)
     run = catalog.latest_run(due.domain)
     if run:
         catalog.save_scorecard(run["id"], due.domain, card)
-        record_lane(scheduler._store, catalog, due.domain, card, log=log)
         # What to fix first, written where the deck can read it. The judgement already
         # existed in recommend.py; it was a command nobody ran.
         try:

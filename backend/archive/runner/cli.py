@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any, cast
@@ -1369,12 +1370,21 @@ def main(argv: list[str] | None = None) -> int:
             # What the finder may spend across the fleet today. Zero keeps it off, which
             # is what the daemon did unconditionally until 2026-09-22.
             finder_cap_usd = float(os.getenv("FINDER_DAILY_USD", "0") or 0)
+            # What a brand's first read may spend learning where its fields live: set
+            # aside from the finder's day, so a wave of new brands neither drains the
+            # allowance of the brands already read nor is stopped by it.
+            from backend.archive.learn.budget import onboarding_usd
+
+            onboard_cap_usd = onboarding_usd()
 
             def factory(cat):
-                from backend.archive.spend_cap import DailyCap
+                from backend.archive.spend_cap import ONBOARD_KEY, DailyCap
 
                 spend = Spend()
                 cap = DailyCap(cat.store, finder_cap_usd)
+                onboard_cap = DailyCap(cat.store, onboard_cap_usd, key=ONBOARD_KEY)
+                # Which cap the finder draws on is decided per run, and runs are threads.
+                current = threading.local()
 
                 def _browser_factory():
                     # The image carries Chromium now, so a brand behind a challenge
@@ -1391,7 +1401,8 @@ def main(argv: list[str] | None = None) -> int:
                     # It was 0.2 when the finder sent 220k characters; before that, 0.02
                     # was a tenth of a real call and let the day overshoot by a call
                     # per worker.
-                    cap.check(estimate_usd=0.1)  # raises FinderBudgetSpent
+                    this_cap = getattr(current, "cap", cap)
+                    this_cap.check(estimate_usd=0.1)  # raises FinderBudgetSpent
                     before = spend.usd
                     resp = page_transport.get(url)
                     if resp.status_code != 200:
@@ -1399,26 +1410,26 @@ def main(argv: list[str] | None = None) -> int:
                     try:
                         return learn_recipes(resp.text, url, domain, missing, spend=spend)
                     finally:
-                        cap.charge(spend.usd - before)
+                        this_cap.charge(spend.usd - before)
 
                 from backend.archive.learn.budget import FleetBudget
-                from backend.archive.learn.dossier import DossierStore
+                from backend.archive.learn.dossier import DossierStore, lane_verdict
                 from backend.archive.learn.meter import Meter, Prices, today
 
                 dossiers = DossierStore(cat.store)
                 fleet_budget = FleetBudget(cat.store)
                 prices = Prices.from_env()
 
-                def _record_run(brand, meter, mode, started):
+                def _record_run(brand, meter, mode, started, pool="recurring"):
                     """What the run cost and what it read, into the dossier and the
-                    recurring pool. Never allowed to fail the run."""
+                    pool that paid for it. Never allowed to fail the run."""
                     try:
                         meter.wall_seconds = time.monotonic() - started
                         meter.runs = 1
                         snap = meter.snapshot()
                         dossiers.meter_add(brand.domain, today(), snap)
                         if snap.get("usd"):
-                            fleet_budget.charge(brand.domain, "recurring", snap["usd"])
+                            fleet_budget.charge(brand.domain, pool, snap["usd"])
                         run = cat.latest_run(brand.domain) or {}
                         cov = run.get("coverage") or {}
                         plan = cat.load_plan(brand.domain)
@@ -1426,8 +1437,15 @@ def main(argv: list[str] | None = None) -> int:
                             dossiers.lane(
                                 brand.domain,
                                 plan.composition,
-                                cov.get("verdict")
-                                or ("busy" if "wait" in str(run.get("reason") or "") else "failed"),
+                                (
+                                    lane_verdict(cov.get("verdict"), cov.get("extracted"))
+                                    if cov
+                                    else (
+                                        "busy"
+                                        if "wait" in str(run.get("reason") or "")
+                                        else "failed"
+                                    )
+                                ),
                                 cov.get("extracted"),
                                 cov.get("field_fill") or {},
                                 str(run.get("reason") or "")[:120],
@@ -1443,6 +1461,11 @@ def main(argv: list[str] | None = None) -> int:
                     calls_before_run = spend.calls
                     meter = Meter(prices=prices)
                     run_started = time.monotonic()
+                    # A brand is being onboarded until a run of it has scored: what the
+                    # finder spends on those runs is the onboarding pool's, not the day's.
+                    first_read = mode != "sweep" and not cat.scorecards(brand.domain, limit=1)
+                    current.cap = onboard_cap if first_read else cap
+                    pool = "onboarding" if first_read else "recurring"
                     # What the sites answered, kept with the catalogue: the deck's
                     # per-host latency and refusal counts come from this ledger, and
                     # until today the daemon's transport had no sink, so those
@@ -1500,7 +1523,11 @@ def main(argv: list[str] | None = None) -> int:
                                     refused_backoff=max(args.gap * 4, 2.0),
                                 ),
                             ),
-                            field_finder=_field_finder if finder_cap_usd > 0 else None,
+                            field_finder=(
+                                _field_finder
+                                if (onboard_cap_usd if first_read else finder_cap_usd) > 0
+                                else None
+                            ),
                             # Ask about everything the run can, not ten pages' worth:
                             # the daily ceiling is the throttle, and what a page did
                             # not yield is asked again on a later product or run.
@@ -1521,7 +1548,7 @@ def main(argv: list[str] | None = None) -> int:
                         meter.note_llm(
                             spend.usd - spent_before, calls=spend.calls - calls_before_run
                         )
-                        _record_run(brand, meter, mode, run_started)
+                        _record_run(brand, meter, mode, run_started, pool=pool)
                     if mode == "learn":
                         # Nothing stored, nothing to photograph or score.
                         return None, spend.usd - spent_before

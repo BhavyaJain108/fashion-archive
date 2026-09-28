@@ -33,6 +33,16 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def lane_verdict(coverage_verdict: str | None, products: int | None) -> str:
+    """A run's coverage verdict (ok, degraded, failed) in the words the probe uses for a
+    lane (ok, partial, failed), so the wall is classified the same way whichever wrote
+    it. A degraded run that stored products read the brand; one that stored none did
+    not, whatever it was called."""
+    if not products:
+        return "failed"
+    return "ok" if coverage_verdict == "ok" else "partial"
+
+
 class Event(BaseModel):
     at: str
     kind: str

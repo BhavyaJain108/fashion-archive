@@ -16,6 +16,12 @@ brands stuck on paid rungs — and the headroom above 1× is the discretionary p
 When the recurring pool would be exceeded the answer is to stretch cadences, not to
 drop brands: freshness degrades, visibly, and coverage never does.
 
+A third pool sits beside the ceiling rather than under it:
+
+    onboarding     a brand's first read — the finder's calls to learn where its fields
+                   live, paid once — so a wave of new brands neither eats the day's
+                   recurring allowance nor is stopped by it. `ONBOARD_DAILY_USD`.
+
 One object, `control/budget.json`, conditionally written like the finder's cap, so two
 workers charging at once both land.
 """
@@ -33,7 +39,7 @@ _ATTEMPTS = 5
 DEFAULT_MULTIPLIER = 1.5
 # The share of the ceiling that is the recurring pool; the rest is discretionary.
 # 1/multiplier puts the baseline exactly in the recurring pool.
-POOLS = ("recurring", "discretionary")
+POOLS = ("recurring", "discretionary", "onboarding")
 
 
 class BudgetSpent(RuntimeError):
@@ -45,6 +51,14 @@ def multiplier() -> float:
         return float(os.environ.get("ARCHIVE_BUDGET_MULTIPLIER", "") or DEFAULT_MULTIPLIER)
     except ValueError:
         return DEFAULT_MULTIPLIER
+
+
+def onboarding_usd() -> float:
+    """What a day of first reads may spend on the finder, set aside from the ceiling."""
+    try:
+        return float(os.environ.get("ONBOARD_DAILY_USD", "") or 5.0)
+    except ValueError:
+        return 5.0
 
 
 def _floor_usd() -> float:
@@ -82,6 +96,9 @@ class FleetBudget:
                 "discretionary": round(
                     float((row.get("pools") or {}).get("discretionary", {}).get("spent", 0.0)), 6
                 ),
+                "onboarding": round(
+                    float((row.get("pools") or {}).get("onboarding", {}).get("spent", 0.0)), 6
+                ),
                 "ceiling": row.get("ceiling_usd_day"),
             }
         return {
@@ -98,6 +115,7 @@ class FleetBudget:
                     "spent": 0.0,
                     "cap": (row.get("pools") or {}).get("discretionary", {}).get("cap", 0.0),
                 },
+                "onboarding": {"spent": 0.0, "cap": onboarding_usd()},
             },
             "by_brand": {},
             "stretch": 1.0,
@@ -128,6 +146,7 @@ class FleetBudget:
             )
             row["pools"]["recurring"]["cap"] = round(recurring_cap, 6)
             row["pools"]["discretionary"]["cap"] = round(ceiling - recurring_cap, 6)
+            row["pools"].setdefault("onboarding", {"spent": 0.0})["cap"] = onboarding_usd()
             try:
                 self._store.put(KEY, dumps(row), if_match=etag)
                 return row
@@ -142,7 +161,7 @@ class FleetBudget:
         for _ in range(_ATTEMPTS):
             row, etag = self._read()
             row = self._fresh(row)
-            p = row["pools"][pool]
+            p = row["pools"].setdefault(pool, {"spent": 0.0, "cap": 0.0})
             p["spent"] = round(float(p.get("spent", 0.0)) + float(usd), 6)
             by = row.setdefault("by_brand", {})
             line = by.setdefault(domain, {"recurring": 0.0, "discretionary": 0.0})
@@ -156,17 +175,20 @@ class FleetBudget:
 
     def allow(self, pool: str, estimate_usd: float = 0.0) -> bool:
         row = self._fresh(self._read()[0])
-        p = row["pools"][pool]
-        cap = float(p.get("cap") or 0.0)
-        if cap <= 0:
-            # No ceiling computed yet: the floor is the allowance.
-            cap = _floor_usd() if pool == "discretionary" else _floor_usd()
+        p = row["pools"].get(pool) or {}
+        if pool == "onboarding":
+            cap = onboarding_usd()  # its own number, never derived from the ceiling
+        else:
+            cap = float(p.get("cap") or 0.0)
+            if cap <= 0:
+                # No ceiling computed yet: the floor is the allowance.
+                cap = _floor_usd()
         return float(p.get("spent", 0.0)) + estimate_usd <= cap
 
     def check(self, pool: str, estimate_usd: float = 0.0) -> None:
         if not self.allow(pool, estimate_usd):
             row = self._fresh(self._read()[0])
-            p = row["pools"][pool]
+            p = row["pools"].get(pool) or {}
             raise BudgetSpent(
                 f"{pool}: ${p.get('spent', 0.0):.2f} of ${p.get('cap', 0.0):.2f} spent today"
             )
@@ -198,6 +220,8 @@ class FleetBudget:
     def summary(self) -> dict:
         row = self._fresh(self._read()[0])
         pools = row["pools"]
+        pools.setdefault("onboarding", {"spent": 0.0, "cap": onboarding_usd()})
+        # The ceiling's own pools. Onboarding is set aside from it and reported beside it.
         spent = float(pools["recurring"]["spent"]) + float(pools["discretionary"]["spent"])
         return {
             "day": row["day"],
@@ -205,6 +229,7 @@ class FleetBudget:
             "baseline_usd_day": row.get("baseline_usd_day"),
             "ceiling_usd_day": row.get("ceiling_usd_day"),
             "spent_usd": round(spent, 6),
+            "onboarding_usd_day": onboarding_usd(),
             "pools": pools,
             "by_brand": row.get("by_brand") or {},
             "predicted_by_brand": row.get("predicted_by_brand") or {},

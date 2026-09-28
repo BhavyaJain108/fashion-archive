@@ -38,6 +38,7 @@ It will prompt for the secrets, which never enter the repo:
 | `YOUTUBE_API_KEY` | Google Cloud, YouTube Data API |
 | `ADMIN_EMAILS` | who may open `/dev`, comma-separated |
 | `FINDER_DAILY_USD` | the finder's daily cap; set the same on both services |
+| `ONBOARD_DAILY_USD` | worker: what a day of first reads may spend learning new brands' fields, set aside from the finder's cap |
 | `ANTHROPIC_ADMIN_KEY` | Anthropic console, an admin key, for the costs page |
 | `CLOUDFLARE_API_TOKEN` | Cloudflare, read access to R2 analytics, for the costs page |
 | `RENDER_API_KEY` | Render account settings, for the costs page |
