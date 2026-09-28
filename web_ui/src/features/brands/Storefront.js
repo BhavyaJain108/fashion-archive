@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import TopBar from '../../shared/ui/TopBar';
 import ArchiveAPI from '../../shared/api/brands';
-import { columnsFor, count, fallbackOnError, formatPrice, groupRows, sized } from './shop';
+import { columnsFor, count, fallbackOnError, formatPrice, pageRows, sized } from './shop';
+import WindowedGrid from './WindowedGrid';
 import { CURRENCIES, useMoney } from '../../shared/money';
 import './storefront.css';
 
@@ -31,6 +32,8 @@ function Storefront({ currentPage, onPageSwitch, currentUser, onLogout, navigate
   const [data, setData] = useState(null);      // last answer from the server
   const [tiles, setTiles] = useState([]);      // accumulated across "load more"
   const [state, setState] = useState('loading'); // loading | ready | warming | error
+  const [loadingMore, setLoadingMore] = useState(false);
+  const heightsRef = useRef({}); // measured row heights, kept across pages and remembered with the grid
   const [designerQuery, setDesignerQuery] = useState('');
   // Rows are formed from same-shaped photographs; the column count is the only
   // thing the browser adds, and it changes only on resize.
@@ -51,7 +54,7 @@ function Storefront({ currentPage, onPageSwitch, currentUser, onLogout, navigate
   useEffect(() => {
     const el = scrollRef.current;
     return () => {
-      if (data && tiles.length) remembered = { key, data, tiles, scrollTop: el ? el.scrollTop : 0 };
+      if (data && tiles.length) remembered = { key, data, tiles, heights: heightsRef.current, scrollTop: el ? el.scrollTop : 0 };
     };
   }, [key, data, tiles]);
 
@@ -64,11 +67,13 @@ function Storefront({ currentPage, onPageSwitch, currentUser, onLogout, navigate
     setFiltersOpen(false);
     if (remembered && remembered.key === key) {
       setData(remembered.data); setTiles(remembered.tiles); setState('ready');
+      heightsRef.current = remembered.heights || {};
       const top = remembered.scrollTop;
       requestAnimationFrame(() => { if (scrollRef.current) scrollRef.current.scrollTop = top; });
       return undefined;
     }
     setState('loading');
+    heightsRef.current = {};
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
     const load = async () => {
       try {
@@ -85,11 +90,19 @@ function Storefront({ currentPage, onPageSwitch, currentUser, onLogout, navigate
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
+  // The next page, asked for by the grid as its last loaded row comes near.
   const loadMore = async () => {
-    if (!data) return;
-    const res = await ArchiveAPI.storefront({ ...shop, brand: brandId, offset: tiles.length, limit: PAGE });
-    if (res.warming) return;
-    setTiles((t) => [...t, ...res.products]); setData(res);
+    if (!data || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const res = await ArchiveAPI.storefront({ ...shop, brand: brandId, offset: tiles.length, limit: PAGE });
+      if (res.warming) return;
+      setTiles((t) => [...t, ...res.products]); setData(res);
+    } catch (e) {
+      // the status line stays at "showing n of total"; the next scroll asks again
+    } finally {
+      setLoadingMore(false);
+    }
   };
 
   const go = (patch, nextBrand = brandId) => {
@@ -105,7 +118,9 @@ function Storefront({ currentPage, onPageSwitch, currentUser, onLogout, navigate
     ? facets.designers.filter((d) => d.name.toLowerCase().includes(designerQuery.toLowerCase()))
     : facets.designers;
 
-  const ordered = useMemo(() => groupRows(tiles, columns), [tiles, columns]);
+  const rows = useMemo(() => pageRows(tiles, columns, PAGE), [tiles, columns]);
+  // a row's likely height before it is drawn: a 4:5 photograph in the column plus three text lines
+  const rowEstimate = Math.round(columnWidth() / 0.8) + 90;
   const heading = brandName || shop.bucket || shop.group || (shop.sale ? 'Sale' : shop.q ? `“${shop.q}”` : 'Everything');
   const total = data ? data.total : 0;
 
@@ -189,13 +204,22 @@ function Storefront({ currentPage, onPageSwitch, currentUser, onLogout, navigate
             {state === 'ready' && tiles.length === 0 && (
               <div className="ar-empty"><span className="headline">Nothing here</span><span>Clear a filter or search for something else.</span></div>
             )}
-            <div className={`shop-grid ${state === 'loading' ? 'is-loading' : ''}`}>
-              {ordered.map((t) => <Tile key={`${t.brand_id}|${t.url}`} tile={t} onOpen={() => openProduct(t)} />)}
+            <div className={state === 'loading' ? 'is-loading' : ''}>
+              <WindowedGrid
+                rows={rows}
+                scrollRef={scrollRef}
+                heightsRef={heightsRef}
+                estimate={rowEstimate}
+                hasMore={state === 'ready' && tiles.length < total}
+                onMore={loadMore}
+                renderRow={(row) => row.map((t) => <Tile key={`${t.brand_id}|${t.url}`} tile={t} onOpen={() => openProduct(t)} />)}
+              />
             </div>
-            {state === 'ready' && tiles.length < total && (
+            {state === 'ready' && tiles.length > 0 && (
               <div className="shop-more">
-                <span className="shop-total">Showing {count(tiles.length)} of {count(total)}</span>
-                <button type="button" className="ar-btn" onClick={loadMore}>Load more</button>
+                <span className="shop-total">
+                  {tiles.length < total ? `Showing ${count(tiles.length)} of ${count(total)}${loadingMore ? ' · loading' : ''}` : `${count(total)} products`}
+                </span>
               </div>
             )}
           </main>
@@ -246,7 +270,7 @@ export function Tile({ tile, onOpen }) {
   const alt = tile.image2 ? sized(tile.image2, width) : null;
   return (
     <button type="button" className="shop-tile" onClick={onOpen}>
-      <span className="shop-tile-img">
+      <span className={`shop-tile-img ${tile.ratio ? 'has-shape' : ''}`} style={tile.ratio ? { aspectRatio: String(tile.ratio) } : undefined}>
         {src ? <img src={src} alt="" loading="lazy" onError={fallbackOnError(tile.archived)} /> : <span className="shop-tile-none">No image</span>}
         {src && alt && <img className="shop-tile-alt" src={alt} alt="" loading="lazy" />}
       </span>

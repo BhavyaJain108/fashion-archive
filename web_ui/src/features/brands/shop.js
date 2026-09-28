@@ -78,3 +78,39 @@ export function groupRows(tiles, columns, look = 3) {
   }
   return out;
 }
+
+// Rows for the whole grid, grouped page by page. A page that has been drawn is
+// never regrouped when the next one arrives, so infinite scroll adds rows below
+// and moves nothing above.
+export function pageRows(tiles, columns, page) {
+  const rows = [];
+  for (let at = 0; at < tiles.length; at += page) {
+    const ordered = groupRows(tiles.slice(at, at + page), columns);
+    for (let i = 0; i < ordered.length; i += columns) rows.push(ordered.slice(i, i + columns));
+  }
+  return rows;
+}
+
+// The top of every row (and one past the last), from measured heights where a
+// row has been drawn and the estimate where it has not.
+export function rowTops(heights, estimate, count) {
+  const tops = new Array(count + 1);
+  let y = 0;
+  for (let i = 0; i < count; i += 1) {
+    tops[i] = y;
+    y += heights[i] || estimate;
+  }
+  tops[count] = y;
+  return tops;
+}
+
+// Which rows to mount for a viewport of `height` px whose top is `scrollTop` px
+// below the grid's top, with `overscan` rows kept beyond each edge.
+export function windowRange(scrollTop, height, tops, count, overscan) {
+  if (count === 0) return [0, 0];
+  let first = 0;
+  while (first < count - 1 && tops[first + 1] <= scrollTop) first += 1;
+  let last = first;
+  while (last < count - 1 && tops[last + 1] < scrollTop + height) last += 1;
+  return [Math.max(0, first - overscan), Math.min(count, last + 1 + overscan)];
+}

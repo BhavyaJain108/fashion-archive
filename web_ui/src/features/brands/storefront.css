@@ -140,7 +140,10 @@
   transition: opacity var(--ar-base) ease;
 }
 
-.shop-grid.is-loading { opacity: 0.4; }
+.is-loading .shop-rows { opacity: 0.4; }
+/* rows are separate grids so the ones off screen can be a single spacer */
+.shop-row { margin-bottom: 32px; }
+.shop-spacer { width: 100%; }
 .shop-grid-row { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .shop-filters-toggle { display: none; }
 
@@ -178,6 +181,7 @@
   .shop-searchform { order: 3; width: 100%; }
   .shop-body { padding: 16px 16px 32px; }
   .shop-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px 12px; }
+  .shop-row { margin-bottom: 24px; }
   .shop-grid-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .shop-product { padding: 16px 16px 0; }
   .shop-more-from { padding: 32px 16px; }
@@ -210,6 +214,9 @@
 }
 
 .shop-tile-img img { width: 100%; height: auto; display: block; }
+/* a known shape reserves the height before the picture arrives; the picture fits
+   inside it, never cropped */
+.shop-tile-img.has-shape img { height: 100%; object-fit: contain; }
 /* A row is formed from same-shaped photographs (shop.js groupRows). When one is
    mixed anyway, pictures sit at the top and the three text lines sit at the
    bottom of the row, so brand, name and price line up across it. */
