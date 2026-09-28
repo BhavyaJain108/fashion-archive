@@ -770,7 +770,15 @@ class PgCatalog(Catalog):
         return n
 
     def release_products(self, domain: str) -> bool:
+        """Drop what this brand's run held. The photographs too: they were kept until
+        the worker shut down, so a worker that had run the fleet held every brand's
+        image rows (meshki alone has 24,000) and on 2026-09-28 climbed to 2 GiB and
+        was killed. Every write reaches the table first, so the next read reloads."""
         self._open.pop(domain, None)
+        with self._images_lock:
+            self._open_images.pop(domain, None)
+        if domain not in self._dirty:
+            self._watched_rows.pop(domain, None)
         return True
 
     def _flush_locked(self) -> None:

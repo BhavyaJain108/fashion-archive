@@ -138,6 +138,12 @@ def test_images_and_the_queue(tmp_path, pool, clean):
     assert cat.images_awaiting_archive("x.com") == []  # one stored, one given up on
     assert cat.archived_images("x.com") == {url: ["https://r2/1.jpg"]}
     assert cat.stored_image_count("x.com") == 1
+    # A worker that runs the fleet must not keep every brand's photographs: the run's
+    # release drops them (2026-09-28, 2 GiB), and what was written reads back.
+    assert "x.com" in cat._open_images
+    cat.release_products("x.com")
+    assert "x.com" not in cat._open_images and "x.com" not in cat._watched_rows
+    assert cat.stored_image_urls("x.com", url) == {f"{url}/1.jpg"}
     cat.close()
 
 

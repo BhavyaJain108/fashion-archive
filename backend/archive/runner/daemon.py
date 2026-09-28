@@ -115,6 +115,17 @@ def memory_mb(root: str = "/sys/fs/cgroup") -> float | None:
     return None
 
 
+def give_back() -> None:
+    """Hand freed heap back to the host. glibc keeps what a large brand's run freed
+    for reuse, so a finished run still counted against the 2 GiB until this."""
+    try:
+        import ctypes
+
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except (OSError, AttributeError):
+        pass  # not glibc (a Mac checkout): nothing to hand back this way
+
+
 def _held() -> str:
     """The container's memory as a log suffix, so a climb can be pinned on the brand
     run or the learning tick that made it (the 2026-09-28 leak)."""
@@ -348,7 +359,9 @@ def worker(
                     # The first worker to see the date change takes the day's backup;
                     # the claim on control/backup.json is what stops a second one.
                     daily_backup(store, catalog, worker_id, log=log)
-                if not run_once(catalog, scheduler, do_brand, log=log, before=before):
+                if run_once(catalog, scheduler, do_brand, log=log, before=before):
+                    give_back()
+                else:
                     time.sleep(POLL_SECONDS)
             except Exception as e:  # noqa: BLE001 — a transient must not end the worker
                 # Before this, any store error outside do_brand (a 503 from the

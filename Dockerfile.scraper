@@ -46,6 +46,9 @@ COPY config config
 
 # Unbuffered, or a long pass's progress sits in a pipe until it finishes.
 ENV PYTHONUNBUFFERED=1
+# Two malloc arenas rather than eight per core: the workers are threads, and each
+# thread's arena kept the memory a large brand's run had freed (2026-09-28, 2 GiB).
+ENV MALLOC_ARENA_MAX=2
 
 # Not root. The 2026-09-23 hang blamed on pwuser turned out to be the probe
 # sharing the paced transport's host budget (fixed in effef52c); the user was
