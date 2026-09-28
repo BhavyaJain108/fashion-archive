@@ -78,6 +78,49 @@ export default function DevCosts() {
           </div>
 
           <section className="dev-section">
+            <h2 className="dev-section-h">Budget — the fleet&rsquo;s ceiling</h2>
+            {!data.budget || !data.budget.pools ? (
+              <div className="dev-muted">no budget yet — the learning loop writes it on its first tick</div>
+            ) : (
+              <>
+                <table className="dev-table dev-table-sub">
+                  <tbody>
+                    <tr><td className="key">ceiling</td><td className="wrap">{usd(data.budget.ceiling_usd_day, 3)} a day = baseline {usd(data.budget.baseline_usd_day, 3)} × {data.budget.multiplier}{data.budget.stretch > 1 ? ` · cadences stretched ×${data.budget.stretch} to fit` : ''}</td></tr>
+                    <tr><td className="key">recurring</td><td className="wrap">{usd(data.budget.pools.recurring.spent, 3)} of {usd(data.budget.pools.recurring.cap, 3)} — keeping every brand fresh</td></tr>
+                    <tr><td className="key">discretionary</td><td className="wrap">{usd(data.budget.pools.discretionary.spent, 3)} of {usd(data.budget.pools.discretionary.cap, 3)} — probes, proxy, the model</td></tr>
+                  </tbody>
+                </table>
+                {(data.budget.brands || []).length > 0 && (
+                  <div className="dev-scroll">
+                    <table className="dev-table dev-table-sub">
+                      <thead><tr><th>Brand</th><th className="n">Spent today</th><th className="n">Recurring</th><th className="n">Discretionary</th><th className="n">Predicted / day</th></tr></thead>
+                      <tbody>
+                        {data.budget.brands.slice(0, 40).map((b) => (
+                          <tr key={b.domain}>
+                            <td>{b.name} <span className="dev-domain">{b.domain}</span></td>
+                            <td className="n">{usd(b.spent_usd, 4)}</td>
+                            <td className="n">{usd(b.recurring_usd, 4)}</td>
+                            <td className="n">{usd(b.discretionary_usd, 4)}</td>
+                            <td className="n">{b.predicted_usd_day != null ? usd(b.predicted_usd_day, 4) : '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                {Object.keys(data.budget.history || {}).length > 0 && (
+                  <Series rows={Object.entries(data.budget.history).map(([date, v]) => ({ date, usd: (v.recurring || 0) + (v.discretionary || 0) })).slice(-30)} max={data.budget.ceiling_usd_day || undefined} />
+                )}
+                <p className="dev-note">
+                  Units × prices: requests and bytes by rung, requests through the proxy, seconds in a browser, model
+                  calls — each brand&rsquo;s meter, priced at ARCHIVE_PRICE_*. The ceiling is the roster&rsquo;s own
+                  shape times a multiplier; over it, cadences stretch and nothing is dropped.
+                </p>
+              </>
+            )}
+          </section>
+
+          <section className="dev-section">
             <h2 className="dev-section-h">Finder — learning field rules</h2>
             {Object.keys(data.finder.history).length === 0 && !data.finder.usd ? (
               <div className="dev-muted">nothing spent yet</div>

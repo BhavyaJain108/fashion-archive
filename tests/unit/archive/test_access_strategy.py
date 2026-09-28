@@ -96,3 +96,24 @@ def test_names_can_be_parsed_from_a_comma_list():
 @pytest.mark.unit
 def test_selecting_keeps_the_cheapest_first_order_whatever_order_was_asked_for():
     assert [s.name for s in S.select("patchright,httpx")] == ["httpx", "patchright"]
+
+
+@pytest.mark.unit
+def test_the_proxied_rung_is_on_the_shelf_only_when_a_proxy_is_configured(monkeypatch):
+    pytest.importorskip("curl_cffi")
+    s = S.get("cffi:chrome142@proxy")
+    assert s.level is TransportLevel.T1P and s.tier == 2
+    monkeypatch.delenv("ARCHIVE_PROXY_URL", raising=False)
+    assert not s.available
+    with pytest.raises(S.StrategyUnavailable, match="ARCHIVE_PROXY_URL"):
+        s.build()
+    monkeypatch.setenv("ARCHIVE_PROXY_URL", "http://u:p@proxy.example:8080")
+    assert s.available
+    assert s.build().proxy == "http://u:p@proxy.example:8080"
+
+
+@pytest.mark.unit
+def test_the_proxied_rung_sits_above_every_free_handshake_and_below_the_browsers():
+    names = [s.name for s in S.all_strategies()]
+    assert names.index("cffi:chrome142@proxy") > names.index("cffi:safari184")
+    assert names.index("cffi:chrome142@proxy") < names.index("playwright")

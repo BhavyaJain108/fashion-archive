@@ -231,3 +231,37 @@ def test_a_small_limit_still_skips_the_landing_pages_that_sort_first():
     refs = conn.discover(Brand(domain="vca.com", homepage_url="https://vca.com"), t)
     assert len(refs) == 4
     assert all("/alhambra/" in r.url for r in refs)
+
+
+# --- one entry, forty countries: the market's alternate is the URL (Acne, 2026-09-27) ---
+
+ALTERNATES = (
+    '<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" '
+    'xmlns:xhtml="http://www.w3.org/1999/xhtml">'
+    "<url><loc>https://acne.com/my/en/cardigan-pale-mint/CI0228-DXT.html</loc>"
+    '<xhtml:link rel="alternate" hreflang="it-it" href="https://acne.com/it/it/cardigan-pale-mint/CI0228-DXT.html"/>'
+    '<xhtml:link rel="alternate" hreflang="en-US" href="https://acne.com/us/en/cardigan-pale-mint/CI0228-DXT.html"/>'
+    "<lastmod>2026-09-25</lastmod></url>"
+    "<url><loc>https://acne.com/it/it/scarf-wool/CA0001-AAA.html</loc>"
+    '<xhtml:link rel="alternate" hreflang="fr-fr" href="https://acne.com/fr/fr/scarf-wool/CA0001-AAA.html"/>'
+    "</url>"
+    "<url><loc>https://acne.com/us/en/hoodie/CI0159-92H.html</loc></url>"
+    "</urlset>"
+)
+
+
+@pytest.mark.unit
+def test_an_entry_with_a_market_alternate_is_listed_at_that_alternate():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=ALTERNATES)
+
+    t = HttpxTransport(client=httpx.Client(transport=httpx.MockTransport(handler)))
+    refs = SitemapConnector("https://acne.com/sitemap_1.xml", "/us/en/").discover(
+        Brand(domain="acne.com", homepage_url="https://acne.com"), t
+    )
+    assert [r.url for r in refs] == [
+        "https://acne.com/us/en/cardigan-pale-mint/CI0228-DXT.html",  # the en-US alternate
+        "https://acne.com/us/en/hoodie/CI0159-92H.html",  # its own loc
+    ]
+    # The scarf is not sold in the US: no alternate, and its loc is another country's.
+    assert refs[0].change_hint == "2026-09-25"

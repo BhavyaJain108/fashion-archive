@@ -74,7 +74,7 @@ def classify(
     # it lists URLs without making any of them parseable, and every client-rendered site
     # publishes one — counting it would file the empty room under OK, which is the single
     # mistake this whole module exists to prevent.
-    if cap.bulk_json or cap.woo_api or cap.ldjson_product:
+    if cap.readable():
         return Outcome.OK
     return Outcome.OK_THIN
 

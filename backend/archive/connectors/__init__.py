@@ -2,7 +2,12 @@
 
 import os
 
-from backend.archive.connectors.shopify import DEFAULT_MARKET, ShopifyConnector
+from backend.archive.connectors.runfair import RunfairConnector
+from backend.archive.connectors.shopify import (
+    DEFAULT_MARKET,
+    ShopifyConnector,
+    ShopifyPageConnector,
+)
 from backend.archive.connectors.sitemap import SitemapConnector
 from backend.archive.connectors.structured import StructuredConnector
 from backend.archive.connectors.woocommerce import WooConnector
@@ -22,10 +27,28 @@ def get_connector(plan: ScrapePlan, sitemap_url: str | None = None, limit: int |
         return ShopifyConnector(plan.currency, market=market())
     if plan.discovery == DiscoveryChannel.WOO_API:
         return WooConnector()
+    if plan.discovery == DiscoveryChannel.PAGE_DATA:
+        return RunfairConnector(market=market())
+    if plan.discovery == DiscoveryChannel.SWELL_API:
+        from backend.archive.connectors.swell import SwellConnector
+
+        if not (plan.swell_store and plan.swell_key):
+            raise ValueError("a swell plan carries no store and key")
+        return SwellConnector(plan.swell_store, plan.swell_key, currency=plan.currency, limit=limit)
+    if plan.discovery == DiscoveryChannel.RECIPE:
+        from backend.archive.learn.recipes import LaneRecipe, RecipeConnector
+
+        if not plan.recipe:
+            raise ValueError("a recipe plan carries no recipe")
+        return RecipeConnector(LaneRecipe(**plan.recipe), limit=limit, currency=plan.currency)
     if plan.discovery == DiscoveryChannel.SITEMAP:
         if not sitemap_url:
             raise ValueError("sitemap discovery requires a sitemap_url")
         if plan.fetch == FetchChannel.STRUCTURED_DATA:
             return StructuredConnector(sitemap_url, plan.product_url_prefix, limit)
+        if plan.fetch == FetchChannel.PLATFORM_JSON:
+            return ShopifyPageConnector(
+                sitemap_url, plan.product_url_prefix, limit, currency=plan.currency
+            )
         return SitemapConnector(sitemap_url, plan.product_url_prefix, limit)
     raise ValueError(f"no connector for {plan.discovery} in milestone 2")

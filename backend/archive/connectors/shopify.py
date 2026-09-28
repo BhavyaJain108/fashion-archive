@@ -3,7 +3,8 @@
 import re
 import time
 
-from backend.archive.connectors.base import ChannelBlocked, ChannelBusy, SkipProduct
+from backend.archive.connectors.base import ChannelBlocked, ChannelBusy, NotAProduct, SkipProduct
+from backend.archive.connectors.sitemap import SitemapConnector
 from backend.archive.domain.brand import Brand
 from backend.archive.domain.product import (
     ProductRecord,
@@ -13,7 +14,7 @@ from backend.archive.domain.product import (
     pack_offers,
     pack_sizes,
 )
-from backend.archive.transport import Transport
+from backend.archive.transport import Transport, retry_after
 
 _TAG_RE = re.compile(r"<[^>]+>")
 
@@ -22,8 +23,8 @@ _TAG_RE = re.compile(r"<[^>]+>")
 # ("Color", "Size"), so reading option1 as the size stored colours as sizes. A
 # single-variant product's one option is "Title" with the value "Default Title", which
 # is not a size either. Match on the option's NAME, whatever position it is in.
-_SIZE_WORDS = ("size", "taille", "größe", "grösse", "talla", "taglia", "размер")
-_COLOR_WORDS = ("color", "colour", "couleur", "farbe", "цвет")
+_SIZE_WORDS = ("size", "taille", "größe", "grösse", "talla", "taglia", "размер", "kích thước")
+_COLOR_WORDS = ("color", "colour", "couleur", "farbe", "цвет", "màu sắc")
 _MATERIAL_WORDS = ("material", "fabric", "matiere", "matière", "stoff")
 
 
@@ -146,10 +147,12 @@ class ShopifyConnector:
         self.market = market
 
     def _page(self, url: str, transport: Transport):
-        """One page of the feed, with one patient retry when the store says slow down."""
+        """One page of the feed, with one patient retry when the store says slow down —
+        for as long as it says. Bronze Snake answers 429 around page 15 of 16
+        (2026-09-27); two seconds was not always enough, and the run read as blocked."""
         resp = transport.get(url)
         if resp.status_code in _BUSY:
-            time.sleep(self.retry_pause)
+            time.sleep(_pause(resp, self.retry_pause))
             resp = transport.get(url)
         if resp.status_code in _BUSY:
             raise ChannelBusy(f"{url} → HTTP {resp.status_code}")
@@ -186,7 +189,88 @@ class ShopifyConnector:
         if not ref.payload:
             raise SkipProduct(f"no payload on {ref.url}")
         domain = ref.url.split("/")[2]
-        return map_product(ref.payload, domain, self.currency, self.market)
+        record = map_product(ref.payload, domain, self.currency, self.market)
+        if record.main_image_url is None and transport is not None:
+            record = with_page_images(record, transport)
+        return record
+
+
+class ShopifyPageConnector:
+    """A Shopify store with its bulk feed switched off, read one product at a time.
+
+    fengofficiel.com answers 404 at /products.json and the whole product record at
+    /products/<handle>.json (2026-09-27) — the same shape the feed carries, so the same
+    mapping applies. Discovery is the store's own product sitemap. The per-product
+    endpoint takes no market, so the prices are the shop's own, and `market` is left
+    unset to say so.
+    """
+
+    kind = "shopify_page"
+
+    def __init__(
+        self,
+        sitemap_url: str,
+        url_prefix: str | None = None,
+        limit: int | None = None,
+        currency: str | None = None,
+        retry_pause: float = 2.0,
+    ):
+        self._sitemap = SitemapConnector(sitemap_url, url_prefix, limit)
+        self.currency = currency
+        self.retry_pause = retry_pause
+
+    def discover(self, brand: Brand, transport: Transport) -> list[ProductRef]:
+        return self._sitemap.discover(brand, transport)
+
+    def fetch(self, ref: ProductRef, transport: Transport) -> ProductRecord:
+        url = ref.url.split("?")[0].rstrip("/") + ".json"
+        resp = transport.get(url)
+        if resp.status_code in _BUSY:
+            time.sleep(_pause(resp, self.retry_pause))
+            resp = transport.get(url)
+        if resp.status_code in _BUSY:
+            raise ChannelBusy(f"{url} → HTTP {resp.status_code}")
+        if resp.status_code == 404:
+            # The sitemap is regenerated on a schedule; a handle it still lists can be
+            # gone. That says nothing about our access.
+            raise NotAProduct(f"{ref.url}: no such product any more")
+        if resp.status_code != 200 or "/password" in str(resp.url):
+            raise SkipProduct(f"{url} → HTTP {resp.status_code}")
+        try:
+            product = resp.json().get("product")
+        except ValueError:
+            product = None
+        if not product:
+            raise SkipProduct(f"no product in {url}")
+        domain = ref.url.split("/")[2]
+        return map_product(product, domain, served_currency(resp) or self.currency, market=None)
+
+
+def with_page_images(record: ProductRecord, transport: Transport) -> ProductRecord:
+    """The page's photographs, for a feed product that lists none.
+
+    cooperativeshop.us publishes 529 products whose feed entries carry `images: []`
+    and `image: null`, while every product page states its photographs in og:image
+    (2026-09-27). One extra request, only for a product the feed shows no picture of.
+    """
+    from backend.archive.connectors.structured import page_images
+
+    resp = transport.get(record.itemurl)
+    if resp.status_code != 200:
+        return record
+    images = page_images(resp.text)
+    if not images:
+        return record
+    return record.model_copy(update=pack_images(images))
+
+
+_LONGEST_PAUSE = 30.0
+
+
+def _pause(resp, default: float) -> float:
+    """How long to wait before asking again: what the host said, within reason."""
+    asked = retry_after(resp)
+    return min(float(asked), _LONGEST_PAUSE) if asked else default
 
 
 def _hint(updated_at: str | None, market: str | None) -> str | None:
@@ -198,18 +282,29 @@ def _hint(updated_at: str | None, market: str | None) -> str | None:
 def map_product(
     p: dict, domain: str, currency: str | None = None, market: str | None = None
 ) -> ProductRecord:
-    variants = p.get("variants", [])
+    variants = p.get("variants") or []
     prices = [float(v["price"]) for v in variants if v.get("price") is not None]
     compare = [float(v["compare_at_price"]) for v in variants if v.get("compare_at_price")]
     price = min(prices) if prices else None
     full_price = min(compare) if compare else None
     if full_price is not None and price is not None and full_price <= price:
         full_price = None  # compare_at_price equal/below price is not a sale
-    options = [str(o.get("name") or "") for o in p.get("options", [])]
+    images = [img["src"] for img in p.get("images") or [] if img.get("src")]
+    # A record priced at nothing with nothing to show is a placeholder, not a product:
+    # fengofficiel.com keeps 8 of its 43 handles that way, every variant at 0 and
+    # unavailable (2026-09-27). Stored, they would be half the brand at no price.
+    if price == 0 and not images and not any(v.get("available") for v in variants):
+        raise NotAProduct(f"{p.get('handle')}: no price, no photograph, nothing to buy")
+    options = [str(o.get("name") or "") for o in p.get("options") or []]
     sizes = _sizes_from_variants(variants, options)
     colors = _option_values(variants, options, _COLOR_WORDS)
     materials = _option_values(variants, options, _MATERIAL_WORDS)
-    tags = [t for t in p.get("tags", []) if t]
+    # The feed lists tags; the per-product endpoint writes them as one string, or null
+    # (fengofficiel.com, 2026-09-27).
+    raw_tags = p.get("tags") or []
+    if isinstance(raw_tags, str):
+        raw_tags = [t.strip() for t in raw_tags.split(",")]
+    tags = [t for t in raw_tags if t]
     # category1..10 is a navigation path, root to leaf. Shopify's tags are a flat,
     # unordered set — appending them here manufactured a hierarchy that does not exist
     # ("Hoodies > unisex > fleece" was never a path the shop published). Tags have their
@@ -239,7 +334,7 @@ def map_product(
         promotion_type="sale" if full_price is not None else None,
         additional_tags=", ".join(tags) or None,
         **pack_sizes(sizes),
-        **pack_images([img["src"] for img in p.get("images", []) if img.get("src")]),
+        **pack_images(images),
         **pack_categories(categories),
         **pack_offers(_offers_from_variants(variants, options)),
         platform="shopify",

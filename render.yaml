@@ -62,6 +62,36 @@ services:
       # this market's own prices; the rest keep their currency and the site converts.
       - key: ARCHIVE_MARKET
         value: "US"
+      # An egress proxy, http://user:pass@host:port, for the brands that block our
+      # address rather than our handshake (yeezy.com's Cloudflare rule blocks the
+      # ASN). Unset, the proxied rung does not exist and those brands stay blocked.
+      # ARCHIVE_PROXY_URL_KR and the like name a country's own exit.
+      - key: ARCHIVE_PROXY_URL
+        sync: false
+      # The learning loop ticks in a thread beside the workers (daemon start without
+      # --no-learn): onboards new brands, classifies walls, climbs rungs, asks the
+      # model where a rule cannot be written by a rule, lands recipes the gate proves.
+      - key: LEARN_TICK_SECONDS
+        value: "900"
+      # The fleet ceiling is the roster's predicted daily cost times this; the headroom
+      # above 1× is the discretionary pool the loop spends on walls.
+      - key: ARCHIVE_BUDGET_MULTIPLIER
+        value: "1.5"
+      - key: ARCHIVE_BUDGET_FLOOR_USD
+        value: "5"
+      # Unit prices for the meter: what the proxy charges per thousand requests, a
+      # browser-second, a gigabyte out. Zero means nobody charges for it.
+      - key: ARCHIVE_PRICE_PROXY_USD_PER_1K
+        value: "0"
+      - key: ARCHIVE_PRICE_BROWSER_USD_PER_SECOND
+        value: "0"
+      # The analyst's model and its rates ($/MTok); the finder keeps its own.
+      - key: ANALYST_MODEL
+        value: "claude-opus-5"
+      # A push URL (with a token) lets the loop put the model's code proposals on a
+      # branch; unset, they are filed for `cli learn apply`.
+      - key: ARCHIVE_GIT_PUSH_URL
+        sync: false
       # The catalogue's rows live in Postgres; runs and plans stay in R2.
       - key: CATALOG_BACKEND
         value: pg

@@ -56,6 +56,8 @@ def compose_plan(
             product_url_prefix=cap.product_url_prefix,
             currency=cap.currency,
             shop_domain=cap.shop_domain,
+            swell_store=cap.swell_store,
+            swell_key=cap.swell_key,
         )
 
     if cap.password_gated:
@@ -70,10 +72,22 @@ def compose_plan(
     # The cheap ladder: each rung is skipped when its capability is absent or its
     # composition has already failed for this brand (spec §4.3b). It is built on whichever
     # level actually answered — T0, or T1 when the brand refused Python's TLS handshake and
-    # a browser-shaped one got in. Both are one request per page; neither renders anything.
-    if cap.transport in (TransportLevel.T0, TransportLevel.T1):
+    # a browser-shaped one got in, or T1P when only another address got in. All are one
+    # request per page; none renders anything.
+    if cap.transport in (TransportLevel.T0, TransportLevel.T1, TransportLevel.T1P):
         cheap = cap.transport
         rungs = []
+        # A storefront API is the whole catalogue in a few requests, cheapest of all.
+        if cap.swell_store and cap.swell_key:
+            rungs.append(
+                plan(
+                    cheap,
+                    DiscoveryChannel.SWELL_API,
+                    FetchChannel.PLATFORM_JSON,
+                    ChangeSignal.PER_ITEM,
+                    "ready",
+                )
+            )
         if cap.bulk_json:
             rungs.append(
                 plan(
@@ -89,6 +103,28 @@ def compose_plan(
                 plan(
                     cheap,
                     DiscoveryChannel.WOO_API,
+                    FetchChannel.PLATFORM_JSON,
+                    ChangeSignal.PER_ITEM,
+                    "ready",
+                )
+            )
+        # The store's own JSON, one product at a time, outranks reading its pages: the
+        # feed is the whole record and the page is whatever the theme chose to print.
+        if cap.sitemap_url and cap.product_json:
+            rungs.append(
+                plan(
+                    cheap,
+                    DiscoveryChannel.SITEMAP,
+                    FetchChannel.PLATFORM_JSON,
+                    ChangeSignal.PER_ITEM,
+                    "ready",
+                )
+            )
+        if cap.page_data:
+            rungs.append(
+                plan(
+                    cheap,
+                    DiscoveryChannel.PAGE_DATA,
                     FetchChannel.PLATFORM_JSON,
                     ChangeSignal.PER_ITEM,
                     "ready",

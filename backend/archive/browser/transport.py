@@ -96,6 +96,9 @@ class PlaywrightTransport:
         return [row["status"] for row in self.ledger]
 
     def get(self, url: str) -> BrowserResponse:
+        import time as _time
+
+        started = _time.monotonic()
         ctx = self._ensure_context()
         if _JSON_OR_XML.search(url):
             resp = ctx.request.get(url)
@@ -116,7 +119,14 @@ class PlaywrightTransport:
                 )
             finally:
                 page.close()
-        self.ledger.append({"url": url, "status": out.status_code, "bytes": len(out.content)})
+        self.ledger.append(
+            {
+                "url": url,
+                "status": out.status_code,
+                "bytes": len(out.content),
+                "seconds": round(_time.monotonic() - started, 3),
+            }
+        )
         return out
 
     def _warm_up(self, ctx, url: str) -> None:

@@ -180,17 +180,20 @@ class Tagger:
             messages=[
                 {
                     "role": "user",
-                    "content": [
-                        {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": media,
-                                "data": base64.b64encode(data).decode(),
+                    "content": cast(
+                        Any,
+                        [
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": media,
+                                    "data": base64.b64encode(data).decode(),
+                                },
                             },
-                        },
-                        {"type": "text", "text": prompt},
-                    ],
+                            {"type": "text", "text": prompt},
+                        ],
+                    ),
                 }
             ],
         )

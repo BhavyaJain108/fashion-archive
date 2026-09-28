@@ -45,8 +45,110 @@ brands:
   - {domain: laluneofficial.com, homepage_url: "https://laluneofficial.com", display_name: "La Lune", size: small, notes: wordpress}
   - {domain: liniss.com, homepage_url: "https://liniss.com", display_name: "LINISS", size: small, notes: 429 to plain http}
 
+  - {domain: subsurface.tv, homepage_url: "https://subsurface.tv", display_name: "Subsurface", size: small}
+  - {domain: icestudios.shop, homepage_url: "https://icestudios.shop", display_name: "Ice Studios", size: small, notes: password-gated 2026-09-27}
+  - {domain: www.racerworldwide.net, homepage_url: "https://www.racerworldwide.net", display_name: "Racer Worldwide", size: mid}
+  - {domain: ellamae.xyz, homepage_url: "https://ellamae.xyz", display_name: "Ella Mae", size: small}
+  - {domain: welcomeskateboards.com, homepage_url: "https://welcomeskateboards.com", display_name: "Welcome Skateboards", size: mid}
+  - {domain: ghostboy.club, homepage_url: "https://ghostboy.club", display_name: "Ghostboy", size: small}
+  - {domain: cilinochi.com, homepage_url: "https://cilinochi.com", display_name: "Cili Nochi", size: mid}
+  - {domain: empathla.com, homepage_url: "https://empathla.com", display_name: "Empath", size: small}
+  - {domain: thekriptstore.com, homepage_url: "https://thekriptstore.com", display_name: "The Kript", size: mid}
+  - {domain: fengofficiel.com, homepage_url: "https://fengofficiel.com", display_name: "Feng Officiel", size: small, notes: haravan (shopify-shaped); bulk feed off; per-product json}
+  - {domain: vereya-archive.com, homepage_url: "https://vereya-archive.com", display_name: "Vereya", size: small}
+  - {domain: www.byfonseca.com, homepage_url: "https://www.byfonseca.com", display_name: "Fonseca", size: small, notes: squarespace}
+  - {domain: tigermist.com, homepage_url: "https://tigermist.com", display_name: "Tiger Mist", size: mid}
+  - {domain: www.formeily.com, homepage_url: "https://www.formeily.com", display_name: "Formeily", size: small}
+  - {domain: www.ciberia-shop.com, homepage_url: "https://www.ciberia-shop.com", display_name: "Ciberia", size: small}
+  - {domain: www.delfinabalda.com, homepage_url: "https://www.delfinabalda.com", display_name: "Delfina Balda", size: small, notes: squarespace}
+  - {domain: asyllum.com, homepage_url: "https://asyllum.com", display_name: "Asyllum", size: small}
+  - {domain: adriancashmere.com, homepage_url: "https://adriancashmere.com", display_name: "Adrian Cashmere", size: small}
+  - {domain: sculptor-worldwide.com, homepage_url: "https://sculptor-worldwide.com", display_name: "Sculptor", size: mid}
+  - {domain: braveststudios.com, homepage_url: "https://braveststudios.com", display_name: "Bravest Studios", size: small}
+  - {domain: us.marsthelabel.com, homepage_url: "https://us.marsthelabel.com", display_name: "Mars the Label", size: mid}
+  - {domain: mykoko.co, homepage_url: "https://mykoko.co", display_name: "Mykoko", size: small}
+  - {domain: www.jwpei.com, homepage_url: "https://www.jwpei.com", display_name: "JW PEI", size: mid}
+  - {domain: swtactive.com, homepage_url: "https://swtactive.com", display_name: "SWT Active", size: small}
+  - {domain: www.areyouami.com, homepage_url: "https://www.areyouami.com", display_name: "Are You Am I", size: mid}
+  - {domain: wetavocado.com, homepage_url: "https://wetavocado.com", display_name: "Wetavocado", size: small, notes: 403 to plain http}
+  - {domain: us.ratandboa.com, homepage_url: "https://us.ratandboa.com", display_name: "Rat & Boa", size: mid}
+  - {domain: danielleguiziony.com, homepage_url: "https://danielleguiziony.com", display_name: "Guizio", size: mid}
+  - {domain: leauclothing.com, homepage_url: "https://leauclothing.com", display_name: "LEAU", size: small}
+  - {domain: iamgia.com, homepage_url: "https://iamgia.com", display_name: "I.AM.GIA", size: mid}
+  - {domain: rhege.com, homepage_url: "https://rhege.com", display_name: "Rhege", size: small}
+  - {domain: nakedwardrobe.com, homepage_url: "https://nakedwardrobe.com", display_name: "Naked Wardrobe", size: mid}
+  - {domain: www.lipsandhoney.com, homepage_url: "https://www.lipsandhoney.com", display_name: "Lips + Honey", size: small}
+  - {domain: kimshui.net, homepage_url: "https://kimshui.net", display_name: "Kim Shui", size: small}
+  - {domain: www.jane-wade.com, homepage_url: "https://www.jane-wade.com", display_name: "Jane Wade", size: small}
+  - {domain: the-sleeper.com, homepage_url: "https://the-sleeper.com", display_name: "Sleeper", size: mid}
+  - {domain: bonnieclyde.la, homepage_url: "https://bonnieclyde.la", display_name: "Bonnie Clyde", size: small}
+  - {domain: lexxola.com, homepage_url: "https://lexxola.com", display_name: "Lexxola", size: small}
+  - {domain: sundae.school, homepage_url: "https://sundae.school", display_name: "Sundae School", size: small}
+  - {domain: akila.la, homepage_url: "https://akila.la", display_name: "AKILA", size: small}
+  - {domain: brueyewear.com, homepage_url: "https://brueyewear.com", display_name: "BRU Eyewear", size: small}
+  - {domain: santostudio.com, homepage_url: "https://santostudio.com", display_name: "Santo Studio", size: small}
+  - {domain: y-gi.com, homepage_url: "https://y-gi.com", display_name: "YAGI WRLD", size: small}
+  - {domain: sweettalkglobal.com, homepage_url: "https://sweettalkglobal.com", display_name: "Sweet Talk", size: small}
+  - {domain: poster-girl.com, homepage_url: "https://poster-girl.com", display_name: "Poster Girl", size: small}
+  - {domain: doublestandard.nyc, homepage_url: "https://doublestandard.nyc", display_name: "Double Standard", size: small}
+  - {domain: nakedwolfe.com, homepage_url: "https://nakedwolfe.com", display_name: "Naked Wolfe", size: mid}
+  - {domain: www.meshki.us, homepage_url: "https://www.meshki.us", display_name: "MESHKI", size: mid}
+  - {domain: vettese.net, homepage_url: "https://vettese.net", display_name: "Vettese", size: small}
+  - {domain: www.phiajewelrynyc.com, homepage_url: "https://www.phiajewelrynyc.com", display_name: "Phia Jewelry", size: small}
+  - {domain: 1xblue.com, homepage_url: "https://1xblue.com", display_name: "1XBLUE", size: small}
+  - {domain: indahclothing.com, homepage_url: "https://indahclothing.com", display_name: "Indah", size: small}
+  - {domain: rosier.com, homepage_url: "https://rosier.com", display_name: "Miss Rosier", size: small, notes: 403 to plain http}
+  - {domain: basketcase.gallery, homepage_url: "https://basketcase.gallery", display_name: "Basketcase", size: small, notes: password-gated 2026-09-27}
+  - {domain: www.bbxbrand.com, homepage_url: "https://www.bbxbrand.com", display_name: "BBX Brand", size: small}
+  - {domain: nour-hammour.com, homepage_url: "https://nour-hammour.com/us-en/", display_name: "Nour Hammour", size: small}
+  - {domain: mattebrand.com, homepage_url: "https://mattebrand.com", display_name: "MATTE", size: small}
+  - {domain: vowels.net, homepage_url: "https://vowels.net", display_name: "vowels", size: small}
+  - {domain: twojeys.com, homepage_url: "https://twojeys.com", display_name: "Twojeys", size: small}
+  - {domain: us.lionessfashion.com, homepage_url: "https://us.lionessfashion.com", display_name: "Lioness", size: mid}
+  - {domain: yvmin.com, homepage_url: "https://yvmin.com", display_name: "YVMIN", size: small}
+  - {domain: oddli.com, homepage_url: "https://oddli.com", display_name: "Oddli", size: small}
+  - {domain: eu.fivefourfive.it, homepage_url: "https://eu.fivefourfive.it", display_name: "Fivefourfive", size: small}
+  - {domain: jenesaispas.it, homepage_url: "https://jenesaispas.it", display_name: "Je Ne Sais Pas", size: small}
+  - {domain: officialtuyen.com, homepage_url: "https://officialtuyen.com", display_name: "Tuyen", size: small}
+  - {domain: sownagain.com, homepage_url: "https://sownagain.com", display_name: "Sown Again", size: small}
+  - {domain: www.cooperativeshop.us, homepage_url: "https://www.cooperativeshop.us", display_name: "Cooperative", size: small}
+  - {domain: mulberryops.com, homepage_url: "https://mulberryops.com", display_name: "Mulberry OPS", size: small}
+  - {domain: baroquegalleria.com, homepage_url: "https://baroquegalleria.com", display_name: "Baroque Galleria", size: small}
+  - {domain: california-arts.com, homepage_url: "https://california-arts.com", display_name: "California Arts", size: small}
+  - {domain: rcoutdoorsupply.com, homepage_url: "https://rcoutdoorsupply.com", display_name: "RC Outdoor Supply", size: small}
+  - {domain: luar.runfair.com, homepage_url: "https://luar.runfair.com", display_name: "LUAR", size: mid, notes: runfair (EQL launch platform); page-data lane}
+  - {domain: bronzesnake.com, homepage_url: "https://bronzesnake.com", display_name: "Bronze Snake", size: small}
+  - {domain: coldral.com, homepage_url: "https://coldral.com", display_name: "Coldral", size: small}
+  - {domain: www.wmnswear.com, homepage_url: "https://www.wmnswear.com", display_name: "WMNS Wear", size: small}
+  - {domain: makeththou.com, homepage_url: "https://makeththou.com", display_name: "Maketh Thou", size: small}
+  - {domain: shop.lusty-vintage.com, homepage_url: "https://shop.lusty-vintage.com", display_name: "Lusty Vintage", size: small, notes: custom nextjs}
+  - {domain: us.namedcollective.com, homepage_url: "https://us.namedcollective.com", display_name: "Named Collective", size: mid}
+  - {domain: elwoodclothing.com, homepage_url: "https://elwoodclothing.com", display_name: "Elwood", size: mid}
+  - {domain: www.tansanmagnesium.kr, homepage_url: "https://www.tansanmagnesium.kr", display_name: "Tansan Magnesium", size: small, notes: no answer to plain http 2026-09-27}
+  - {domain: mollyohalloran.co.uk, homepage_url: "https://mollyohalloran.co.uk", display_name: "Molly O'Halloran", size: small, notes: squarespace}
+  - {domain: woolenmaker.com, homepage_url: "https://woolenmaker.com", display_name: "Woolen Maker", size: small}
+  - {domain: cantoncollective.com, homepage_url: "https://cantoncollective.com", display_name: "Canton Collective", size: small}
+  - {domain: luthermelbourne.com, homepage_url: "https://luthermelbourne.com", display_name: "Luther Melbourne", size: small}
+  - {domain: jeblanc.com, homepage_url: "https://jeblanc.com", display_name: "JEBLANC", size: small}
+  - {domain: elysianclo.store, homepage_url: "https://elysianclo.store", display_name: "Elysian", size: small}
+  - {domain: tankair.com, homepage_url: "https://tankair.com", display_name: "Tank Air", size: small}
+  - {domain: jocacy.com, homepage_url: "https://jocacy.com", display_name: "Jocacy", size: small}
+  - {domain: bellaspantzel.com, homepage_url: "https://bellaspantzel.com", display_name: "Bella Spantzel", size: large, notes: cargo portfolio; no shop; nothing to read 2026-09-27}
+  - {domain: naomitarazi.com, homepage_url: "https://naomitarazi.com", display_name: "Naomi Tarazi", size: small}
+  - {domain: lilcacti.com, homepage_url: "https://lilcacti.com", display_name: "Lil Cacti", size: small}
+  - {domain: laurenmanoogian.com, homepage_url: "https://laurenmanoogian.com", display_name: "Lauren Manoogian", size: small}
+  - {domain: us.ohpolly.com, homepage_url: "https://us.ohpolly.com", display_name: "Oh Polly", size: mid, notes: large house shown by the owner's choice}
+  - {domain: us.sandro-paris.com, homepage_url: "https://us.sandro-paris.com", display_name: "Sandro", size: mid, notes: salesforce commerce; large house shown by the owner's choice}
+  - {domain: www.acnestudios.com, homepage_url: "https://www.acnestudios.com", display_name: "Acne Studios", size: mid, notes: salesforce commerce; large house shown by the owner's choice}
+  - {domain: www.ripcurl.com, homepage_url: "https://www.ripcurl.com", display_name: "Rip Curl", size: mid, notes: large house shown by the owner's choice}
+  - {domain: yeezy.com, homepage_url: "https://yeezy.com", display_name: "YEEZY", size: mid, notes: swell storefront; catalogue on yzy-prod.swell.store with the page's publishable key, cloudflare blocks the brand host; large house shown by the owner's choice}
+  - {domain: www.marni.com, homepage_url: "https://www.marni.com", display_name: "Marni", size: mid, notes: salesforce commerce; large house shown by the owner's choice}
+  - {domain: kwameadusei.com, homepage_url: "https://kwameadusei.com", display_name: "Kwame Adusei", size: small}
+  - {domain: www.604service-en.com, homepage_url: "https://www.604service-en.com", display_name: "604SERVICE", size: small, notes: english store of 604service.com; cloudfront answers every cloud address with a static access-restricted page, a home connection gets in (owner, 2026-09-28); needs a residential exit (ARCHIVE_PROXY_URL)}
+
   # Kept for the scraper, withheld from the page.
   - {domain: www.viviennewestwood.com, homepage_url: "https://www.viviennewestwood.com", display_name: "Vivienne Westwood", size: large, notes: enterprise 403 to plain http}
   - {domain: www.vancleefarpels.com, homepage_url: "https://www.vancleefarpels.com", display_name: "Van Cleef & Arpels", size: large, notes: TLS-level block}
   - {domain: vondutch.com, homepage_url: "https://vondutch.com", display_name: "Von Dutch", size: large}
   - {domain: www.gentlemonster.com, homepage_url: "https://www.gentlemonster.com", display_name: "Gentle Monster", size: large, notes: enterprise challenge}
+  - {domain: emurj.com, homepage_url: "https://emurj.com", display_name: "EMURJ", size: multi_brand}

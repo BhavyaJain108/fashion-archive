@@ -33,6 +33,7 @@ STALE_CLAIM_SECONDS = 900
 
 _SCHEDULE = "control/schedule/"
 _DAEMON = "control/daemon.json"
+_BUDGET = "control/budget.json"
 
 
 def _now() -> datetime:
@@ -405,15 +406,26 @@ class Scheduler:
         self._amend(domain, claimed_by=None, claimed_at=None, claimed_since=None)
         return True
 
+    def stretch(self) -> float:
+        """How much the fleet budget asks every cadence to stretch: 1.0 when the
+        recurring day fits its pool, more when it does not. Freshness degrades before
+        coverage does — a brand is never dropped to fit the ceiling."""
+        row, _ = self._read(_BUDGET)
+        try:
+            return max(1.0, float(row.get("stretch") or 1.0))
+        except (TypeError, ValueError):
+            return 1.0
+
     def release(self, domain: str, cadence_seconds: int, now: datetime | None = None) -> None:
-        """Hand the brand back and set when it is next wanted."""
+        """Hand the brand back and set when it is next wanted — at its cadence, stretched
+        by whatever the fleet budget asks."""
         now = now or _now()
         self._amend(
             domain,
             claimed_by=None,
             claimed_at=None,
             claimed_since=None,
-            next_due=_iso(now + timedelta(seconds=cadence_seconds)),
+            next_due=_iso(now + timedelta(seconds=int(cadence_seconds * self.stretch()))),
         )
 
     def release_after_learn(

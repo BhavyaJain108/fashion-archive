@@ -4,11 +4,12 @@ import re
 import xml.etree.ElementTree as ET
 
 from backend.archive.connectors.base import ChannelBlocked
-from backend.archive.domain.brand import Brand
+from backend.archive.domain.brand import MARKET_HREFLANG, Brand
 from backend.archive.domain.product import ProductRecord, ProductRef
 from backend.archive.transport import Transport
 
 _NS = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
+_XHTML_LINK = "{http://www.w3.org/1999/xhtml}link"
 # /products/ (Shopify, custom) and /product/ (WooCommerce permalinks), optional locale prefix
 _PRODUCT_URL = re.compile(r"^https?://[^/]+(/[a-z]{2}(-[a-z]{2})?)?/products?/[^?#]+/?$", re.I)
 
@@ -48,6 +49,22 @@ def drop_landing_pages(refs: list[ProductRef]) -> list[ProductRef]:
     depths = [ref.url.count("/") for ref in refs]
     modal = max(set(depths), key=depths.count)
     return [ref for ref in refs if ref.url.count("/") >= modal]
+
+
+def market_link(entry) -> str | None:
+    """The entry's URL for our market: its en-us alternate where it lists one, else its loc.
+
+    Acne Studios lists each page once, with forty hreflang alternates inline and the
+    canonical loc in whichever country it likes — of 500 entries, 7 have a US loc and
+    275 a US alternate (2026-09-27). The other 225 are not sold in the US, and the loc
+    of a page that has no US alternate is the page as the US visitor would reach it.
+    """
+    for alt in entry.findall(_XHTML_LINK):
+        href = alt.get("href")
+        if href and (alt.get("hreflang") or "").lower() == MARKET_HREFLANG:
+            return href.strip()
+    loc = entry.find("sm:loc", _NS)
+    return loc.text.strip() if loc is not None and loc.text else None
 
 
 class SitemapConnector:
@@ -100,10 +117,9 @@ class SitemapConnector:
                     return
             return
         for u in root.findall("sm:url", _NS):
-            loc = u.find("sm:loc", _NS)
-            if loc is None or not loc.text:
+            link = market_link(u)
+            if not link:
                 continue
-            link = loc.text.strip()
             if not self._is_product(link):
                 continue
             key = _LOCALE_IN_PATH.sub(r"\1/", link)

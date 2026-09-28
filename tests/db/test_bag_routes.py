@@ -39,7 +39,7 @@ TILE = {
 
 @pytest.fixture
 def user(conn):
-    return repo.create_user(conn, email="one@example.com", display_name="One")
+    return repo.create_user(conn, email="bag-one@example.com", display_name="One")
 
 
 @pytest.fixture
@@ -123,7 +123,7 @@ def test_quantity_is_capped_at_the_maximum(conn, user):
 
 
 def test_lines_are_scoped_to_their_user(conn, user):
-    other = repo.create_user(conn, email="two@example.com", display_name="Two")
+    other = repo.create_user(conn, email="bag-two@example.com", display_name="Two")
     mine = bag.add_line(
         conn,
         user_id=user.id,

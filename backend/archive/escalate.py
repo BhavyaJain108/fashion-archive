@@ -18,19 +18,26 @@ you try it another way.
 
 from backend.archive.domain.brand import Capability, TransportLevel
 from backend.archive.fingerprint import probe
-from backend.archive.transport import for_level
+from backend.archive.transport import for_level, proxy_url
 
 # The levels worth trying, cheapest first. T2 is only reached when a browser factory says
 # a browser exists — the scraper image deliberately ships without one.
 CHEAP_LEVELS = (TransportLevel.T1,)
 
 
+def cheap_levels() -> tuple[TransportLevel, ...]:
+    """The single-request rungs this process can climb: T1 always, and T1P — the same
+    handshake from another address — when an egress proxy is configured. Decided at
+    call time, so the worker reads its environment and the tests need not set one."""
+    return CHEAP_LEVELS + ((TransportLevel.T1P,) if proxy_url() else ())
+
+
 def readable(cap: Capability) -> bool:
     """Did this probe find anything a connector could actually read?"""
-    return bool(cap.bulk_json or cap.woo_api or cap.ldjson_product)
+    return cap.readable()
 
 
-def escalating_prober(browser_factory=None, base=probe, levels=CHEAP_LEVELS, log=None):
+def escalating_prober(browser_factory=None, base=probe, levels=None, log=None):
     """A prober that climbs transports until the brand is readable.
 
     Signature matches `fingerprint.probe`, so it drops into run_brand's `prober` seam.
@@ -41,7 +48,7 @@ def escalating_prober(browser_factory=None, base=probe, levels=CHEAP_LEVELS, log
         if best is not None and (readable(best) or best.password_gated):
             return best
 
-        for level in levels:
+        for level in cheap_levels() if levels is None else levels:
             climbed = for_level(level)
             try:
                 cap = _attempt(domain, climbed, base)

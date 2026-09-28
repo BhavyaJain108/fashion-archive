@@ -110,6 +110,36 @@ export class DevEndpoints {
     return read('costs');
   }
 
+  // The learning loop: the space map, the walls, the last tick, proposals, rules.
+  static getLearning() {
+    return read('learning');
+  }
+
+  // One brand's whole dossier — every event, every rung, every analysis.
+  static getDossier(domain) {
+    return read(`${brand(domain)}/dossier`, 'No dossier yet');
+  }
+
+  // Probe the brand up the ladder again, writing each step as it happens.
+  static reprobe(domain) {
+    return command(`${brand(domain)}/reprobe`, 'Could not start a probe');
+  }
+
+  // Ask the model to look at the brand: its pages, its ladder, its neighbours.
+  static analyse(domain, kind) {
+    return command(`${brand(domain)}/analyse`, 'Could not start an analysis', { kind: kind || 'brand' });
+  }
+
+  // Try one rung above the ones that refused: t1, t1p or t2.
+  static climb(domain, level) {
+    return command(`${brand(domain)}/climb`, 'Could not start the climb', { level });
+  }
+
+  // One tick of the loop now, rather than at its next scheduled one.
+  static learningTick() {
+    return command('learning/tick', 'Could not start a tick');
+  }
+
   // Commands. Each is an edit to the schedule object the daemon already reads,
   // so nothing here talks to a worker directly.
   static runNow(domain, full) {

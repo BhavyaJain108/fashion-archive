@@ -47,6 +47,7 @@ and carries the shop host as `shop_domain`; only discovery addresses it.
 |---|---|---|---|
 | **T0** | Python's own HTTP | one request | most brands need nothing more |
 | **T1** | the same request with a real browser's TLS handshake (`curl_cffi`) | one request | our headers said Chrome while our handshake said Python, and a WAF hashes the handshake before it reads a header. Vivienne Westwood 403 → 200, Van Cleef timeout → 200 |
+| **T1P** | the T1 handshake through an egress proxy (`ARCHIVE_PROXY_URL`) | one request, paid for | a rule about our address rather than our handshake: yeezy.com's Cloudflare blocks the datacenter ASN before reading anything. Exists only when the owner has configured a proxy; `ARCHIVE_PROXY_URL_<CC>` names a country's own exit |
 | **T2** | a real browser, which runs the page's own challenge script | ~3s and a browser | a JavaScript challenge, or a page whose products only exist after it renders |
 
 A timeout counts as a refusal: a WAF that drops the connection without answering looks
@@ -55,6 +56,37 @@ exactly like a host being down until something asks in another voice.
 **T2 is in the deployed scraper image** since 2026-09-22: `Dockerfile.scraper` builds on
 the Playwright base and the worker runs on a plan that fits Chromium, so the daemon climbs
 T0 → T1 → T2 on its own. `--browser` is only needed for a hand-run scrape.
+
+## The learning loop
+
+S7 used to be a person: run the matrix, read the wall, open a page, write the narrowest
+rule, verify on the neighbours, write it down. `learn/` is that loop as the system's own
+work, ticking in the daemon beside the workers (`daemon start`; `--no-learn` to run
+without it; `cli learn tick` by hand).
+
+| Piece | What it is | Where it writes |
+|---|---|---|
+| **signature** | six words the probe reads off a shop — platform · feed · sitemap · page · defence · locale. Rules and regression sets hang on signatures, never on brands | the dossier; `control/signatures.json` is the map |
+| **dossier** | everything known about one brand, unbounded and dated: every rung, every lane, the gaps (unread, unsought, absent), the meter by day, the analyses, the rules applied, the timeline | `dossiers/<domain>.json` (+ `/pages/` for captured pages) |
+| **walls** | one word for what stands in the way and one for the next action. Mechanical actions (pace, climb a rung, watch, onboard) the loop takes itself; `analyse` goes to the model | the dossier's `wall` |
+| **meter** | requests and bytes by rung, proxy requests, browser seconds, model calls — a run's, a probe's, an analysis's — priced at `ARCHIVE_PRICE_*` | the dossier's `meter`, the budget |
+| **budget** | two pools under one ceiling: recurring (freshness at cadence) and discretionary (walls). Ceiling = the roster's predicted daily cost × `ARCHIVE_BUDGET_MULTIPLIER`. Over it, cadences stretch (`Scheduler.stretch`); nothing is dropped | `control/budget.json` |
+| **recipes** | a lane as data — discovery + fetch + field paths — run by `RecipeConnector` through the same seam as every connector. The model proposes recipes before code | `recipes/lanes/`, the plan (`discovery=recipe`) |
+| **gate** | no proposal lands without proof: replay over captured pages, a live sample on the brand, the same on the neighbours of its signature; and a baseline no brand may drop below | the analysis's `gate`; `control/baseline.json` |
+| **analyst** | the model at the three places a rule cannot be written by a rule: an unreadable brand, a failure, a consolidation. Forced tool use; a proposal, never a landing | the dossier's `analyses`; `learn/learnings.jsonl` |
+| **loop** | the tick: onboard (probe → signature → wall → plan → first read → verdict, each step written as it happens), classify, act, prove, land, price, map | `control/learning.json`, and all of the above |
+
+Recipes the gate proves land on their own. Code the model writes goes to a branch when
+the worker can push (`ARCHIVE_GIT_PUSH_URL`), else is filed under `learn/proposals/` for
+`cli learn apply <id>`. The deck's Learning page shows the map, the walls, the last tick,
+the proposals and the budget; a brand's page shows its dossier and, while a new brand is
+being onboarded, the six steps filling in.
+
+Commands: `cli learn tick | onboard <domain> | analyse <domain> | proposals | apply <id> |
+status`, `cli dossier <domain>`, `cli walls`, `cli budget`, `cli signatures`.
+
+Deferred, by agreement: the model inventing a *kind* of strategy the shelf does not have
+(a new transport, a new lane kind) rather than a recipe over existing ones.
 
 ## Support layers (not stages)
 

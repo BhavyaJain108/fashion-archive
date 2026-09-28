@@ -175,3 +175,40 @@ def test_the_shop_host_reaches_the_plan_and_the_connector_but_not_the_catalogue(
     brand = Brand(domain="laluneofficial.com", homepage_url="https://laluneofficial.com")
     assert shop_target(brand, plan).domain == "shop.laluneofficial.com"
     assert brand.domain == "laluneofficial.com"  # a copy, the brand itself is untouched
+
+
+@pytest.mark.unit
+def test_shopify_with_the_feed_off_is_read_one_product_at_a_time():
+    from backend.archive.connectors.shopify import ShopifyPageConnector
+
+    plan = compose_plan(
+        cap(product_json=True, sitemap_url="https://feng.com/sitemap_products_1.xml"), now=NOW
+    )
+    assert plan.status == "ready"
+    assert plan.composition == "t0×sitemap×platform_json×per_item"
+    assert isinstance(get_connector(plan), ShopifyPageConnector)
+
+
+@pytest.mark.unit
+def test_per_product_json_outranks_reading_the_pages():
+    plan = compose_plan(
+        cap(product_json=True, ldjson_product=True, sitemap_url="https://feng.com/s.xml"), now=NOW
+    )
+    assert plan.fetch.value == "platform_json"
+
+
+@pytest.mark.unit
+def test_page_data_composes_the_runfair_lane():
+    from backend.archive.connectors.runfair import RunfairConnector
+
+    plan = compose_plan(cap(page_data=True), now=NOW)
+    assert plan.status == "ready"
+    assert plan.composition == "t0×page_data×platform_json×per_item"
+    assert isinstance(get_connector(plan), RunfairConnector)
+
+
+@pytest.mark.unit
+def test_a_brand_that_answered_only_through_the_proxy_gets_a_cheap_plan_at_that_rung():
+    plan = compose_plan(cap(transport=TransportLevel.T1P, bulk_json=True), now=NOW)
+    assert plan.status == "ready"
+    assert plan.composition == "t1p×bulk_json×platform_json×per_item"

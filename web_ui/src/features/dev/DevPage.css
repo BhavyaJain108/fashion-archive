@@ -612,3 +612,41 @@ table.dev-table {
   .dev-strip { min-height: 96px; }
   .dev-strip img { height: 96px; }
 }
+
+/* --- The learning loop --------------------------------------------------------- */
+
+/* The strip under the totals: walls as pills, the budget line, the last tick. */
+.dev-learnstrip { margin: 12px 0 4px; padding: 8px 0; border-top: 1px solid var(--ar-line-soft); border-bottom: 1px solid var(--ar-line-soft); font-size: var(--ar-fs-ui); }
+.dev-learnstrip-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 4px 0; }
+.dev-pill.wall { cursor: pointer; border: 1px solid var(--ar-line); background: var(--ar-bg-sunk); }
+.dev-pill.wall.address, .dev-pill.wall.geo, .dev-pill.wall.challenge, .dev-pill.wall.tls { color: var(--ar-danger); }
+.dev-pill.wall.unreadable, .dev-pill.wall.field_gap, .dev-pill.wall.expensive { color: var(--ar-ink); }
+.dev-wall { font-size: var(--ar-fs-micro); letter-spacing: var(--ar-track-ui); text-transform: uppercase; color: var(--ar-ink-3); }
+.dev-wall.address, .dev-wall.geo, .dev-wall.challenge, .dev-wall.tls, .dev-wall.unreadable { color: var(--ar-danger); }
+.dev-wall.open { color: var(--ar-ink-4); }
+
+/* Onboarding: six steps, the running one lit, the done ones with what they found. */
+.dev-onboard { margin: 12px 0 4px; padding: 10px 12px; border: 1px solid var(--ar-line); background: var(--ar-bg-sunk); font-size: var(--ar-fs-ui); }
+.dev-onboard.compact { padding: 6px 8px; margin: 4px 0; font-size: var(--ar-fs-micro); }
+.dev-onboard-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+.dev-steps { list-style: none; margin: 0 0 6px; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.dev-step { display: flex; align-items: baseline; gap: 6px; color: var(--ar-ink-3); }
+.dev-step-dot { width: 8px; height: 8px; background: var(--ar-line); flex: none; position: relative; top: -1px; }
+.dev-step.running { color: var(--ar-ink); }
+.dev-step.running .dev-step-dot { background: var(--ar-ink); animation: dev-step-pulse 1.2s ease-in-out infinite; }
+.dev-step.done { color: var(--ar-ink-2); }
+.dev-step.done .dev-step-dot { background: var(--ar-ink-2); }
+.dev-step.failed { color: var(--ar-danger); }
+.dev-step.failed .dev-step-dot { background: var(--ar-danger); }
+.dev-step.skipped { color: var(--ar-ink-4); }
+.dev-step-name { letter-spacing: var(--ar-track-ui); text-transform: uppercase; font-size: var(--ar-fs-micro); }
+.dev-step-text { color: var(--ar-ink-3); }
+@keyframes dev-step-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+/* The dossier on the brand page. */
+.dev-sub-h { margin: 18px 0 6px; font-size: var(--ar-fs-ui); letter-spacing: var(--ar-track-ui); text-transform: uppercase; color: var(--ar-ink-3); font-weight: 600; }
+.dev-mono-sm { font-family: var(--ar-font-mono, monospace); font-size: var(--ar-fs-ui); word-break: break-all; }
+.dev-gaps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; font-size: var(--ar-fs-ui); }
+.dev-gaps .wrap { margin-top: 4px; color: var(--ar-ink-2); }
+@media (max-width: 720px) { .dev-gaps { grid-template-columns: 1fr; } }
+.dev-budget .dev-table td.bar { width: 40%; }

@@ -9,6 +9,12 @@ and `access/learned.py`, where they were first proved, no longer exists.
 
 ## Adding a learning — the procedure
 
+Since 2026-09-27 the loop in `learn/` does steps 1–7 on its own for the mechanical cases
+and asks the model for the rest (README, "The learning loop"): a brand's dossier holds
+what it found, the Learning page shows the walls, and `learn/learnings.jsonl` holds what
+the model wrote down when a recipe landed. This section is still the procedure — the
+loop follows it, and so does a person picking up a wall the loop could not open.
+
 Anyone can do this. It needs no credentials and touches no live data: every command below
 reads brands and writes nothing.
 
@@ -281,6 +287,95 @@ Worth generalising: when a defence produces a credential, the expensive tool is 
 Code: `browser/challenge.ChallengeAwareBrowser`, `render=True` to keep every request in the
 browser for a site whose products only exist after its JavaScript runs.
 
+### 15. robots.txt names one country's sitemap; ask for ours — 2026-09-27
+Marni's robots.txt points at `/en-ca/sitemap_index.xml`. The same index exists at
+`/en-us/`, with the same products at the prices the archive holds. The probe now tries the
+US locale's copy of any sitemap URL that carries another country's locale segment, one
+request, and keeps what robots named when there is none.
+Code: `fingerprint._market_sitemap`.
+
+### 16. Of two unnamed sitemaps, the bigger one is the products — 2026-09-27
+Marni's index has two children under `/en-us/`: `sitemap_0.xml` (72 URLs: looks, the
+collaborations, an awards page) and `sitemap-en-us.xml` (1,838 products). Neither name
+says "product", the locale rule matched both, and the first was read. Every look page
+carries a Product JSON-LD with no price and no image, so 69 "products" were found and every
+fetch was "no product data". Now two or three children with nothing to tell them apart by
+name are all read and the biggest is used — learning 7 applied between sitemaps instead of
+within one — and a child of nothing but the family is adopted even when the prefix stands.
+Measured: 917 products, 100% on title, price, stock and images.
+Code: `fingerprint._one_sitemap`, `_widen_to_the_biggest_url_family`.
+
+### 17. One entry, forty countries: read the market's alternate — 2026-09-27
+Acne Studios' five sitemaps hold 500 entries each. Each entry is one page with its
+hreflang alternates inline — forty `<xhtml:link>`s — and a canonical `<loc>` in whichever
+country the generator chose: of 500, 7 are US locs and 275 carry a US alternate. Reading
+locs alone found 7 products; the parent-path clustering then saw every product in a folder
+of its own (`/us/en/<slug>/<CODE>.html`) and the biggest clusters were the category pages.
+
+Three rules, each narrow: an entry's URL is its `en-us` alternate where it lists one, else
+its loc (the same fact as learning 10, stated the other way round); when a sitemap mixes
+locales as separate entries, only our country's are kept before any counting; and the
+family folder (the deepest holding half the URLs) is a cluster worth sampling, from its
+middle (learning 11: the landing page is first). The index stays the sitemap to read when
+its many children have no telling name — adopting `sitemap_1.xml` would have dropped four
+fifths of the catalogue. Measured: 598 products, 100% on every core field and sizes, over
+plain HTTP.
+Code: `connectors/sitemap.market_link`, `fingerprint._entries`, `_one_market`,
+`_biggest_family`, `_probe_ldjson`.
+
+### 18. A Gatsby site keeps its pages as JSON beside the pages — 2026-09-27
+LUAR sells through EQL's launch platform (luar.runfair.com). No sitemap (the URL answers
+with the app's HTML), no JSON-LD, no feed — and `/page-data/index/page-data.json`, which
+Gatsby writes for every page, lists the retailer's draws with a country and a slug, and
+`/page-data/us/<slug>/page-data.json` is the whole product: name, price, currency,
+description, photographs, SKU, and the window it sells in. A draw outside its window is
+out of stock whatever the page says. New lane: `page_data × platform_json`.
+Code: `connectors/runfair.py`, `fingerprint.probe` (`___gatsby` in the homepage).
+
+### 19. Shopify with the feed switched off still answers one product at a time — 2026-09-27
+fengofficiel.com — a Haravan store, Shopify's shape to the last field — serves 404 at
+`/products.json` and the whole product record at `/products/<handle>.json`. Only a
+Shopify-shaped index names its product sitemap `sitemap_products_N.xml`, so the probe
+asks for one product's JSON there and nowhere else. The per-product endpoint writes `tags`
+as one string or null, and takes no market, so the prices are the shop's own; `/meta.json`
+stays open and names the currency (VND). 8 of its 43 handles are placeholders — every
+variant at 0, unavailable, no photograph — and are not products. New lane:
+`sitemap × platform_json`, which outranks reading the pages.
+Code: `fingerprint._probe_product_json`, `connectors/shopify.ShopifyPageConnector`.
+
+### 20. Our own second probe is the 429 — 2026-09-27
+Maketh Thou, Cooperative, Oh Polly, JW PEI and Bronze Snake all produced products on a
+first capability run and "no-answer" on a second run minutes later, from the same
+address. The bench already knew this (a brand held by our worker is not a clean reading);
+it is as true of two probes by hand. Re-probe with a gap before calling a brand blocked.
+
+### 21. A block on the address is not a block on the handshake — 2026-09-27
+yeezy.com answers every rung with Cloudflare's "Sorry, you have been blocked" — a WAF
+*block*, not a challenge: no script to run, no cookie to mint, `cf-ray` and a 403 from the
+edge. Every transport we own leaves from the same datacenter address, so every rung was
+the same question asked of a rule about the address. The classifier already said so
+(`waf_403` at `httpx`, `cffi:chrome142`, `cffi:safari184` alike); the ladder had nothing
+above T1 that changed the thing being judged.
+
+Rung added: T1P, the T1 handshake through an egress proxy the owner configures
+(`ARCHIVE_PROXY_URL`; `ARCHIVE_PROXY_URL_<CC>` for a country's own exit). It is tier 2 on
+the shelf because each request is paid for, it exists only when the variable is set, and
+the prober climbs to it only after T1 has been refused. Not yet measured against yeezy.com:
+there is no proxy to measure with. `cli access yeezy.com` says the moment there is.
+Code: `transport.CurlCffiTransport(proxy=)`, `transport.for_level`, `escalate.cheap_levels`,
+`access/strategy` (`cffi:chrome142@proxy`).
+
+604service.com and 604service-en.com serve a static "접근 제한" (access restricted) page
+from S3 through CloudFront, to every rung. First read as a rule about the country; the
+owner's home connection gets in (2026-09-28), so it is a rule about the kind of address —
+cloud ranges refused, residential ones served. A residential exit (ARCHIVE_PROXY_URL,
+not a KR one) is the test, and until one exists the brand stays on the roster, unread.
+
+### Not a shop
+bellaspantzel.com is a Cargo portfolio (`hasShopModel: false`, pages `/` and `/about`,
+credits for Rick Owens, Robert Wun, Heliot Emil). There is nothing to sell and nothing to
+read; it is kept on the roster withheld from the page.
+
 ## Open
 
 Next, in the order they look worth doing:
@@ -299,6 +394,28 @@ Next, in the order they look worth doing:
 
 - **robots.txt disallows `/api/*` on Gentle Monster**, so its JSON API is off limits even
   though the page calls it. Everything here comes from product pages and sitemaps.
+- **T1P has not been measured.** yeezy.com is the brand to measure it on, 604SERVICE
+  the one that wants a Korean exit; both wait on an egress proxy being configured.
+- **A browser through the proxy (T2P)** does not exist yet: a site that blocks the address
+  *and* runs a challenge would need it. None on the roster does today.
 - **The browser lane is not in the scraper image.** Gentle Monster needs `--browser`, which
   playwright provides locally and the deployed worker does not have. Turning it on means a
   larger image and roughly 1.3 GB of egress per full pass at ~1 MB a page.
+
+### 22. A headless site's catalogue lives on its platform's host, not its own — 2026-09-27
+yeezy.com is a Svelte app on Swell (swell.is): every image URL names the store
+(`cdn.swell.store/yzy-prod/…`) and the page embeds the store's publishable key
+(`pk_…`) beside its Google Pay config — the same key the site's own JavaScript sends to
+`yzy-prod.swell.store/api/products`. That host is under no Cloudflare rule about our
+address: it answers plain httpx with the whole catalogue (35 products, price, sale price,
+SKU, stock, options, photographs), paginated, with the key as HTTP basic auth
+(`store:key`). The rung that "needed a proxy" (entry 21) needed no proxy at all; the
+brand host was never where the products were.
+
+Rule, keyed on the shape: a page naming `cdn.swell.store/<store>/` and carrying a
+`pk_` key is a Swell storefront; the probe confirms it with one API request and the
+planner takes `swell_api` before anything else, whatever the brand host says. A
+challenge on the brand host is not a wall for this lane (`challenged` is cleared when
+the API answers). Verified: the model's own analysis of yeezy.com found the same tell
+and proposed the API path, guessing `/api/products/{id}` on the brand host (404); the
+lane in code is the version that reads.

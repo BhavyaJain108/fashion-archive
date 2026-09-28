@@ -299,3 +299,12 @@ describe('FILTER_KEYS', () => {
     expect(parseRoute(pathname, search).filters).toEqual(filters);
   });
 });
+
+
+describe('the machine room routes', () => {
+  test('learning has a route of its own', () => {
+    expect(parseRoute('/dev/learning').category).toBe('learning');
+    expect(buildRoute({ page: 'dev', category: 'learning' })).toBe('/dev/learning');
+    expect(buildRoute({ page: 'dev', category: 'costs' })).toBe('/dev/costs');
+  });
+});

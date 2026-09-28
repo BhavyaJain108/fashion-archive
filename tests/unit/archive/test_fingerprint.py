@@ -522,3 +522,294 @@ def test_a_link_back_to_the_brands_own_host_is_not_a_shop_link():
         shop_link('<a href="https://kuurth.bigcartel.com/store">buy here</a>', "kuurth.com")
         == "kuurth.bigcartel.com"
     )
+
+
+# --- 2026-09-27: Salesforce Commerce houses, Shopify with the feed off, runfair ---
+
+PRODUCT_PAGE = (
+    '<html><head><script type="application/ld+json">'
+    '{"@type":"Product","name":"Jacket","offers":{"price":"730.00","priceCurrency":"USD"}}'
+    "</script></head><body>p</body></html>"
+)
+PLAIN_HOME = "<html><head><title>P</title></head><body></body></html>"
+NO_WOO = {
+    "/wp-json/wc/store/v1/products": httpx.Response(404),
+    "/wp-json/wc/store/products": httpx.Response(404),
+}
+
+
+def urlset(urls):
+    return (
+        '<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+        + "".join(f"<url><loc>{u}</loc></url>" for u in urls)
+        + "</urlset>"
+    )
+
+
+def index(children):
+    return (
+        "<sitemapindex>"
+        + "".join(f"<sitemap><loc>{c}</loc></sitemap>" for c in children)
+        + "</sitemapindex>"
+    )
+
+
+@pytest.mark.unit
+def test_robots_naming_another_countrys_sitemap_is_answered_with_ours():
+    """Marni: robots.txt names /en-ca/sitemap_index.xml; /en-us/ has the same index."""
+    t = make_transport(
+        {
+            "/robots.txt": httpx.Response(
+                200, text="Sitemap: https://marni.com/en-ca/sitemap_index.xml\n"
+            ),
+            "/en-us/sitemap_index.xml": httpx.Response(200, text=index([])),
+            "/en-ca/sitemap_index.xml": httpx.Response(200, text=index([])),
+            "/products.json": httpx.Response(404),
+            "/": httpx.Response(200, text=PLAIN_HOME),
+            **NO_WOO,
+        }
+    )
+    cap = probe("marni.com", t, retry_pause=0)
+    assert cap.sitemap_url == "https://marni.com/en-us/sitemap_index.xml"
+    assert cap.evidence["sitemap_locale"] == "en-ca→en-us"
+
+
+@pytest.mark.unit
+def test_a_country_sitemap_we_cannot_get_keeps_the_one_robots_named():
+    t = make_transport(
+        {
+            "/robots.txt": httpx.Response(
+                200, text="Sitemap: https://marni.com/en-ca/sitemap_index.xml\n"
+            ),
+            "/en-ca/sitemap_index.xml": httpx.Response(200, text=index([])),
+            "/products.json": httpx.Response(404),
+            "/": httpx.Response(200, text=PLAIN_HOME),
+            **NO_WOO,
+        }
+    )
+    cap = probe("marni.com", t, retry_pause=0)
+    assert cap.sitemap_url == "https://marni.com/en-ca/sitemap_index.xml"
+    assert "sitemap_locale" not in cap.evidence
+
+
+@pytest.mark.unit
+def test_of_two_unnamed_children_the_bigger_sitemap_is_the_products():
+    """Marni's index: 72 looks and editorials in one child, 1,838 products in the other,
+    every URL under /en-us/. The family cannot tell them apart; the size can."""
+    looks = [f"https://marni.com/en-us/look_{i}.html" for i in range(25)]
+    products = [f"https://marni.com/en-us/jackets-CODE{i}.html" for i in range(40)]
+    routes = {
+        "/en-us/sitemap_index.xml": httpx.Response(
+            200,
+            text=index(
+                [
+                    "https://marni.com/en-us/sitemap_0.xml",
+                    "https://marni.com/en-us/sitemap-en-us.xml",
+                ]
+            ),
+        ),
+        "/en-us/sitemap_0.xml": httpx.Response(200, text=urlset(looks)),
+        "/en-us/sitemap-en-us.xml": httpx.Response(200, text=urlset(products)),
+    }
+    t = make_transport(routes)
+    had = Capability(
+        domain="marni.com",
+        transport=TransportLevel.T0,
+        sitemap_url="https://marni.com/en-us/sitemap_index.xml",
+        product_url_prefix="/en-us/",
+    )
+    got = widen_to_the_biggest_url_family(had, t)
+    assert got.sitemap_url == "https://marni.com/en-us/sitemap-en-us.xml"
+    assert got.product_url_prefix == "/en-us/"
+
+
+ACNE_LOCALES = ("it/it", "tw/zh", "us/en")
+
+
+def acne_sitemap():
+    urls = []
+    for loc in ACNE_LOCALES:
+        urls.append(f"https://acne.com/{loc}/woman/new-arrivals/")
+        urls.append(f"https://acne.com/{loc}/woman/clothing/")
+        urls += [f"https://acne.com/{loc}/cardigan-{i}/CI{i:04d}-DXT.html" for i in range(30)]
+    return urlset(urls)
+
+
+@pytest.mark.unit
+def test_products_in_their_own_folders_are_found_as_the_home_countrys_family():
+    """Acne Studios: forty locales in one sitemap, every product in a folder of its own,
+    so no parent path is shared and the biggest clusters are the category pages."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/sitemap.xml":
+            return httpx.Response(200, text=acne_sitemap())
+        if path.startswith("/us/en/cardigan-"):
+            return httpx.Response(200, text=PRODUCT_PAGE)
+        return httpx.Response(200, text=PLAIN_HOME)  # a category page, or another country
+
+    t = HttpxTransport(client=httpx.Client(transport=httpx.MockTransport(handler)))
+    from backend.archive.fingerprint import _probe_ldjson
+
+    evidence: dict[str, str] = {}
+    found, prefix = _probe_ldjson("https://acne.com/sitemap.xml", t, evidence)
+    assert found and prefix == "/us/en/"
+    assert evidence["ldjson_sample"].startswith("https://acne.com/us/en/cardigan-")
+
+
+@pytest.mark.unit
+def test_widening_keeps_our_country_of_a_mixed_sitemap():
+    t = make_transport({"/sitemap.xml": httpx.Response(200, text=acne_sitemap())})
+    had = Capability(
+        domain="acne.com",
+        transport=TransportLevel.T0,
+        sitemap_url="https://acne.com/sitemap.xml",
+        product_url_prefix="/us/en/cardigan-1/",
+    )
+    got = widen_to_the_biggest_url_family(had, t)
+    assert got.product_url_prefix == "/us/en/"
+    assert got.sitemap_url == "https://acne.com/sitemap.xml"
+
+
+@pytest.mark.unit
+def test_a_sitemap_of_one_country_is_left_alone():
+    from backend.archive.fingerprint import _one_market
+
+    urls = [f"https://psylos1.com/en/products/p{i}" for i in range(5)]
+    assert _one_market(urls) == urls
+    mixed = [f"https://a.com/{loc}/x" for loc in ("fr-fr", "en-us", "de-de")]
+    assert _one_market(mixed) == ["https://a.com/en-us/x"]
+
+
+@pytest.mark.unit
+def test_shopify_with_the_feed_off_still_answers_per_product():
+    """fengofficiel.com: /products.json is 404, /products/<handle>.json is the product."""
+    t = make_transport(
+        {
+            "/robots.txt": httpx.Response(200, text="Sitemap: https://feng.com/sitemap.xml\n"),
+            "/sitemap.xml": httpx.Response(
+                200, text=index(["https://feng.com/sitemap_products_1.xml"])
+            ),
+            "/sitemap_products_1.xml": httpx.Response(
+                200, text=urlset(["https://feng.com/", "https://feng.com/products/tights"])
+            ),
+            "/products.json": httpx.Response(404),
+            "/products/tights.json": httpx.Response(200, json={"product": {"handle": "tights"}}),
+            "/": httpx.Response(200, text=PLAIN_HOME),
+            **NO_WOO,
+        }
+    )
+    cap = probe("feng.com", t, retry_pause=0)
+    assert cap.product_json is True and cap.bulk_json is False
+    assert cap.evidence["product_json"] == "200-open"
+    # The product sitemap is trusted as the list of products, as for any Shopify index.
+    assert cap.sitemap_url == "https://feng.com/sitemap_products_1.xml"
+    assert cap.product_url_prefix == "/"
+    assert "woo_api" not in cap.evidence  # nothing further was asked
+
+
+@pytest.mark.unit
+def test_a_store_that_is_not_shopify_is_not_asked_for_product_json():
+    t = make_transport(
+        {
+            "/robots.txt": httpx.Response(200, text="Sitemap: https://x.com/sitemap.xml\n"),
+            "/sitemap.xml": httpx.Response(200, text=urlset(["https://x.com/about"])),
+            "/products.json": httpx.Response(404),
+            "/": httpx.Response(200, text=PLAIN_HOME),
+            **NO_WOO,
+        }
+    )
+    cap = probe("x.com", t, retry_pause=0)
+    assert cap.product_json is False and "product_json" not in cap.evidence
+
+
+GATSBY_HOME = (
+    '<html><head><link as="fetch" rel="preload" href="/page-data/index/page-data.json">'
+    '</head><body><div id="___gatsby"></div></body></html>'
+)
+DRAWS = {"result": {"pageContext": {"retailers": [{"draws": [{"slug": "ana", "country": "US"}]}]}}}
+
+
+@pytest.mark.unit
+def test_a_gatsby_site_whose_page_data_lists_draws_is_readable():
+    t = make_transport(
+        {
+            "/robots.txt": httpx.Response(200, text="User-agent: *\nAllow: /\n"),
+            "/sitemap.xml": httpx.Response(200, text=GATSBY_HOME),  # the app's HTML
+            "/products.json": httpx.Response(404),
+            "/": httpx.Response(200, text=GATSBY_HOME),
+            "/page-data/index/page-data.json": httpx.Response(200, json=DRAWS),
+            **NO_WOO,
+        }
+    )
+    cap = probe("luar.runfair.com", t, retry_pause=0)
+    assert cap.page_data is True and cap.readable()
+    assert cap.evidence["page_data"] == "200-draws"
+    assert "woo_api" not in cap.evidence
+
+
+ACNE_ALTERNATES = (
+    '<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" '
+    'xmlns:xhtml="http://www.w3.org/1999/xhtml">'
+    + "".join(
+        f"<url><loc>https://acne.com/it/it/cardigan-{i}/CI{i:04d}.html</loc>"
+        f'<xhtml:link rel="alternate" hreflang="en-us" href="https://acne.com/us/en/cardigan-{i}/CI{i:04d}.html"/>'
+        "</url>"
+        for i in range(30)
+    )
+    + "<url><loc>https://acne.com/it/it/only-in-italy/CI9999.html</loc></url></urlset>"
+)
+
+
+@pytest.mark.unit
+def test_probing_reads_the_markets_alternate_of_every_entry():
+    """Acne Studios: 500 entries per sitemap, canonical in any country, en-us inline."""
+    from backend.archive.fingerprint import _entries, _one_sitemap
+
+    urls = _entries(ACNE_ALTERNATES)
+    assert len(urls) == 31 and urls[0] == "https://acne.com/us/en/cardigan-0/CI0000.html"
+    assert urls[-1] == "https://acne.com/it/it/only-in-italy/CI9999.html"
+    t = make_transport({"/sitemap_1.xml": httpx.Response(200, text=ACNE_ALTERNATES)})
+    assert _one_sitemap("https://acne.com/sitemap_1.xml", t)[1] == urls
+
+
+@pytest.mark.unit
+def test_an_index_of_many_unnamed_children_stays_the_sitemap_to_read():
+    """Acne splits one catalogue over sitemap_1..5.xml; the first is a sample of the
+    family, and adopting it would drop four fifths of the products."""
+    children = [f"https://acne.com/sitemap_{i}.xml" for i in range(1, 6)]
+    routes = {"/sitemap_index.xml": httpx.Response(200, text=index(children))}
+    for c in children:
+        routes[c.split("acne.com")[1]] = httpx.Response(200, text=ACNE_ALTERNATES)
+    t = make_transport(routes)
+    had = Capability(
+        domain="acne.com",
+        transport=TransportLevel.T0,
+        sitemap_url="https://acne.com/sitemap_index.xml",
+        product_url_prefix="/us/en/cardigan-1/",
+    )
+    got = widen_to_the_biggest_url_family(had, t)
+    assert got.product_url_prefix == "/us/en/"
+    assert got.sitemap_url == "https://acne.com/sitemap_index.xml"
+
+
+SG_WALL = (
+    '<html><head><link rel="icon" href="data:;"><meta http-equiv="refresh" '
+    'content="0;/.well-known/sgcaptcha/?r=%2F&y=ipr:1.2.3.4:1790541378"></meta></head></html>'
+)
+
+
+@pytest.mark.unit
+def test_a_sitegrounds_captcha_wall_is_a_challenge_not_an_empty_room():
+    t = make_transport(
+        {
+            "/robots.txt": httpx.Response(202, text=SG_WALL),
+            "/sitemap.xml": httpx.Response(202, text=SG_WALL),
+            "/products.json": httpx.Response(202, text=SG_WALL),
+            "/": httpx.Response(202, text=SG_WALL),
+            **NO_WOO,
+        }
+    )
+    cap = probe("wiacollections.com", t, retry_pause=0)
+    assert cap.challenged is True and cap.transport == TransportLevel.T2
+    assert not cap.readable()
