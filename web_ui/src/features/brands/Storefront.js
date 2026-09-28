@@ -1,7 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import TopBar from '../../shared/ui/TopBar';
 import ArchiveAPI from '../../shared/api/brands';
-import { formatPrice, count, fallbackOnError, sized } from './shop';
+import { columnsFor, count, fallbackOnError, formatPrice, groupRows, sized } from './shop';
 import { CURRENCIES, useMoney } from '../../shared/money';
 import './storefront.css';
 
@@ -32,6 +32,14 @@ function Storefront({ currentPage, onPageSwitch, currentUser, onLogout, navigate
   const [tiles, setTiles] = useState([]);      // accumulated across "load more"
   const [state, setState] = useState('loading'); // loading | ready | warming | error
   const [designerQuery, setDesignerQuery] = useState('');
+  // Rows are formed from same-shaped photographs; the column count is the only
+  // thing the browser adds, and it changes only on resize.
+  const [columns, setColumns] = useState(() => columnsFor(typeof window === 'undefined' ? 1200 : window.innerWidth));
+  useEffect(() => {
+    const onResize = () => setColumns(columnsFor(window.innerWidth));
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
   const [draftQ, setDraftQ] = useState(shop.q || '');
   const [filtersOpen, setFiltersOpen] = useState(false);
   const scrollRef = useRef(null);
@@ -97,6 +105,7 @@ function Storefront({ currentPage, onPageSwitch, currentUser, onLogout, navigate
     ? facets.designers.filter((d) => d.name.toLowerCase().includes(designerQuery.toLowerCase()))
     : facets.designers;
 
+  const ordered = useMemo(() => groupRows(tiles, columns), [tiles, columns]);
   const heading = brandName || shop.bucket || shop.group || (shop.sale ? 'Sale' : shop.q ? `“${shop.q}”` : 'Everything');
   const total = data ? data.total : 0;
 
@@ -181,7 +190,7 @@ function Storefront({ currentPage, onPageSwitch, currentUser, onLogout, navigate
               <div className="ar-empty"><span className="headline">Nothing here</span><span>Clear a filter or search for something else.</span></div>
             )}
             <div className={`shop-grid ${state === 'loading' ? 'is-loading' : ''}`}>
-              {tiles.map((t) => <Tile key={`${t.brand_id}|${t.url}`} tile={t} onOpen={() => openProduct(t)} />)}
+              {ordered.map((t) => <Tile key={`${t.brand_id}|${t.url}`} tile={t} onOpen={() => openProduct(t)} />)}
             </div>
             {state === 'ready' && tiles.length < total && (
               <div className="shop-more">
@@ -241,11 +250,13 @@ export function Tile({ tile, onOpen }) {
         {src ? <img src={src} alt="" loading="lazy" onError={fallbackOnError(tile.archived)} /> : <span className="shop-tile-none">No image</span>}
         {src && alt && <img className="shop-tile-alt" src={alt} alt="" loading="lazy" />}
       </span>
-      <span className="shop-tile-brand">{tile.brand}</span>
-      <span className="shop-tile-name">{tile.title}</span>
-      <span className="shop-tile-price">
-        {tile.price !== null && tile.price !== undefined ? formatPrice(tile.price, tile.currency) : <span className="shop-tile-noprice">Price on site</span>}
-        {tile.sale && <span className="shop-tile-strike">{formatPrice(tile.full_price, tile.currency)}</span>}
+      <span className="shop-tile-text">
+        <span className="shop-tile-brand">{tile.brand}</span>
+        <span className="shop-tile-name">{tile.title}</span>
+        <span className="shop-tile-price">
+          {tile.price !== null && tile.price !== undefined ? formatPrice(tile.price, tile.currency) : <span className="shop-tile-noprice">Price on site</span>}
+          {tile.sale && <span className="shop-tile-strike">{formatPrice(tile.full_price, tile.currency)}</span>}
+        </span>
       </span>
     </button>
   );

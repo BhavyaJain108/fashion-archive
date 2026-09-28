@@ -171,9 +171,11 @@ try:
         from backend.archive.store.backfill import backfill_if_empty
 
         backfill_if_empty(_archive_store())
+        from backend.archive.image_ratio import fill_on_boot
         from backend.archive.tagging import tag_on_boot
 
         tag_on_boot()
+        fill_on_boot()
     else:
         storefront.warm(_archive_catalog, app_roster)
 except Exception as e:

@@ -142,3 +142,9 @@ CREATE INDEX IF NOT EXISTS product_tags_tags ON product_tags USING gin (tags);
 -- The garment's own colours, read off the photograph's pixels once the background
 -- is dropped: up to three [hex, share] pairs, biggest first. No model involved.
 ALTER TABLE product_tags ADD COLUMN IF NOT EXISTS colours jsonb NOT NULL DEFAULT '[]';
+
+-- The main photograph's width divided by its height, known before the grid draws
+-- so rows can be formed from same-shaped pictures without anything moving on load.
+-- Filled from the shop's own image JSON where it carries dimensions, otherwise by
+-- reading the picture (backend/archive/image_ratio.py).
+ALTER TABLE products ADD COLUMN IF NOT EXISTS image_ratio real;

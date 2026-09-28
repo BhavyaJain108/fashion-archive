@@ -38,3 +38,43 @@ export function sized(url, cssWidth) {
   const base = url.replace(/([?&])width=\d+&?/, '$1').replace(/[?&]$/, '');
   return `${base}${base.includes('?') ? '&' : '?'}width=${px}`;
 }
+
+// How many photographs share a row at this viewport width. Matches storefront.css:
+// four from 1700px, three down to 700px, two below.
+export function columnsFor(width) {
+  if (width >= 1700) return 4;
+  if (width >= 700) return 3;
+  return 2;
+}
+
+// A photograph's shape, coarse enough that 3:4 and 3:4-ish land together.
+export function shapeKey(tile) {
+  return tile.ratio ? Math.round(tile.ratio * 20) / 20 : null;
+}
+
+// Same-shaped photographs on the same row, moving pictures only a little: a row
+// takes its first picture's shape, then pulls matches from the next `look` rows'
+// worth of pictures. Whatever is left keeps its order, so a mixed row happens only
+// when there is nothing nearby of the same shape. Pure: the same input gives the
+// same rows, and nothing moves once drawn.
+export function groupRows(tiles, columns, look = 3) {
+  const pool = tiles.slice();
+  const out = [];
+  while (pool.length) {
+    const first = pool.shift();
+    const row = [first];
+    const key = shapeKey(first);
+    if (key !== null) {
+      let i = 0;
+      let scanned = 0;
+      while (i < pool.length && scanned < columns * look && row.length < columns) {
+        if (shapeKey(pool[i]) === key) row.push(pool.splice(i, 1)[0]);
+        else i += 1;
+        scanned += 1;
+      }
+    }
+    while (row.length < columns && pool.length) row.push(pool.shift());
+    out.push(...row);
+  }
+  return out;
+}

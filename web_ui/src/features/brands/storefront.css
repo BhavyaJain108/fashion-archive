@@ -57,7 +57,11 @@
   align-self: start;
   max-height: calc(100vh - var(--ar-topbar-h) - 40px - 24px);
   overflow-y: auto;
+  /* the columns scroll, but show no bar: people can handle scrolling by themselves */
+  scrollbar-width: none;
 }
+.shop-left::-webkit-scrollbar,
+.shop-right::-webkit-scrollbar { display: none; }
 
 .shop-currency { width: 100%; margin-bottom: 12px; }
 
@@ -132,7 +136,6 @@
 .shop-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  align-items: start;
   gap: 32px 16px;
   transition: opacity var(--ar-base) ease;
 }
@@ -207,6 +210,10 @@
 }
 
 .shop-tile-img img { width: 100%; height: auto; display: block; }
+/* A row is formed from same-shaped photographs (shop.js groupRows). When one is
+   mixed anyway, pictures sit at the top and the three text lines sit at the
+   bottom of the row, so brand, name and price line up across it. */
+.shop-tile-text { display: flex; flex-direction: column; gap: 2px; margin-top: auto; }
 .shop-tile-img .shop-tile-alt {
   position: absolute;
   inset: 0;

@@ -265,6 +265,25 @@ def test_sql_shop_front_matches_the_index_shape(tmp_path, pool, clean):
     todo = tagging.candidates(pool, limit=10, per_brand=10)
     assert {r["title"] for r in todo} == {"Wool Sweater", "Leather Boot"}
     assert tagging.tagged_count(pool) == 1
+
+    # the photograph's shape reaches the tile: from the shop's own image JSON first
+    from backend.archive import image_ratio
+
+    assert one["tile"]["ratio"] is None
+    with pool.connection() as conn:
+        conn.execute(
+            "UPDATE product_raw SET raw = raw || %s::jsonb WHERE itemurl = %s",
+            (
+                '{"images": [{"src": "https://x.com/products/denim-jacket/1.jpg", "width": 3, "height": 4}]}',
+                "https://x.com/products/denim-jacket",
+            ),
+        )
+    assert image_ratio.fill_from_raw(pool) == 1
+    one = storefront_sql.product(
+        pool, roster=roster, domains=domains, brand="x.com", handle="denim-jacket"
+    )
+    assert one["tile"]["ratio"] == 0.75
+    assert image_ratio.fill_from_raw(pool) == 0  # nothing left that raw can answer
     assert (
         storefront_sql.product(pool, roster=roster, domains=domains, brand="x.com", handle="nope")
         is None

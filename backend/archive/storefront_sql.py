@@ -67,7 +67,7 @@ _ORDER = {
 }
 
 _TILE_COLS = """
-p.brand, p.record, p.first_seen_run, p.last_seen_run, p.last_covered_run,
+p.brand, p.record, p.first_seen_run, p.last_seen_run, p.last_covered_run, p.image_ratio,
 (SELECT array_agg(i.stored_url ORDER BY i.updated_at) FROM product_images i
    WHERE i.brand = p.brand AND i.itemurl = p.itemurl AND i.stored_url IS NOT NULL) AS archived
 """
@@ -101,7 +101,7 @@ def _stamp(run_id: str | None) -> str:
 
 
 def _tile(row, names: dict[str, str]) -> dict:
-    brand, record, first, seen, covered, archived = row
+    brand, record, first, seen, covered, ratio, archived = row
     t = shop.tile(
         record,
         brand_id=brand,
@@ -110,6 +110,8 @@ def _tile(row, names: dict[str, str]) -> dict:
         archived=list(archived or []),
         history={"last_seen": _stamp(seen), "last_on_site": _stamp(covered)},
     )
+    # width / height of the main photograph, so the grid can form rows before it draws
+    t["ratio"] = round(float(ratio), 3) if ratio and ratio > 0 else None
     return t
 
 
