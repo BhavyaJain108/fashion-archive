@@ -267,12 +267,15 @@ function columnWidth() {
 export function Tile({ tile, onOpen }) {
   const width = columnWidth();
   const src = sized(tile.image, width);
-  const alt = tile.image2 ? sized(tile.image2, width) : null;
+  // The second photograph is fetched on the first hover, never with the grid:
+  // loading it for every tile doubled the pictures a page pulls.
+  const [wanted, setWanted] = useState(false);
+  const alt = wanted && tile.image2 ? sized(tile.image2, width) : null;
   return (
-    <button type="button" className="shop-tile" onClick={onOpen}>
+    <button type="button" className="shop-tile" onClick={onOpen} onMouseEnter={() => setWanted(true)}>
       <span className={`shop-tile-img ${tile.ratio ? 'has-shape' : ''}`} style={tile.ratio ? { aspectRatio: String(tile.ratio) } : undefined}>
         {src ? <img src={src} alt="" loading="lazy" onError={fallbackOnError(tile.archived)} /> : <span className="shop-tile-none">No image</span>}
-        {src && alt && <img className="shop-tile-alt" src={alt} alt="" loading="lazy" />}
+        {src && alt && <img className="shop-tile-alt" src={alt} alt="" />}
       </span>
       <span className="shop-tile-text">
         <span className="shop-tile-brand">{tile.brand}</span>

@@ -41,7 +41,8 @@ def env(tmp_path):
     cat.flush()
     url = "https://kuurth.com/products/nemo"
     sink = LocalImageStore(root=tmp_path / "images", api_base="http://api.test")
-    return cat, url, ImageStore(sink), sink, tmp_path
+    # originals on purpose: these tests count fetches of literal URLs
+    return cat, url, ImageStore(sink, width=0), sink, tmp_path
 
 
 @pytest.mark.unit
@@ -125,3 +126,17 @@ def test_identical_bytes_are_uploaded_once(env):
     store.archive(t, cat, url, "kuurth.com", ["https://cdn.shopify.com/nemo-1.jpg"])
     store.archive(t, cat, url, "kuurth.com", ["https://cdn.shopify.com/nemo-2.jpg"])
     assert len(uploads) == 1
+
+
+def test_photographs_are_capped_at_the_default_width_unless_told_otherwise():
+    from backend.archive import images
+
+    class Sink:
+        pass
+
+    url = "https://cdn.shopify.com/s/files/1/x/y.jpg?v=1"
+    assert images.ImageStore(Sink())._fetch_url(url) == f"{url}&width={images.DEFAULT_WIDTH}"
+    assert images.ImageStore(Sink(), width=0)._fetch_url(url) == url  # original, on purpose
+    assert images.ImageStore(Sink(), width=800)._fetch_url(url) == f"{url}&width=800"
+    other = "https://example.com/p.jpg"
+    assert images.ImageStore(Sink())._fetch_url(other) == other  # only Shopify resizes

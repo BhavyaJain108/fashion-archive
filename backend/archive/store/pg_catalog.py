@@ -356,7 +356,17 @@ def shared_pool(dsn: str | None = None) -> ConnectionPool:
         if pool is None:
             # Small: the scraper's image pass runs a handful of threads, and the API
             # has its own pool for user data.
-            pool = ConnectionPool(url, min_size=1, max_size=6, open=True)
+            # check: a connection the server has dropped (Render closes idle SSL
+            # sessions; the symptom was "SSL error: unexpected eof" after a 30s hang)
+            # is discarded before a request gets it. max_idle: recycled before that.
+            pool = ConnectionPool(
+                url,
+                min_size=1,
+                max_size=8,
+                max_idle=300,
+                check=ConnectionPool.check_connection,
+                open=True,
+            )
             pool.wait(timeout=15)
             from backend.auth.migrate import apply_schema
 

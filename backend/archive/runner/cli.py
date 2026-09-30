@@ -952,7 +952,7 @@ def main(argv: list[str] | None = None) -> int:
             # them here made every scrape wait on 40,000 photographs, which is why the
             # old default only ever archived five products per brand.
             image_store = (
-                ImageStore(image_sink(args.images_dir), width=args.image_width or None)
+                ImageStore(image_sink(args.images_dir), width=args.image_width)
                 if args.archive_images
                 else None
             )
@@ -1066,7 +1066,7 @@ def main(argv: list[str] | None = None) -> int:
                         store,
                         sink,
                         gap=args.gap,
-                        width=args.image_width or None,
+                        width=args.image_width,
                         on_done=lambda o: print(
                             f"{o.domain:<32}{o.fetched:>7} fetched  "
                             f"{o.failed} failed  {o.outstanding} left"

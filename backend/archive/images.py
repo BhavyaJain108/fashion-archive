@@ -47,10 +47,18 @@ def looks_like_image(data: bytes) -> bool:
     return head[4:8] == b"ftyp"  # AVIF / HEIC
 
 
+# The width photographs are kept at when nobody says otherwise. Shopify's CDN resizes
+# for free on `?width=`, and 1200px is more than the product page ever draws (640px
+# column, 2x displays). Originals are 1–3 MB each and the worker's upload of them is
+# what Render bills: 99 new brands at original size cost 130 GB in two days.
+DEFAULT_WIDTH = 1200
+
+
 class ImageStore:
     def __init__(self, sink: Sink, width: int | None = None):
         self.sink = sink
-        self.width = width  # Shopify CDN resizes on the fly; None = original resolution
+        # None = the default cap; 0 = original resolution, asked for on purpose
+        self.width = DEFAULT_WIDTH if width is None else (width or None)
 
     def _fetch_url(self, url: str) -> str:
         if self.width and "cdn.shopify.com" in url:
