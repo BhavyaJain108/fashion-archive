@@ -1071,20 +1071,32 @@ class Catalog:
                 out[itemurl] = urls
         return out
 
-    def images_awaiting_archive(self, domain: str) -> list[tuple[str, list[str]]]:
+    def images_awaiting_archive(
+        self, domain: str, retry_given_up: bool | None = None
+    ) -> list[tuple[str, list[str]]]:
         """(itemurl, image urls not yet stored) for this brand's live products.
 
         Driven off what the records say rather than off the run that wrote them, so the
         image pass can be re-run at any time and picks up exactly what is missing.
+
+        A photograph that failed GIVE_UP_AFTER times is left alone — unless the brand
+        holds no photograph at all, which says the failure was ours (a header we did
+        not send, a rung we did not use) rather than the photograph's, and earns one
+        more round of GIVE_UP_AFTER attempts: enough to land once the cause is fixed,
+        not a daily request for every dead link a shop ever named. `retry_given_up`
+        forces either way.
         """
         held = self._images(domain)
+        if retry_given_up is None:
+            retry_given_up = not any(r.get("stored_url") for rows in held.values() for r in rows)
+        give_up = self.GIVE_UP_AFTER * (2 if retry_given_up else 1)
         work = []
         for record in self.current_products(domain):
             itemurl = record.get("itemurl", "")
             done = {
                 r["url"]
                 for r in held.get(itemurl, [])
-                if r.get("stored_url") or (r.get("misses") or 0) >= self.GIVE_UP_AFTER
+                if r.get("stored_url") or (r.get("misses") or 0) >= give_up
             }
             raw = record.get("all_images")
             try:
@@ -1100,6 +1112,38 @@ class Catalog:
 
     def stored_image_count(self, domain: str) -> int:
         return sum(1 for rows in self._images(domain).values() for r in rows if r.get("stored_url"))
+
+    def photograph_lines(self, domain: str) -> list[dict]:
+        """Each live product: photographs named, kept, given up on, waiting."""
+        from backend.archive.image_stats import product_line
+
+        held = self._images(domain)
+        return [
+            product_line(r, held.get(r.get("itemurl", ""), []), self.GIVE_UP_AFTER)
+            for r in self.current_products(domain)
+        ]
+
+    def image_stats(self, domain: str | None = None) -> list[dict]:
+        """Photographs per brand (image_stats.FIELDS), for one brand or every brand
+        with live products."""
+        from backend.archive.image_stats import brand_totals
+
+        domains = (
+            [domain]
+            if domain
+            else sorted(d for d, m in self.fleet().items() if m.get("live_products"))
+        )
+        out = []
+        for d in domains:
+            out.append(brand_totals(d, self.photograph_lines(d)))
+            self.release_products(d)
+        return out
+
+    def refresh_counts(self, domain: str) -> None:
+        """Recount a brand's products and kept photographs into the deck's counters.
+        The image pass calls it when it is done: the counters were written at the end
+        of the run, before a single photograph of it had been kept."""
+        self._refresh_meta(domain)
 
     # --- scorecards, request ledger, extraction versions ---
     def save_scorecard(self, run_id: str, domain: str, card) -> None:

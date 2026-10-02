@@ -118,4 +118,10 @@ def test_a_photograph_that_keeps_failing_leaves_the_queue(tmp_path):
     assert cat.images_awaiting_archive("k.com")
     for _ in range(3):
         cat.record_image_miss("k.com", "https://k.com/p/a", "https://cdn.shopify.com/gone.jpg")
+    # A brand that holds no photograph at all gets one more round: the failure is more
+    # likely ours than every photograph's (Van Cleef's needed a Referer, 2026-10-02).
+    assert cat.images_awaiting_archive("k.com")
+    assert cat.images_awaiting_archive("k.com", retry_given_up=False) == []
+    for _ in range(3):
+        cat.record_image_miss("k.com", "https://k.com/p/a", "https://cdn.shopify.com/gone.jpg")
     assert cat.images_awaiting_archive("k.com") == []

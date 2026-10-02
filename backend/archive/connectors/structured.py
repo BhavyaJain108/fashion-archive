@@ -36,7 +36,22 @@ _DATA_SIZE = re.compile(r'data-(?:size|option-value)="([^"]{1,12})"', re.I)
 # whether you can buy it in the neighbouring title. Matching only data-size missed every
 # size on Vivienne Westwood, and with them the per-size stock. Lookahead on the tail, or
 # each match eats the next swatch.
-_SWATCH_SIZE = re.compile(r'data-[\w-]*size[\w-]*="([^"{}]{1,12})"(?=(.{0,160}))', re.I | re.S)
+#
+# Not a size *guide*: Rosier's page carries a measuring widget whose every attribute names
+# "size" (data-mr-size-guide-v1-item="measure", ="chart", ="bust"), and 4,263 of its
+# products were read with "measure, how, chart, shoes, rings, XXS…cm, in, bust, waist"
+# as their sizes (2026-09-29) — then dropped for having 21 sizes and 2 stock flags.
+# Nor a layout attribute that happens to be called size: the same page's picker carries
+# data-size="medium" (how big to draw it), data-variant-size="2" (how many variants) and
+# data-page-size="4" — "medium, 2, 4" was the next thing read as Rosier's sizes.
+_NOT_A_SWATCH = (
+    r"(?![\w-]*(?:guide|chart|table|measure|calculator|finder|recommend|fit-"
+    r"|page-size|variant-size|grid|image|img|icon|font|thumb|media|column))"
+    r'(?!size="(?:x?small|medium|large|x?large|tiny|huge|full|auto|default|compact)")'
+)
+_SWATCH_SIZE = re.compile(
+    r"data-" + _NOT_A_SWATCH + r'[\w-]*size[\w-]*="([^"{}]{1,12})"(?=(.{0,160}))', re.I | re.S
+)
 _SWATCH_TITLE = re.compile(r'(?:title|aria-label)="([^"]{0,60})"', re.I)
 _SOLD_OUT = ("not available", "out of stock", "sold out", "unavailable")
 # A variant SKU says what the variant is after a double dash: 1802002B-C00A1--RED.

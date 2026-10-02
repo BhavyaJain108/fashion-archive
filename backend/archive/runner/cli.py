@@ -439,6 +439,66 @@ def _names_for(brands_path: Path) -> dict[str, str]:
         return {}
 
 
+def _lane_note(run: dict) -> str:
+    """A run in one line for the dossier: its reason when it failed, else where the
+    products it did not store went."""
+    if run.get("reason"):
+        return str(run["reason"])[:160]
+    b = run.get("breakdown") or {}
+    lost = {k: b.get(k) for k in ("not_products", "unreadable", "errors", "unreached") if b.get(k)}
+    if not lost:
+        return ""
+    parts = [f"{v} {k.replace('_', ' ')}" for k, v in lost.items()]
+    top = next(iter((b.get("why") or {}).items()), None)
+    return (
+        f"stored {b.get('stored')} of {b.get('discovered')} discovered: {', '.join(parts)}"
+        + (f" — mostly {top[0]}" if top else "")
+    )[:240]
+
+
+def _image_stats(args, store: ObjectStore, catalog: Catalog) -> int:
+    """`images --stats [domain] [--bytes] [--missing]`: what the archive holds."""
+    from backend.archive.image_stats import (
+        flagged,
+        fleet_totals,
+        load_storage,
+        measure_storage,
+    )
+
+    rows = catalog.image_stats(args.domain or None)
+    storage = measure_storage(store) if args.bytes else load_storage(store)
+    weight = (storage or {}).get("by_brand", {})
+    print(
+        f"{'BRAND':<28}{'PRODUCTS':>9}{'COMPLETE':>9}{'PARTIAL':>8}{'NONE KEPT':>10}"
+        f"{'NONE NAMED':>11}{'NAMED':>8}{'KEPT':>8}{'GAVE UP':>8}{'WAITING':>8}{'MB':>8}"
+    )
+    for r in sorted(rows, key=lambda r: -(r["none_kept"] + r["none_named"])):
+        mb = (weight.get(r["domain"]) or {}).get("bytes", 0) / 1e6
+        print(
+            f"{r['domain'][:27]:<28}{r['products']:>9}{r['complete']:>9}{r['partial']:>8}"
+            f"{r['none_kept']:>10}{r['none_named']:>11}{r['named']:>8}{r['kept']:>8}"
+            f"{r['given_up']:>8}{r['waiting']:>8}{mb:>8.0f}"
+        )
+    t = fleet_totals(rows)
+    print(
+        f"{'all ' + str(t['brands']) + ' brands':<28}{t['products']:>9}{t['complete']:>9}"
+        f"{t['partial']:>8}{t['none_kept']:>10}{t['none_named']:>11}{t['named']:>8}"
+        f"{t['kept']:>8}{t['given_up']:>8}{t['waiting']:>8}"
+    )
+    if storage:
+        print(
+            f"bucket: {storage['objects']:,} photographs, {storage['bytes'] / 1e9:.2f} GB "
+            f"(measured {storage['at']})"
+        )
+    else:
+        print("bucket: not measured yet — pass --bytes, or wait for the nightly backup")
+    if args.missing and args.domain:
+        print()
+        for line in flagged(catalog.photograph_lines(args.domain)):
+            print(f"  {line['why']:<46} {line['title'] or ''}  {line['itemurl']}")
+    return 0
+
+
 def _learn_commands(args, store: ObjectStore, catalog: Catalog) -> int:
     from backend.archive.learn.budget import FleetBudget
     from backend.archive.learn.dossier import DossierStore
@@ -635,6 +695,21 @@ def main(argv: list[str] | None = None) -> int:
             sp.add_argument("--images-dir", type=Path, default=Path("backend/archive/data/images"))
             sp.add_argument(
                 "--dry-run", action="store_true", help="say how much is outstanding, fetch nothing"
+            )
+            sp.add_argument(
+                "--stats",
+                action="store_true",
+                help="what is held: per brand (or every brand), named, kept, given up, waiting",
+            )
+            sp.add_argument(
+                "--bytes",
+                action="store_true",
+                help="with --stats: list the archive in the bucket and total it by brand",
+            )
+            sp.add_argument(
+                "--missing",
+                action="store_true",
+                help="with --stats and a brand: list its products with no photograph held",
             )
         if name == "learn":
             sp.add_argument(
@@ -871,8 +946,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         # Read-only looks at the loop's own objects do not wait for the roster seed —
         # 137 upserts over the network is two minutes nobody asked for.
-        looking = args.cmd in ("walls", "budget", "signatures", "dossier") or (
-            args.cmd == "learn" and getattr(args, "action", None) == "status"
+        looking = (
+            args.cmd in ("walls", "budget", "signatures", "dossier")
+            or (args.cmd == "learn" and getattr(args, "action", None) == "status")
+            or (args.cmd == "images" and getattr(args, "stats", False))
         )
         brands = _seed(catalog, args.brands) if args.brands.exists() and not looking else []
 
@@ -1080,6 +1157,9 @@ def main(argv: list[str] | None = None) -> int:
                 else:
                     print("\nimages: nothing outstanding")
             return worst
+
+        if args.cmd == "images" and args.stats:
+            return _image_stats(args, store, catalog)
 
         if args.cmd == "images":
             from backend.archive.runner.archive_images import (
@@ -1448,8 +1528,19 @@ def main(argv: list[str] | None = None) -> int:
                                 ),
                                 cov.get("extracted"),
                                 cov.get("field_fill") or {},
-                                str(run.get("reason") or "")[:120],
+                                _lane_note(run),
                             )
+                            # The gaps the loop acts on, from this run's whole
+                            # catalogue rather than the five products onboarding
+                            # sampled once (2026-09-27, and never again since).
+                            if cov.get("extracted") and cov.get("field_fill"):
+                                from backend.archive.learn.loop import refresh_gaps
+
+                                held = dossiers.load(brand.domain)
+                                dossiers.set_gaps(
+                                    brand.domain,
+                                    refresh_gaps(held.gaps if held else {}, cov["field_fill"]),
+                                )
                     except Exception as e:  # noqa: BLE001
                         print(
                             f"{brand.domain}: dossier not written: {type(e).__name__}: {e}",

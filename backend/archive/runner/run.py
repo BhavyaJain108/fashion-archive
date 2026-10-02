@@ -1,16 +1,19 @@
 """The lifecycle: scope → plan → calibrate → promote → monitor (spec §4.3b, §4.6)."""
 
+import html
 import json
 import os
 import re
 import time
 import traceback
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
 from backend.archive import taxonomy, taxonomy_llm
 from backend.archive.connectors import get_connector
 from backend.archive.connectors.base import ChannelBlocked, ChannelBusy, NotAProduct, SkipProduct
+from backend.archive.connectors.merch import not_merchandise
 from backend.archive.domain.brand import Brand, PlanAttempt, TransportLevel, shop_target
 from backend.archive.domain.product import (
     E0005_FIELDS,
@@ -271,6 +274,9 @@ def run_brand(
         deadline = clock() + time_budget if time_budget else None
         unreached = 0
         records, errors, skipped, declined_pages = [], 0, 0, 0
+        # Why pages were not stored, by kind, so a run that stores fewer products than
+        # it discovered says where they went (Acne: 236 of 600 were category pages).
+        why_not_stored: Counter = Counter()
         failed: set[str] = set()  # products this run tried to read and could not
         imaged_products = 0
         learned_this_run = 0
@@ -317,12 +323,19 @@ def run_brand(
             catalog.report_progress(brand.domain, phase, index, len(to_fetch))
             try:
                 rec = connector.fetch(r, work_transport)
+                _unescape(rec)
+                # Every lane, not only the feeds that say so themselves: a sitemap or a
+                # recipe reads a gift card's page as readily as a dress's.
+                why_not = not_merchandise(rec.product_title)
+                if why_not:
+                    raise NotAProduct(why_not)
             except NotAProduct as e:
                 # Read fine, not a product. Out of the catalogue (a retired item
                 # leaves), and out of the denominator: 390 products read out of 390
                 # is a complete run, whatever else the sitemap lists.
                 declined_pages += 1
                 failed.add(r.url)
+                why_not_stored[f"not a product: {_reason_kind(str(e))}"] += 1
                 log("not-a-product", url=r.url, reason=str(e))
                 continue
             except SkipProduct as e:
@@ -334,10 +347,12 @@ def run_brand(
                 # stamped every unread product live from an earlier run.
                 skipped += 1
                 failed.add(r.url)
+                why_not_stored[f"unreadable: {_reason_kind(str(e))}"] += 1
                 log("skip-product", url=r.url, reason=str(e))
                 continue
             except Exception as e:
                 errors += 1
+                why_not_stored[f"error: {type(e).__name__}"] += 1
                 failed.add(r.url)
                 log("fetch-error", url=r.url, error=str(e))
                 continue
@@ -551,6 +566,21 @@ def run_brand(
         # at because of access. Quality is the scorecard's to report.
         catalog.record_attention(brand.domain, None)
         catalog.finalize_run(run_id, exit_status, coverage)
+        # Where the discovered products went. Written on every run, so "fewer than
+        # onboarding found" is answered by the run itself rather than by a person
+        # reading its log.
+        breakdown = {
+            "discovered": len(refs),
+            "selected": len(to_fetch),
+            "stored": len(records),
+            "not_products": declined_pages,
+            "unreadable": skipped,
+            "errors": errors,
+            "unreached": unreached,
+            "why": dict(why_not_stored.most_common(6)),
+        }
+        catalog.annotate_run(brand.domain, run_id, breakdown=breakdown)
+        log("breakdown", **breakdown)
         log(
             "finalized",
             verdict=coverage.verdict,
@@ -725,6 +755,31 @@ def _learn(field_finder, brand, url, missing, transport, log, failures=None):
         if failures is not None:
             failures.append(f"{type(e).__name__}: {e}")
         return None
+
+
+_TEXT_FIELDS = ("product_title", "description", "color_info", "material_info", "specifications")
+
+
+def _unescape(rec) -> None:
+    """Text as a person reads it. Shops escape their HTML into their feeds and their
+    JSON-LD: 1,138 of Rosier's titles read "Blouse &amp; Skirt Set" and 6,819 live
+    descriptions carried entities across the fleet (2026-10-02). Twice, for the shops
+    that escape twice; every lane passes through here."""
+    for field in _TEXT_FIELDS:
+        value = getattr(rec, field, None)
+        if isinstance(value, str) and "&" in value:
+            setattr(rec, field, html.unescape(html.unescape(value)))
+
+
+_URL = re.compile(r"https?://\S+")
+_NUMBER = re.compile(r"\d+")
+
+
+def _reason_kind(text: str) -> str:
+    """A reason with its URL and numbers taken out, so 236 category pages count as one
+    kind: "no product data on … (no JSON-LD Product, no price)"."""
+    kind = _NUMBER.sub("N", _URL.sub("…", text)).strip(" :")
+    return kind[:90] or "unstated"
 
 
 def _take_lock(lock: Path) -> bool:

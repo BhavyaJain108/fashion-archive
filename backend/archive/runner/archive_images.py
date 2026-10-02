@@ -110,6 +110,10 @@ def archive_brand(
                         domain, "photographs", out.fetched + out.failed, len(jobs)
                     )
         catalog.report_progress(domain, "done", len(jobs), len(jobs), force=True)
+        if out.fetched:
+            # The counters were written when the run ended, before any of its
+            # photographs were kept; without this the deck reads a pass behind.
+            catalog.refresh_counts(domain)
 
         requests.flush()
         out.outstanding = outstanding(catalog, domain)

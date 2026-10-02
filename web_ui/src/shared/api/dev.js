@@ -166,6 +166,13 @@ export class DevEndpoints {
     return read('costs');
   }
 
+  // Photographs across the fleet: named, kept, given up, waiting, per brand, and
+  // the bucket's weight as the nightly backup measured it. Its own call: it reads
+  // every live product's photograph rows.
+  static getImages() {
+    return read('images', 'Could not count the photographs');
+  }
+
   // The learning loop: the space map, the walls, the last tick, proposals, rules.
   static getLearning() {
     return read('learning');

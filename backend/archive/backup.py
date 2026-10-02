@@ -278,6 +278,15 @@ def backup(catalog, store: ObjectStore, now: datetime | None = None) -> dict:
     tables = _dump_tables(catalog, store, day)
     control = copy_control_plane(store, day)
     pruned = prune(store, now)
+    # What the photographs weigh, by brand: one listing of the archive while the night
+    # is quiet, so the deck reads a number instead of listing 340,000 objects itself.
+    try:
+        from backend.archive.image_stats import measure_storage
+
+        storage = measure_storage(store)
+        photographs = {"objects": storage["objects"], "bytes": storage["bytes"]}
+    except Exception as e:  # noqa: BLE001 — a measurement must never cost the backup
+        photographs = {"error": f"{type(e).__name__}: {e}"[:200]}
     manifest = {
         "day": day,
         "at": now.isoformat(),
@@ -286,6 +295,7 @@ def backup(catalog, store: ObjectStore, now: datetime | None = None) -> dict:
         "bytes": sum(t["bytes"] for t in tables.values()),
         "r2": control,
         "pruned": pruned,
+        "photographs": photographs,
         "seconds": round(time.monotonic() - started, 1),
     }
     store.put(f"{day_key(day)}manifest.json", dumps(manifest))

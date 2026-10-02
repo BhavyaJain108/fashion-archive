@@ -88,6 +88,17 @@ def classify(
         return Verdict(Wall.OPEN, Action.ONBOARD, f"readable over {level}; not yet read")
 
     if lane and lane.verdict in ("full", "ok"):
+        # A run can pass the gate and still leave a guaranteed field blank on part of
+        # the catalogue (Marni: price and photographs missing on 16 of 695), or leave
+        # blank a field its neighbours all read (gaps marked unread by the tick). That
+        # is not open; it is the next thing to fix.
+        gap = _unread_gap(dossier)
+        if gap:
+            return Verdict(
+                Wall.FIELD_GAP,
+                Action.ANALYSE,
+                f"{gap}: {(dossier.gaps.get(gap) or {}).get('why') or 'published and not read'}",
+            )
         return _priced(dossier, lane, median_cost_per_product)
     if lane and lane.verdict == "partial":
         gap = _unread_gap(dossier)

@@ -6,7 +6,7 @@ import DevDossier from './DevDossier';
 import DevGlossary from './DevGlossary';
 import LiveState from './LiveState';
 import Onboarding from './Onboarding';
-import { ago, dateShort, due, hours, n, pct, secs, usd } from './format';
+import { ago, dateShort, due, gb, hours, n, pct, secs, usd } from './format';
 
 // The newest run with a log, told as sentences: what it decided, found, read,
 // learned and how it ended. Time is offset from the run's start.
@@ -357,6 +357,7 @@ export default function DevBrand({ domain, go }) {
               return r;
             }}
           />
+          <Photographs domain={domain} />
           <Changes domain={domain} go={go} />
           <Hosts domain={domain} />
         </>
@@ -515,6 +516,56 @@ function RunLog({ domain, runId }) {
         })}
       </tbody>
     </table>
+  );
+}
+
+// What the archive holds of this brand's photographs, and the products it holds
+// none for — each one a thing the next scrape should do better. Its own request:
+// it reads every live product's photograph rows.
+function Photographs({ domain }) {
+  const { data, state } = useDevLoad(() => DevEndpoints.getPhotographs(domain), [domain]);
+  const t = (data && data.totals) || {};
+  return (
+    <section className="dev-section">
+      <h2 className="dev-section-h">
+        Photographs — what we hold
+        {data && data.missing && data.missing.length > 0 && (
+          <span className="dev-count-k"> · {n(data.missing.length)} products with none</span>
+        )}
+      </h2>
+      {state === 'loading' && <div className="dev-muted">counting photographs…</div>}
+      {state !== 'loading' && state !== 'ready' && <div className="dev-muted">{state}</div>}
+      {data && data.totals && (
+        <>
+          <div className="dev-totals">
+            <div className="dev-total"><span className="dev-total-n">{n(t.kept)} <span className="dev-muted">/ {n(t.named)}</span></span><span className="dev-total-k">kept of named</span></div>
+            <div className="dev-total"><span className="dev-total-n">{n(t.complete)}</span><span className="dev-total-k">products complete</span></div>
+            <div className="dev-total"><span className="dev-total-n">{n(t.partial)}</span><span className="dev-total-k">partly kept</span></div>
+            <div className="dev-total"><span className="dev-total-n">{n(t.none_kept + t.none_named)}</span><span className="dev-total-k">with none held</span></div>
+            <div className="dev-total"><span className="dev-total-n">{n(t.waiting)}</span><span className="dev-total-k">waiting for the image pass</span></div>
+            <div className="dev-total"><span className="dev-total-n">{n(t.given_up)}</span><span className="dev-total-k">failed three times, given up</span></div>
+            <div className="dev-total"><span className="dev-total-n">{gb(data.bytes)}</span><span className="dev-total-k">in the bucket{data.objects != null ? ` · ${n(data.objects)} files` : ''}</span></div>
+          </div>
+          {data.missing.length > 0 && (
+            <div className="dev-scroll">
+              <table className="dev-table dev-table-sub">
+                <thead><tr><th>Product</th><th>Why there is none</th><th className="n">Named</th><th className="n">Gave up</th></tr></thead>
+                <tbody>
+                  {data.missing.map((m) => (
+                    <tr key={m.itemurl}>
+                      <td className="wrap"><a className="dev-link" href={m.itemurl} target="_blank" rel="noreferrer">{m.title || m.itemurl}</a></td>
+                      <td className="wrap dev-muted">{m.why}</td>
+                      <td className="n">{n(m.named)}</td>
+                      <td className="n">{n(m.given_up)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+    </section>
   );
 }
 

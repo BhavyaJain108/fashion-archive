@@ -40,6 +40,9 @@ class ObjectStore(Protocol):
     def list(self, prefix: str) -> list[str]:
         """Keys under this prefix, sorted."""
 
+    def sizes(self, prefix: str) -> dict[str, int]:
+        """Keys under this prefix with their sizes in bytes. One listing, no reads."""
+
     def delete(self, key: str) -> None:
         """Remove the object. Absent is not an error."""
 
@@ -134,6 +137,9 @@ class DirectoryObjectStore:
             if key.startswith(prefix):
                 keys.append(key)
         return sorted(keys)
+
+    def sizes(self, prefix: str) -> dict[str, int]:
+        return {key: (self._root / key).stat().st_size for key in self.list(prefix)}
 
     def delete(self, key: str) -> None:
         self._path(key).unlink(missing_ok=True)
@@ -238,6 +244,16 @@ class R2ObjectStore:
             for obj in page.get("Contents", []):
                 keys.append(obj["Key"][len(self._prefix) :])
         return sorted(keys)
+
+    def sizes(self, prefix: str) -> dict[str, int]:
+        """The listing already carries each object's size, so the whole archive of
+        photographs is measured in one paginated listing — a thousand keys a request."""
+        out: dict[str, int] = {}
+        pages = self._client.get_paginator("list_objects_v2")
+        for page in pages.paginate(Bucket=self._bucket, Prefix=self._key(prefix)):
+            for obj in page.get("Contents", []):
+                out[obj["Key"][len(self._prefix) :]] = int(obj.get("Size") or 0)
+        return out
 
     def delete(self, key: str) -> None:
         self._client.delete_object(Bucket=self._bucket, Key=self._key(key))

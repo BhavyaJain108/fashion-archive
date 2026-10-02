@@ -75,6 +75,14 @@ is a brand that never runs and never shows. After editing the file:
 venv/bin/python -m backend.archive.runner.cli brands seed    # every shown brand onto the schedule
 ```
 
+**Not everything a shop lists is merchandise.** Gift cards, shipping protection,
+tax and fee lines, appointments, ebooks and runway "Look 13" pages are declined where
+they are read (`connectors/merch.py`): by the shop's own word where the feed gives it
+(no variant ships; a product type such as "Gift Card" or "Insurance"; a protection
+app as vendor), else by a narrow list of title phrases. Every run also records where
+its discovered products went — stored, not products, unreadable, unreached, errors,
+with the commonest reasons — on the run row (`breakdown`) and the dossier's lane.
+
 A **run** claims a brand from the schedule with a conditional write, probes it,
 follows the plan, writes products and photographs, scores the result against a
 gate (six fields a shop cannot sell without), records what to fix next, and
@@ -162,6 +170,16 @@ Each tick:
    neither drain the day's allowance for the brands already read nor be
    stopped by it. A brand is onboarding until one of its runs has scored.
 
+What the loop acts on is refreshed by every scheduled run, not only by onboarding's
+five-product sample: each scored run rewrites the brand's gaps from its whole
+catalogue's fill. A guaranteed field (price, stock, photographs…) blank on more than
+one product in twenty is a gap even when the run passed, and a field the brand leaves
+blank becomes one when at least three of its platform's other brands, and most of
+them, read it — the fleet's own evidence that it is there to be had. A recipe must not
+cost products to land (the gate estimates what a run would store, not only what it
+finds), and one whose runs store under 80% of what the lane before it stored is
+backed out on the next tick.
+
 Without `ANTHROPIC_API_KEY` the loop still onboards, classifies and climbs; it
 cannot ask, so walls that need the model stay where they are. Without
 `ARCHIVE_PROXY_URL` the t1p rung does not exist and address walls stay shut.
@@ -226,6 +244,13 @@ scrape  status  capability  daemon  brands  hosts  show  images
 access  coverage  fleet-check  notes  failures  periods  backup  restore
 learn   dossier  walls  budget  signatures
 ```
+
+Photographs: `images --stats` prints every brand's products by how much of their
+photography is held (complete, partly, none kept, none named) and its photographs
+named, kept, given up and waiting; `--bytes` lists the bucket and adds what each
+brand weighs; `images --stats X --missing` lists X's products with no photograph and
+why. The deck shows the same per brand (the brand page) and fleet-wide (Costs); the
+weight is measured nightly by the backup into `control/image_storage.json`.
 
 The learning loop from the terminal: `learn status`, `learn tick`, `learn
 onboard X`, `learn analyse X [--kind brand|failure|cheapen]`, `learn proposals`

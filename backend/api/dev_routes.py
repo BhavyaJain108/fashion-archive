@@ -536,6 +536,10 @@ def register_dev_routes(app: Flask) -> None:
             rows_f = pool.submit(Scheduler(store).rows)
             workers_f = pool.submit(Scheduler(store).workers_seen)
             finder_f = pool.submit(DailyCap(store, finder_cap).summary)
+            # Kept photographs per brand from the catalogue's own counter: fleet.json's
+            # copy was written when the run ended, before the image pass kept anything,
+            # and read zero for every brand on 2026-09-28.
+            kept_f = pool.submit(catalog.stored_image_counts)
             found = fleet_f.result()
             rows = {r["domain"]: r for r in rows_f.result()}
             finder = finder_f.result()
@@ -544,6 +548,10 @@ def register_dev_routes(app: Flask) -> None:
             except Exception:  # noqa: BLE001 — liveness is a bonus, never a blocker
                 workers_seen = {}
         fleet = loads(found[0]) if found else {}
+        try:
+            kept = kept_f.result()
+        except Exception:  # noqa: BLE001 — the counts are a column, not the page
+            kept = {}
         # _brand_row asks the catalogue for state and plan only when a brand shows
         # nothing; hand it the fleet it already has so those reads are the exception.
         catalog._fleet = fleet
@@ -556,6 +564,7 @@ def register_dev_routes(app: Flask) -> None:
             b = _brand_row(
                 domain, rows[domain], fleet.get(domain) or {}, names.get(domain, domain), catalog
             )
+            b["photographs"] = int(kept.get(domain) or b["photographs"] or 0)
             brands.append(b)
             if b["claimed_by"]:
                 (running if b["worker_alive"] else stalled).append(domain)
@@ -957,11 +966,59 @@ def register_dev_routes(app: Flask) -> None:
             return _forbidden()
         if bad := _bad_domain(brand_id):
             return bad
-        catalog = open_catalog(_store())
-        stored = catalog.stored_image_count(brand_id)
-        waiting = sum(len(urls) for _, urls in catalog.images_awaiting_archive(brand_id))
+        from backend.archive.image_stats import brand_totals, flagged, load_storage
+
+        store = _store()
+        catalog = open_catalog(store)
+        lines = catalog.photograph_lines(brand_id)
         catalog.release_products(brand_id)
-        return jsonify({"success": True, "domain": brand_id, "stored": stored, "waiting": waiting})
+        totals = brand_totals(brand_id, lines)
+        weight = ((load_storage(store) or {}).get("by_brand") or {}).get(brand_id) or {}
+        return jsonify(
+            {
+                "success": True,
+                "domain": brand_id,
+                # The two numbers this answered before, kept for anything that reads them.
+                "stored": totals["kept"],
+                "waiting": totals["waiting"],
+                "totals": totals,
+                "bytes": weight.get("bytes"),
+                "objects": weight.get("objects"),
+                # The products to flag: nothing held, and why.
+                "missing": flagged(lines)[:500],
+            }
+        )
+
+    @app.route("/api/dev/images", methods=["GET"])
+    def dev_images():
+        """Photographs across the fleet: per brand named, kept, given up, waiting, and
+        what the archive weighs in the bucket (measured nightly by the backup)."""
+        if not _is_owner():
+            return _forbidden()
+        from backend.archive.image_stats import fleet_totals, load_storage
+
+        store = _store()
+        catalog = open_catalog(store)
+        rows = catalog.image_stats()
+        storage = load_storage(store) or {}
+        weight = storage.get("by_brand") or {}
+        names = _names()
+        for r in rows:
+            r["name"] = names.get(r["domain"], r["domain"])
+            r["bytes"] = (weight.get(r["domain"]) or {}).get("bytes")
+        return _reply(
+            {
+                "success": True,
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "totals": fleet_totals(rows),
+                "brands": rows,
+                "storage": {
+                    "at": storage.get("at"),
+                    "objects": storage.get("objects"),
+                    "bytes": storage.get("bytes"),
+                },
+            }
+        )
 
     # --- the controls -------------------------------------------------------------
     # Every control is one function of (brand, action, body) answering (payload,

@@ -53,7 +53,7 @@ class Response(Protocol):
 class Transport(Protocol):
     level: TransportLevel
 
-    def get(self, url: str) -> Response: ...
+    def get(self, url: str, headers: dict[str, str] | None = None) -> Response: ...
 
 
 class LedgeredTransport:
@@ -79,16 +79,19 @@ class LedgeredTransport:
         # go straight back to making the request that caused it.
         self._budget = budget
 
-    def _fetch(self, url: str):
+    def _fetch(self, url: str, headers: dict[str, str] | None = None):
         raise NotImplementedError
 
-    def get(self, url: str):
+    def get(self, url: str, headers: dict[str, str] | None = None):
+        """`headers` adds to the transport's own for this one request: the image pass
+        sends the product page as Referer, which is what a browser does and what Van
+        Cleef's and Vivienne Westwood's image servers refuse to answer without."""
         host = urlparse(url).netloc
         if self._budget is not None:
             self._budget.acquire(host)
         started = time.monotonic()
         try:
-            resp = self._fetch(url)
+            resp = self._fetch(url, headers) if headers else self._fetch(url)
         except Exception:
             self._record(url, None, started, None)
             raise
@@ -130,11 +133,13 @@ class HttpxTransport(LedgeredTransport):
             headers=BROWSER_HEADERS, follow_redirects=True, timeout=15.0
         )
 
-    def _fetch(self, url: str) -> httpx.Response:
+    def _fetch(self, url: str, headers: dict[str, str] | None = None) -> httpx.Response:
         # Streamed, so a body larger than any page or photograph we want is dropped
         # before it is in memory; a whole read of a hostile or broken response could
         # take the worker with it.
-        resp = self._client.send(self._client.build_request("GET", url), stream=True)
+        resp = self._client.send(
+            self._client.build_request("GET", url, headers=headers), stream=True
+        )
         try:
             declared = resp.headers.get("content-length")
             if declared and declared.isdigit() and int(declared) > MAX_BODY_BYTES:
@@ -149,11 +154,11 @@ class HttpxTransport(LedgeredTransport):
         # iter_bytes() already decoded the transfer encoding. The headers still name
         # it, and a Response built with them decodes the body a second time: every
         # gzip page on the fleet raised DecodingError on 2026-09-23 for exactly that.
-        headers = httpx.Headers(
+        served = httpx.Headers(
             [(k, v) for k, v in resp.headers.multi_items() if k.lower() not in _CODING_HEADERS]
         )
         return httpx.Response(
-            resp.status_code, headers=headers, content=bytes(body), request=resp.request
+            resp.status_code, headers=served, content=bytes(body), request=resp.request
         )
 
 
@@ -260,8 +265,8 @@ class CurlCffiTransport(LedgeredTransport):
             )
         return self._session
 
-    def _fetch(self, url: str):
-        resp = self._ensure_session().get(url, allow_redirects=True, stream=True)
+    def _fetch(self, url: str, headers: dict[str, str] | None = None):
+        resp = self._ensure_session().get(url, allow_redirects=True, stream=True, headers=headers)
         try:
             declared = resp.headers.get("content-length")
             if declared and str(declared).isdigit() and int(declared) > MAX_BODY_BYTES:

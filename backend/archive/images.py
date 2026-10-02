@@ -8,6 +8,7 @@ of photographs was never going to live on the laptop that runs the scraper.
 """
 
 import hashlib
+import inspect
 from pathlib import Path
 
 from backend.archive.store.catalog import Catalog
@@ -95,7 +96,7 @@ class ImageStore:
         # server answers "the value: q of parameter: process is invalid". The bytes are
         # there without it, at full size, so a failure is worth one retry bare.
         for candidate in self._candidates(url):
-            got = self._fetch(transport, candidate)
+            got = self._fetch(transport, candidate, referer=itemurl)
             if got is None:
                 continue
             content, ctype = got
@@ -111,9 +112,17 @@ class ImageStore:
         return [fetch] if bare == url else [fetch, bare]
 
     @staticmethod
-    def _fetch(transport: Transport, url: str):
+    def _fetch(transport: Transport, url: str, referer: str | None = None):
+        # The product page as Referer, as a browser sends it. Van Cleef & Arpels and
+        # Vivienne Westwood answer 403 to a photograph asked for without one — every
+        # one of their 7,800 photographs was given up on that way (2026-10-02) — and
+        # answer it at once with one. A transport that takes no headers (a test's, the
+        # browser's) is asked plainly.
         try:
-            resp = transport.get(url)
+            if referer and "headers" in inspect.signature(transport.get).parameters:
+                resp = transport.get(url, headers={"Referer": referer})
+            else:
+                resp = transport.get(url)
         except Exception:
             return None  # a missing image never fails a run
         ctype = resp.headers.get("content-type", "").split(";")[0].strip()
