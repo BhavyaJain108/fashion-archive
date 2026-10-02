@@ -650,3 +650,33 @@ table.dev-table {
 .dev-gaps .wrap { margin-top: 4px; color: var(--ar-ink-2); }
 @media (max-width: 720px) { .dev-gaps { grid-template-columns: 1fr; } }
 .dev-budget .dev-table td.bar { width: 40%; }
+
+/* --- API ------------------------------------------------------------------------ */
+/* Each operation is a short article: the route, a sentence, its parameters, and a
+   form built from them. Writes are marked on their button and nowhere else. */
+
+.dev-api-jump { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 16px 0 0; font-size: var(--ar-fs-ui); }
+.dev-api-op { padding: 16px 0; border-bottom: 1px solid var(--ar-line-soft); }
+.dev-api-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.dev-api-method.read { color: var(--ar-ink-2); }
+.dev-api-method.write { color: var(--ar-ink); }
+.dev-api-method.delete { color: var(--ar-danger); }
+.dev-api-path { font-family: var(--ar-font); font-size: var(--ar-fs-ui); color: var(--ar-ink); overflow-wrap: anywhere; }
+.dev-api-summary { margin: 8px 0 0; color: var(--ar-ink); font-size: var(--ar-fs-body); line-height: var(--ar-lh-ui); }
+.dev-api-detail { margin: 4px 0 0; color: var(--ar-ink-2); font-size: var(--ar-fs-ui); line-height: var(--ar-lh-ui); white-space: pre-line; max-width: 72ch; }
+.dev-api-meta { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 8px; font-size: var(--ar-fs-ui); color: var(--ar-ink-2); }
+.dev-api-k { font-size: var(--ar-fs-micro); letter-spacing: var(--ar-track-label); text-transform: uppercase; color: var(--ar-ink-3); }
+.dev-api-params { margin-top: 12px; }
+.dev-api-owner { margin-left: 8px; }
+.dev-api-bad { color: var(--ar-danger); }
+
+.dev-api-form { margin-top: 8px; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px 16px; }
+.dev-api-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.dev-api-input { width: 100%; box-sizing: border-box; font: inherit; line-height: var(--ar-lh-ui); padding: 4px 8px; border: 1px solid var(--ar-line); background: var(--ar-bg); color: var(--ar-ink); }
+.dev-api-input:focus-visible { outline: 1px solid var(--ar-ink); outline-offset: 2px; }
+.dev-api-run { grid-column: 1 / -1; }
+.dev-api-answer { grid-column: 1 / -1; min-width: 0; }
+.dev-api-answer-head { font-size: var(--ar-fs-ui); margin-bottom: 4px; overflow-wrap: anywhere; }
+.dev-api-url { font-family: var(--ar-font); }
+.dev-api-out { margin: 0; padding: 8px; background: var(--ar-bg-sunk); font-family: var(--ar-font); font-size: var(--ar-fs-micro); line-height: var(--ar-lh-ui); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 480px; overflow: auto; }
+.dev-api-legacy { margin-top: 12px; }

@@ -275,7 +275,19 @@ if config.R2_ACCOUNT_ID:
 else:
     print(f"⚠️  R2 not configured — images go to {config.IMAGE_CACHE_DIR} (lost on redeploy)")
 
+from backend.api.ops import docs as api_docs  # noqa: E402
+from backend.api.ops import mcp as api_mcp  # noqa: E402
+
+# The registry's other doors. The Me operations are mounted here because they span
+# two legacy families; the catalogue and machine-room ones mount with their families.
+from backend.api.ops import me as me_ops  # noqa: E402
+from backend.api.ops.http import mount as mount_ops  # noqa: E402
 from backend.api.share_routes import PUBLIC_SHARE_ENDPOINTS  # noqa: E402
+
+mount_ops(app, me_ops.OPS)
+api_docs.mount(app)
+# /mcp is public to the auth hook and checks the session or the bearer token itself.
+api_mcp.mount(app)
 
 # serve_stored_image is public so a shared page can show its pictures without
 # a session. Keys are opaque and the handler is read-only; it is rate-limited.
@@ -283,7 +295,8 @@ install_auth(
     app,
     public_endpoints={"health_check", "serve_stored_image"}
     | PUBLIC_AUTH_ENDPOINTS
-    | PUBLIC_SHARE_ENDPOINTS,
+    | PUBLIC_SHARE_ENDPOINTS
+    | api_mcp.PUBLIC_MCP_ENDPOINTS,
 )
 print(
     f"🔒 Auth installed: {len(PUBLIC_AUTH_ENDPOINTS) + 1} public endpoints, "

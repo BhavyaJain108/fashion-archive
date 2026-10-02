@@ -150,6 +150,7 @@ export function parseRoute(pathname, search) {
   //
   //   /dev                         the overview
   //   /dev/costs                   what it costs
+  //   /dev/api                     the API, documented off the running server
   //   /dev/brands/<domain>         one brand, field by field
   //   /dev/brands/<domain>/products  its catalogue
   //
@@ -158,6 +159,7 @@ export function parseRoute(pathname, search) {
   if (head === 'dev') {
     if (rest[0] === 'costs') return { ...EMPTY, filters, page: 'dev', category: 'costs' };
     if (rest[0] === 'learning') return { ...EMPTY, filters, page: 'dev', category: 'learning' };
+    if (rest[0] === 'api') return { ...EMPTY, filters, page: 'dev', category: 'api' };
     if (rest[0] === 'brands' && rest[1]) {
       // A run id after /products opens the catalogue as of that run. It rides in
       // `token`, the slot share links use — the two never appear on one route.
@@ -224,6 +226,7 @@ export function buildRoute(route) {
     }
     if (r.category === 'costs') return '/dev/costs';
     if (r.category === 'learning') return '/dev/learning';
+    if (r.category === 'api') return '/dev/api';
     return '/dev';
   }
 

@@ -59,7 +59,63 @@ async function command(path, fallback, body) {
 
 const brand = (domain) => `brands/${encodeURIComponent(domain)}`;
 
+// The API's description of itself, read off the running server. Not under
+// /api/dev: it documents every family, and the envelope here has no `success`.
+async function docs() {
+  let response;
+  try {
+    response = await fetch(`${ApiClient.BASE_URL}/api/docs`, { credentials: 'include' });
+  } catch (e) {
+    return { error: `could not reach the API (${e.message})` };
+  }
+  ApiClient.checkAuth(response);
+  if (response.status === 403) return { forbidden: true };
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) return { error: data.error || `Request failed (${response.status})` };
+  return data;
+}
+
+// One call to any operation, as the API page's try-it box makes it: path
+// parameters substituted, the rest as a query string on a GET or JSON otherwise.
+// Answers what the server answered — status, time taken, body — never throws.
+async function callOp(method, path, params = {}) {
+  let url = path;
+  const rest = {};
+  Object.entries(params).forEach(([k, v]) => {
+    if (v === '' || v === null || v === undefined) return;
+    if (url.includes(`{${k}}`)) url = url.replace(`{${k}}`, encodeURIComponent(v));
+    else rest[k] = v;
+  });
+  const init = { method, credentials: 'include' };
+  if (method === 'GET') {
+    const qs = new URLSearchParams();
+    Object.entries(rest).forEach(([k, v]) => qs.set(k, typeof v === 'object' ? JSON.stringify(v) : String(v)));
+    if ([...qs].length) url += `?${qs}`;
+  } else {
+    init.headers = { 'Content-Type': 'application/json' };
+    init.body = JSON.stringify(rest);
+  }
+  const started = Date.now();
+  try {
+    const response = await fetch(`${ApiClient.BASE_URL}${url}`, init);
+    const text = await response.text();
+    let body = text;
+    try { body = JSON.parse(text); } catch { /* not JSON: shown as text */ }
+    return { status: response.status, ms: Date.now() - started, body, url };
+  } catch (e) {
+    return { status: 0, ms: Date.now() - started, body: `could not reach the API (${e.message})`, url };
+  }
+}
+
 export class DevEndpoints {
+  static getDocs() {
+    return docs();
+  }
+
+  static call(method, path, params) {
+    return callOp(method, path, params);
+  }
+
   static getOverview() {
     return read('overview');
   }

@@ -611,6 +611,9 @@ def register_dev_routes(app: Flask) -> None:
 
     @app.route("/api/dev/overview", methods=["GET"])
     def dev_overview():
+        """The whole fleet on one page: every brand's state, worker, next turn,
+        gate, fill, cost and recommended action. Cached ten seconds; answers 304
+        to a matching If-None-Match."""
         if not _is_owner():
             return _forbidden()
         global _overview_cache
@@ -1017,107 +1020,207 @@ def register_dev_routes(app: Flask) -> None:
             }
         )
 
-    @app.route("/api/dev/brands/<brand_id>/run", methods=["POST"])
-    def dev_brand_run(brand_id):
-        """Bring the brand's next turn forward to now. A worker polls every ten
-        seconds, so it starts within that. Refused while a worker holds it."""
+    # --- the controls -------------------------------------------------------------
+    # Every control is one function of (brand, action, body) answering (payload,
+    # status). Three doors reach it: the legacy route for each verb, POST …/actions
+    # with {"action"}, and the MCP tool dev_brand_action — all through `act` below.
+
+    def _sched():
+        # The deck's idea of a dead worker (no beat for twelve minutes) is the one
+        # the answer must agree with, so the schedule is asked with that limit.
+        return Scheduler(_store(), stale_claim_seconds=HEARTBEAT_GRACE_MINUTES * 60)
+
+    def _not_scheduled():
+        return {"success": False, "error": "not on the schedule", "code": "NOT_FOUND"}, 404
+
+    def _refused(outcome):
+        error, code = RUN_REFUSALS[outcome]
+        return {"success": False, "error": error, "code": code}, 409
+
+    def _act_run(brand_id, body):
+        outcome = _sched().run_now(brand_id, full=bool(body.get("full")))
+        if outcome == "unknown":
+            return _not_scheduled()
+        if outcome in RUN_REFUSALS:
+            return _refused(outcome)
+        _forget_overview()
+        return {"success": True, "domain": brand_id, "outcome": outcome}, 200
+
+    def _act_learn(brand_id, body):
+        outcome = _sched().learn_now(brand_id, retry_searched=bool(body.get("retry_searched")))
+        if outcome == "unknown":
+            return _not_scheduled()
+        if outcome in RUN_REFUSALS:
+            return _refused(outcome)
+        _forget_overview()
+        return {"success": True, "domain": brand_id, "outcome": outcome, "mode": "learn"}, 200
+
+    def _act_sweep(brand_id, body):
+        outcome = _sched().sweep_now(brand_id)
+        if outcome == "unknown":
+            return _not_scheduled()
+        if outcome in RUN_REFUSALS:
+            return _refused(outcome)
+        _forget_overview()
+        return {"success": True, "domain": brand_id, "outcome": outcome, "mode": "sweep"}, 200
+
+    def _act_sweep_seconds(brand_id, body):
+        try:
+            seconds = int(body.get("seconds"))
+        except (TypeError, ValueError):
+            return {"success": False, "error": "seconds is an integer", "code": "BAD_REQUEST"}, 400
+        if seconds < 0 or seconds > 7 * 86400:
+            return {
+                "success": False,
+                "error": "seconds is 0 (off) to a week",
+                "code": "BAD_REQUEST",
+            }, 400
+        sched = Scheduler(_store())
+        if sched.row(brand_id) is None:
+            return _not_scheduled()
+        sched.set_sweep(brand_id, seconds)
+        _forget_overview()
+        return {"success": True, "domain": brand_id, "sweep_seconds": seconds}, 200
+
+    def _act_release(brand_id, body):
+        sched = Scheduler(_store())
+        row = sched.row(brand_id)
+        if row is None:
+            return _not_scheduled()
+        if row.get("claimed_by") is None:
+            return {"success": True, "domain": brand_id, "released": False}, 200
+        age = _minutes_since(row.get("claimed_at"))
+        if age is not None and age <= HEARTBEAT_GRACE_MINUTES:
+            return {"success": False, "error": "that worker is still alive", "code": "ALIVE"}, 409
+        sched.force_release(brand_id)
+        _forget_overview()
+        return {"success": True, "domain": brand_id, "released": True}, 200
+
+    def _act_enable(brand_id, enabled):
+        sched = Scheduler(_store())
+        row = sched.row(brand_id)
+        if row is None:
+            return _not_scheduled()
+        sched.set_enabled(brand_id, enabled)
+        _forget_overview()
+        # A worker holding the brand finishes its run; the pause holds after that.
+        return {
+            "success": True,
+            "domain": brand_id,
+            "enabled": enabled,
+            "after_run": row.get("claimed_by") is not None,
+        }, 200
+
+    def _loop():
+        store = _store()
+        return Loop(
+            store,
+            open_catalog(store),
+            analyst=None,
+            browser_available=False,
+            log=current_app.logger.info,
+        )
+
+    # The learning moves run in a thread: a probe up the ladder takes seconds to
+    # minutes, and the deck watches the dossier fill rather than waiting.
+    def _act_reprobe(brand_id, body):
+        loop = _loop()
+        threading.Thread(
+            target=loop.onboard,
+            args=(brand_id,),
+            kwargs={"name": _names().get(brand_id)},
+            daemon=True,
+        ).start()
+        return {"success": True, "domain": brand_id, "started": "onboarding"}, 200
+
+    def _act_analyse(brand_id, body):
+        from backend.archive.finder_llm import _api_key
+
+        if not _api_key():
+            return {
+                "success": False,
+                "error": "no model: set ANTHROPIC_API_KEY on the API",
+                "code": "NO_MODEL",
+            }, 409
+        from backend.archive.learn.analyst import default_client
+
+        loop = _loop()
+        loop.analyst = default_client()
+        kind = str(body.get("kind") or "brand")
+        threading.Thread(
+            target=loop.analyse, args=(brand_id,), kwargs={"kind": kind}, daemon=True
+        ).start()
+        return {"success": True, "domain": brand_id, "started": f"analysis ({kind})"}, 200
+
+    def _act_climb(brand_id, body):
+        from backend.archive.learn.walls import Action
+
+        level = str(body.get("level") or "t1")
+        want = {"t1": Action.CLIMB_T1, "t1p": Action.CLIMB_T1P, "t2": Action.CLIMB_T2}.get(level)
+        if want is None:
+            return {"success": False, "error": "level is t1, t1p or t2", "code": "BAD_LEVEL"}, 400
+        loop = _loop()
+        d = loop.dossiers.open(brand_id, name=_names().get(brand_id))
+        threading.Thread(target=loop._climb_one, args=(d, want), daemon=True).start()
+        return {"success": True, "domain": brand_id, "started": f"climb to {level}"}, 200
+
+    actions = {
+        "run": _act_run,
+        "learn": _act_learn,
+        "sweep": _act_sweep,
+        "sweep_seconds": _act_sweep_seconds,
+        "release": _act_release,
+        "pause": lambda b, _: _act_enable(b, False),
+        "resume": lambda b, _: _act_enable(b, True),
+        "reprobe": _act_reprobe,
+        "analyse": _act_analyse,
+        "climb": _act_climb,
+    }
+
+    def act(brand_id: str, action: str, body: dict) -> tuple[dict, int]:
+        fn = actions.get(action)
+        if fn is None:
+            return {"success": False, "error": "unknown action", "code": "BAD_ACTION"}, 400
+        return fn(brand_id, body or {})
+
+    app.extensions["dev_actions"] = act
+
+    def _control(brand_id, action):
         if not _is_owner():
             return _forbidden()
         if not _from_our_site():
             return _cross_site()
         if bad := _bad_domain(brand_id):
             return bad
-        # The deck's idea of a dead worker (no beat for twelve minutes) is the one
-        # the answer must agree with, so the schedule is asked with that limit.
-        sched = Scheduler(_store(), stale_claim_seconds=HEARTBEAT_GRACE_MINUTES * 60)
-        body = request.get_json(silent=True) or {}
-        outcome = sched.run_now(brand_id, full=bool(body.get("full")))
-        if outcome == "unknown":
-            return jsonify(
-                {"success": False, "error": "not on the schedule", "code": "NOT_FOUND"}
-            ), 404
-        if outcome in RUN_REFUSALS:
-            error, code = RUN_REFUSALS[outcome]
-            return jsonify({"success": False, "error": error, "code": code}), 409
-        _forget_overview()
-        return jsonify({"success": True, "domain": brand_id, "outcome": outcome})
+        payload, status = act(brand_id, action, request.get_json(silent=True) or {})
+        return jsonify(payload), status
+
+    @app.route("/api/dev/brands/<brand_id>/run", methods=["POST"])
+    def dev_brand_run(brand_id):
+        """Bring the brand's next turn forward to now. A worker polls every ten
+        seconds, so it starts within that. Refused while a worker holds it.
+        Body: {"full": bool} to read the whole shop."""
+        return _control(brand_id, "run")
 
     @app.route("/api/dev/brands/<brand_id>/learn", methods=["POST"])
     def dev_brand_learn(brand_id):
         """Queue a learn run: the finder reads a spread of product pages and writes
         rules; nothing goes to the catalogue and the brand's scheduled turn is kept.
         Body: {"retry_searched": bool} to ask again about fields already searched."""
-        if not _is_owner():
-            return _forbidden()
-        if not _from_our_site():
-            return _cross_site()
-        if bad := _bad_domain(brand_id):
-            return bad
-        body = request.get_json(silent=True) or {}
-        sched = Scheduler(_store(), stale_claim_seconds=HEARTBEAT_GRACE_MINUTES * 60)
-        outcome = sched.learn_now(brand_id, retry_searched=bool(body.get("retry_searched")))
-        if outcome == "unknown":
-            return jsonify(
-                {"success": False, "error": "not on the schedule", "code": "NOT_FOUND"}
-            ), 404
-        if outcome in RUN_REFUSALS:
-            error, code = RUN_REFUSALS[outcome]
-            return jsonify({"success": False, "error": error, "code": code}), 409
-        _forget_overview()
-        return jsonify({"success": True, "domain": brand_id, "outcome": outcome, "mode": "learn"})
+        return _control(brand_id, "learn")
 
     @app.route("/api/dev/brands/<brand_id>/sweep", methods=["POST"])
     def dev_brand_sweep(brand_id):
         """Queue one stock sweep: the bulk feed is re-read and only what is in
         stock, and at what price, is updated. No pages, no images, nothing added
         or removed; the brand's scheduled turn is kept. Same refusals as /run."""
-        if not _is_owner():
-            return _forbidden()
-        if not _from_our_site():
-            return _cross_site()
-        if bad := _bad_domain(brand_id):
-            return bad
-        sched = Scheduler(_store(), stale_claim_seconds=HEARTBEAT_GRACE_MINUTES * 60)
-        outcome = sched.sweep_now(brand_id)
-        if outcome == "unknown":
-            return jsonify(
-                {"success": False, "error": "not on the schedule", "code": "NOT_FOUND"}
-            ), 404
-        if outcome in RUN_REFUSALS:
-            error, code = RUN_REFUSALS[outcome]
-            return jsonify({"success": False, "error": error, "code": code}), 409
-        _forget_overview()
-        return jsonify({"success": True, "domain": brand_id, "outcome": outcome, "mode": "sweep"})
+        return _control(brand_id, "sweep")
 
     @app.route("/api/dev/brands/<brand_id>/sweep_seconds", methods=["POST"])
     def dev_brand_sweep_seconds(brand_id):
         """Set how often the brand's stock is swept between real runs.
         Body: {"seconds": n}; 0 turns sweeping off. Sits beside the cadence."""
-        if not _is_owner():
-            return _forbidden()
-        if not _from_our_site():
-            return _cross_site()
-        if bad := _bad_domain(brand_id):
-            return bad
-        body = request.get_json(silent=True) or {}
-        try:
-            seconds = int(body.get("seconds"))
-        except (TypeError, ValueError):
-            return jsonify(
-                {"success": False, "error": "seconds is an integer", "code": "BAD_REQUEST"}
-            ), 400
-        if seconds < 0 or seconds > 7 * 86400:
-            return jsonify(
-                {"success": False, "error": "seconds is 0 (off) to a week", "code": "BAD_REQUEST"}
-            ), 400
-        sched = Scheduler(_store())
-        if sched.row(brand_id) is None:
-            return jsonify(
-                {"success": False, "error": "not on the schedule", "code": "NOT_FOUND"}
-            ), 404
-        sched.set_sweep(brand_id, seconds)
-        _forget_overview()
-        return jsonify({"success": True, "domain": brand_id, "sweep_seconds": seconds})
+        return _control(brand_id, "sweep_seconds")
 
     @app.route("/api/dev/brands/<brand_id>/release", methods=["POST"])
     def dev_brand_release(brand_id):
@@ -1125,56 +1228,14 @@ def register_dev_routes(app: Flask) -> None:
         minutes. Refused while the claim's heartbeat is still fresh — that worker is
         alive, and two hands on one catalogue is the thing the claim exists to
         prevent."""
-        if not _is_owner():
-            return _forbidden()
-        if not _from_our_site():
-            return _cross_site()
-        if bad := _bad_domain(brand_id):
-            return bad
-        sched = Scheduler(_store())
-        row = sched.row(brand_id)
-        if row is None:
-            return jsonify(
-                {"success": False, "error": "not on the schedule", "code": "NOT_FOUND"}
-            ), 404
-        if row.get("claimed_by") is None:
-            return jsonify({"success": True, "domain": brand_id, "released": False})
-        age = _minutes_since(row.get("claimed_at"))
-        if age is not None and age <= HEARTBEAT_GRACE_MINUTES:
-            return jsonify(
-                {"success": False, "error": "that worker is still alive", "code": "ALIVE"}
-            ), 409
-        sched.force_release(brand_id)
-        _forget_overview()
-        return jsonify({"success": True, "domain": brand_id, "released": True})
+        return _control(brand_id, "release")
 
     @app.route("/api/dev/brands/<brand_id>/pause", methods=["POST"])
     @app.route("/api/dev/brands/<brand_id>/resume", methods=["POST"])
     def dev_brand_enable(brand_id):
-        if not _is_owner():
-            return _forbidden()
-        if not _from_our_site():
-            return _cross_site()
-        if bad := _bad_domain(brand_id):
-            return bad
-        sched = Scheduler(_store())
-        row = sched.row(brand_id)
-        if row is None:
-            return jsonify(
-                {"success": False, "error": "not on the schedule", "code": "NOT_FOUND"}
-            ), 404
-        enabled = request.path.endswith("/resume")
-        sched.set_enabled(brand_id, enabled)
-        _forget_overview()
-        # A worker holding the brand finishes its run; the pause holds after that.
-        return jsonify(
-            {
-                "success": True,
-                "domain": brand_id,
-                "enabled": enabled,
-                "after_run": row.get("claimed_by") is not None,
-            }
-        )
+        """Pause takes effect at the next claim, so a brand being scraped finishes
+        first; resume puts it back on its cadence, and an overdue brand runs at once."""
+        return _control(brand_id, "resume" if request.path.endswith("/resume") else "pause")
 
     @app.route("/api/dev/brands", methods=["POST"])
     def dev_brand_add():
@@ -1281,6 +1342,8 @@ def register_dev_routes(app: Flask) -> None:
 
     @app.route("/api/dev/brands/<brand_id>/dossier", methods=["GET"])
     def dev_dossier(brand_id):
+        """Everything known about one brand, dated: rungs tried, lanes, field
+        gaps, costs by day, what the model said, the timeline."""
         if not _is_owner():
             return _forbidden()
         if bad := _bad_domain(brand_id):
@@ -1296,80 +1359,27 @@ def register_dev_routes(app: Flask) -> None:
             }
         )
 
-    def _learn_action(brand_id, action):
-        if not _is_owner():
-            return _forbidden()
-        if not _from_our_site():
-            return _cross_site()
-        if bad := _bad_domain(brand_id):
-            return bad
-        store = _store()
-        loop = Loop(
-            store,
-            open_catalog(store),
-            analyst=None,
-            browser_available=False,
-            log=current_app.logger.info,
-        )
-        # The work runs in a thread: a probe up the ladder takes seconds to minutes, and
-        # the deck watches the dossier fill rather than waiting on the request.
-        if action == "reprobe":
-            threading.Thread(
-                target=loop.onboard,
-                args=(brand_id,),
-                kwargs={"name": _names().get(brand_id)},
-                daemon=True,
-            ).start()
-            return jsonify({"success": True, "domain": brand_id, "started": "onboarding"})
-        if action == "analyse":
-            from backend.archive.finder_llm import _api_key
-
-            if not _api_key():
-                return jsonify(
-                    {
-                        "success": False,
-                        "error": "no model: set ANTHROPIC_API_KEY on the API",
-                        "code": "NO_MODEL",
-                    }
-                ), 409
-            from backend.archive.learn.analyst import default_client
-
-            loop.analyst = default_client()
-            kind = str((request.get_json(silent=True) or {}).get("kind") or "brand")
-            threading.Thread(
-                target=loop.analyse, args=(brand_id,), kwargs={"kind": kind}, daemon=True
-            ).start()
-            return jsonify({"success": True, "domain": brand_id, "started": f"analysis ({kind})"})
-        if action == "climb":
-            level = str((request.get_json(silent=True) or {}).get("level") or "t1")
-            from backend.archive.learn.walls import Action
-
-            want = {"t1": Action.CLIMB_T1, "t1p": Action.CLIMB_T1P, "t2": Action.CLIMB_T2}.get(
-                level
-            )
-            if want is None:
-                return jsonify(
-                    {"success": False, "error": "level is t1, t1p or t2", "code": "BAD_LEVEL"}
-                ), 400
-            d = loop.dossiers.open(brand_id, name=_names().get(brand_id))
-            threading.Thread(target=loop._climb_one, args=(d, want), daemon=True).start()
-            return jsonify({"success": True, "domain": brand_id, "started": f"climb to {level}"})
-        return jsonify({"success": False, "error": "unknown action", "code": "BAD_ACTION"}), 400
-
     @app.route("/api/dev/brands/<brand_id>/reprobe", methods=["POST"])
     def dev_reprobe(brand_id):
-        return _learn_action(brand_id, "reprobe")
+        """Run the brand's onboarding again in the background: probe, signature,
+        wall, plan. Watch its dossier fill."""
+        return _control(brand_id, "reprobe")
 
     @app.route("/api/dev/brands/<brand_id>/analyse", methods=["POST"])
     def dev_analyse(brand_id):
-        return _learn_action(brand_id, "analyse")
+        """Ask the model about the brand's wall, in the background. Body:
+        {"kind": "brand"}. Refused when no model key is set."""
+        return _control(brand_id, "analyse")
 
     @app.route("/api/dev/brands/<brand_id>/climb", methods=["POST"])
     def dev_climb(brand_id):
-        return _learn_action(brand_id, "climb")
+        """Try the next rung of the transport ladder in the background. Body:
+        {"level": "t1" | "t1p" | "t2"}."""
+        return _control(brand_id, "climb")
 
     @app.route("/api/dev/learning/tick", methods=["POST"])
     def dev_learning_tick():
+        """Run one tick of the learning loop now, in the background."""
         if not _is_owner():
             return _forbidden()
         if not _from_our_site():
@@ -1387,6 +1397,7 @@ def register_dev_routes(app: Flask) -> None:
 
     @app.route("/api/dev/notes", methods=["GET"])
     def dev_notes():
+        """The owner's to-do notes, kept in the object store."""
         if not _is_owner():
             return _forbidden()
         held, _ = _notes(_store())
@@ -1394,6 +1405,7 @@ def register_dev_routes(app: Flask) -> None:
 
     @app.route("/api/dev/notes", methods=["POST"])
     def dev_note_add():
+        """Add a note: {"text": "..."}."""
         if not _is_owner():
             return _forbidden()
         if not _from_our_site():
@@ -1545,3 +1557,9 @@ def register_dev_routes(app: Flask) -> None:
                 "providers": {"anthropic": anthropic, "cloudflare": cloudflare, "render": render},
             }
         )
+
+    # The same controls through the registry: POST …/actions and the MCP tool.
+    from backend.api.ops import dev as dev_ops
+    from backend.api.ops.http import mount
+
+    mount(app, dev_ops.OPS)

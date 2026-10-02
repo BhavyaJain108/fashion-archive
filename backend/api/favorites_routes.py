@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from flask import jsonify, request
 
-from backend.auth import db
+from backend.api.ops import OpError, me
 from backend.auth.middleware import current_user
 from backend.userdata import favourites
 
@@ -43,6 +43,14 @@ def _kind(source) -> str:
 def _refuse(exc: favourites.UnknownKind):
     """A kind no index covers, answered before a transaction is opened."""
     return jsonify({"success": False, "error": str(exc)}), 400
+
+
+def _legacy(fn):
+    """The answer in this family's own error shape, which its callers still read."""
+    try:
+        return jsonify(fn())
+    except OpError as e:
+        return jsonify({"success": False, "error": e.message}), e.status
 
 
 def _view_filters(body: dict) -> dict:
@@ -108,13 +116,8 @@ def get_favourites():
         {"favourites": [...], "total": n, "hasMore": bool, "nextCursor": str|None}
 
     — so a caller that sends no paging parameters gets the list it has always
-    got under the key it has always read, with three keys beside it that it can
-    ignore. `browse_catalog` answers `total`/`hasMore` for shows in the same
-    shape; this is that shape for saves.
-
-    Paging is by cursor rather than offset. See `favourites.list_page`: this is
-    the list the reader unsaves FROM while they page THROUGH it, and an OFFSET
-    slides by one for every row taken out above it.
+    got under the key it has always read. Paging is by cursor rather than
+    offset: see `favourites.list_page`.
     """
     wanted = request.args.get("kind")
     if wanted is not None:
@@ -122,54 +125,16 @@ def get_favourites():
             wanted = favourites.check_kind(wanted)
         except favourites.UnknownKind as exc:
             return _refuse(exc)
-
-    # A `limit` that is not a number is no limit; the query is too cheap to be
-    # worth a 400 over, and the worst case is the answer this endpoint gave
-    # before paging existed. A `cursor` that is not a cursor is the opposite —
-    # ignoring it hands back the page the caller already has, which a
-    # load-more control would take for a list that never ends. So that one is
-    # refused, loudly, below.
+    # A `limit` that is not a number is no limit; a `cursor` that is not a cursor
+    # is refused, loudly, inside — ignoring it hands back the page already shown.
     limit = request.args.get("limit")
     try:
         limit = int(limit) if limit is not None else None
     except ValueError:
         limit = None
-
-    cursor = request.args.get("cursor")
-
-    with db.transaction() as conn:
-        user_id = current_user().id
-
-        if limit is None and cursor is None:
-            rows = favourites.list_all(conn, user_id=user_id, kind=wanted)
-            return jsonify(
-                {
-                    "favourites": rows,
-                    "total": len(rows),
-                    "hasMore": False,
-                    "nextCursor": None,
-                }
-            )
-
-        try:
-            page = favourites.list_page(
-                conn,
-                user_id=user_id,
-                kind=wanted,
-                limit=favourites.DEFAULT_PAGE_LIMIT if limit is None else limit,
-                cursor=cursor,
-            )
-        except favourites.BadCursor as exc:
-            return jsonify({"error": str(exc)}), 400
-
-        return jsonify(
-            {
-                "favourites": page["rows"],
-                "total": page["total"],
-                "hasMore": page["hasMore"],
-                "nextCursor": page["nextCursor"],
-            }
-        )
+    return _legacy(
+        lambda: me.favourites_list(current_user().id, wanted, limit, request.args.get("cursor"))
+    )
 
 
 def get_favourite_keys():
@@ -177,16 +142,9 @@ def get_favourite_keys():
 
     The list above can be paged because this one cannot be. A star is lit by
     asking whether the thing on screen is saved, of every thumbnail in a strip,
-    so the answer must be local AND complete — a saved look on a page the
-    client has not fetched would read as unsaved, and pressing its star would
-    write a second save of a row the server already holds.
-
-    A key is the columns the three unique indexes are built from: no designer,
-    no season name, no image path, no notes. That is the cheap half of a
-    favourite, which is what makes "all of them" affordable here and not there.
+    so the answer must be local AND complete.
     """
-    with db.transaction() as conn:
-        return jsonify({"keys": favourites.list_keys(conn, user_id=current_user().id)})
+    return jsonify(me.favourites_list(current_user().id, None, None, None, "keys"))
 
 
 def add_favourite():
@@ -196,42 +154,11 @@ def add_favourite():
         {"kind": "show", "season": {...}, "collection": {...}, "image_path": ...}
         {"kind": "view", "filters": {...}, "name": "optional"}
 
-    Saving something already saved is reported, not an error: the insert is
-    ON CONFLICT DO NOTHING, so a double-click answers `success: false` rather
-    than aborting on a constraint.
-
-    A `collection_id` in the body is ignored, and there is nowhere to put one:
-    the column is derived from `collection.url` inside the INSERT and a CHECK
-    constraint holds the two equal. A client that could send an id is a client
-    that could send one the url disagrees with, which is the two-keys-for-one-show
-    bug this column was added to end. It comes back on every row from GET.
+    Saving something already saved is reported, not an error. A `collection_id`
+    in the body is ignored: the column is derived from `collection.url` inside
+    the INSERT and a CHECK constraint holds the two equal.
     """
-    try:
-        target = favourite_target(_body())
-    except favourites.UnknownKind as exc:
-        return _refuse(exc)
-
-    kind = target["kind"]
-    view_filters = target["view_filters"]
-    view_name = target["view_name"]
-
-    with db.transaction() as conn:
-        added = favourites.add(conn, user_id=current_user().id, **target)
-
-    if added:
-        answer = {"success": True, "message": "Added to favourites"}
-    else:
-        answer = {"success": False, "message": "Already in favourites"}
-
-    # A look's answer is the two keys it has always been; the frontend reads it
-    # today and Task 3 is what changes that. The other kinds say which kind they
-    # were, and a view says what it ended up called, so a client that let the
-    # name be derived does not have to refetch the list to learn it.
-    if kind != "look":
-        answer["kind"] = kind
-    if kind == "view":
-        answer["view"] = {"name": view_name, "filters": view_filters}
-    return jsonify(answer)
+    return _legacy(lambda: me.favourites_add(current_user().id, _body()))
 
 
 def remove_favourite():
@@ -241,31 +168,9 @@ def remove_favourite():
         {"kind": "show", "season_url": ..., "collection_url": ...}
         {"kind": "view", "filters": {...}}
 
-    The match is the key for the kind and nothing else, which is why a
-    `look_number` sent alongside `kind: show` is ignored rather than narrowing
-    the delete: deleting a saved show must leave a saved look of the same
-    collection alone, and the other way round.
+    The match is the key for the kind and nothing else.
     """
-    body = _body()
-    try:
-        kind = _kind(body)
-    except favourites.UnknownKind as exc:
-        return _refuse(exc)
-
-    with db.transaction() as conn:
-        removed = favourites.remove(
-            conn,
-            user_id=current_user().id,
-            kind=kind,
-            season_url=body.get("season_url", ""),
-            collection_url=body.get("collection_url", ""),
-            look_number=body.get("look_number", 0),
-            view_filters=_view_filters(body) if kind == "view" else None,
-        )
-
-    if removed:
-        return jsonify({"success": True, "message": "Removed from favourites"})
-    return jsonify({"success": False, "message": "Not found in favourites"})
+    return _legacy(lambda: me.favourites_remove(current_user().id, _body()))
 
 
 def check_favourite():
@@ -274,29 +179,12 @@ def check_favourite():
     Same body as the delete, and the same key, because a star that says saved
     and a delete that finds nothing is one bug reported twice.
     """
-    body = _body()
-    try:
-        kind = _kind(body)
-    except favourites.UnknownKind as exc:
-        return _refuse(exc)
-
-    with db.transaction() as conn:
-        is_fav = favourites.exists(
-            conn,
-            user_id=current_user().id,
-            kind=kind,
-            season_url=body.get("season_url", ""),
-            collection_url=body.get("collection_url", ""),
-            look_number=body.get("look_number", 0),
-            view_filters=_view_filters(body) if kind == "view" else None,
-        )
-    return jsonify({"is_favourite": is_fav})
+    return _legacy(lambda: {"is_favourite": me.favourites_exists(current_user().id, _body())})
 
 
 def get_favourites_stats():
     """GET /api/favourites/stats — counts for the current user."""
-    with db.transaction() as conn:
-        return jsonify({"stats": favourites.stats(conn, user_id=current_user().id)})
+    return jsonify(me.favourites_list(current_user().id, None, None, None, "stats"))
 
 
 def register_favorites_routes(app):

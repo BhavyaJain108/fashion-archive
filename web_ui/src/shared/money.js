@@ -92,7 +92,7 @@ export function setCurrency(c) {
 export function loadRates() {
   if (store.fetched) return;
   store.fetched = true;
-  fetch(`${ApiClient.BASE_URL}/api/archive/rates`, { credentials: 'include' })
+  fetch(`${ApiClient.BASE_URL}/api/catalogue/rates`, { credentials: 'include' })
     .then((r) => (r.ok ? r.json() : null))
     .then((body) => { if (body && body.ok) { store.rates = body.rates; notify(); } })
     .catch(() => { store.fetched = false; });
