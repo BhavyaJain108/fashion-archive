@@ -41,14 +41,15 @@ def client(conn, user, monkeypatch):
 
     `db.transaction` and `current_user` are the only two things replaced: the
     routing, the request parsing, the normalisation and every query are the
-    shipping ones.
+    shipping ones. The transaction is opened by the operation the route calls
+    (`backend.api.ops.me`), not by the route module, since the operations registry.
     """
 
     @contextmanager
     def transaction():
         yield conn
 
-    monkeypatch.setattr(routes.db, "transaction", transaction)
+    monkeypatch.setattr(routes.me.db, "transaction", transaction)
     monkeypatch.setattr(routes, "current_user", lambda: user)
 
     app = Flask(__name__)
