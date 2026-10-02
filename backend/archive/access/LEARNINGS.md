@@ -423,3 +423,42 @@ challenge on the brand host is not a wall for this lane (`challenged` is cleared
 the API answers). Verified: the model's own analysis of yeezy.com found the same tell
 and proposed the API path, guessing `/api/products/{id}` on the brand host (404); the
 lane in code is the version that reads.
+
+### 23. A shop's catalogue holds line items, and the feed says which — 2026-10-02
+The live catalogue held 99 rows that were not merchandise across 64 brands: 53 gift
+cards, 15 shipping-protection and insurance lines (Route, Seel, SWAP), Supermade's
+"Tax" and "Price difference", Oddli's "CUSTOM SURCHARGE", an appointment, an ebook, and
+Marni's 16 runway "Look N" pages. Shopify says it outright: none of a gift card's
+variants `requires_shipping`, and its `product_type` is "Gift Card" or "Insurance". A
+title list catches the rest but must stay narrow — "Sticker Print Zip Sweatshirt",
+"CDG x New Balance", "Fringe Tip Suede Sabot" and "Yale Postage Tote" are garments.
+Checked against all 69,301 live products: 99 dropped, none of them clothing.
+Code: `connectors/merch.py`, `connectors/shopify.map_product`, `runner/run.py`.
+
+### 24. An image server can want the page it is shown on — 2026-10-02
+Van Cleef & Arpels and Vivienne Westwood held 1,749 live products and not one
+photograph: 5,910 downloads given up after three 403s each. Not the handshake —
+curl_cffi was refused too — but hotlink protection: the same request with the product
+page as `Referer` is answered at once (`image/avif`, 134 KB). Every photograph is now
+asked for with its product page as Referer, as a browser does, and a brand holding no
+photograph at all earns one more round of attempts on the ones given up.
+Code: `transport.LedgeredTransport.get(headers=)`, `images.ImageStore._fetch`,
+`store/catalog.images_awaiting_archive`.
+
+### 25. A size guide is not a size swatch — 2026-10-02
+Rosier's 4,263 products were each read with 21 "sizes" — `measure, how, chart, shoes,
+rings, XXS … cm, in, bust, waist, hips` — from a measuring widget whose attributes all
+name size (`data-mr-size-guide-v1-item`), then dropped for having 21 sizes and two
+stock flags. Under it, the picker's own layout attributes (`data-size="medium"`,
+`data-variant-size="2"`, `data-page-size="4"`) were next in line. Both are excluded by
+attribute name; Rosier now reads no sizes rather than wrong ones, and its blank size
+field is the learning loop's to chase (its Shopify neighbours all read sizes).
+Code: `connectors/structured._SWATCH_SIZE`.
+
+### 26. A recipe must not cost products — 2026-10-02
+Vereya's model-written recipe read every field of 13 products where the Shopify feed
+had read 37, and landed: the guard compared fill, and "ok" beat "partial". The gate
+now estimates what a run would store (found × the sample's read rate), a landing that
+loses more than a fifth of the products is refused, and a landed recipe whose runs
+fall that far behind the lane before it is backed out on the next tick.
+Code: `learn/gate.live` (`expected`), `learn/loop._better`, `Loop._undo_regression`.

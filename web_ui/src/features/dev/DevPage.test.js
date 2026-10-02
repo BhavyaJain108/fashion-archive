@@ -115,6 +115,17 @@ beforeEach(() => {
   DevEndpoints.getBrand.mockResolvedValue(brand);
   DevEndpoints.getHosts.mockResolvedValue({ success: true, domain: 'huelleyrose.com', days: 7, hosts: [] });
   DevEndpoints.getChanges.mockResolvedValue({ success: true, domain: 'huelleyrose.com', changes: [] });
+  DevEndpoints.getPhotographs.mockResolvedValue({
+    success: true,
+    domain: 'huelleyrose.com',
+    stored: 10,
+    waiting: 2,
+    totals: { domain: 'huelleyrose.com', products: 6, complete: 4, partial: 1, none_kept: 1, none_named: 0, named: 14, kept: 10, given_up: 2, waiting: 2 },
+    bytes: 25000000,
+    objects: 10,
+    missing: [{ itemurl: 'https://huelleyrose.com/products/veil', title: 'Lace Veil', named: 2, kept: 0, given_up: 2, waiting: 0, why: 'every photograph it names failed to download' }],
+  });
+  DevEndpoints.getImages.mockResolvedValue({ success: true, totals: {}, brands: [], storage: {} });
   DevEndpoints.getRunLog.mockResolvedValue({
     success: true, domain: 'huelleyrose.com', run_id: 'r0',
     events: [
@@ -325,4 +336,12 @@ test('the brand page shows the dossier and the onboarding steps while they run',
   fireEvent.click(screen.getByRole('button', { name: 'probe again' }));
   await waitFor(() => expect(DevEndpoints.reprobe).toHaveBeenCalledWith('huelleyrose.com'));
   expect(screen.getByRole('button', { name: 'ask the model' })).toBeDisabled();
+});
+
+test('the brand page counts its photographs and lists the products it holds none for', async () => {
+  render(<DevPage route={{ page: 'dev', brandId: 'huelleyrose.com', category: null }} navigate={() => {}} />);
+  expect(await screen.findByText(/Photographs — what we hold/)).toBeInTheDocument();
+  expect(await screen.findByText('Lace Veil')).toBeInTheDocument();
+  expect(screen.getByText('every photograph it names failed to download')).toBeInTheDocument();
+  expect(screen.getByText(/1 products with none/)).toBeInTheDocument();
 });

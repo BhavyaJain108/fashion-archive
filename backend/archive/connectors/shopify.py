@@ -4,6 +4,7 @@ import re
 import time
 
 from backend.archive.connectors.base import ChannelBlocked, ChannelBusy, NotAProduct, SkipProduct
+from backend.archive.connectors.merch import not_merchandise
 from backend.archive.connectors.sitemap import SitemapConnector
 from backend.archive.domain.brand import Brand
 from backend.archive.domain.product import (
@@ -290,6 +291,16 @@ def map_product(
     if full_price is not None and price is not None and full_price <= price:
         full_price = None  # compare_at_price equal/below price is not a sale
     images = [img["src"] for img in p.get("images") or [] if img.get("src")]
+    # A gift card, shipping protection or a tax line is a row in the shop's catalogue
+    # and not merchandise; the feed says so itself (connectors/merch.py).
+    ships = (
+        any(bool(v.get("requires_shipping")) for v in variants)
+        if any("requires_shipping" in v for v in variants)
+        else None
+    )
+    why_not = not_merchandise(p.get("title"), p.get("product_type"), p.get("vendor"), ships)
+    if why_not:
+        raise NotAProduct(f"{p.get('handle')}: {why_not}")
     # A record priced at nothing with nothing to show is a placeholder, not a product:
     # fengofficiel.com keeps 8 of its 43 handles that way, every variant at 0 and
     # unavailable (2026-09-27). Stored, they would be half the brand at no price.

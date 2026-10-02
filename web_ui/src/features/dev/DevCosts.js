@@ -40,6 +40,58 @@ function Series({ rows, max }) {
   );
 }
 
+// The photograph archive, fleet-wide: what each brand names, what we kept, what is
+// waiting and what was given up on, and what it weighs. The weight is measured once
+// a night by the backup (listing 300,000 objects is not a page load).
+function Photographs() {
+  const { data, state } = useDevLoad(() => DevEndpoints.getImages(), []);
+  const t = (data && data.totals) || {};
+  const s = (data && data.storage) || {};
+  return (
+    <section className="dev-section">
+      <h2 className="dev-section-h">
+        Photographs — the archive
+        {s.at && <span className="dev-count-k"> · weighed {ago(s.at)}</span>}
+      </h2>
+      {state === 'loading' && <div className="dev-muted">counting every brand&rsquo;s photographs…</div>}
+      {state !== 'loading' && state !== 'ready' && <div className="dev-muted">{state}</div>}
+      {data && (
+        <>
+          <div className="dev-totals">
+            <div className="dev-total"><span className="dev-total-n">{gb(s.bytes)}</span><span className="dev-total-k">{n(s.objects)} files in the bucket</span></div>
+            <div className="dev-total"><span className="dev-total-n">{n(t.kept)} <span className="dev-muted">/ {n(t.named)}</span></span><span className="dev-total-k">kept of named, {n(t.brands)} brands</span></div>
+            <div className="dev-total"><span className="dev-total-n">{n(t.none_kept + t.none_named)}</span><span className="dev-total-k">of {n(t.products)} products with none held</span></div>
+            <div className="dev-total"><span className="dev-total-n">{n(t.waiting)}</span><span className="dev-total-k">waiting for the image pass</span></div>
+            <div className="dev-total"><span className="dev-total-n">{n(t.given_up)}</span><span className="dev-total-k">given up after three failures</span></div>
+          </div>
+          <div className="dev-scroll">
+            <table className="dev-table dev-table-sub">
+              <thead>
+                <tr><th>Brand</th><th className="n">Products</th><th className="n">Complete</th><th className="n">None held</th><th className="n">Named</th><th className="n">Kept</th><th className="n">Waiting</th><th className="n">Gave up</th><th className="n">Bucket</th></tr>
+              </thead>
+              <tbody>
+                {[...data.brands].sort((a, b) => (b.none_kept + b.none_named) - (a.none_kept + a.none_named) || (b.bytes || 0) - (a.bytes || 0)).map((b) => (
+                  <tr key={b.domain}>
+                    <td>{b.name}</td>
+                    <td className="n">{n(b.products)}</td>
+                    <td className="n">{n(b.complete)}</td>
+                    <td className={`n${b.none_kept + b.none_named ? ' dev-strong' : ''}`}>{n(b.none_kept + b.none_named)}</td>
+                    <td className="n">{n(b.named)}</td>
+                    <td className="n">{n(b.kept)}</td>
+                    <td className="n">{n(b.waiting)}</td>
+                    <td className="n">{n(b.given_up)}</td>
+                    <td className="n">{gb(b.bytes)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
 export default function DevCosts() {
   const { data, state, refreshing, checkedAt } = useDevLoad(() => DevEndpoints.getCosts(), [], TEN_MINUTES, 'costs');
 
@@ -173,6 +225,8 @@ export default function DevCosts() {
             <Series rows={data.providers.anthropic.days.slice(-14)} />
             <div className="dev-stamp">{usd(data.providers.anthropic.window_usd)} over the last 30 days</div>
           </Provider>
+
+          <Photographs />
 
           <Provider title="Cloudflare R2 — the bucket" p={data.providers.cloudflare}>
             <table className="dev-table dev-table-sub">

@@ -168,10 +168,15 @@ def live(recipe: LaneRecipe, brand: Brand, transport, sample: int = SAMPLE) -> d
     fill = {k: round(v, 2) for k, v in field_fill_rates(records).items()} if records else {}
     verdict = classify(fill) if records else "blocked"
     ok = found > 0 and bool(records) and core_fill(records) >= CORE_MIN
+    tried = len(records) + len(errors)
     return {
         "step": "live",
         "passed": ok,
         "found": found,
+        # What a run would store: discovery's count at the sample's read rate. Vereya's
+        # recipe found all 37 products and declined three in five of them as "no
+        # Product JSON-LD"; found alone called that a full catalogue.
+        "expected": round(found * len(records) / tried) if tried else 0,
         "read": len(records),
         "verdict": verdict,
         "core_fill": round(core_fill(records), 2) if records else 0.0,
@@ -239,7 +244,7 @@ def prove(
     return GateResult(
         True,
         steps,
-        products=live_step["found"],
+        products=live_step.get("expected", live_step["found"]),
         verdict=live_step["verdict"],
         fill=live_step["fill"],
         scope=scope,

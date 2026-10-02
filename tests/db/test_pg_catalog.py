@@ -396,3 +396,58 @@ def test_a_sweep_updates_stock_in_place_and_nothing_else(tmp_path, pool, clean):
         ).fetchall()
     assert obs == [(250.0, True)]
     cat.close()
+
+
+def test_photographs_are_counted_per_product_and_brand_and_the_counters_catch_up(
+    tmp_path, pool, clean
+):
+    """The deck read zero photographs for every brand on 2026-09-28: the counters were
+    written when the run ended, before the image pass kept anything. And nothing said
+    which products had no photograph at all."""
+    from backend.archive.image_stats import flagged
+
+    store = DirectoryObjectStore(tmp_path)
+    cat = PgCatalog(store, pool=pool)
+    run = cat.open_run("x.com", "full")
+    cat.record_product("x.com", run, _record("https://x.com/products/a", "A", 10), None)
+    cat.record_product("x.com", run, _record("https://x.com/products/b", "B", 10), None)
+    bare = ProductRecord(itemurl="https://x.com/products/c", product_title="C", price=10.0)
+    cat.record_product("x.com", run, bare, None)
+    cat.finalize_run(run, 0, _coverage(), domain="x.com")
+    assert cat.stored_image_counts().get("x.com", 0) == 0
+
+    cat.record_image(
+        "x.com",
+        "https://x.com/products/a",
+        "https://x.com/products/a/1.jpg",
+        "h1",
+        stored_url="https://img/h1.jpg",
+    )
+    cat.record_image(
+        "x.com",
+        "https://x.com/products/a",
+        "https://x.com/products/a/2.jpg",
+        "h2",
+        stored_url="https://img/h2.jpg",
+    )
+    for _ in range(3):
+        cat.record_image_miss("x.com", "https://x.com/products/b", "https://x.com/products/b/1.jpg")
+
+    (stats,) = cat.image_stats()
+    assert stats["domain"] == "x.com"
+    assert (stats["products"], stats["complete"], stats["none_kept"], stats["none_named"]) == (
+        3,
+        1,
+        1,
+        1,
+    )
+    assert (stats["named"], stats["kept"], stats["given_up"], stats["waiting"]) == (4, 2, 1, 1)
+    assert cat.image_stats("x.com") == [stats]
+    missing = {m["title"]: m["why"] for m in flagged(cat.photograph_lines("x.com"))}
+    assert missing == {
+        "B": "photographs named, not yet downloaded",
+        "C": "the shop names no photograph",
+    }
+
+    cat.refresh_counts("x.com")
+    assert cat.stored_image_counts()["x.com"] == 2

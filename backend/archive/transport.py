@@ -53,7 +53,7 @@ class Response(Protocol):
 class Transport(Protocol):
     level: TransportLevel
 
-    def get(self, url: str) -> Response: ...
+    def get(self, url: str, headers: dict[str, str] | None = None) -> Response: ...
 
 
 class LedgeredTransport:
@@ -79,16 +79,19 @@ class LedgeredTransport:
         # go straight back to making the request that caused it.
         self._budget = budget
 
-    def _fetch(self, url: str):
+    def _fetch(self, url: str, headers: dict[str, str] | None = None):
         raise NotImplementedError
 
-    def get(self, url: str):
+    def get(self, url: str, headers: dict[str, str] | None = None):
+        """`headers` adds to the transport's own for this one request: the image pass
+        sends the product page as Referer, which is what a browser does and what Van
+        Cleef's and Vivienne Westwood's image servers refuse to answer without."""
         host = urlparse(url).netloc
         if self._budget is not None:
             self._budget.acquire(host)
         started = time.monotonic()
         try:
-            resp = self._fetch(url)
+            resp = self._fetch(url, headers) if headers else self._fetch(url)
         except Exception:
             self._record(url, None, started, None)
             raise
@@ -130,11 +133,13 @@ class HttpxTransport(LedgeredTransport):
             headers=BROWSER_HEADERS, follow_redirects=True, timeout=15.0
         )
 
-    def _fetch(self, url: str) -> httpx.Response:
+    def _fetch(self, url: str, headers: dict[str, str] | None = None) -> httpx.Response:
         # Streamed, so a body larger than any page or photograph we want is dropped
         # before it is in memory; a whole read of a hostile or broken response could
         # take the worker with it.
-        resp = self._client.send(self._client.build_request("GET", url), stream=True)
+        resp = self._client.send(
+            self._client.build_request("GET", url, headers=headers), stream=True
+        )
         try:
             declared = resp.headers.get("content-length")
             if declared and declared.isdigit() and int(declared) > MAX_BODY_BYTES:
@@ -260,8 +265,8 @@ class CurlCffiTransport(LedgeredTransport):
             )
         return self._session
 
-    def _fetch(self, url: str):
-        resp = self._ensure_session().get(url, allow_redirects=True, stream=True)
+    def _fetch(self, url: str, headers: dict[str, str] | None = None):
+        resp = self._ensure_session().get(url, allow_redirects=True, stream=True, headers=headers)
         try:
             declared = resp.headers.get("content-length")
             if declared and str(declared).isdigit() and int(declared) > MAX_BODY_BYTES:

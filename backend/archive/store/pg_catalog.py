@@ -971,6 +971,49 @@ class PgCatalog(Catalog):
                 (domain,),
             ).fetchone()[0]
 
+    def _photograph_rows(self, domain: str | None) -> dict[str, list[dict]]:
+        """Every live product with the photograph rows held for it, by brand. One
+        query for the whole fleet: 70,000 products and 340,000 rows is seconds here and
+        hours as a request per product."""
+        from backend.archive.image_stats import product_line
+
+        sql = (
+            "SELECT p.brand, p.itemurl, p.title, p.all_images, p.main_image_url, "
+            "COALESCE(json_agg(json_build_object('url', i.url, 'stored_url', i.stored_url, "
+            "'misses', i.misses)) FILTER (WHERE i.url IS NOT NULL), '[]'::json) "
+            "FROM products p JOIN catalogue_brands b ON b.brand = p.brand AND b.live_run = p.last_covered_run "
+            "LEFT JOIN product_images i ON i.brand = p.brand AND i.itemurl = p.itemurl "
+            + ("WHERE p.brand = %s " if domain else "")
+            + "GROUP BY p.brand, p.itemurl, p.title, p.all_images, p.main_image_url"
+        )
+        out: dict[str, list[dict]] = {}
+        with self._pg() as conn:
+            for brand, itemurl, title, images, main, rows in conn.execute(
+                sql, (domain,) if domain else ()
+            ):
+                record = {
+                    "itemurl": itemurl,
+                    "title": title,
+                    "all_images": images,
+                    "main_image_url": main,
+                }
+                out.setdefault(brand, []).append(
+                    product_line(record, rows or [], self.GIVE_UP_AFTER)
+                )
+        return out
+
+    def photograph_lines(self, domain: str) -> list[dict]:
+        return self._photograph_rows(domain).get(domain, [])
+
+    def image_stats(self, domain: str | None = None) -> list[dict]:
+        from backend.archive.image_stats import brand_totals
+
+        rows = self._photograph_rows(domain)
+        return [brand_totals(d, lines) for d, lines in sorted(rows.items())]
+
+    def refresh_counts(self, domain: str) -> None:
+        self._refresh_meta(domain)
+
     # --- fleet views: the table, not fleet.json ------------------------------
 
     def live_product_counts(self) -> dict[str, int]:

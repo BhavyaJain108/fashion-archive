@@ -383,11 +383,22 @@ class Loop:
         # 2 + 3. classify and act
         dossiers = self.dossiers.load_all()
         medians = self._median_cost_per_product(dossiers)
+        evidence = neighbour_evidence(dossiers)
         analyses_left = ANALYSES_PER_TICK
         for d in dossiers:
             if d.domain not in roster:
                 continue
             try:
+                undone = self._undo_regression(d)
+                if undone:
+                    summary["actions"].append(
+                        {"domain": d.domain, "wall": "regressed", "action": "replan", "did": undone}
+                    )
+                upgrade = upgraded_gaps(d, evidence)
+                if upgrade:
+                    self.dossiers.set_gaps(d.domain, upgrade)
+                    for field, g in upgrade.items():
+                        d.gaps[field] = g
                 sig = Signature.parse(d.signature) if d.signature else None
                 median = medians.get(sig.key) if sig else None
                 v = classify(
@@ -439,6 +450,31 @@ class Loop:
         summary["seconds"] = round((self._clock() - started).total_seconds(), 1)
         self._write_status(summary)
         return summary
+
+    def _undo_regression(self, d: Dossier) -> str | None:
+        """Back out a landed recipe whose runs read far fewer products than the lane it
+        replaced. The plan is marked stale, so the next run plans the brand afresh from
+        what the probe sees — the shelf's own lane, never a recipe."""
+        plan = self.catalog.load_plan(d.domain)
+        if plan is None or plan.discovery != DiscoveryChannel.RECIPE or plan.stale:
+            return None
+        recent = [ln for ln in d.lanes if "recipe" in ln.composition]
+        before = [
+            ln.products or 0
+            for ln in d.lanes
+            if "recipe" not in ln.composition and ln.verdict in ("full", "partial", "ok")
+        ]
+        if not recent or not before:
+            return None
+        last, best = recent[-1].products or 0, max(before)
+        if not best or last >= REGRESSION * best:
+            return None
+        plan.stale = True
+        self.catalog.save_plan(plan)
+        text = f"the recipe read {last} products where the lane before it read {best}; replanned"
+        self.dossiers.event(d.domain, "regressed", text)
+        self.log(f"{d.domain}: {text}")
+        return text
 
     def _act(self, d: Dossier, v, analyses_left: int) -> str | None:
         action = v.action
@@ -545,7 +581,7 @@ class Loop:
                 sig = Signature(**p["signature"])
                 self.dossiers.set_signature(domain, sig.key, why=f"the model's reading ({a.id})")
             gaps = {
-                g["field"]: {"state": g["state"], "why": g.get("why", "")}
+                g["field"]: {"state": g["state"], "why": g.get("why", ""), "source": "model"}
                 for g in p.get("gaps") or []
                 if isinstance(g, dict) and g.get("field")
             }
@@ -963,10 +999,15 @@ def recipe_plan(domain: str, recipe: LaneRecipe, transport: TransportLevel) -> S
 def _better(d: Dossier, result) -> bool:
     """A landing must gain something: more core fill than the brand's best lane, or a
     field that lane leaves blank now read. By Fonseca's recipe read title and price and
-    no photograph where the built-in lane read all three; it must not replace it."""
+    no photograph where the built-in lane read all three; it must not replace it. And it
+    must not lose products: Vereya's recipe read every field of 13 products where the
+    Shopify feed had read 37, and landed on "ok" beating "partial" (2026-09-28)."""
     lane = d.best_lane()
     if lane is None or lane.verdict not in ("full", "partial", "ok"):
         return True
+    most = max((ln.products or 0) for ln in d.lanes if ln.verdict in ("full", "partial", "ok"))
+    if most and (result.products or 0) < REGRESSION * most:
+        return False  # loses products
     have = lane.fill or {}
     new = result.fill or {}
     core = ("product_title", "price", "in_stock", "all_images")
@@ -987,13 +1028,35 @@ def _open_rung(d: Dossier) -> TransportLevel:
     return TransportLevel.T1
 
 
+# Below these shares a field is a gap, not a read. A guaranteed field missing on one
+# product in twenty is ours to fix (16 of Marni's 695 had no price and no photograph);
+# an editorial one read on under half the catalogue was not really found.
+GUARANTEED_MIN = 0.95
+SOUGHT_MIN = 0.5
+# A field a brand leaves blank becomes ours to fix when at least this share of at least
+# NEIGHBOURS_MIN other brands on its platform read it: they show the platform carries it.
+NEIGHBOUR_SHARE = 0.6
+NEIGHBOURS_MIN = 3
+# A recipe whose runs read under this share of what the lane before it read is backed
+# out: Vereya's read 11 of the 37 products its Shopify feed had read (2026-09-29).
+REGRESSION = 0.8
+# The guaranteed fields a fix can recover. A product code is guaranteed by the audit,
+# but a shop that sets no SKU has none to read: on 2026-10-02 it would have sent 38
+# brands to the model for something no rule can find. It is read when it is there.
+CHASED = ("product_title", "price", "in_stock", "main_image_url", "all_images")
+# The fields neighbours are evidence for. Per-size stock follows sizes, and tags are a
+# shop's own habit; neither says anything about what another shop's page carries.
+NEIGHBOUR_FIELDS = ("size_info", "category1", "color_info", "material_info", "description")
+
+
 def gaps_from_fill(fill: dict[str, float]) -> dict[str, dict]:
     """What a blank in each field means, by the audit's classes. A guaranteed field
-    (title, price, stock, images...) blank on every product is *unread*: the shop sells
-    it, so a blank is ours to fix. An editorial, variant or tag field blank is *unsought*:
-    the page may carry it and nothing has read the page for it yet — worth a look, not a
-    wall. Derived fields, barcodes and grocery fields blank are *absent*: nobody chases
-    them. The model's own reading, when asked, overrides this."""
+    (title, price, stock, images...) short of GUARANTEED_MIN is *unread*: the shop sells
+    it, so a blank is ours to fix. An editorial, variant or tag field short of SOUGHT_MIN
+    is *unsought*: the page may carry it and nothing has read the page for it yet — worth
+    a look, and made *unread* by the tick when the brand's neighbours read it. Derived
+    fields, barcodes and grocery fields blank are *absent*: nobody chases them. The
+    model's own reading, when asked, overrides this."""
     from backend.archive.audit import (
         A_GUARANTEED,
         B_EDITORIAL,
@@ -1006,18 +1069,72 @@ def gaps_from_fill(fill: dict[str, float]) -> dict[str, dict]:
     sought = set(B_EDITORIAL) | set(C_VARIANT) | set(H_TAGS) | {F_TAXONOMY[0]}
     out = {}
     for f in E0005_FIELDS:
-        v = fill.get(f)
-        if v:
-            out[f] = {"state": "read", "why": f"{v:.0%} of the sample"}
-        elif f in A_GUARANTEED:
+        v = float(fill.get(f) or 0.0)
+        if f in A_GUARANTEED and f in CHASED and v < GUARANTEED_MIN:
             out[f] = {
                 "state": "unread",
-                "why": "blank on every sampled product — guaranteed by the sale, so ours",
+                "why": f"blank on {1 - v:.0%} of products — guaranteed by the sale, so ours",
             }
-        elif f in sought:
-            out[f] = {"state": "unsought", "why": "blank; the page has not been read for it"}
+        elif f in sought and v < SOUGHT_MIN:
+            out[f] = {
+                "state": "unsought",
+                "why": f"read on {v:.0%} of products; the page has not been read for it",
+            }
+        elif v:
+            out[f] = {"state": "read", "why": f"{v:.0%} of products"}
         else:
             out[f] = {"state": "absent", "why": "derived, a code, or not apparel — not chased"}
+    return out
+
+
+def refresh_gaps(current: dict[str, dict], fill: dict[str, float]) -> dict[str, dict]:
+    """The gaps a run's fill says, keeping what the model decided: a field it called
+    absent stays absent until a run reads it."""
+    fresh = gaps_from_fill(fill)
+    for field, g in (current or {}).items():
+        if g.get("source") == "model" and g.get("state") == "absent" and field in fresh:
+            if fresh[field]["state"] != "read":
+                fresh[field] = g
+    return fresh
+
+
+def neighbour_evidence(dossiers: list[Dossier]) -> dict[str, dict[str, tuple[int, int]]]:
+    """Per platform, per field: (brands that read it, brands with a read at all), from
+    each brand's latest lane that read products. The platform is the signature's first
+    word — the one part of it a shop's whole catalogue shares."""
+    seen: dict[str, dict[str, list[int]]] = {}
+    for d in dossiers:
+        lane = next((ln for ln in reversed(d.lanes) if ln.products and ln.fill), None)
+        if lane is None or not d.signature:
+            continue
+        platform = d.signature.split("·")[0]
+        by_field = seen.setdefault(platform, {})
+        for field, v in lane.fill.items():
+            row = by_field.setdefault(field, [0, 0])
+            row[0] += 1 if (v or 0) >= SOUGHT_MIN else 0
+            row[1] += 1
+    return {p: {f: (r[0], r[1]) for f, r in fields.items()} for p, fields in seen.items()}
+
+
+def upgraded_gaps(d: Dossier, evidence: dict[str, dict[str, tuple[int, int]]]) -> dict[str, dict]:
+    """The brand's unsought gaps that its platform's other brands read, as unread: the
+    fleet's own proof that the field is there to be had."""
+    if not d.signature:
+        return {}
+    platform = d.signature.split("·")[0]
+    out = {}
+    for field, g in d.gaps.items():
+        if g.get("state") != "unsought" or field not in NEIGHBOUR_FIELDS:
+            continue
+        read, total = (evidence.get(platform) or {}).get(field, (0, 0))
+        # The brand itself is in the totals, unread.
+        others, others_read = total - 1, read
+        if others >= NEIGHBOURS_MIN and others_read / others >= NEIGHBOUR_SHARE:
+            out[field] = {
+                "state": "unread",
+                "why": f"{others_read} of {others} other {platform} shops publish it",
+                "source": "neighbours",
+            }
     return out
 
 
