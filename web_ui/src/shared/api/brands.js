@@ -14,8 +14,9 @@ class ArchiveAPI {
     return ApiClient.BASE_URL;
   }
 
+  // Everything the shop reads is a Catalogue operation: see /dev/api.
   static async get(path) {
-    const response = await fetch(`${this.BASE_URL}/api/archive${path}`, {
+    const response = await fetch(`${this.BASE_URL}/api/catalogue${path}`, {
       credentials: 'include',
     });
     ApiClient.checkAuth(response);
@@ -33,26 +34,26 @@ class ArchiveAPI {
 
   /** The brand's own taxonomy, built from the categories its products actually carry. */
   static async getHierarchy(brandId) {
-    const data = await this.get(`/brands/${encodeURIComponent(brandId)}/categories/hierarchy`);
+    const data = await this.get(`/brands/${encodeURIComponent(brandId)}?include=hierarchy`);
     return data.hierarchy || [];
   }
 
   /** Products per category path, including every ancestor, so a collapsed parent totals. */
   static async getCounts(brandId) {
-    const data = await this.get(`/products/counts?brand_id=${encodeURIComponent(brandId)}`);
+    const data = await this.get(`/products?fields=counts&brand=${encodeURIComponent(brandId)}`);
     return data.counts || {};
   }
 
   static async getProducts(brandId, category = '*', limit = 1000) {
     const data = await this.get(
-      `/products?brand_id=${encodeURIComponent(brandId)}` +
+      `/products?fields=records&brand=${encodeURIComponent(brandId)}` +
       `&category=${encodeURIComponent(category)}&limit=${limit}`
     );
     return data.products || [];
   }
 
   static async searchProducts(query, limit = 200) {
-    const data = await this.get(`/products/search?q=${encodeURIComponent(query)}&limit=${limit}`);
+    const data = await this.get(`/products?fields=records&q=${encodeURIComponent(query)}&limit=${limit}`);
     return data.products || [];
   }
 
@@ -64,7 +65,7 @@ class ArchiveAPI {
   static async storefront(params = {}) {
     const qs = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) if (v !== '' && v !== null && v !== undefined && v !== false) qs.set(k, String(v));
-    const response = await fetch(`${this.BASE_URL}/api/archive/storefront?${qs}`, { credentials: 'include' });
+    const response = await fetch(`${this.BASE_URL}/api/catalogue/products?${qs}`, { credentials: 'include' });
     ApiClient.checkAuth(response);
     if (response.status === 503) return { warming: true };
     if (!response.ok) throw new Error(`Storefront failed: ${response.status}`);
@@ -74,7 +75,7 @@ class ArchiveAPI {
   /** One product by the handle in its URL, with eight more from the same brand. */
   static async product(brandId, handle) {
     const response = await fetch(
-      `${this.BASE_URL}/api/archive/product?brand_id=${encodeURIComponent(brandId)}&handle=${encodeURIComponent(handle)}`,
+      `${this.BASE_URL}/api/catalogue/products/${encodeURIComponent(brandId)}/${encodeURIComponent(handle)}`,
       { credentials: 'include' }
     );
     ApiClient.checkAuth(response);

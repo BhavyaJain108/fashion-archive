@@ -18,10 +18,12 @@ from typing import Any
 
 from flask import Flask, jsonify, request
 
+from backend.api.ops import OpError, catalogue
+from backend.api.ops.http import refuse
 from backend.archive import storefront, storefront_sql, taxonomy
 from backend.archive.roster import RosterEntry, app_roster
 from backend.archive.store.catalog import Catalog, has_photograph
-from backend.archive.store.factory import backend_name, open_catalog
+from backend.archive.store.factory import open_catalog
 from backend.archive.store.objects import ObjectStore, object_store
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -170,29 +172,17 @@ def _brand_row(
     }
 
 
+def _answer(fn):
+    """A pure answer as a response: the dict as JSON, an OpError as its status."""
+    try:
+        return jsonify(fn())
+    except OpError as e:
+        return refuse(e)
+
+
 def get_brands():
     """GET /api/archive/brands — the roster the app shows, with what the archive holds."""
-    catalog = _catalog()
-    try:
-        # Three reads for the whole sidebar: the fleet object twice and the brand
-        # list once. Per-brand it was 130 round trips and 21.6 seconds.
-        status = {r["domain"]: r for r in catalog.status_rows()}
-        live = catalog.live_product_counts()
-        images = catalog.stored_image_counts()
-        brands = [
-            _brand_row(
-                e,
-                status.get(e.domain),
-                catalog,
-                live.get(e.domain, 0),
-                images.get(e.domain, 0),
-            )
-            for e in app_roster()
-            if (status.get(e.domain) or {}).get("state") != "gated"
-        ]
-        return jsonify({"brands": brands, "total": len(brands)})
-    finally:
-        catalog.close()
+    return jsonify(catalogue.brands_answer())
 
 
 def _entry(domain: str) -> RosterEntry | None:
@@ -201,20 +191,7 @@ def _entry(domain: str) -> RosterEntry | None:
 
 def get_brand(brand_id):
     """GET /api/archive/brands/<brand_id> — one brand, with how well it is filled in."""
-    entry = _entry(brand_id)
-    if not entry:
-        return jsonify({"error": "Brand not shown by this archive"}), 404
-    catalog = _catalog()
-    try:
-        status = next((r for r in catalog.status_rows() if r["domain"] == brand_id), None)
-        records = _shop_products(brand_id, catalog)
-        row = _brand_row(entry, status, catalog, len(records), catalog.stored_image_count(brand_id))
-        row["field_fill"] = _field_fill(records)
-        cards = catalog.scorecards(brand_id, limit=1)
-        row["scorecard"] = cards[0] if cards else None
-        return jsonify(row)
-    finally:
-        catalog.close()
+    return _answer(lambda: catalogue.brand_answer(brand_id))
 
 
 def _field_fill(records: list[dict]) -> dict[str, float]:
@@ -246,35 +223,7 @@ def get_hierarchy(brand_id):
     category no product is in. Where a shop published no columns at all, the archive's
     own word for each product stands in — otherwise half the fleet is one heap.
     """
-    catalog = _catalog()
-    try:
-        records = _shop_products(brand_id, catalog)
-        book = _phrase_book(catalog)
-    finally:
-        catalog.close()
-
-    tree: dict[str, Any] = {}
-    for record in records:
-        for path in _category_paths(record, book):
-            node = tree
-            for level in path:
-                node = node.setdefault(level, {})
-
-    def build(node: dict, prefix: list[str]) -> list[dict]:
-        out = []
-        for name in sorted(node):
-            path = [*prefix, name]
-            out.append(
-                {
-                    "name": name,
-                    "url": "/".join(path),
-                    "children": build(node[name], path),
-                }
-            )
-        return out
-
-    hierarchy = [{"name": "all products", "url": ALL, "children": []}, *build(tree, [])]
-    return jsonify({"hierarchy": hierarchy})
+    return _answer(lambda: catalogue.hierarchy_answer(brand_id))
 
 
 # ---------------------------------------------------------------------------
@@ -321,76 +270,28 @@ def _decorate(records: list[dict], domain: str, catalog: Catalog) -> list[dict]:
 
 
 def get_products():
-    """GET /api/archive/products?brand_id=&category=&limit=&offset="""
-    brand_id = request.args.get("brand_id", "")
-    if not _entry(brand_id):
-        return jsonify({"error": "Brand not shown by this archive"}), 404
-    category = request.args.get("category", ALL)
-    limit = min(int(request.args.get("limit", 200)), 2000)
-    offset = int(request.args.get("offset", 0))
-
-    catalog = _catalog()
-    try:
-        book = _phrase_book(catalog)
-        records = [r for r in _shop_products(brand_id, catalog) if _matches(r, category, book)]
-        page = records[offset : offset + limit]
-        return jsonify(
-            {
-                "products": _decorate(page, brand_id, catalog),
-                "total": len(records),
-                "limit": limit,
-                "offset": offset,
-            }
+    """GET /api/archive/products?brand_id=&category=&limit=&offset= — one brand's products
+    as whole records, filtered by a category path."""
+    a = request.args
+    return _answer(
+        lambda: catalogue.records_answer(
+            a.get("brand_id", ""),
+            a.get("category", ALL),
+            int(a.get("limit", 200)),
+            int(a.get("offset", 0)),
         )
-    finally:
-        catalog.close()
+    )
 
 
 def get_counts():
     """GET /api/archive/products/counts?brand_id= — products per leaf category."""
-    brand_id = request.args.get("brand_id", "")
-    if not _entry(brand_id):
-        return jsonify({"error": "Brand not shown by this archive"}), 404
-    catalog = _catalog()
-    try:
-        records = _shop_products(brand_id, catalog)
-        book = _phrase_book(catalog)
-    finally:
-        catalog.close()
-
-    counts: dict[str, int] = {ALL: len(records)}
-    for record in records:
-        # A product in two places is counted in both, and once under "all" — the same
-        # arithmetic a shop's own filter bar does.
-        for path in _category_paths(record, book):
-            # Every ancestor counts it too, so a collapsed parent still shows a total.
-            for depth in range(1, len(path) + 1):
-                key = "/".join(path[:depth])
-                counts[key] = counts.get(key, 0) + 1
-    return jsonify({"counts": counts})
+    return _answer(lambda: catalogue.counts_answer(request.args.get("brand_id", "")))
 
 
 def search_products():
     """GET /api/archive/products/search?q=&limit= — across every brand the app shows."""
-    query = request.args.get("q", "").strip()
-    limit = min(int(request.args.get("limit", 200)), 1000)
-    if not query:
-        return jsonify({"products": []})
-
-    domains = [e.domain for e in app_roster()]
-    catalog = _catalog()
-    try:
-        by_domain: dict[str, list[dict]] = {}
-        for domain, record in catalog.search_products(domains, query, limit):
-            if not has_photograph(record) or not _open(domain, catalog):
-                continue
-            by_domain.setdefault(domain, []).append(record)
-        out = []
-        for domain, records in by_domain.items():
-            out.extend(_decorate(records, domain, catalog))
-        return jsonify({"products": out, "total": len(out)})
-    finally:
-        catalog.close()
+    a = request.args
+    return _answer(lambda: catalogue.search_answer(a.get("q", ""), int(a.get("limit", 200))))
 
 
 # ---------------------------------------------------------------------------
@@ -427,85 +328,23 @@ def get_storefront():
     """
     a = request.args
     try:
-        offset = max(0, int(a.get("offset", 0)))
-        limit = min(max(1, int(a.get("limit", 60))), 240)
+        args = {**a.to_dict(), "offset": int(a.get("offset", 0)), "limit": int(a.get("limit", 60))}
     except ValueError:
         return jsonify({"error": "offset and limit must be integers"}), 400
-    sort = a.get("sort", "type")
-    if sort not in storefront.SORTS:
-        return jsonify({"error": f"sort must be one of {', '.join(storefront.SORTS)}"}), 400
-    brand = a.get("brand", "")
-    if brand and not _entry(brand):
-        return jsonify({"error": "Brand not shown by this archive"}), 404
-    args = dict(
-        group=a.get("group", ""),
-        bucket=a.get("bucket", ""),
-        brand=brand,
-        sale=a.get("sale", "") in ("1", "true", "yes"),
-        q=a.get("q", "").strip(),
-        sort=sort,
-        offset=offset,
-        limit=limit,
-    )
-    if backend_name() == "pg":
-        view = _pg_view()
-        if view is None:
-            return jsonify(
-                {"error": "The shop front is still being filled", "code": "WARMING"}
-            ), 503
-        pool, roster, domains = view
-        return jsonify(
-            storefront_sql.query(
-                pool, roster=roster, domains=domains, colour=a.get("colour", ""), **args
-            )
-        )
-    index = _index()
-    if index is None:
-        return jsonify({"error": "The shop front is still being built", "code": "WARMING"}), 503
-    return jsonify(storefront.query(index, colour_=a.get("colour", ""), **args))
+    args["sale"] = a.get("sale", "") in ("1", "true", "yes")
+    return _answer(lambda: catalogue.storefront_answer(args))
 
 
 def get_product():
     """GET /api/archive/product?brand_id=&handle= — one product with everything the
     page shows, and eight more from the same brand. One indexed lookup on the
     Postgres backend; on the object-store backend, a scan of the in-memory index."""
-    brand_id = request.args.get("brand_id", "")
-    url = request.args.get("url", "")
-    handle = request.args.get("handle", "")
-    if not _entry(brand_id) or not (url or handle):
-        return jsonify({"error": "brand_id and url or handle are required"}), 400
-    if backend_name() == "pg":
-        view = _pg_view()
-        if view is None:
-            return jsonify(
-                {"error": "The shop front is still being filled", "code": "WARMING"}
-            ), 503
-        pool, roster, domains = view
-        found = storefront_sql.product(
-            pool, roster=roster, domains=domains, brand=brand_id, handle=handle, url=url
+    a = request.args
+    return _answer(
+        lambda: catalogue.product_answer(
+            a.get("brand_id", ""), handle=a.get("handle", ""), url=a.get("url", "")
         )
-        if found is None:
-            return jsonify({"error": "No such product"}), 404
-        return jsonify(found)
-    index = _index()
-    if index is None:
-        return jsonify({"error": "The shop front is still being built", "code": "WARMING"}), 503
-    t = next(
-        (
-            t
-            for t in index.tiles
-            if t["brand_id"] == brand_id and (t["url"] == url if url else t["handle"] == handle)
-        ),
-        None,
     )
-    if t is None:
-        return jsonify({"error": "No such product"}), 404
-    more = [
-        m
-        for m in storefront.query(index, brand=brand_id, limit=9)["products"]
-        if m["url"] != t["url"]
-    ][:8]
-    return jsonify({"tile": t, "more": more})
 
 
 # ---------------------------------------------------------------------------
@@ -513,22 +352,7 @@ def get_product():
 
 def get_health():
     """GET /api/archive/health — whether the catalogue is where the app thinks it is."""
-    catalog = _catalog()  # raises NoCatalogue, which the handler turns into a 503
-    try:
-        shown = [e.domain for e in app_roster()]
-        live = catalog.live_product_counts()
-        counts = [live.get(domain, 0) for domain in shown]
-        return jsonify(
-            {
-                "ok": True,
-                "store": type(store()).__name__,
-                "brands_shown": len(shown),
-                "brands_with_products": sum(1 for n in counts if n),
-                "products": sum(counts),
-            }
-        )
-    finally:
-        catalog.close()
+    return jsonify(catalogue.health_answer())
 
 
 # ---------------------------------------------------------------------------
@@ -573,18 +397,22 @@ def _fetch_rates() -> dict:
     return {"ok": True, "base": "USD", "date": body.get("date"), "rates": rates}
 
 
-def get_rates():
-    """GET /api/archive/rates — today's exchange rates against the dollar."""
+def rates_answer() -> dict:
     global _rates_cache
     with _rates_lock:
         if _rates_cache and time.monotonic() - _rates_cache[0] < RATES_TTL_SECONDS:
-            return jsonify(_rates_cache[1])
+            return _rates_cache[1]
         try:
             payload = _fetch_rates()
             _rates_cache = (time.monotonic(), payload)
         except Exception as e:  # noqa: BLE001 — the page shows shop prices when this fails
             payload = _rates_cache[1] if _rates_cache else {"ok": False, "error": str(e)[:160]}
-        return jsonify(payload)
+        return payload
+
+
+def get_rates():
+    """GET /api/archive/rates — today's exchange rates against the dollar."""
+    return jsonify(rates_answer())
 
 
 def _no_catalogue(error: NoCatalogue):
@@ -612,3 +440,7 @@ def register_archive_routes(app: Flask) -> None:
         "/api/archive/storefront", "archive_storefront", get_storefront, methods=["GET"]
     )
     app.add_url_rule("/api/archive/product", "archive_product", get_product, methods=["GET"])
+    # The same answers through the registry: /api/catalogue/… and the MCP tools.
+    from backend.api.ops.http import mount
+
+    mount(app, catalogue.OPS)

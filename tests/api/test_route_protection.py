@@ -86,6 +86,9 @@ class TestPublicEndpoints:
             # A shared page and its pictures, for a reader with no account.
             "share_resolve",
             "serve_stored_image",
+            # Outside the hook because it takes a bearer token as well as the
+            # cookie; it refuses callers with neither itself (see test_userdata_routes).
+            "mcp",
         }
 
     def test_auth_me_is_not_public(self, flask_app):
@@ -95,7 +98,7 @@ class TestPublicEndpoints:
     def test_scraper_endpoints_are_not_public(self, flask_app):
         """An open endpoint that launches Chromium against an arbitrary URL is
         an unmetered bill and an abuse vector."""
-        allowed = {"health_check", "share_resolve", "serve_stored_image"}
+        allowed = {"health_check", "share_resolve", "serve_stored_image", "mcp"}
         public = flask_app.config["PUBLIC_ENDPOINTS"]
         assert not [e for e in public if not e.startswith("auth_") and e not in allowed]
 

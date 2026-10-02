@@ -6,9 +6,10 @@ import DevProducts from './DevProducts';
 import DevCosts from './DevCosts';
 import DevLearning from './DevLearning';
 import DevNotes from './DevNotes';
+import DevApi from './DevApi';
 import './DevPage.css';
 
-// The machine room. Four views, one frame. Which view is a fact about the URL
+// The machine room. Five views, one frame. Which view is a fact about the URL
 // (see routes.js), and every move between them is a navigation, so Back works
 // and a brand's page can be linked to.
 //
@@ -23,6 +24,7 @@ export default function DevPage({ route, navigate }) {
   else if (route.brandId) view = 'brand';
   else if (route.category === 'costs') view = 'costs';
   else if (route.category === 'learning') view = 'learning';
+  else if (route.category === 'api') view = 'api';
 
   return (
     <div className="dev-frame ar-scroll">
@@ -53,6 +55,14 @@ export default function DevPage({ route, navigate }) {
         >
           Costs
         </button>
+        <button
+          type="button"
+          className={`dev-nav-item${view === 'api' ? ' selected' : ''}`}
+          aria-pressed={view === 'api'}
+          onClick={() => go({ category: 'api' })}
+        >
+          API
+        </button>
         {route.brandId && (
           <span className="dev-crumb">
             <span aria-hidden="true">/</span>{' '}
@@ -80,6 +90,7 @@ export default function DevPage({ route, navigate }) {
           {view === 'overview' && <DevOverview go={go} />}
           {view === 'costs' && <DevCosts />}
           {view === 'learning' && <DevLearning go={go} />}
+          {view === 'api' && <DevApi />}
           {view === 'brand' && <DevBrand domain={route.brandId} go={go} />}
           {view === 'products' && <DevProducts domain={route.brandId} run={route.token} go={go} />}
         </main>
