@@ -154,11 +154,11 @@ class HttpxTransport(LedgeredTransport):
         # iter_bytes() already decoded the transfer encoding. The headers still name
         # it, and a Response built with them decodes the body a second time: every
         # gzip page on the fleet raised DecodingError on 2026-09-23 for exactly that.
-        headers = httpx.Headers(
+        served = httpx.Headers(
             [(k, v) for k, v in resp.headers.multi_items() if k.lower() not in _CODING_HEADERS]
         )
         return httpx.Response(
-            resp.status_code, headers=headers, content=bytes(body), request=resp.request
+            resp.status_code, headers=served, content=bytes(body), request=resp.request
         )
 
 
