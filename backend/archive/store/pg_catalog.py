@@ -32,6 +32,7 @@ from typing import Any
 from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
 
+from backend.archive import audience
 from backend.archive import storefront as shop
 from backend.archive.domain.product import WATCHED_FIELDS
 from backend.archive.domain.run import Coverage
@@ -65,16 +66,16 @@ INSERT INTO products (
     brand, itemurl, handle, product_code, title, description, price, full_price, currency,
     in_stock, size_info, size_availability, size_stock_counts, color_info, material_info,
     variant_info, categories, main_image_url, all_images, additional_tags, specifications,
-    shop_group, shop_bucket, shop_colour, record, change_hint,
-    first_seen_run, last_seen_run, search
+    shop_group, shop_bucket, shop_colour, product_gender, sizes_in_stock, record,
+    change_hint, first_seen_run, last_seen_run, search
 ) VALUES (
     %(brand)s, %(itemurl)s, %(handle)s, %(product_code)s, %(title)s, %(description)s,
     %(price)s, %(full_price)s, %(currency)s, %(in_stock)s, %(size_info)s,
     %(size_availability)s, %(size_stock_counts)s, %(color_info)s, %(material_info)s,
     %(variant_info)s, %(categories)s, %(main_image_url)s, %(all_images)s,
     %(additional_tags)s, %(specifications)s, %(shop_group)s, %(shop_bucket)s,
-    %(shop_colour)s, %(record)s, %(change_hint)s, %(first_seen_run)s, %(last_seen_run)s,
-    to_tsvector('simple', %(search_text)s)
+    %(shop_colour)s, %(product_gender)s, %(sizes_in_stock)s, %(record)s, %(change_hint)s,
+    %(first_seen_run)s, %(last_seen_run)s, to_tsvector('simple', %(search_text)s)
 )
 ON CONFLICT (brand, itemurl) DO UPDATE SET
     handle = EXCLUDED.handle, product_code = EXCLUDED.product_code, title = EXCLUDED.title,
@@ -88,6 +89,7 @@ ON CONFLICT (brand, itemurl) DO UPDATE SET
     all_images = EXCLUDED.all_images, additional_tags = EXCLUDED.additional_tags,
     specifications = EXCLUDED.specifications, shop_group = EXCLUDED.shop_group,
     shop_bucket = EXCLUDED.shop_bucket, shop_colour = EXCLUDED.shop_colour,
+    product_gender = EXCLUDED.product_gender, sizes_in_stock = EXCLUDED.sizes_in_stock,
     record = EXCLUDED.record, change_hint = EXCLUDED.change_hint,
     last_seen_run = EXCLUDED.last_seen_run, search = EXCLUDED.search, updated_at = now()
 """
@@ -277,11 +279,25 @@ def _images_of(record: dict) -> list[str]:
 
 
 def row_params(
-    brand: str, record: dict, *, change_hint: str | None, first_seen_run: str, last_seen_run: str
+    brand: str,
+    record: dict,
+    *,
+    change_hint: str | None,
+    first_seen_run: str,
+    last_seen_run: str,
+    book=None,
 ) -> dict:
-    """The upsert's parameters for one record. `record` is stored without `raw`."""
+    """The upsert's parameters for one record. `record` is stored without `raw`.
+
+    `book` is the shared phrase book (backend/archive/taxonomy.py). Without it the shelf
+    comes from the shop's own path and a keyword list alone, which is how this ran from
+    the Postgres migration until 2026-10-02 — 3,226 products sat in "Everything else"
+    that the book could already name. A product's gender is stored only when its own
+    words say so; a brand's `audience:` is applied at read time, so changing it is a
+    roster edit rather than a rewrite of every row.
+    """
     record = {k: v for k, v in record.items() if k != "raw"}
-    group, bucket = shop.classify(record)
+    group, bucket = shop.classify(record, book)
     itemurl = record.get("itemurl") or ""
     return {
         "brand": brand,
@@ -311,6 +327,8 @@ def row_params(
         "shop_group": group,
         "shop_bucket": bucket,
         "shop_colour": shop.colour(record),
+        "product_gender": audience.of_product(record),
+        "sizes_in_stock": audience.sizes_in_stock(record),
         "record": Jsonb(record),
         "change_hint": change_hint,
         "first_seen_run": first_seen_run,
@@ -389,9 +407,25 @@ class PgCatalog(Catalog):
         # the batch statement never meets the same period twice.
         self._pending_periods: dict[tuple[str, str, str], tuple] = {}
         self._watched_rows: dict[str, dict[str, dict]] = {}
+        # The shared vocabulary, read once per run rather than per product: it decides
+        # which shelf each product lands on, and a run writes thousands of them.
+        self._book: Any = None
 
     def _pg(self):
         return self._pool.connection()
+
+    def _phrase_book(self):
+        """The phrase book, held for the life of this catalogue.
+
+        One small object in R2 naming every brand's category words in one vocabulary.
+        Read per product it would be thousands of round trips; a run that learns new
+        phrases saves them and the next run picks them up.
+        """
+        if self._book is None:
+            from backend.archive import taxonomy
+
+            self._book = taxonomy.load(self.store)
+        return self._book
 
     # --- reads -------------------------------------------------------------
 
@@ -657,6 +691,7 @@ class PgCatalog(Catalog):
                     change_hint=change_hint,
                     first_seen_run=first_seen,
                     last_seen_run=run_id,
+                    book=self._phrase_book(),
                 )
             )
             if raw:
@@ -727,7 +762,7 @@ class PgCatalog(Catalog):
                     cur.execute(
                         "UPDATE products SET record = record || %s, price = %s, full_price = %s, "
                         "currency = %s, in_stock = %s, size_availability = %s, "
-                        "size_stock_counts = %s, updated_at = now() "
+                        "size_stock_counts = %s, sizes_in_stock = %s, updated_at = now() "
                         "WHERE brand = %s AND itemurl = %s",
                         (
                             Jsonb(patch),
@@ -737,6 +772,11 @@ class PgCatalog(Catalog):
                             _bool(merged.get("in_stock")),
                             _text(merged.get("size_availability")),
                             _text(merged.get("size_stock_counts")),
+                            # A sweep exists to say which sizes are buyable now, so the
+                            # column the page filters on moves with it. Without this the
+                            # size filter would go stale exactly as the stock data got
+                            # fresher.
+                            audience.sizes_in_stock(merged),
                             domain,
                             update["itemurl"],
                         ),

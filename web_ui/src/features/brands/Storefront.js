@@ -16,6 +16,13 @@ const PAGE = 60;
 // What the grid last showed, so coming back from a product lands where you
 // left: same tiles, same scroll offset. One entry; a different view replaces it.
 let remembered = null;
+// Who the shop is being browsed for. A section of the shop rather than a filter chip,
+// which is where every shop this page is modelled on puts it. A product whose brand
+// sells to everyone appears under both.
+const GENDERS = [
+  ['women', 'Women'],
+  ['men', 'Men'],
+];
 const SORTS = [
   ['type', 'Type'],
   ['colour', 'Colour'],
@@ -35,6 +42,9 @@ function Storefront({ currentPage, onPageSwitch, currentUser, onLogout, navigate
   const [loadingMore, setLoadingMore] = useState(false);
   const heightsRef = useRef({}); // measured row heights, kept across pages and remembered with the grid
   const [designerQuery, setDesignerQuery] = useState('');
+  // the price band is typed, so it is only applied on submit — a keystroke is not a query
+  const [draftMin, setDraftMin] = useState(shop.price_min || '');
+  const [draftMax, setDraftMax] = useState(shop.price_max || '');
   // Rows are formed from same-shaped photographs; the column count is the only
   // thing the browser adds, and it changes only on resize.
   const [columns, setColumns] = useState(() => columnsFor(typeof window === 'undefined' ? 1200 : window.innerWidth));
@@ -112,7 +122,17 @@ function Storefront({ currentPage, onPageSwitch, currentUser, onLogout, navigate
   };
   const openProduct = (t) => navigate({ page: 'product', brandId: t.brand_id, productHandle: t.handle });
 
-  const facets = data?.facets || { categories: [], designers: [], colours: [], sale: 0 };
+  const facets = data?.facets || {
+    categories: [], designers: [], colours: [], sale: 0, genders: [], sizes: [], in_stock: 0, price: null,
+  };
+  const genderCount = (value) => facets.genders.find((g) => g.gender === value)?.count;
+  const chosenSizes = (shop.size || '').split(',').filter(Boolean);
+  const toggleSize = (size) => {
+    const next = chosenSizes.includes(size)
+      ? chosenSizes.filter((s) => s !== size)
+      : [...chosenSizes, size];
+    go({ size: next.join(',') });
+  };
   const brandName = brandId ? (facets.designers.find((d) => d.brand_id === brandId)?.name || brandId) : '';
   const designers = designerQuery
     ? facets.designers.filter((d) => d.name.toLowerCase().includes(designerQuery.toLowerCase()))
@@ -134,6 +154,18 @@ function Storefront({ currentPage, onPageSwitch, currentUser, onLogout, navigate
             <button type="button" className={`shop-mode ${!shop.sale && !shop.q && shop.sort !== 'latest' ? 'on' : ''}`} onClick={() => navigate({ page: 'brands', shop: {} })}>Everything</button>
             <button type="button" className={`shop-mode ${shop.sort === 'latest' && !shop.sale ? 'on' : ''}`} onClick={() => go({ sort: 'latest', sale: '' })}>New in</button>
             <button type="button" className={`shop-mode ${shop.sale ? 'on' : ''}`} onClick={() => go({ sale: shop.sale ? '' : '1' })}>Sale</button>
+            <span className="shop-modes-split" aria-hidden="true" />
+            {GENDERS.map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                className={`shop-mode ${shop.gender === value ? 'on' : ''}`}
+                title={genderCount(value) === undefined ? undefined : `${count(genderCount(value))} pieces`}
+                onClick={() => go({ gender: shop.gender === value ? '' : value })}
+              >
+                {label}
+              </button>
+            ))}
           </div>
           <form className="shop-searchform" onSubmit={(e) => { e.preventDefault(); go({ q: draftQ.trim() }); }}>
             <input className="ar-input shop-search" placeholder="Search" value={draftQ} onChange={(e) => setDraftQ(e.target.value)} />
@@ -149,6 +181,46 @@ function Storefront({ currentPage, onPageSwitch, currentUser, onLogout, navigate
             <button type="button" className={`shop-check ${shop.sale ? 'on' : ''}`} onClick={() => go({ sale: shop.sale ? '' : '1' })}>
               <span className="shop-box" aria-hidden="true">{shop.sale ? '■' : '□'}</span> Sale <span className="shop-count">{count(facets.sale)}</span>
             </button>
+            <button type="button" className={`shop-check ${shop.in_stock ? 'on' : ''}`} onClick={() => go({ in_stock: shop.in_stock ? '' : '1' })}>
+              <span className="shop-box" aria-hidden="true">{shop.in_stock ? '■' : '□'}</span> In stock <span className="shop-count">{count(facets.in_stock)}</span>
+            </button>
+
+            {facets.sizes.length > 0 && (
+              <div>
+                <div className="shop-h">Size</div>
+                <div className="shop-sizes">
+                  {facets.sizes.map((s) => (
+                    <button
+                      key={s.size}
+                      type="button"
+                      title={`${count(s.count)} to buy in ${s.size}`}
+                      className={`shop-size ${chosenSizes.includes(s.size) ? 'on' : ''}`}
+                      onClick={() => toggleSize(s.size)}
+                    >
+                      {s.size}
+                    </button>
+                  ))}
+                </div>
+                {chosenSizes.length > 0 && (
+                  <button type="button" className="shop-link" onClick={() => go({ size: '' })}>Any size</button>
+                )}
+              </div>
+            )}
+
+            {facets.price && (
+              <div>
+                <div className="shop-h">Price</div>
+                <form
+                  className="shop-price"
+                  onSubmit={(e) => { e.preventDefault(); go({ price_min: draftMin.trim(), price_max: draftMax.trim() }); }}
+                >
+                  <input className="ar-input shop-price-input" inputMode="numeric" placeholder={Math.floor(facets.price.min)} value={draftMin} onChange={(e) => setDraftMin(e.target.value)} aria-label="Lowest price" />
+                  <span aria-hidden="true">–</span>
+                  <input className="ar-input shop-price-input" inputMode="numeric" placeholder={Math.ceil(facets.price.max)} value={draftMax} onChange={(e) => setDraftMax(e.target.value)} aria-label="Highest price" />
+                  <button type="submit" className="shop-link">Go</button>
+                </form>
+              </div>
+            )}
 
             <div className="shop-h">Categories</div>
             <ul className="shop-list">

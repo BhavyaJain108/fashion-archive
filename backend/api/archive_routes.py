@@ -320,7 +320,7 @@ def _pg_view():
 
 
 def get_storefront():
-    """GET /api/archive/storefront?group=&bucket=&brand=&sale=&colour=&q=&sort=&offset=&limit=
+    """GET /api/archive/storefront?group=&bucket=&brand=&sale=&colour=&gender=&size=&in_stock=&price_min=&price_max=&q=&sort=&offset=&limit=
 
     One answer for the whole page: the tiles for this view, and the counts every
     column shows. On the Postgres backend this is six small queries; on the
@@ -332,6 +332,7 @@ def get_storefront():
     except ValueError:
         return jsonify({"error": "offset and limit must be integers"}), 400
     args["sale"] = a.get("sale", "") in ("1", "true", "yes")
+    args["in_stock"] = a.get("in_stock", "") in ("1", "true", "yes")
     return _answer(lambda: catalogue.storefront_answer(args))
 
 

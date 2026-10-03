@@ -17,7 +17,11 @@ export const FILTER_KEYS = new Set([
 
 // The shop's own state, carried in the query string of /brands. Kept apart from
 // FILTER_KEYS: those belong to the archive, and a year filter means nothing here.
-export const SHOP_KEYS = new Set(['group', 'bucket', 'sale', 'colour', 'sort', 'q']);
+export const SHOP_KEYS = new Set([
+  'group', 'bucket', 'sale', 'colour', 'sort', 'q',
+  // who it is for, which sizes can be bought, what is in stock, and the price band
+  'gender', 'size', 'in_stock', 'price_min', 'price_max',
+]);
 
 const EMPTY = {
   page: 'high-fashion',

@@ -148,3 +148,21 @@ ALTER TABLE product_tags ADD COLUMN IF NOT EXISTS colours jsonb NOT NULL DEFAULT
 -- Filled from the shop's own image JSON where it carries dimensions, otherwise by
 -- reading the picture (backend/archive/image_ratio.py).
 ALTER TABLE products ADD COLUMN IF NOT EXISTS image_ratio real;
+
+-- Who a product is for, and which of its sizes can actually be bought — both derived at
+-- write time so the shop front stays one query.
+--
+-- `product_gender` is set only when the product's own words say so (the shop's category
+-- path, its tags, the title, the URL). 80.5% of the catalogue says nothing, because a
+-- shop selling one gender never labels it, so the page falls back to the brand's
+-- `audience:` in brands.yml — a roster edit, never a rewrite of these rows.
+-- See backend/archive/audience.py.
+ALTER TABLE products ADD COLUMN IF NOT EXISTS product_gender text;
+CREATE INDEX IF NOT EXISTS products_gender ON products (product_gender);
+
+-- The sizes a shopper could buy right now, from the parallel size_info /
+-- size_availability lists the catalogue already keeps. A size with no availability
+-- stated is included: the shop offers it and has not said otherwise, and hiding it
+-- would be a guess. GIN so `sizes_in_stock && '{M}'` is an index lookup.
+ALTER TABLE products ADD COLUMN IF NOT EXISTS sizes_in_stock text[] NOT NULL DEFAULT '{}';
+CREATE INDEX IF NOT EXISTS products_sizes ON products USING gin (sizes_in_stock);

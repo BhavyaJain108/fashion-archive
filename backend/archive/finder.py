@@ -238,6 +238,12 @@ def _tokens(text: str) -> list[str]:
     return [t.strip() for t in text.split(",") if t.strip()]
 
 
+def looks_like_size(token: str) -> bool:
+    """Whether one token could be a size. "XS/S" is one size written as a pair."""
+    parts = [h for h in token.split("/") if h.strip()]
+    return bool(parts) and all(_SIZE_HINT.search(h) for h in parts)
+
+
 def _shape_size_info(text: str) -> bool:
     tokens = _tokens(text)
     if not tokens or any(len(t) > 40 for t in tokens):
@@ -245,7 +251,7 @@ def _shape_size_info(text: str) -> bool:
     if any(_is_prose(t) for t in tokens):
         return False
     # "XS/S" and "M/L" are one size written as a pair, so score each half.
-    hits = sum(1 for t in tokens if all(_SIZE_HINT.search(h) for h in t.split("/") if h.strip()))
+    hits = sum(1 for t in tokens if looks_like_size(t))
     return hits * 2 >= len(tokens)  # a majority must actually look like sizes
 
 

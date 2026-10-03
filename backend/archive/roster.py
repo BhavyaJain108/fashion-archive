@@ -43,6 +43,15 @@ class RosterEntry:
     display_name: str | None = None
     notes: str | None = None
     size: str = "small"
+    # women | men | all — who the shop is for, where its products do not say. 80.5% of
+    # the catalogue carries no gender word, because a shop that sells one gender does
+    # not label it. Judgement about the business, like `size`, so it is written here
+    # rather than inferred.
+    #
+    # Empty is not `all`: it means nobody has judged this shop yet, and its silent
+    # products appear under neither Women nor Men. `all` is a judgement — eyewear,
+    # jewellery, a shop that dresses everyone — and those products appear under both.
+    audience: str = ""
     added_at: str | None = None  # set only on entries added from the deck
 
     @property
@@ -57,6 +66,7 @@ def _entry(b: dict) -> RosterEntry:
         display_name=b.get("display_name"),
         notes=b.get("notes"),
         size=b.get("size", "small"),
+        audience=str(b.get("audience") or "").lower(),
         added_at=b.get("added_at"),
     )
 

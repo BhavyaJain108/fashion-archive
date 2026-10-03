@@ -315,3 +315,26 @@
 .shop-facts-quiet { color: var(--ar-ink-3); font-size: var(--ar-fs-micro); line-height: var(--ar-lh-ui); }
 
 .shop-more-from { padding: 48px 24px 48px; }
+
+/* The size chips in the filter rail are the same chips the product page shows, with a
+   chosen state and the button reset they need as controls rather than labels. */
+.shop-left .shop-size {
+  appearance: none;
+  background: transparent;
+  font-family: var(--ar-font);
+  cursor: pointer;
+}
+.shop-left .shop-size.on { border-color: var(--ar-ink); color: var(--ar-ink); font-weight: 700; }
+
+/* A typed price band: two small fields and a submit, so a keystroke is not a query. */
+.shop-price { display: flex; align-items: center; gap: 6px; padding: 8px 0; }
+.shop-price-input { width: 5.5em; padding: 4px 6px; font-size: var(--ar-fs-body); }
+.shop-price .shop-link { width: auto; }
+
+/* Women and Men sit in the mode row, a hair apart from Everything / New in / Sale. */
+.shop-modes-split {
+  width: var(--ar-hairline);
+  align-self: stretch;
+  margin: 0 4px;
+  background: var(--ar-line);
+}

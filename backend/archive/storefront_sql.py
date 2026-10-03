@@ -16,10 +16,14 @@ from __future__ import annotations
 import time
 from typing import Any
 
+from backend.archive import audience
 from backend.archive import storefront as shop
 from backend.archive.storefront import _TAXONOMY, BUCKET_ORDER, COLOURS, GROUPS, OTHER, slim
 
 _MAX_PRICE = 20000.0  # above this a "price" is a placeholder; see storefront._num
+# Size chips on the page. The catalogue holds 1,274 distinct spellings across 134 shops —
+# UK and EU numbers, letters, one-size — and a rail of all of them is not a filter.
+SIZE_CHIPS = 36
 
 _OPEN_TTL = 120.0
 _open_cache: tuple[float, list[str]] = (0.0, [])
@@ -73,6 +77,17 @@ p.brand, p.record, p.first_seen_run, p.last_seen_run, p.last_covered_run, p.imag
 """
 
 
+# Who a product is for. Its own words decide where it has any; a brand's `audience:`
+# answers for the rest, so the clause is "the product says so, or it says nothing and
+# its brand is one of these". Brands marked `all` are in neither list and their silent
+# products show under both Women and Men — eyewear and jewellery are for everyone.
+_GENDER = """(p.product_gender = %(gender)s
+              OR (p.product_gender IS NULL AND p.brand = ANY(%(gender_brands)s)))"""
+# A size is a lookup against the GIN index: the sizes a shopper could buy right now.
+_SIZE = "p.sizes_in_stock && %(sizes)s"
+_IN_STOCK = "p.in_stock IS NOT FALSE"
+
+
 def _where(f: dict, *, skip: tuple[str, ...] = ()) -> tuple[str, dict]:
     clauses, params = [], {}
     if f.get("group") and "group" not in skip:
@@ -89,6 +104,21 @@ def _where(f: dict, *, skip: tuple[str, ...] = ()) -> tuple[str, dict]:
     if f.get("colour") and "colour" not in skip:
         clauses.append("p.shop_colour = %(colour)s")
         params["colour"] = f["colour"]
+    if f.get("gender") and "gender" not in skip:
+        clauses.append(_GENDER)
+        params["gender"] = f["gender"]
+        params["gender_brands"] = list(f.get("gender_brands") or [])
+    if f.get("sizes") and "size" not in skip:
+        clauses.append(_SIZE)
+        params["sizes"] = list(f["sizes"])
+    if f.get("in_stock") and "in_stock" not in skip:
+        clauses.append(_IN_STOCK)
+    if f.get("price_min") is not None and "price" not in skip:
+        clauses.append(f"{_PRICE} >= %(price_min)s")
+        params["price_min"] = f["price_min"]
+    if f.get("price_max") is not None and "price" not in skip:
+        clauses.append(f"{_PRICE} <= %(price_max)s")
+        params["price_max"] = f["price_max"]
     if f.get("q") and "q" not in skip:
         clauses.append("(p.search @@ plainto_tsquery('simple', %(q)s) OR p.title ILIKE %(q_like)s)")
         params["q"] = f["q"]
@@ -125,13 +155,39 @@ def query(
     brand: str = "",
     sale: bool = False,
     colour: str = "",
+    gender: str = "",
+    sizes: tuple[str, ...] = (),
+    in_stock: bool = False,
+    price_min: float | None = None,
+    price_max: float | None = None,
     q: str = "",
     sort: str = "type",
     offset: int = 0,
     limit: int = 60,
 ) -> dict:
     names = {e.domain: e.name for e in roster}
-    f = dict(group=group, bucket=bucket, brand=brand, sale=sale, colour=colour, q=q)
+    # Which brands answer for their silent products. A brand marked `all` is in neither
+    # list on purpose: its products appear under Women and Men both.
+    # A shop answers for its silent products when it is for this gender, or for
+    # everyone. A shop nobody has judged answers for nothing.
+    by_gender = {
+        g: [e.domain for e in roster if getattr(e, "audience", "") in (g, audience.ALL)]
+        for g in audience.GENDERS
+    }
+    f = dict(
+        group=group,
+        bucket=bucket,
+        brand=brand,
+        sale=sale,
+        colour=colour,
+        gender=gender,
+        gender_brands=by_gender.get(gender, []),
+        sizes=tuple(sizes),
+        in_stock=in_stock,
+        price_min=price_min,
+        price_max=price_max,
+        q=q,
+    )
     base_params: dict[str, Any] = {
         "domains": list(domains),
         "max_price": _MAX_PRICE,
@@ -167,6 +223,36 @@ def query(
         sale_count = conn.execute(f"SELECT count(*) {_BASE}{w}", {**base_params, **prm}).fetchone()[
             0
         ]
+        # Each count is "what this chip would leave, under every other choice", which is
+        # what makes a chip worth clicking. Gender is counted for both answers under the
+        # rest of the filters, so the two numbers always add up to what is on screen
+        # plus whatever is for everyone.
+        by_gender_count = {}
+        for g in audience.GENDERS:
+            # This gender applied, the current choice of gender replaced rather than
+            # skipped — skipping it counted the whole shop under both chips.
+            w, prm = _where({**f, "gender": g, "gender_brands": by_gender[g]})
+            by_gender_count[g] = conn.execute(
+                f"SELECT count(*) {_BASE}{w}", {**base_params, **prm}
+            ).fetchone()[0]
+        w, prm = _where(f, skip=("size",))
+        # The chips a shopper can pick, counted over the products this view would show:
+        # the rows first, then their sizes unnested, so the filter's own choice of size
+        # does not shrink the list it is chosen from.
+        by_size = conn.execute(
+            f"""SELECT s, count(*) FROM (SELECT p.sizes_in_stock AS sizes {_BASE}{w}) t,
+                       unnest(t.sizes) AS s
+                GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT %(size_chips)s""",
+            {**base_params, **prm, "size_chips": SIZE_CHIPS},
+        ).fetchall()
+        w, prm = _where({**f, "in_stock": True}, skip=())
+        in_stock_count = conn.execute(
+            f"SELECT count(*) {_BASE}{w}", {**base_params, **prm}
+        ).fetchone()[0]
+        w, prm = _where(f, skip=("price",))
+        lo, hi = conn.execute(
+            f"SELECT min({_PRICE}), max({_PRICE}) {_BASE}{w}", {**base_params, **prm}
+        ).fetchone()
 
     groups: dict[str, int] = {}
     buckets: dict[str, int] = {}
@@ -200,6 +286,14 @@ def query(
             "designers": designers,
             "colours": [{"colour": c, "count": by_colour[c]} for c in COLOURS if by_colour.get(c)],
             "sale": sale_count,
+            "genders": [
+                {"gender": g, "count": by_gender_count[g]}
+                for g in audience.GENDERS
+                if by_gender_count[g]
+            ],
+            "sizes": [{"size": sz, "count": n} for sz, n in by_size],
+            "in_stock": in_stock_count,
+            "price": ({"min": float(lo), "max": float(hi)} if lo is not None else None),
         },
         "built_at": None,
     }

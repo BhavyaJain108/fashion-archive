@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import Any
 
 from backend.api.ops import Context, OpError, Param, op
-from backend.archive import storefront, storefront_sql
+from backend.archive import audience, storefront, storefront_sql
 from backend.archive.store.catalog import has_photograph
 from backend.archive.store.factory import backend_name
 
@@ -188,15 +188,49 @@ def storefront_answer(args: dict) -> dict:
         limit=min(max(1, int(args.get("limit") or 60)), 240),
     )
     colour = args.get("colour") or ""
+    gender = (args.get("gender") or "").strip().lower()
+    if gender and gender not in audience.GENDERS:
+        raise OpError(f"gender must be one of {', '.join(audience.GENDERS)}")
+    # Sizes arrive as one comma-separated value ("M,L"): any of them, like a shop's own
+    # size row. They are the shop's own spellings, matched as given.
+    sizes = tuple(s.strip() for s in (args.get("size") or "").split(",") if s.strip())
+    in_stock = bool(args.get("in_stock"))
+
+    def _price(name: str) -> float | None:
+        raw = args.get(name)
+        if raw in (None, ""):
+            return None
+        try:
+            return float(raw)
+        except (TypeError, ValueError) as exc:
+            raise OpError(f"{name} must be a number") from exc
+
+    price_min, price_max = _price("price_min"), _price("price_max")
     if backend_name() == "pg":
         pg = ar._pg_view()
         if pg is None:
             raise _warming("filled")
         pool, roster, domains = pg
-        return storefront_sql.query(pool, roster=roster, domains=domains, colour=colour, **view)
+        return storefront_sql.query(
+            pool,
+            roster=roster,
+            domains=domains,
+            colour=colour,
+            gender=gender,
+            sizes=sizes,
+            in_stock=in_stock,
+            price_min=price_min,
+            price_max=price_max,
+            **view,
+        )
     index = ar._index()
     if index is None:
         raise _warming("built")
+    # The object-store backend is the fallback path and has no gender, size or price
+    # filtering: those read columns the Postgres rows carry. It is told so rather than
+    # quietly ignoring half the request.
+    if gender or sizes or in_stock or price_min is not None or price_max is not None:
+        raise OpError("gender, size, stock and price filters need the Postgres catalogue")
     return storefront.query(index, colour_=colour, **view)
 
 
@@ -283,6 +317,27 @@ _PAGE = (
         Param("bucket", "string", "A bucket inside the group (tiles)."),
         Param("colour", "string", "A colour from the palette (tiles)."),
         Param("sale", "boolean", "Only what is reduced (tiles).", default=False),
+        Param(
+            "gender",
+            "string",
+            "women or men. A product's own words decide where it has any; otherwise its "
+            "brand's audience does. A brand that sells to everyone shows under both.",
+            choices=audience.GENDERS,
+        ),
+        Param(
+            "size",
+            "string",
+            "One size, or several separated by commas — any of them. A size counts only "
+            "where the shop has not said it is out of stock.",
+        ),
+        Param(
+            "in_stock",
+            "boolean",
+            "Only what the shop has not marked sold out.",
+            default=False,
+        ),
+        Param("price_min", "number", "Lowest price, in the shop's own figures."),
+        Param("price_max", "number", "Highest price, in the shop's own figures."),
         Param("q", "string", "Words to match in titles and descriptions."),
         Param("sort", "string", "Order of the tiles.", default="type", choices=storefront.SORTS),
         Param("category", "string", "A category path such as TOPS/TEES (records).", default="*"),
